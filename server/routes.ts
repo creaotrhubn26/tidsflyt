@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import type { InsertTimeEntry } from "@shared/schema";
 import { getUncachableGitHubClient } from "./github";
+import { registerSmartTimingRoutes } from "./smartTimingRoutes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -20,6 +21,9 @@ export async function registerRoutes(
   } else {
     console.log("Connected to external database - skipping seed");
   }
+  
+  // Register Smart Timing API routes
+  registerSmartTimingRoutes(app);
   
   app.get("/api/github/repos", async (req, res) => {
     try {
