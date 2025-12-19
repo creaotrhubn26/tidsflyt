@@ -20,6 +20,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,7 +44,7 @@ interface NavItem {
 }
 
 const baseNavItems: Omit<NavItem, 'badge'>[] = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/users", icon: Users, label: "Brukere" },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner" },
@@ -99,12 +100,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         "flex items-center gap-3 px-4 h-16 border-b border-sidebar-border",
         collapsed && !mobile && "justify-center px-2"
       )}>
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary">
-          <Clock className="h-5 w-5 text-primary-foreground" />
-        </div>
-        {(!collapsed || mobile) && (
-          <span className="font-bold text-lg text-sidebar-foreground">Smart Timing</span>
-        )}
+        <SmartTimingLogo collapsed={collapsed && !mobile} />
       </div>
 
       <ScrollArea className="flex-1 py-4">

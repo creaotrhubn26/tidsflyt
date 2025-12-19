@@ -1,0 +1,2 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Error><Code>AccessDenied</Code><Message>User: arn:aws:iam::455098001579:user/production-AssetsUser2-SSNP8MQ96Z14 is not authorized to perform: s3:ListBucket on resource: "arn:aws:s3:::production-assetsbucket-8ljvyr1xczmb" because no identity-based policy allows the s3:ListBucket action</Message><RequestId>DDCMNVWCGNS158JW</RequestId><HostId>bIaXUpVUvsvXb8AjYS/lp0DHyt36g9wJo6ayx1B8GFgXW9b88OwFb3JHi0QjVGSIzTTa4LTKI+L6y+3i1TS4WKJHWnEjQp1mFRi/XyDsHBk=</HostId></Error>
