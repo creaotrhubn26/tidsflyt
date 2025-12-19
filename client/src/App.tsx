@@ -3,14 +3,25 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { ThemeProvider } from "@/components/theme-provider";
 import NotFound from "@/pages/not-found";
+import Dashboard from "@/pages/dashboard";
+import TimeTracking from "@/pages/time-tracking";
+import Reports from "@/pages/reports";
+import Users from "@/pages/users";
+import Profile from "@/pages/profile";
 
 function Router() {
   return (
     <Switch>
-      {/* Add pages below */}
-      {/* <Route path="/" component={Home}/> */}
-      {/* Fallback to 404 */}
+      <Route path="/" component={Dashboard} />
+      <Route path="/time" component={TimeTracking} />
+      <Route path="/reports" component={Reports} />
+      <Route path="/users" component={Users} />
+      <Route path="/profile" component={Profile} />
+      <Route path="/invites" component={Users} />
+      <Route path="/cases" component={Dashboard} />
+      <Route path="/settings" component={Profile} />
       <Route component={NotFound} />
     </Switch>
   );
@@ -19,10 +30,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <ThemeProvider defaultTheme="system" storageKey="smart-timing-theme">
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
