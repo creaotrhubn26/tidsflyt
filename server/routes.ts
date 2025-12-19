@@ -2,12 +2,26 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertTimeEntrySchema, insertUserSchema } from "@shared/schema";
+import { getUncachableGitHubClient } from "./github";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
+  app.get("/api/github/repos", async (req, res) => {
+    try {
+      const octokit = await getUncachableGitHubClient();
+      const { data } = await octokit.repos.listForAuthenticatedUser({
+        sort: 'updated',
+        per_page: 100
+      });
+      res.json(data.map(r => ({ name: r.name, full_name: r.full_name, description: r.description, html_url: r.html_url })));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/stats", async (req, res) => {
     try {
       const { range } = req.query;
