@@ -116,6 +116,74 @@ export const adminUsers = pgTable("admin_users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// CMS: Site Settings
+export const siteSettings = pgTable("site_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  value: text("value"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CMS: Landing Hero Section
+export const landingHero = pgTable("landing_hero", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  titleHighlight: text("title_highlight"),
+  subtitle: text("subtitle"),
+  ctaPrimaryText: text("cta_primary_text"),
+  ctaSecondaryText: text("cta_secondary_text"),
+  badge1: text("badge1"),
+  badge2: text("badge2"),
+  badge3: text("badge3"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CMS: Landing Features
+export const landingFeatures = pgTable("landing_features", {
+  id: serial("id").primaryKey(),
+  icon: text("icon").notNull(),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CMS: Landing Testimonials
+export const landingTestimonials = pgTable("landing_testimonials", {
+  id: serial("id").primaryKey(),
+  quote: text("quote").notNull(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CMS: Landing CTA Section
+export const landingCta = pgTable("landing_cta", {
+  id: serial("id").primaryKey(),
+  sectionTitle: text("section_title"),
+  featuresTitle: text("features_title"),
+  featuresSubtitle: text("features_subtitle"),
+  testimonialsTitle: text("testimonials_title"),
+  testimonialsSubtitle: text("testimonials_subtitle"),
+  ctaTitle: text("cta_title"),
+  ctaSubtitle: text("cta_subtitle"),
+  ctaButtonText: text("cta_button_text"),
+  contactTitle: text("contact_title"),
+  contactSubtitle: text("contact_subtitle"),
+  contactEmail: text("contact_email"),
+  contactPhone: text("contact_phone"),
+  contactAddress: text("contact_address"),
+  footerCopyright: text("footer_copyright"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Company audit log
 export const companyAuditLog = pgTable("company_audit_log", {
   id: serial("id").primaryKey(),
@@ -143,6 +211,13 @@ export const insertLogRowSchema = createInsertSchema(logRow).omit({ id: true, cr
 export const insertUserSettingsSchema = createInsertSchema(userSettings).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertQuickTemplateSchema = createInsertSchema(quickTemplates).omit({ id: true, createdAt: true });
 
+// CMS Insert schemas
+export const insertSiteSettingSchema = createInsertSchema(siteSettings).omit({ id: true, updatedAt: true });
+export const insertLandingHeroSchema = createInsertSchema(landingHero).omit({ id: true, updatedAt: true });
+export const insertLandingFeatureSchema = createInsertSchema(landingFeatures).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertLandingTestimonialSchema = createInsertSchema(landingTestimonials).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertLandingCtaSchema = createInsertSchema(landingCta).omit({ id: true, updatedAt: true });
+
 // Types
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -158,6 +233,18 @@ export type QuickTemplate = typeof quickTemplates.$inferSelect;
 export type InsertQuickTemplate = z.infer<typeof insertQuickTemplateSchema>;
 export type AdminUser = typeof adminUsers.$inferSelect;
 export type CompanyAuditLog = typeof companyAuditLog.$inferSelect;
+
+// CMS Types
+export type SiteSetting = typeof siteSettings.$inferSelect;
+export type InsertSiteSetting = z.infer<typeof insertSiteSettingSchema>;
+export type LandingHero = typeof landingHero.$inferSelect;
+export type InsertLandingHero = z.infer<typeof insertLandingHeroSchema>;
+export type LandingFeature = typeof landingFeatures.$inferSelect;
+export type InsertLandingFeature = z.infer<typeof insertLandingFeatureSchema>;
+export type LandingTestimonial = typeof landingTestimonials.$inferSelect;
+export type InsertLandingTestimonial = z.infer<typeof insertLandingTestimonialSchema>;
+export type LandingCta = typeof landingCta.$inferSelect;
+export type InsertLandingCta = z.infer<typeof insertLandingCtaSchema>;
 
 // Legacy types for compatibility with current frontend
 export type User = {

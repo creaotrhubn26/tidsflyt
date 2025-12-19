@@ -1,11 +1,15 @@
 import { 
   type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Activity, type InsertActivity,
   type LogRow, type CompanyUser, type ProjectInfo, type UserSettings,
-  logRow, companyUsers, projectInfo, userSettings, companyAuditLog, companies
+  type SiteSetting, type InsertSiteSetting, type LandingHero, type InsertLandingHero,
+  type LandingFeature, type InsertLandingFeature, type LandingTestimonial, type InsertLandingTestimonial,
+  type LandingCta, type InsertLandingCta,
+  logRow, companyUsers, projectInfo, userSettings, companyAuditLog, companies,
+  siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db, pool } from "./db";
-import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { eq, desc, and, gte, lte, sql, asc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -35,6 +39,27 @@ export interface IStorage {
   }>;
   
   seedData(): Promise<void>;
+  
+  // CMS Methods
+  getSiteSettings(): Promise<SiteSetting[]>;
+  getSiteSetting(key: string): Promise<SiteSetting | undefined>;
+  upsertSiteSetting(key: string, value: string): Promise<SiteSetting>;
+  
+  getLandingHero(): Promise<LandingHero | undefined>;
+  upsertLandingHero(data: InsertLandingHero): Promise<LandingHero>;
+  
+  getLandingFeatures(): Promise<LandingFeature[]>;
+  createLandingFeature(data: InsertLandingFeature): Promise<LandingFeature>;
+  updateLandingFeature(id: number, data: Partial<InsertLandingFeature>): Promise<LandingFeature | undefined>;
+  deleteLandingFeature(id: number): Promise<boolean>;
+  
+  getLandingTestimonials(): Promise<LandingTestimonial[]>;
+  createLandingTestimonial(data: InsertLandingTestimonial): Promise<LandingTestimonial>;
+  updateLandingTestimonial(id: number, data: Partial<InsertLandingTestimonial>): Promise<LandingTestimonial | undefined>;
+  deleteLandingTestimonial(id: number): Promise<boolean>;
+  
+  getLandingCta(): Promise<LandingCta | undefined>;
+  upsertLandingCta(data: InsertLandingCta): Promise<LandingCta>;
 }
 
 export class ExternalDbStorage implements IStorage {
@@ -298,6 +323,113 @@ export class ExternalDbStorage implements IStorage {
 
   async seedData(): Promise<void> {
     console.log("Using external database - no seeding needed");
+  }
+
+  // CMS Methods
+  async getSiteSettings(): Promise<SiteSetting[]> {
+    return await db.select().from(siteSettings);
+  }
+
+  async getSiteSetting(key: string): Promise<SiteSetting | undefined> {
+    const result = await db.select().from(siteSettings).where(eq(siteSettings.key, key)).limit(1);
+    return result[0];
+  }
+
+  async upsertSiteSetting(key: string, value: string): Promise<SiteSetting> {
+    const existing = await this.getSiteSetting(key);
+    if (existing) {
+      const result = await db.update(siteSettings)
+        .set({ value, updatedAt: new Date() })
+        .where(eq(siteSettings.key, key))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(siteSettings).values({ key, value }).returning();
+    return result[0];
+  }
+
+  async getLandingHero(): Promise<LandingHero | undefined> {
+    const result = await db.select().from(landingHero).where(eq(landingHero.isActive, true)).limit(1);
+    return result[0];
+  }
+
+  async upsertLandingHero(data: InsertLandingHero): Promise<LandingHero> {
+    const existing = await this.getLandingHero();
+    if (existing) {
+      const result = await db.update(landingHero)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(landingHero.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(landingHero).values(data).returning();
+    return result[0];
+  }
+
+  async getLandingFeatures(): Promise<LandingFeature[]> {
+    return await db.select().from(landingFeatures)
+      .where(eq(landingFeatures.isActive, true))
+      .orderBy(landingFeatures.displayOrder);
+  }
+
+  async createLandingFeature(data: InsertLandingFeature): Promise<LandingFeature> {
+    const result = await db.insert(landingFeatures).values(data).returning();
+    return result[0];
+  }
+
+  async updateLandingFeature(id: number, data: Partial<InsertLandingFeature>): Promise<LandingFeature | undefined> {
+    const result = await db.update(landingFeatures)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(landingFeatures.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteLandingFeature(id: number): Promise<boolean> {
+    const result = await db.delete(landingFeatures).where(eq(landingFeatures.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getLandingTestimonials(): Promise<LandingTestimonial[]> {
+    return await db.select().from(landingTestimonials)
+      .where(eq(landingTestimonials.isActive, true))
+      .orderBy(landingTestimonials.displayOrder);
+  }
+
+  async createLandingTestimonial(data: InsertLandingTestimonial): Promise<LandingTestimonial> {
+    const result = await db.insert(landingTestimonials).values(data).returning();
+    return result[0];
+  }
+
+  async updateLandingTestimonial(id: number, data: Partial<InsertLandingTestimonial>): Promise<LandingTestimonial | undefined> {
+    const result = await db.update(landingTestimonials)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(landingTestimonials.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteLandingTestimonial(id: number): Promise<boolean> {
+    const result = await db.delete(landingTestimonials).where(eq(landingTestimonials.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getLandingCta(): Promise<LandingCta | undefined> {
+    const result = await db.select().from(landingCta).where(eq(landingCta.isActive, true)).limit(1);
+    return result[0];
+  }
+
+  async upsertLandingCta(data: InsertLandingCta): Promise<LandingCta> {
+    const existing = await this.getLandingCta();
+    if (existing) {
+      const result = await db.update(landingCta)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(landingCta.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(landingCta).values(data).returning();
+    return result[0];
   }
 }
 
