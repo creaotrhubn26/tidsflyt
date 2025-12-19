@@ -449,5 +449,393 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: SETUP TABLES ==========
+  app.post("/api/cms/setup", async (req, res) => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS site_settings (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS landing_hero (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          title_highlight TEXT,
+          subtitle TEXT,
+          cta_primary_text TEXT,
+          cta_secondary_text TEXT,
+          badge1 TEXT,
+          badge2 TEXT,
+          badge3 TEXT,
+          is_active BOOLEAN DEFAULT TRUE,
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS landing_features (
+          id SERIAL PRIMARY KEY,
+          icon TEXT NOT NULL,
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS landing_testimonials (
+          id SERIAL PRIMARY KEY,
+          quote TEXT NOT NULL,
+          name TEXT NOT NULL,
+          role TEXT NOT NULL,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS landing_cta (
+          id SERIAL PRIMARY KEY,
+          section_title TEXT,
+          features_title TEXT,
+          features_subtitle TEXT,
+          testimonials_title TEXT,
+          testimonials_subtitle TEXT,
+          cta_title TEXT,
+          cta_subtitle TEXT,
+          cta_button_text TEXT,
+          contact_title TEXT,
+          contact_subtitle TEXT,
+          contact_email TEXT,
+          contact_phone TEXT,
+          contact_address TEXT,
+          footer_copyright TEXT,
+          is_active BOOLEAN DEFAULT TRUE,
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
+      res.json({ success: true, message: 'CMS tables created successfully' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: SEED DEFAULT CONTENT ==========
+  app.post("/api/cms/seed", async (req, res) => {
+    try {
+      // Check if already seeded
+      const heroCheck = await pool.query('SELECT COUNT(*) FROM landing_hero');
+      if (parseInt(heroCheck.rows[0].count) > 0) {
+        return res.json({ success: true, message: 'Content already seeded' });
+      }
+
+      // Seed Hero
+      await pool.query(`
+        INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
+        VALUES (
+          'Smart Timeføring for',
+          'Norske Bedrifter',
+          'Effektiv og brukervennlig timeregistrering for konsulenter, prosjektteam og bedrifter. Spar tid på administrasjon og få full kontroll over timene dine.',
+          'Start gratis prøveperiode',
+          'Les mer',
+          'Ingen kredittkort nødvendig',
+          '14 dagers gratis prøveperiode',
+          'Norsk kundesupport'
+        )
+      `);
+
+      // Seed Features
+      await pool.query(`
+        INSERT INTO landing_features (icon, title, description, display_order) VALUES
+        ('Clock', 'Enkel Timeføring', 'Registrer timer raskt og enkelt med vår intuitive grensesnitt. Start og stopp tidtaker eller legg inn manuelt.', 0),
+        ('Users', 'Team Administrasjon', 'Administrer brukere, roller og tilganger. Inviter nye teammedlemmer og følg opp deres timer.', 1),
+        ('FileText', 'Rapporter & Eksport', 'Generer detaljerte rapporter for prosjekter, ansatte eller perioder. Eksporter til Excel eller PDF.', 2),
+        ('Shield', 'Godkjenningsflyt', 'Effektiv godkjenningsprosess for innsendte timer. Saksbehandlere kan godkjenne eller avvise med kommentarer.', 3),
+        ('BarChart3', 'Analyse & Innsikt', 'Visualiser timeforbruk med grafer og statistikk. Se trender og optimaliser ressursbruk.', 4),
+        ('Smartphone', 'Mobilvennlig', 'Responsivt design som fungerer perfekt på alle enheter. Registrer timer hvor som helst.', 5)
+      `);
+
+      // Seed Testimonials
+      await pool.query(`
+        INSERT INTO landing_testimonials (quote, name, role, display_order) VALUES
+        ('Smart Timing har forenklet vår timeføring betydelig. Vi sparer mye tid hver måned.', 'Erik Hansen', 'Daglig leder, Konsulentselskap AS', 0),
+        ('Rapporteringsfunksjonene er utmerkede. Vi får full oversikt over alle prosjekter.', 'Maria Olsen', 'Prosjektleder, IT Solutions', 1),
+        ('Enkel å ta i bruk og god kundeservice. Anbefales på det sterkeste!', 'Anders Berg', 'Økonomisjef, Bygg & Anlegg', 2)
+      `);
+
+      // Seed CTA/Sections
+      await pool.query(`
+        INSERT INTO landing_cta (
+          features_title, features_subtitle,
+          testimonials_title, testimonials_subtitle,
+          cta_title, cta_subtitle, cta_button_text,
+          contact_title, contact_subtitle, contact_email, contact_phone, contact_address,
+          footer_copyright
+        ) VALUES (
+          'Alt du trenger for effektiv timeføring',
+          'Smart Timing gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.',
+          'Hva kundene sier',
+          'Hundrevis av norske bedrifter bruker Smart Timing for sin timeregistrering.',
+          'Klar til å forenkle timeføringen?',
+          'Start gratis i dag og opplev forskjellen. Ingen binding, ingen skjulte kostnader.',
+          'Kom i gang gratis',
+          'Kontakt oss',
+          'Har du spørsmål om Smart Timing? Ta kontakt med oss, så hjelper vi deg gjerne.',
+          'kontakt@smarttiming.no',
+          '+47 22 33 44 55',
+          'Oslo, Norge',
+          '© 2025 Smart Timing. Alle rettigheter reservert.'
+        )
+      `);
+
+      res.json({ success: true, message: 'Default content seeded successfully' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: SITE SETTINGS ==========
+  app.get("/api/cms/settings", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM site_settings ORDER BY key');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/settings/:key", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { key } = req.params;
+      const { value } = req.body;
+      const existing = await pool.query('SELECT * FROM site_settings WHERE key = $1', [key]);
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2 RETURNING *',
+          [value, key]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          'INSERT INTO site_settings (key, value) VALUES ($1, $2) RETURNING *',
+          [key, value]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: LANDING HERO ==========
+  app.get("/api/cms/hero", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/hero", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3 } = req.body;
+      const existing = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE landing_hero SET 
+            title = $1, title_highlight = $2, subtitle = $3, 
+            cta_primary_text = $4, cta_secondary_text = $5,
+            badge1 = $6, badge2 = $7, badge3 = $8, updated_at = NOW()
+           WHERE id = $9 RETURNING *`,
+          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3, existing.rows[0].id]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: LANDING FEATURES ==========
+  app.get("/api/cms/features", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/features", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { icon, title, description, display_order } = req.body;
+      const result = await pool.query(
+        `INSERT INTO landing_features (icon, title, description, display_order)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [icon, title, description, display_order || 0]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { icon, title, description, display_order, is_active } = req.body;
+      const result = await pool.query(
+        `UPDATE landing_features SET icon = $1, title = $2, description = $3, display_order = $4, is_active = $5, updated_at = NOW()
+         WHERE id = $6 RETURNING *`,
+        [icon, title, description, display_order, is_active ?? true, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Feature not found' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM landing_features WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: LANDING TESTIMONIALS ==========
+  app.get("/api/cms/testimonials", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/testimonials", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { quote, name, role, display_order } = req.body;
+      const result = await pool.query(
+        `INSERT INTO landing_testimonials (quote, name, role, display_order)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [quote, name, role, display_order || 0]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/testimonials/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { quote, name, role, display_order, is_active } = req.body;
+      const result = await pool.query(
+        `UPDATE landing_testimonials SET quote = $1, name = $2, role = $3, display_order = $4, is_active = $5, updated_at = NOW()
+         WHERE id = $6 RETURNING *`,
+        [quote, name, role, display_order, is_active ?? true, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Testimonial not found' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/testimonials/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM landing_testimonials WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: LANDING CTA/SECTIONS ==========
+  app.get("/api/cms/sections", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/sections", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { 
+        features_title, features_subtitle, 
+        testimonials_title, testimonials_subtitle,
+        cta_title, cta_subtitle, cta_button_text,
+        contact_title, contact_subtitle, contact_email, contact_phone, contact_address,
+        footer_copyright 
+      } = req.body;
+      
+      const existing = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE landing_cta SET 
+            features_title = $1, features_subtitle = $2,
+            testimonials_title = $3, testimonials_subtitle = $4,
+            cta_title = $5, cta_subtitle = $6, cta_button_text = $7,
+            contact_title = $8, contact_subtitle = $9, contact_email = $10, contact_phone = $11, contact_address = $12,
+            footer_copyright = $13, updated_at = NOW()
+           WHERE id = $14 RETURNING *`,
+          [features_title, features_subtitle, testimonials_title, testimonials_subtitle,
+           cta_title, cta_subtitle, cta_button_text,
+           contact_title, contact_subtitle, contact_email, contact_phone, contact_address,
+           footer_copyright, existing.rows[0].id]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO landing_cta (features_title, features_subtitle, testimonials_title, testimonials_subtitle,
+            cta_title, cta_subtitle, cta_button_text, contact_title, contact_subtitle, contact_email, contact_phone, contact_address, footer_copyright)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
+          [features_title, features_subtitle, testimonials_title, testimonials_subtitle,
+           cta_title, cta_subtitle, cta_button_text,
+           contact_title, contact_subtitle, contact_email, contact_phone, contact_address, footer_copyright]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: GET ALL LANDING CONTENT ==========
+  app.get("/api/cms/landing", async (req, res) => {
+    try {
+      const [heroResult, featuresResult, testimonialsResult, sectionsResult] = await Promise.all([
+        pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1'),
+      ]);
+      
+      res.json({
+        hero: heroResult.rows[0] || null,
+        features: featuresResult.rows,
+        testimonials: testimonialsResult.rows,
+        sections: sectionsResult.rows[0] || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }

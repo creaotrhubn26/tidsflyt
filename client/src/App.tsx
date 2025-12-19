@@ -11,6 +11,7 @@ import TimeTracking from "@/pages/time-tracking";
 import Reports from "@/pages/reports";
 import Users from "@/pages/users";
 import Profile from "@/pages/profile";
+import CMS from "@/pages/cms";
 
 function Router() {
   return (
@@ -24,6 +25,7 @@ function Router() {
       <Route path="/invites" component={Users} />
       <Route path="/cases" component={Dashboard} />
       <Route path="/settings" component={Profile} />
+      <Route path="/cms" component={CMS} />
       <Route component={NotFound} />
     </Switch>
   );

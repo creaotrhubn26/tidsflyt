@@ -1,4 +1,5 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { 
   Clock, 
   Users, 
@@ -11,6 +12,7 @@ import {
   Mail,
   Phone,
   MapPin,
+  LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -19,59 +21,121 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
+import { Skeleton } from "@/components/ui/skeleton";
 
-const features = [
-  {
-    icon: Clock,
-    title: "Enkel Timeføring",
-    description: "Registrer timer raskt og enkelt med vår intuitive grensesnitt. Start og stopp tidtaker eller legg inn manuelt.",
-  },
-  {
-    icon: Users,
-    title: "Team Administrasjon",
-    description: "Administrer brukere, roller og tilganger. Inviter nye teammedlemmer og følg opp deres timer.",
-  },
-  {
-    icon: FileText,
-    title: "Rapporter & Eksport",
-    description: "Generer detaljerte rapporter for prosjekter, ansatte eller perioder. Eksporter til Excel eller PDF.",
-  },
-  {
-    icon: Shield,
-    title: "Godkjenningsflyt",
-    description: "Effektiv godkjenningsprosess for innsendte timer. Saksbehandlere kan godkjenne eller avvise med kommentarer.",
-  },
-  {
-    icon: BarChart3,
-    title: "Analyse & Innsikt",
-    description: "Visualiser timeforbruk med grafer og statistikk. Se trender og optimaliser ressursbruk.",
-  },
-  {
-    icon: Smartphone,
-    title: "Mobilvennlig",
-    description: "Responsivt design som fungerer perfekt på alle enheter. Registrer timer hvor som helst.",
-  },
+interface LandingHero {
+  id: number;
+  title: string;
+  title_highlight: string | null;
+  subtitle: string | null;
+  cta_primary_text: string | null;
+  cta_secondary_text: string | null;
+  badge1: string | null;
+  badge2: string | null;
+  badge3: string | null;
+}
+
+interface LandingFeature {
+  id: number;
+  icon: string;
+  title: string;
+  description: string;
+  display_order: number;
+}
+
+interface LandingTestimonial {
+  id: number;
+  quote: string;
+  name: string;
+  role: string;
+  display_order: number;
+}
+
+interface LandingSections {
+  features_title: string | null;
+  features_subtitle: string | null;
+  testimonials_title: string | null;
+  testimonials_subtitle: string | null;
+  cta_title: string | null;
+  cta_subtitle: string | null;
+  cta_button_text: string | null;
+  contact_title: string | null;
+  contact_subtitle: string | null;
+  contact_email: string | null;
+  contact_phone: string | null;
+  contact_address: string | null;
+  footer_copyright: string | null;
+}
+
+interface LandingContent {
+  hero: LandingHero | null;
+  features: LandingFeature[];
+  testimonials: LandingTestimonial[];
+  sections: LandingSections | null;
+}
+
+const iconMap: Record<string, LucideIcon> = {
+  Clock,
+  Users,
+  FileText,
+  Shield,
+  BarChart3,
+  Smartphone,
+};
+
+const defaultHero: LandingHero = {
+  id: 0,
+  title: "Smart Timeføring for",
+  title_highlight: "Norske Bedrifter",
+  subtitle: "Effektiv og brukervennlig timeregistrering for konsulenter, prosjektteam og bedrifter. Spar tid på administrasjon og få full kontroll over timene dine.",
+  cta_primary_text: "Start gratis prøveperiode",
+  cta_secondary_text: "Les mer",
+  badge1: "Ingen kredittkort nødvendig",
+  badge2: "14 dagers gratis prøveperiode",
+  badge3: "Norsk kundesupport",
+};
+
+const defaultFeatures: LandingFeature[] = [
+  { id: 1, icon: "Clock", title: "Enkel Timeføring", description: "Registrer timer raskt og enkelt med vår intuitive grensesnitt.", display_order: 0 },
+  { id: 2, icon: "Users", title: "Team Administrasjon", description: "Administrer brukere, roller og tilganger.", display_order: 1 },
+  { id: 3, icon: "FileText", title: "Rapporter & Eksport", description: "Generer detaljerte rapporter for prosjekter.", display_order: 2 },
+  { id: 4, icon: "Shield", title: "Godkjenningsflyt", description: "Effektiv godkjenningsprosess for innsendte timer.", display_order: 3 },
+  { id: 5, icon: "BarChart3", title: "Analyse & Innsikt", description: "Visualiser timeforbruk med grafer og statistikk.", display_order: 4 },
+  { id: 6, icon: "Smartphone", title: "Mobilvennlig", description: "Responsivt design som fungerer perfekt på alle enheter.", display_order: 5 },
 ];
 
-const testimonials = [
-  {
-    quote: "Smart Timing har forenklet vår timeføring betydelig. Vi sparer mye tid hver måned.",
-    name: "Erik Hansen",
-    role: "Daglig leder, Konsulentselskap AS",
-  },
-  {
-    quote: "Rapporteringsfunksjonene er utmerkede. Vi får full oversikt over alle prosjekter.",
-    name: "Maria Olsen",
-    role: "Prosjektleder, IT Solutions",
-  },
-  {
-    quote: "Enkel å ta i bruk og god kundeservice. Anbefales på det sterkeste!",
-    name: "Anders Berg",
-    role: "Økonomisjef, Bygg & Anlegg",
-  },
+const defaultTestimonials: LandingTestimonial[] = [
+  { id: 1, quote: "Smart Timing har forenklet vår timeføring betydelig.", name: "Erik Hansen", role: "Daglig leder", display_order: 0 },
+  { id: 2, quote: "Rapporteringsfunksjonene er utmerkede.", name: "Maria Olsen", role: "Prosjektleder", display_order: 1 },
+  { id: 3, quote: "Enkel å ta i bruk og god kundeservice.", name: "Anders Berg", role: "Økonomisjef", display_order: 2 },
 ];
+
+const defaultSections: LandingSections = {
+  features_title: "Alt du trenger for effektiv timeføring",
+  features_subtitle: "Smart Timing gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.",
+  testimonials_title: "Hva kundene sier",
+  testimonials_subtitle: "Hundrevis av norske bedrifter bruker Smart Timing for sin timeregistrering.",
+  cta_title: "Klar til å forenkle timeføringen?",
+  cta_subtitle: "Start gratis i dag og opplev forskjellen. Ingen binding, ingen skjulte kostnader.",
+  cta_button_text: "Kom i gang gratis",
+  contact_title: "Kontakt oss",
+  contact_subtitle: "Har du spørsmål om Smart Timing? Ta kontakt med oss, så hjelper vi deg gjerne.",
+  contact_email: "kontakt@smarttiming.no",
+  contact_phone: "+47 22 33 44 55",
+  contact_address: "Oslo, Norge",
+  footer_copyright: "© 2025 Smart Timing. Alle rettigheter reservert.",
+};
 
 export default function LandingPage() {
+  const { data: content, isLoading } = useQuery<LandingContent>({
+    queryKey: ['/api/cms/landing'],
+  });
+
+  const hero = content?.hero || defaultHero;
+  const features = content?.features?.length ? content.features : defaultFeatures;
+  const testimonials = content?.testimonials?.length ? content.testimonials : defaultTestimonials;
+  const sections = content?.sections || defaultSections;
+
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 w-full border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -107,43 +171,58 @@ export default function LandingPage() {
             </div>
           </div>
           
-          <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6" data-testid="hero-title">
-            Smart Timeføring for
-            <span className="block text-primary">Norske Bedrifter</span>
-          </h1>
+          {isLoading ? (
+            <Skeleton className="h-16 w-96 mx-auto mb-6" />
+          ) : (
+            <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6" data-testid="hero-title">
+              {hero.title}
+              {hero.title_highlight && (
+                <span className="block text-primary">{hero.title_highlight}</span>
+              )}
+            </h1>
+          )}
           
-          <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
-            Effektiv og brukervennlig timeregistrering for konsulenter, prosjektteam og bedrifter. 
-            Spar tid på administrasjon og få full kontroll over timene dine.
-          </p>
+          {isLoading ? (
+            <Skeleton className="h-8 w-full max-w-2xl mx-auto mb-10" />
+          ) : (
+            <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+              {hero.subtitle}
+            </p>
+          )}
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link href="/dashboard">
               <Button size="lg" className="gap-2" data-testid="button-start-free">
-                Start gratis prøveperiode
+                {hero.cta_primary_text || "Start gratis prøveperiode"}
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </Link>
             <a href="#features" data-testid="link-learn-more">
               <Button size="lg" variant="outline" data-testid="button-learn-more">
-                Les mer
+                {hero.cta_secondary_text || "Les mer"}
               </Button>
             </a>
           </div>
 
           <div className="mt-16 flex flex-wrap items-center justify-center gap-8 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-success" />
-              <span>Ingen kredittkort nødvendig</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-success" />
-              <span>14 dagers gratis prøveperiode</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-4 w-4 text-success" />
-              <span>Norsk kundesupport</span>
-            </div>
+            {hero.badge1 && (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>{hero.badge1}</span>
+              </div>
+            )}
+            {hero.badge2 && (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>{hero.badge2}</span>
+              </div>
+            )}
+            {hero.badge3 && (
+              <div className="flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 text-green-500" />
+                <span>{hero.badge3}</span>
+              </div>
+            )}
           </div>
         </div>
       </section>
@@ -152,25 +231,28 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4" data-testid="features-title">
-              Alt du trenger for effektiv timeføring
+              {sections.features_title}
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Smart Timing gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.
+              {sections.features_subtitle}
             </p>
           </div>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {features.map((feature, index) => (
-              <Card key={index} className="hover-elevate" data-testid={`feature-card-${index}`}>
-                <CardContent className="p-6">
-                  <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
-                    <feature.icon className="h-6 w-6 text-primary" />
-                  </div>
-                  <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
-                  <p className="text-muted-foreground">{feature.description}</p>
-                </CardContent>
-              </Card>
-            ))}
+            {features.map((feature, index) => {
+              const IconComponent = iconMap[feature.icon] || Clock;
+              return (
+                <Card key={feature.id} className="hover-elevate" data-testid={`feature-card-${index}`}>
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10 mb-4">
+                      <IconComponent className="h-6 w-6 text-primary" />
+                    </div>
+                    <h3 className="text-lg font-semibold mb-2">{feature.title}</h3>
+                    <p className="text-muted-foreground">{feature.description}</p>
+                  </CardContent>
+                </Card>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -179,16 +261,16 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
             <h2 className="text-3xl md:text-4xl font-bold mb-4" data-testid="testimonials-title">
-              Hva kundene sier
+              {sections.testimonials_title}
             </h2>
             <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Hundrevis av norske bedrifter bruker Smart Timing for sin timeregistrering.
+              {sections.testimonials_subtitle}
             </p>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
             {testimonials.map((testimonial, index) => (
-              <Card key={index} className="bg-background" data-testid={`testimonial-card-${index}`}>
+              <Card key={testimonial.id} className="bg-background" data-testid={`testimonial-card-${index}`}>
                 <CardContent className="p-6">
                   <p className="text-foreground mb-4 italic" data-testid={`text-testimonial-quote-${index}`}>"{testimonial.quote}"</p>
                   <div>
@@ -205,14 +287,14 @@ export default function LandingPage() {
       <section className="py-20 bg-primary text-primary-foreground">
         <div className="container mx-auto px-4 text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">
-            Klar til å forenkle timeføringen?
+            {sections.cta_title}
           </h2>
           <p className="text-xl opacity-90 max-w-2xl mx-auto mb-8">
-            Start gratis i dag og opplev forskjellen. Ingen binding, ingen skjulte kostnader.
+            {sections.cta_subtitle}
           </p>
           <Link href="/dashboard">
             <Button size="lg" variant="secondary" className="gap-2" data-testid="button-cta-start">
-              Kom i gang gratis
+              {sections.cta_button_text}
               <ArrowRight className="h-4 w-4" />
             </Button>
           </Link>
@@ -223,9 +305,9 @@ export default function LandingPage() {
         <div className="container mx-auto px-4">
           <div className="grid md:grid-cols-2 gap-12 max-w-5xl mx-auto">
             <div>
-              <h2 className="text-3xl font-bold mb-4" data-testid="contact-title">Kontakt oss</h2>
+              <h2 className="text-3xl font-bold mb-4" data-testid="contact-title">{sections.contact_title}</h2>
               <p className="text-muted-foreground mb-8">
-                Har du spørsmål om Smart Timing? Ta kontakt med oss, så hjelper vi deg gjerne.
+                {sections.contact_subtitle}
               </p>
 
               <div className="space-y-4">
@@ -235,7 +317,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">E-post</p>
-                    <p className="font-medium" data-testid="text-email">kontakt@smarttiming.no</p>
+                    <p className="font-medium" data-testid="text-email">{sections.contact_email}</p>
                   </div>
                 </div>
 
@@ -245,7 +327,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Telefon</p>
-                    <p className="font-medium" data-testid="text-phone">+47 22 33 44 55</p>
+                    <p className="font-medium" data-testid="text-phone">{sections.contact_phone}</p>
                   </div>
                 </div>
 
@@ -255,7 +337,7 @@ export default function LandingPage() {
                   </div>
                   <div>
                     <p className="text-sm text-muted-foreground">Adresse</p>
-                    <p className="font-medium" data-testid="text-address">Oslo, Norge</p>
+                    <p className="font-medium" data-testid="text-address">{sections.contact_address}</p>
                   </div>
                 </div>
               </div>
@@ -314,8 +396,8 @@ export default function LandingPage() {
               </a>
             </div>
 
-            <p className="text-sm text-muted-foreground">
-              © 2025 Smart Timing. Alle rettigheter reservert.
+            <p className="text-sm text-muted-foreground" data-testid="text-footer-copyright">
+              {sections.footer_copyright}
             </p>
           </div>
         </div>
