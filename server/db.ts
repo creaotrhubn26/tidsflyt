@@ -4,10 +4,11 @@ const { Pool } = pkg;
 import * as schema from "@shared/schema";
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_URL,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
+  ssl: { rejectUnauthorized: false },
 });
 
 pool.on('error', (err) => {

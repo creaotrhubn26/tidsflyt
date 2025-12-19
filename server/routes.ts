@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertTimeEntrySchema, insertUserSchema } from "@shared/schema";
+import type { InsertTimeEntry } from "@shared/schema";
 import { getUncachableGitHubClient } from "./github";
 
 export async function registerRoutes(
@@ -9,12 +9,16 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // Seed database on startup
-  try {
-    await storage.seedData();
-    console.log("Database initialization complete");
-  } catch (error) {
-    console.error("Database seed error:", error);
+  // Skip seeding when using external database
+  if (!process.env.EXTERNAL_DATABASE_URL) {
+    try {
+      await storage.seedData();
+      console.log("Database initialization complete");
+    } catch (error) {
+      console.error("Database seed error:", error);
+    }
+  } else {
+    console.log("Connected to external database - skipping seed");
   }
   
   app.get("/api/github/repos", async (req, res) => {
@@ -86,12 +90,20 @@ export async function registerRoutes(
 
   app.post("/api/time-entries", async (req, res) => {
     try {
-      const parsed = insertTimeEntrySchema.parse(req.body);
-      const entry = await storage.createTimeEntry(parsed);
+      const { userId, caseNumber, description, hours, date, status, createdAt } = req.body;
+      const entry = await storage.createTimeEntry({
+        userId,
+        caseNumber,
+        description,
+        hours,
+        date,
+        status: status || 'pending',
+        createdAt: createdAt || new Date().toISOString(),
+      });
       await storage.createActivity({
-        userId: parsed.userId,
+        userId,
         action: "time_logged",
-        description: `Registrerte ${parsed.hours} timer: ${parsed.description}`,
+        description: `Registrerte ${hours} timer: ${description}`,
         timestamp: new Date().toISOString(),
       });
       res.status(201).json(entry);

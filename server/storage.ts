@@ -1,6 +1,10 @@
-import { type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Activity, type InsertActivity, users, timeEntries, activities } from "@shared/schema";
+import { 
+  type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Activity, type InsertActivity,
+  type LogRow, type CompanyUser, type ProjectInfo, type UserSettings,
+  logRow, companyUsers, projectInfo, userSettings, companyAuditLog, companies
+} from "@shared/schema";
 import { randomUUID } from "crypto";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
 
 export interface IStorage {
@@ -33,75 +37,196 @@ export interface IStorage {
   seedData(): Promise<void>;
 }
 
-export class PostgresStorage implements IStorage {
+export class ExternalDbStorage implements IStorage {
+  private isExternalDb: boolean;
+
+  constructor() {
+    this.isExternalDb = !!process.env.EXTERNAL_DATABASE_URL;
+  }
+
   async getUser(id: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
-    return result[0];
+    if (this.isExternalDb) {
+      const result = await db.select().from(companyUsers).where(eq(companyUsers.id, parseInt(id))).limit(1);
+      if (!result[0]) return undefined;
+      return this.mapCompanyUserToUser(result[0]);
+    }
+    return undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.username, username)).limit(1);
-    return result[0];
+    if (this.isExternalDb) {
+      const result = await db.select().from(companyUsers).where(eq(companyUsers.userEmail, username)).limit(1);
+      if (!result[0]) return undefined;
+      return this.mapCompanyUserToUser(result[0]);
+    }
+    return undefined;
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    if (this.isExternalDb) {
+      const result = await db.select().from(companyUsers);
+      return result.map(cu => this.mapCompanyUserToUser(cu));
+    }
+    return [];
   }
 
-  async createUser(insertUser: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(insertUser).returning();
-    return result[0];
+  private mapCompanyUserToUser(cu: CompanyUser): User {
+    return {
+      id: cu.id.toString(),
+      username: cu.userEmail,
+      name: cu.userEmail.split('@')[0],
+      email: cu.userEmail,
+      role: cu.role || 'member',
+      department: null,
+      status: cu.approved ? 'active' : 'pending',
+      hoursThisWeek: 0,
+      pendingApprovals: 0,
+    };
+  }
+
+  async createUser(user: InsertUser): Promise<User> {
+    const result = await db.insert(companyUsers).values({
+      companyId: 1,
+      userEmail: user.email,
+      role: user.role,
+      approved: user.status === 'active',
+    }).returning();
+    return this.mapCompanyUserToUser(result[0]);
   }
 
   async updateUser(id: string, updates: Partial<User>): Promise<User | undefined> {
-    const result = await db.update(users).set(updates).where(eq(users.id, id)).returning();
-    return result[0];
+    const result = await db.update(companyUsers)
+      .set({ 
+        role: updates.role,
+        approved: updates.status === 'active',
+      })
+      .where(eq(companyUsers.id, parseInt(id)))
+      .returning();
+    if (!result[0]) return undefined;
+    return this.mapCompanyUserToUser(result[0]);
   }
 
   async getTimeEntries(filters?: { userId?: string; startDate?: string; endDate?: string; status?: string }): Promise<TimeEntry[]> {
-    const conditions = [];
-    if (filters?.userId) conditions.push(eq(timeEntries.userId, filters.userId));
-    if (filters?.startDate) conditions.push(gte(timeEntries.date, filters.startDate));
-    if (filters?.endDate) conditions.push(lte(timeEntries.date, filters.endDate));
-    if (filters?.status) conditions.push(eq(timeEntries.status, filters.status));
-    
-    if (conditions.length > 0) {
-      return await db.select().from(timeEntries).where(and(...conditions)).orderBy(desc(timeEntries.createdAt));
+    if (this.isExternalDb) {
+      const conditions = [];
+      if (filters?.userId) conditions.push(eq(logRow.userId, filters.userId));
+      if (filters?.startDate) conditions.push(gte(logRow.date, filters.startDate));
+      if (filters?.endDate) conditions.push(lte(logRow.date, filters.endDate));
+      
+      let result;
+      if (conditions.length > 0) {
+        result = await db.select().from(logRow).where(and(...conditions)).orderBy(desc(logRow.createdAt)).limit(100);
+      } else {
+        result = await db.select().from(logRow).orderBy(desc(logRow.createdAt)).limit(100);
+      }
+      return result.map(lr => this.mapLogRowToTimeEntry(lr));
     }
-    return await db.select().from(timeEntries).orderBy(desc(timeEntries.createdAt));
+    return [];
+  }
+
+  private mapLogRowToTimeEntry(lr: LogRow): TimeEntry {
+    const start = lr.startTime ? new Date(`2000-01-01T${lr.startTime}`) : new Date();
+    const end = lr.endTime ? new Date(`2000-01-01T${lr.endTime}`) : new Date();
+    const breakHrs = parseFloat(lr.breakHours?.toString() || '0');
+    const hours = (end.getTime() - start.getTime()) / (1000 * 60 * 60) - breakHrs;
+    
+    return {
+      id: lr.id,
+      userId: lr.userId || 'default',
+      caseNumber: lr.project || null,
+      description: lr.title || lr.activity || 'Work',
+      hours: Math.max(0, hours),
+      date: lr.date?.toString() || new Date().toISOString().split('T')[0],
+      status: 'approved',
+      createdAt: lr.createdAt?.toISOString() || new Date().toISOString(),
+    };
   }
 
   async getTimeEntry(id: string): Promise<TimeEntry | undefined> {
-    const result = await db.select().from(timeEntries).where(eq(timeEntries.id, id)).limit(1);
-    return result[0];
+    const result = await db.select().from(logRow).where(eq(logRow.id, id)).limit(1);
+    if (!result[0]) return undefined;
+    return this.mapLogRowToTimeEntry(result[0]);
   }
 
   async createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry> {
-    const result = await db.insert(timeEntries).values(entry).returning();
-    return result[0];
+    const now = new Date();
+    const result = await db.insert(logRow).values({
+      userId: entry.userId,
+      date: entry.date,
+      startTime: '09:00',
+      endTime: `${9 + Math.floor(entry.hours)}:${Math.round((entry.hours % 1) * 60).toString().padStart(2, '0')}`,
+      title: entry.description,
+      project: entry.caseNumber || undefined,
+      activity: 'Work',
+    }).returning();
+    return this.mapLogRowToTimeEntry(result[0]);
   }
 
   async updateTimeEntry(id: string, updates: Partial<TimeEntry>): Promise<TimeEntry | undefined> {
-    const result = await db.update(timeEntries).set(updates).where(eq(timeEntries.id, id)).returning();
-    return result[0];
+    const updateData: any = {};
+    if (updates.description) updateData.title = updates.description;
+    if (updates.caseNumber) updateData.project = updates.caseNumber;
+    
+    const result = await db.update(logRow).set(updateData).where(eq(logRow.id, id)).returning();
+    if (!result[0]) return undefined;
+    return this.mapLogRowToTimeEntry(result[0]);
   }
 
   async deleteTimeEntry(id: string): Promise<boolean> {
-    const result = await db.delete(timeEntries).where(eq(timeEntries.id, id)).returning();
+    const result = await db.delete(logRow).where(eq(logRow.id, id)).returning();
     return result.length > 0;
   }
 
   async getActivities(limit?: number): Promise<Activity[]> {
-    const query = db.select().from(activities).orderBy(desc(activities.timestamp));
-    if (limit) {
-      return await query.limit(limit);
+    if (this.isExternalDb) {
+      try {
+        const result = await pool.query(
+          `SELECT id, actor_company_user_id, action, target_type, target_id, created_at 
+           FROM company_audit_log 
+           ORDER BY created_at DESC 
+           LIMIT $1`,
+          [limit || 10]
+        );
+        return result.rows.map((log: any) => ({
+          id: log.id.toString(),
+          userId: log.actor_company_user_id?.toString() || '0',
+          action: log.action || 'activity',
+          description: `${log.action || 'Activity'} - ${log.target_type || ''} ${log.target_id || ''}`,
+          timestamp: log.created_at?.toISOString() || new Date().toISOString(),
+        }));
+      } catch (err) {
+        console.error('Error fetching activities:', err);
+        return [];
+      }
     }
-    return await query;
+    return [];
   }
 
   async createActivity(activity: InsertActivity): Promise<Activity> {
-    const result = await db.insert(activities).values(activity).returning();
-    return result[0];
+    try {
+      const result = await pool.query(
+        `INSERT INTO company_audit_log (company_id, action, target_type, details, created_at)
+         VALUES ($1, $2, $3, $4, NOW())
+         RETURNING id, created_at`,
+        [1, activity.action, 'activity', JSON.stringify({ description: activity.description })]
+      );
+      return {
+        id: result.rows[0].id.toString(),
+        userId: activity.userId,
+        action: activity.action,
+        description: activity.description,
+        timestamp: result.rows[0].created_at?.toISOString() || new Date().toISOString(),
+      };
+    } catch (err) {
+      console.error('Error creating activity:', err);
+      return {
+        id: Date.now().toString(),
+        userId: activity.userId,
+        action: activity.action,
+        description: activity.description,
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 
   async getStats(range?: string): Promise<{
@@ -132,66 +257,48 @@ export class PostgresStorage implements IStorage {
     
     const startDateStr = startDate.toISOString().split('T')[0];
     
-    const allEntries = await db.select().from(timeEntries).where(gte(timeEntries.date, startDateStr));
-    const allUsers = await db.select().from(users);
-    
-    const totalHours = allEntries.reduce((sum, e) => sum + e.hours, 0);
-    const activeUsers = allUsers.filter(u => u.status === "active").length;
-    const pendingApprovals = allEntries.filter(e => e.status === "pending").length;
-    const uniqueCases = new Set(allEntries.map(e => e.caseNumber).filter(Boolean)).size;
+    if (this.isExternalDb) {
+      const entries = await db.select().from(logRow).where(gte(logRow.date, startDateStr));
+      const users = await db.select().from(companyUsers);
+      
+      let totalHours = 0;
+      entries.forEach(lr => {
+        const start = lr.startTime ? new Date(`2000-01-01T${lr.startTime}`) : new Date();
+        const end = lr.endTime ? new Date(`2000-01-01T${lr.endTime}`) : new Date();
+        const breakHrs = parseFloat(lr.breakHours?.toString() || '0');
+        totalHours += Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60) - breakHrs);
+      });
+      
+      const activeUsers = users.filter(u => u.approved).length;
+      const uniqueProjects = new Set(entries.map(e => e.project).filter(Boolean)).size;
+      
+      return {
+        totalHours: Math.round(totalHours * 10) / 10,
+        activeUsers,
+        pendingApprovals: users.filter(u => !u.approved).length,
+        casesThisWeek: uniqueProjects,
+        hoursTrend: 12.5,
+        usersTrend: 8.3,
+        approvalsTrend: -5.2,
+        casesTrend: 15.0,
+      };
+    }
     
     return {
-      totalHours,
-      activeUsers,
-      pendingApprovals,
-      casesThisWeek: uniqueCases,
-      hoursTrend: 12.5,
-      usersTrend: 8.3,
-      approvalsTrend: -5.2,
-      casesTrend: 15.0,
+      totalHours: 0,
+      activeUsers: 0,
+      pendingApprovals: 0,
+      casesThisWeek: 0,
+      hoursTrend: 0,
+      usersTrend: 0,
+      approvalsTrend: 0,
+      casesTrend: 0,
     };
   }
 
   async seedData(): Promise<void> {
-    const existingUsers = await db.select().from(users).limit(1);
-    if (existingUsers.length > 0) {
-      console.log("Database already seeded");
-      return;
-    }
-
-    const seedUsers: InsertUser[] = [
-      { username: "admin", password: "admin123", name: "Erik Hansen", email: "erik@smarttiming.no", role: "admin", department: "IT", status: "active" },
-      { username: "kari", password: "pass123", name: "Kari Olsen", email: "kari@smarttiming.no", role: "case_manager", department: "Saksbehandling", status: "active" },
-      { username: "ole", password: "pass123", name: "Ole Johansen", email: "ole@smarttiming.no", role: "member", department: "Salg", status: "active" },
-      { username: "anna", password: "pass123", name: "Anna Berg", email: "anna@smarttiming.no", role: "member", department: "Kundeservice", status: "pending" },
-      { username: "lars", password: "pass123", name: "Lars Nilsen", email: "lars@smarttiming.no", role: "member", department: "Utvikling", status: "active" },
-    ];
-
-    const insertedUsers = await db.insert(users).values(seedUsers).returning();
-    console.log(`Seeded ${insertedUsers.length} users`);
-
-    const now = new Date();
-    const seedEntries: InsertTimeEntry[] = [
-      { userId: insertedUsers[0].id, caseNumber: "SAK-2024-001", description: "Kundemote og oppfolging", hours: 3.5, date: now.toISOString().split('T')[0], status: "approved", createdAt: now.toISOString() },
-      { userId: insertedUsers[0].id, caseNumber: "SAK-2024-002", description: "Systemutvikling", hours: 5.0, date: now.toISOString().split('T')[0], status: "pending", createdAt: now.toISOString() },
-      { userId: insertedUsers[1].id, caseNumber: "SAK-2024-003", description: "Saksbehandling", hours: 4.0, date: new Date(now.getTime() - 86400000).toISOString().split('T')[0], status: "approved", createdAt: new Date(now.getTime() - 86400000).toISOString() },
-      { userId: insertedUsers[2].id, caseNumber: "SAK-2024-004", description: "Salgsrapport", hours: 2.5, date: new Date(now.getTime() - 86400000).toISOString().split('T')[0], status: "pending", createdAt: new Date(now.getTime() - 86400000).toISOString() },
-      { userId: insertedUsers[4].id, caseNumber: "SAK-2024-005", description: "Kodegjennomgang", hours: 6.0, date: new Date(now.getTime() - 172800000).toISOString().split('T')[0], status: "approved", createdAt: new Date(now.getTime() - 172800000).toISOString() },
-    ];
-
-    await db.insert(timeEntries).values(seedEntries);
-    console.log(`Seeded ${seedEntries.length} time entries`);
-
-    const seedActivities: InsertActivity[] = [
-      { userId: insertedUsers[1].id, action: "time_approved", description: "Kari Olsen godkjente 3.5 timer for Erik Hansen", timestamp: new Date(now.getTime() - 300000).toISOString() },
-      { userId: insertedUsers[2].id, action: "time_logged", description: "Ole Johansen registrerte 2.5 timer pa SAK-2024-004", timestamp: new Date(now.getTime() - 3600000).toISOString() },
-      { userId: insertedUsers[0].id, action: "user_invited", description: "Erik Hansen inviterte Anna Berg til teamet", timestamp: new Date(now.getTime() - 7200000).toISOString() },
-      { userId: insertedUsers[4].id, action: "case_completed", description: "Lars Nilsen fullforte SAK-2024-005", timestamp: new Date(now.getTime() - 14400000).toISOString() },
-    ];
-
-    await db.insert(activities).values(seedActivities);
-    console.log(`Seeded ${seedActivities.length} activities`);
+    console.log("Using external database - no seeding needed");
   }
 }
 
-export const storage = new PostgresStorage();
+export const storage = new ExternalDbStorage();
