@@ -1,5 +1,6 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import {
   LayoutDashboard,
   Users,
@@ -29,6 +30,11 @@ import {
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
+interface CompanyUser {
+  id: number;
+  approved: boolean;
+}
+
 interface NavItem {
   path: string;
   icon: typeof LayoutDashboard;
@@ -36,11 +42,11 @@ interface NavItem {
   badge?: number;
 }
 
-const navItems: NavItem[] = [
+const baseNavItems: Omit<NavItem, 'badge'>[] = [
   { path: "/", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/users", icon: Users, label: "Brukere" },
-  { path: "/invites", icon: UserPlus, label: "Invitasjoner", badge: 3 },
+  { path: "/invites", icon: UserPlus, label: "Invitasjoner" },
   { path: "/cases", icon: FolderKanban, label: "Saker" },
   { path: "/reports", icon: FileText, label: "Rapporter" },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
@@ -58,6 +64,17 @@ interface PortalLayoutProps {
 export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+
+  const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
+    queryKey: ['/api/company/users', 1],
+  });
+
+  const pendingCount = companyUsers.filter(u => !u.approved).length;
+
+  const navItems: NavItem[] = baseNavItems.map(item => ({
+    ...item,
+    badge: item.path === '/invites' && pendingCount > 0 ? pendingCount : undefined,
+  }));
 
   const currentUser = user || {
     name: "Demo Bruker",
