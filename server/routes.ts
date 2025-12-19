@@ -9,6 +9,14 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // Seed database on startup
+  try {
+    await storage.seedData();
+    console.log("Database initialization complete");
+  } catch (error) {
+    console.error("Database seed error:", error);
+  }
+  
   app.get("/api/github/repos", async (req, res) => {
     try {
       const octokit = await getUncachableGitHubClient();
