@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Users, 
   UserPlus, 
@@ -10,6 +12,7 @@ import {
   Shield,
   User,
   Clock,
+  Loader2,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -39,6 +42,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
+import { useToast } from "@/hooks/use-toast";
 
 const roleColors = {
   admin: "bg-destructive/10 text-destructive border-destructive/20",
@@ -58,21 +62,76 @@ const roleIcons = {
   member: User,
 };
 
-const mockUsers = [
-  { id: "1", name: "Ola Nordmann", email: "ola@example.com", role: "admin" as const, approved: true, lastActive: new Date().toISOString(), hoursThisWeek: 38.5 },
-  { id: "2", name: "Kari Hansen", email: "kari@example.com", role: "case_manager" as const, approved: true, lastActive: new Date(Date.now() - 3600000).toISOString(), hoursThisWeek: 42.0 },
-  { id: "3", name: "Per Olsen", email: "per@example.com", role: "member" as const, approved: true, lastActive: new Date(Date.now() - 86400000).toISOString(), hoursThisWeek: 35.0 },
-  { id: "4", name: "Erik Berg", email: "erik@example.com", role: "member" as const, approved: false, lastActive: null, hoursThisWeek: 0 },
-  { id: "5", name: "Lisa Haugen", email: "lisa@example.com", role: "member" as const, approved: true, lastActive: new Date(Date.now() - 172800000).toISOString(), hoursThisWeek: 40.0 },
-  { id: "6", name: "Jonas Moe", email: "jonas@example.com", role: "member" as const, approved: false, lastActive: null, hoursThisWeek: 0 },
-];
+interface CompanyUser {
+  id: number;
+  company_id: number;
+  user_email: string;
+  role: 'admin' | 'case_manager' | 'member';
+  approved: boolean;
+  created_at: string;
+  updated_at?: string;
+  cases?: any[];
+}
 
 export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tab, setTab] = useState("all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<string>("member");
+  const { toast } = useToast();
 
-  const filteredUsers = mockUsers.filter((user) => {
+  const { data: companyUsers = [], isLoading, refetch } = useQuery<CompanyUser[]>({
+    queryKey: ['/api/company/users', 1],
+  });
+
+  const inviteMutation = useMutation({
+    mutationFn: async (data: { user_email: string; role: string }) => {
+      return apiRequest('POST', '/api/company/users', { company_id: 1, ...data });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
+      setInviteDialogOpen(false);
+      setInviteEmail("");
+      setInviteRole("member");
+      toast({ title: "Invitasjon sendt", description: "Brukeren har blitt lagt til." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const approveMutation = useMutation({
+    mutationFn: async ({ id, approved }: { id: number; approved: boolean }) => {
+      return apiRequest('PATCH', `/api/company/users/${id}`, { approved });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
+      toast({ title: "Oppdatert", description: "Brukerstatus har blitt endret." });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return apiRequest('DELETE', `/api/company/users/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
+      toast({ title: "Fjernet", description: "Brukeren har blitt fjernet." });
+    },
+  });
+
+  const users = companyUsers.map(u => ({
+    id: String(u.id),
+    name: u.user_email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+    email: u.user_email,
+    role: u.role as 'admin' | 'case_manager' | 'member',
+    approved: u.approved,
+    lastActive: u.updated_at || u.created_at,
+    hoursThisWeek: 0,
+  }));
+
+  const filteredUsers = users.filter((user) => {
     const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           user.email.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesTab = tab === "all" || 
@@ -81,7 +140,17 @@ export default function UsersPage() {
     return matchesSearch && matchesTab;
   });
 
-  const pendingCount = mockUsers.filter(u => !u.approved).length;
+  const pendingCount = users.filter(u => !u.approved).length;
+
+  if (isLoading) {
+    return (
+      <PortalLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </div>
+      </PortalLayout>
+    );
+  }
 
   return (
     <PortalLayout>
@@ -109,11 +178,18 @@ export default function UsersPage() {
               <div className="space-y-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="email">E-postadresse</Label>
-                  <Input id="email" type="email" placeholder="navn@example.com" data-testid="invite-email-input" />
+                  <Input 
+                    id="email" 
+                    type="email" 
+                    placeholder="navn@example.com" 
+                    value={inviteEmail}
+                    onChange={(e) => setInviteEmail(e.target.value)}
+                    data-testid="invite-email-input" 
+                  />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="role">Rolle</Label>
-                  <Select defaultValue="member">
+                  <Select value={inviteRole} onValueChange={setInviteRole}>
                     <SelectTrigger data-testid="invite-role-select">
                       <SelectValue placeholder="Velg rolle" />
                     </SelectTrigger>
@@ -129,8 +205,16 @@ export default function UsersPage() {
                 <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
                   Avbryt
                 </Button>
-                <Button onClick={() => setInviteDialogOpen(false)} data-testid="send-invite-button">
-                  <Mail className="h-4 w-4 mr-2" />
+                <Button 
+                  onClick={() => inviteMutation.mutate({ user_email: inviteEmail, role: inviteRole })} 
+                  disabled={!inviteEmail || inviteMutation.isPending}
+                  data-testid="send-invite-button"
+                >
+                  {inviteMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Mail className="h-4 w-4 mr-2" />
+                  )}
                   Send invitasjon
                 </Button>
               </DialogFooter>
@@ -144,10 +228,10 @@ export default function UsersPage() {
               <Tabs value={tab} onValueChange={setTab}>
                 <TabsList>
                   <TabsTrigger value="all" data-testid="tab-all">
-                    Alle ({mockUsers.length})
+                    Alle ({users.length})
                   </TabsTrigger>
                   <TabsTrigger value="active" data-testid="tab-active">
-                    Aktive ({mockUsers.filter(u => u.approved).length})
+                    Aktive ({users.filter(u => u.approved).length})
                   </TabsTrigger>
                   <TabsTrigger value="pending" data-testid="tab-pending">
                     Venter
@@ -240,11 +324,23 @@ export default function UsersPage() {
 
                       {!user.approved ? (
                         <div className="flex gap-2">
-                          <Button size="sm" variant="outline" className="text-destructive" data-testid={`reject-user-${user.id}`}>
+                          <Button 
+                            size="sm" 
+                            variant="outline" 
+                            className="text-destructive" 
+                            onClick={() => deleteMutation.mutate(parseInt(user.id))}
+                            disabled={deleteMutation.isPending}
+                            data-testid={`reject-user-${user.id}`}
+                          >
                             <XCircle className="h-4 w-4 mr-1" />
                             Avvis
                           </Button>
-                          <Button size="sm" data-testid={`approve-user-${user.id}`}>
+                          <Button 
+                            size="sm" 
+                            onClick={() => approveMutation.mutate({ id: parseInt(user.id), approved: true })}
+                            disabled={approveMutation.isPending}
+                            data-testid={`approve-user-${user.id}`}
+                          >
                             <CheckCircle className="h-4 w-4 mr-1" />
                             Godkjenn
                           </Button>
@@ -261,7 +357,10 @@ export default function UsersPage() {
                             <DropdownMenuItem>Endre rolle</DropdownMenuItem>
                             <DropdownMenuItem>Se timelister</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem className="text-destructive">
+                            <DropdownMenuItem 
+                              className="text-destructive"
+                              onClick={() => deleteMutation.mutate(parseInt(user.id))}
+                            >
                               Fjern bruker
                             </DropdownMenuItem>
                           </DropdownMenuContent>
