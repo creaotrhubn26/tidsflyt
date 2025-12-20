@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -407,9 +408,7 @@ export default function CMSPage() {
         <Card className="w-full max-w-md">
           <CardHeader className="text-center">
             <div className="flex justify-center mb-4">
-              <div className="flex items-center justify-center w-12 h-12 rounded-lg bg-primary/10">
-                <Lock className="h-6 w-6 text-primary" />
-              </div>
+              <SmartTimingLogo size="lg" />
             </div>
             <CardTitle>CMS Admin</CardTitle>
             <CardDescription>Logg inn for å administrere innhold</CardDescription>
