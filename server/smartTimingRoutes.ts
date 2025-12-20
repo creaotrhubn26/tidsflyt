@@ -628,6 +628,79 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== PORTAL SETTINGS ==========
+  // Get portal settings (public endpoint for loading portal design)
+  app.get("/api/portal/settings", async (req, res) => {
+    try {
+      const vendorId = req.query.vendor_id || null;
+      const result = await pool.query(
+        `SELECT * FROM portal_settings WHERE vendor_id IS NOT DISTINCT FROM $1`,
+        [vendorId]
+      );
+      if (result.rows.length === 0) {
+        // Return default settings
+        const defaultResult = await pool.query(
+          `SELECT * FROM portal_settings WHERE vendor_id IS NULL`
+        );
+        res.json(defaultResult.rows[0] || {
+          logo_text: 'Smart Timing',
+          primary_color: '#3b82f6',
+          accent_color: '#8b5cf6',
+          show_branding: true,
+          nav_items: []
+        });
+      } else {
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update portal settings (super_admin or vendor_admin)
+  app.put("/api/portal/settings", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const vendorId = req.body.vendor_id || null;
+      
+      // Only super_admin can update global settings, vendor_admin can update their own
+      if (vendorId === null && req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can update global settings' });
+      }
+      if (vendorId !== null && req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const {
+        logo_url, logo_text, primary_color, accent_color,
+        sidebar_bg, header_bg, custom_css, nav_items, footer_text, show_branding
+      } = req.body;
+      
+      const result = await pool.query(
+        `INSERT INTO portal_settings (vendor_id, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, custom_css, nav_items, footer_text, show_branding, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+         ON CONFLICT (vendor_id) DO UPDATE SET
+           logo_url = COALESCE($2, portal_settings.logo_url),
+           logo_text = COALESCE($3, portal_settings.logo_text),
+           primary_color = COALESCE($4, portal_settings.primary_color),
+           accent_color = COALESCE($5, portal_settings.accent_color),
+           sidebar_bg = COALESCE($6, portal_settings.sidebar_bg),
+           header_bg = COALESCE($7, portal_settings.header_bg),
+           custom_css = COALESCE($8, portal_settings.custom_css),
+           nav_items = COALESCE($9, portal_settings.nav_items),
+           footer_text = COALESCE($10, portal_settings.footer_text),
+           show_branding = COALESCE($11, portal_settings.show_branding),
+           updated_at = NOW()
+         RETURNING *`,
+        [vendorId, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, custom_css, JSON.stringify(nav_items || []), footer_text, show_branding]
+      );
+      
+      await createContentVersion('portal_settings', result.rows[0].id, result.rows[0], req.admin.username, 'Updated portal settings');
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== COMPANY PORTAL ==========
   app.get("/api/company/users", async (req, res) => {
     try {

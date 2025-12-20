@@ -17,6 +17,7 @@ import {
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
+  Layout, LayoutDashboard,
   type LucideIcon
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -526,6 +527,9 @@ export default function CMSPage() {
           <TabsTrigger value="reports" data-testid="tab-reports">
             <FileText className="h-4 w-4 mr-1" />Rapporter
           </TabsTrigger>
+          <TabsTrigger value="portal" data-testid="tab-portal">
+            <Layout className="h-4 w-4 mr-1" />Portal
+          </TabsTrigger>
           {isSuperAdmin && (
             <TabsTrigger value="vendors" data-testid="tab-vendors">
               <Building2 className="h-4 w-4 mr-1" />Leverandører
@@ -591,6 +595,10 @@ export default function CMSPage() {
 
         <TabsContent value="reports">
           <ReportDesigner />
+        </TabsContent>
+
+        <TabsContent value="portal">
+          <PortalDesigner />
         </TabsContent>
 
         {isSuperAdmin && (
@@ -6368,6 +6376,350 @@ function VendorManagement() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+interface PortalSettings {
+  id: number;
+  vendor_id: number | null;
+  logo_url: string | null;
+  logo_text: string;
+  primary_color: string;
+  accent_color: string;
+  sidebar_bg: string | null;
+  header_bg: string | null;
+  custom_css: string | null;
+  nav_items: Array<{ path: string; label: string; icon: string; enabled: boolean }>;
+  footer_text: string | null;
+  show_branding: boolean;
+}
+
+function PortalDesigner() {
+  const { toast } = useToast();
+  const [settings, setSettings] = useState<PortalSettings>({
+    id: 0,
+    vendor_id: null,
+    logo_url: null,
+    logo_text: 'Smart Timing',
+    primary_color: '#3b82f6',
+    accent_color: '#8b5cf6',
+    sidebar_bg: null,
+    header_bg: null,
+    custom_css: null,
+    nav_items: [],
+    footer_text: null,
+    show_branding: true,
+  });
+
+  const { data: portalSettings, isLoading } = useQuery<PortalSettings>({
+    queryKey: ['/api/portal/settings'],
+    queryFn: () => authenticatedApiRequest('/api/portal/settings'),
+  });
+
+  useEffect(() => {
+    if (portalSettings) {
+      setSettings(portalSettings);
+    }
+  }, [portalSettings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: Partial<PortalSettings>) => {
+      return authenticatedApiRequest('/api/portal/settings', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'Portal-innstillinger er oppdatert' });
+      queryClient.invalidateQueries({ queryKey: ['/api/portal/settings'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const defaultNavItems = [
+    { path: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', enabled: true },
+    { path: '/time', label: 'Timeføring', icon: 'Clock', enabled: true },
+    { path: '/users', label: 'Brukere', icon: 'Users', enabled: true },
+    { path: '/invites', label: 'Invitasjoner', icon: 'UserPlus', enabled: true },
+    { path: '/cases', label: 'Saker', icon: 'FolderKanban', enabled: true },
+    { path: '/case-reports', label: 'Saksrapporter', icon: 'ClipboardList', enabled: true },
+    { path: '/reports', label: 'Rapporter', icon: 'FileText', enabled: true },
+    { path: '/settings', label: 'Innstillinger', icon: 'Settings', enabled: true },
+  ];
+
+  const navItems = settings.nav_items?.length > 0 ? settings.nav_items : defaultNavItems;
+
+  const toggleNavItem = (index: number) => {
+    const updated = [...navItems];
+    updated[index] = { ...updated[index], enabled: !updated[index].enabled };
+    setSettings({ ...settings, nav_items: updated });
+  };
+
+  const updateNavLabel = (index: number, label: string) => {
+    const updated = [...navItems];
+    updated[index] = { ...updated[index], label };
+    setSettings({ ...settings, nav_items: updated });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Layout className="h-5 w-5" />
+              Portal Design
+            </CardTitle>
+            <CardDescription>Tilpass utseendet på brukerportalen</CardDescription>
+          </div>
+          <Button
+            onClick={() => saveMutation.mutate(settings)}
+            disabled={saveMutation.isPending}
+            data-testid="button-save-portal"
+          >
+            {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+            Lagre endringer
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-4">
+              <h3 className="font-medium flex items-center gap-2">
+                <Type className="h-4 w-4" />
+                Logo og Branding
+              </h3>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="logo-text">Logo-tekst</Label>
+                  <Input
+                    id="logo-text"
+                    value={settings.logo_text}
+                    onChange={(e) => setSettings({ ...settings, logo_text: e.target.value })}
+                    placeholder="Bedriftsnavn"
+                    data-testid="input-portal-logo-text"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="logo-url">Logo URL (valgfritt)</Label>
+                  <Input
+                    id="logo-url"
+                    value={settings.logo_url || ''}
+                    onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
+                    placeholder="/uploads/logo.png"
+                    data-testid="input-portal-logo-url"
+                  />
+                </div>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="show-branding"
+                    checked={settings.show_branding}
+                    onChange={(e) => setSettings({ ...settings, show_branding: e.target.checked })}
+                    className="h-4 w-4"
+                    data-testid="checkbox-show-branding"
+                  />
+                  <Label htmlFor="show-branding">Vis "Powered by Smart Timing"</Label>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="font-medium flex items-center gap-2">
+                <Palette className="h-4 w-4" />
+                Farger
+              </h3>
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  <Label htmlFor="primary-color">Primærfarge</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      id="primary-color"
+                      value={settings.primary_color}
+                      onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
+                      className="h-9 w-12 rounded border cursor-pointer"
+                      data-testid="input-primary-color"
+                    />
+                    <Input
+                      value={settings.primary_color}
+                      onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
+                      placeholder="#3b82f6"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="accent-color">Aksentfarge</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      id="accent-color"
+                      value={settings.accent_color}
+                      onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
+                      className="h-9 w-12 rounded border cursor-pointer"
+                      data-testid="input-accent-color"
+                    />
+                    <Input
+                      value={settings.accent_color}
+                      onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
+                      placeholder="#8b5cf6"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="sidebar-bg">Sidebar bakgrunn (valgfritt)</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      id="sidebar-bg"
+                      value={settings.sidebar_bg || '#1f2937'}
+                      onChange={(e) => setSettings({ ...settings, sidebar_bg: e.target.value })}
+                      className="h-9 w-12 rounded border cursor-pointer"
+                      data-testid="input-sidebar-bg"
+                    />
+                    <Input
+                      value={settings.sidebar_bg || ''}
+                      onChange={(e) => setSettings({ ...settings, sidebar_bg: e.target.value })}
+                      placeholder="Standard"
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-6">
+            <h3 className="font-medium mb-4 flex items-center gap-2">
+              <Menu className="h-4 w-4" />
+              Navigasjonsmeny
+            </h3>
+            <div className="space-y-2">
+              {navItems.map((item, index) => (
+                <div key={item.path} className="flex items-center gap-3 p-3 rounded-lg border">
+                  <input
+                    type="checkbox"
+                    checked={item.enabled}
+                    onChange={() => toggleNavItem(index)}
+                    className="h-4 w-4"
+                    data-testid={`checkbox-nav-${item.path.replace('/', '')}`}
+                  />
+                  <div className="flex-1">
+                    <Input
+                      value={item.label}
+                      onChange={(e) => updateNavLabel(index, e.target.value)}
+                      className="h-8"
+                      data-testid={`input-nav-label-${index}`}
+                    />
+                  </div>
+                  <span className="text-sm text-muted-foreground font-mono">{item.path}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t pt-6">
+            <h3 className="font-medium mb-4 flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Footer
+            </h3>
+            <div className="space-y-2">
+              <Label htmlFor="footer-text">Footer-tekst</Label>
+              <Input
+                id="footer-text"
+                value={settings.footer_text || ''}
+                onChange={(e) => setSettings({ ...settings, footer_text: e.target.value })}
+                placeholder="© 2025 Bedriftsnavn. Alle rettigheter reservert."
+                data-testid="input-footer-text"
+              />
+            </div>
+          </div>
+
+          <div className="border-t pt-6">
+            <h3 className="font-medium mb-4 flex items-center gap-2">
+              <PenTool className="h-4 w-4" />
+              Egendefinert CSS (avansert)
+            </h3>
+            <Textarea
+              value={settings.custom_css || ''}
+              onChange={(e) => setSettings({ ...settings, custom_css: e.target.value })}
+              placeholder=".sidebar { background: #1a1a2e; }&#10;.header { border-bottom: 2px solid var(--primary); }"
+              className="font-mono text-sm min-h-[120px]"
+              data-testid="textarea-custom-css"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Eye className="h-5 w-5" />
+            Forhåndsvisning
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="border rounded-lg overflow-hidden">
+            <div 
+              className="flex h-12 items-center px-4 border-b"
+              style={{ backgroundColor: settings.header_bg || undefined }}
+            >
+              <div className="flex items-center gap-2">
+                {settings.logo_url ? (
+                  <img src={settings.logo_url} alt="Logo" className="h-6" />
+                ) : (
+                  <div 
+                    className="font-bold text-lg"
+                    style={{ color: settings.primary_color }}
+                  >
+                    {settings.logo_text}
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="flex">
+              <div 
+                className="w-48 p-3 space-y-1 border-r min-h-[200px]"
+                style={{ backgroundColor: settings.sidebar_bg || undefined }}
+              >
+                {navItems.filter(i => i.enabled).map((item) => (
+                  <div
+                    key={item.path}
+                    className="flex items-center gap-2 px-3 py-2 rounded text-sm"
+                    style={{ 
+                      backgroundColor: item.path === '/dashboard' ? settings.primary_color + '20' : undefined,
+                      color: item.path === '/dashboard' ? settings.primary_color : undefined
+                    }}
+                  >
+                    <LayoutDashboard className="h-4 w-4" />
+                    {item.label}
+                  </div>
+                ))}
+              </div>
+              <div className="flex-1 p-4 bg-muted/30">
+                <div className="text-muted-foreground text-sm">Innholdsområde</div>
+              </div>
+            </div>
+            {settings.footer_text && (
+              <div className="text-center text-sm text-muted-foreground py-2 border-t">
+                {settings.footer_text}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
