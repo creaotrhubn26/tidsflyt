@@ -943,6 +943,49 @@ export type InsertReportGenerated = z.infer<typeof insertReportGeneratedSchema>;
 export type ReportAsset = typeof reportAssets.$inferSelect;
 export type InsertReportAsset = z.infer<typeof insertReportAssetSchema>;
 
+// Feedback Request - Tracks when to ask for feedback
+export const feedbackRequests = pgTable("feedback_requests", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id"),
+  userId: text("user_id"),
+  requestType: text("request_type").notNull(), // 'vendor_milestone' | 'user_milestone'
+  status: text("status").default("pending"), // pending, completed, snoozed, dismissed
+  triggeredAt: timestamp("triggered_at").defaultNow(),
+  respondedAt: timestamp("responded_at"),
+  snoozedUntil: timestamp("snoozed_until"),
+  metadata: jsonb("metadata"), // Additional context
+});
+
+// Feedback Response - Actual feedback from users/vendors
+export const feedbackResponses = pgTable("feedback_responses", {
+  id: serial("id").primaryKey(),
+  requestId: integer("request_id").notNull(),
+  vendorId: integer("vendor_id"),
+  userId: text("user_id"),
+  ratingScore: integer("rating_score"), // 1-5 stars
+  npsScore: integer("nps_score"), // 0-10 NPS
+  satisfactionLabel: text("satisfaction_label"), // 'very_satisfied', 'satisfied', etc.
+  textualFeedback: text("textual_feedback"),
+  submittedAt: timestamp("submitted_at").defaultNow(),
+});
+
+// Feedback Insert Schemas
+export const insertFeedbackRequestSchema = createInsertSchema(feedbackRequests).omit({ 
+  id: true, 
+  triggeredAt: true, 
+  respondedAt: true 
+});
+export const insertFeedbackResponseSchema = createInsertSchema(feedbackResponses).omit({ 
+  id: true, 
+  submittedAt: true 
+});
+
+// Feedback Types
+export type FeedbackRequest = typeof feedbackRequests.$inferSelect;
+export type InsertFeedbackRequest = z.infer<typeof insertFeedbackRequestSchema>;
+export type FeedbackResponse = typeof feedbackResponses.$inferSelect;
+export type InsertFeedbackResponse = z.infer<typeof insertFeedbackResponseSchema>;
+
 // Legacy types for compatibility with current frontend
 export type User = {
   id: string;
