@@ -4,6 +4,21 @@ import { storage } from "./storage";
 import type { InsertTimeEntry } from "@shared/schema";
 import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
+import { z } from "zod";
+
+// Zod schema for bulk time entry validation
+const bulkTimeEntrySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (expected YYYY-MM-DD)"),
+  hours: z.number().positive("Hours must be positive").max(24, "Hours cannot exceed 24"),
+  description: z.string().min(1, "Description is required").max(500, "Description too long"),
+  caseNumber: z.string().nullable().optional(),
+});
+
+const bulkRequestSchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+  entries: z.array(bulkTimeEntrySchema).min(1, "At least one entry required").max(31, "Maximum 31 entries"),
+  overwrite: z.boolean().optional().default(false),
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -131,6 +146,109 @@ export async function registerRoutes(
       const deleted = await storage.deleteTimeEntry(req.params.id);
       if (!deleted) return res.status(404).json({ error: "Entry not found" });
       res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Bulk create time entries for a month
+  app.post("/api/time-entries/bulk", async (req, res) => {
+    try {
+      // Validate request with Zod schema
+      const parseResult = bulkRequestSchema.safeParse(req.body);
+      
+      if (!parseResult.success) {
+        const errors = parseResult.error.errors.map(e => 
+          `${e.path.join('.')}: ${e.message}`
+        );
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: errors 
+        });
+      }
+
+      const { userId, entries, overwrite } = parseResult.data;
+
+      const results = {
+        created: 0,
+        skipped: 0,
+        overwritten: 0,
+        processedDates: [] as string[],
+      };
+
+      for (const entry of entries) {
+        const { date, hours, description, caseNumber } = entry;
+
+        // Check for existing entry on this date
+        const existing = await storage.getTimeEntries({
+          userId,
+          startDate: date,
+          endDate: date,
+        });
+
+        if (existing.length > 0) {
+          if (overwrite) {
+            // Update existing entry with all relevant fields
+            await storage.updateTimeEntry(existing[0].id, {
+              description: description.trim(),
+              hours,
+              caseNumber: caseNumber || null,
+              status: 'pending',
+            });
+            results.overwritten++;
+            results.processedDates.push(date);
+          } else {
+            results.skipped++;
+          }
+        } else {
+          await storage.createTimeEntry({
+            userId,
+            caseNumber: caseNumber || null,
+            description: description.trim(),
+            hours,
+            date,
+            status: 'pending',
+            createdAt: new Date().toISOString(),
+          });
+          results.created++;
+          results.processedDates.push(date);
+        }
+      }
+
+      // Log activity
+      const totalEntries = results.created + results.overwritten;
+      if (totalEntries > 0) {
+        await storage.createActivity({
+          userId,
+          action: "bulk_time_logged",
+          description: `Bulk-registrerte ${totalEntries} dager med timer`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      res.status(201).json(results);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Check for existing entries in date range
+  app.get("/api/time-entries/check-existing", async (req, res) => {
+    try {
+      const { userId, startDate, endDate } = req.query;
+      
+      if (!userId || !startDate || !endDate) {
+        return res.status(400).json({ error: "userId, startDate, and endDate required" });
+      }
+
+      const entries = await storage.getTimeEntries({
+        userId: userId as string,
+        startDate: startDate as string,
+        endDate: endDate as string,
+      });
+
+      const existingDates = entries.map(e => e.date);
+      res.json({ existingDates });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

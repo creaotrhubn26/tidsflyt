@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X } from "lucide-react";
+import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { BulkTimeEntryModal } from "@/components/bulk-time-entry-modal";
 
 interface TimeEntry {
   id: string;
@@ -53,6 +54,7 @@ export default function TimeTrackingPage() {
   const [manualDescription, setManualDescription] = useState("");
   const [manualProject, setManualProject] = useState("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
+  const [showBulkDialog, setShowBulkDialog] = useState(false);
   
   const timerStartRef = useRef<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -345,10 +347,16 @@ export default function TimeTrackingPage() {
               Totalt: <span className="font-mono font-medium text-foreground">{formatDuration(totalToday)}</span>
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setShowManualDialog(true)} data-testid="add-manual-entry">
-            <Plus className="h-4 w-4 mr-2" />
-            Legg til manuelt
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowBulkDialog(true)} data-testid="add-bulk-entry">
+              <CalendarDays className="h-4 w-4 mr-2" />
+              Fyll ut måned
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => setShowManualDialog(true)} data-testid="add-manual-entry">
+              <Plus className="h-4 w-4 mr-2" />
+              Legg til manuelt
+            </Button>
+          </div>
         </div>
 
         <div className="space-y-3">
@@ -469,6 +477,12 @@ export default function TimeTrackingPage() {
           )}
         </div>
       </div>
+
+      <BulkTimeEntryModal
+        open={showBulkDialog}
+        onOpenChange={setShowBulkDialog}
+        userId={currentUserId}
+      />
 
       <Dialog open={showManualDialog} onOpenChange={setShowManualDialog}>
         <DialogContent>
