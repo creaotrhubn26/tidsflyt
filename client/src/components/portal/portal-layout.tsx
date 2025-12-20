@@ -1,6 +1,8 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { FeedbackDialog } from "./feedback-dialog";
 import {
   LayoutDashboard,
   Users,
@@ -69,9 +71,11 @@ const baseNavItems: NavItemBase[] = [
 interface PortalLayoutProps {
   children: ReactNode;
   user?: {
+    id?: string;
     name: string;
     email: string;
     role: string;
+    vendorId?: number;
   };
 }
 
@@ -86,10 +90,31 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const pendingCount = companyUsers.filter(u => !u.approved).length;
 
   const currentUser = user || {
+    id: "demo",
     name: "Demo Bruker",
     email: "demo@tidsflyt.no",
     role: "admin",
+    vendorId: undefined,
   };
+
+  const checkMilestoneMutation = useMutation({
+    mutationFn: async () => {
+      if (currentUser.id) {
+        const response = await apiRequest("POST", "/api/feedback/check-milestone", {
+          userId: currentUser.id,
+          vendorId: currentUser.vendorId,
+        });
+        return response.json();
+      }
+      return null;
+    },
+  });
+
+  useEffect(() => {
+    if (currentUser.id && currentUser.id !== "demo") {
+      checkMilestoneMutation.mutate();
+    }
+  }, [currentUser.id]);
 
   const navItems: NavItem[] = baseNavItems
     .filter(item => !item.roles || item.roles.includes(currentUser.role))
@@ -268,6 +293,11 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
       </div>
 
       <MobileBottomNav />
+
+      <FeedbackDialog 
+        userId={currentUser.id} 
+        vendorId={currentUser.vendorId} 
+      />
     </div>
   );
 }
