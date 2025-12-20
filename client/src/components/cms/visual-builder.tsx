@@ -821,7 +821,7 @@ function SEOPanel() {
 }
 
 function PropertiesPanel() {
-  const { selectedElement, content, setHasChanges, pushHistory } = useBuilder();
+  const { selectedElement, content, setHasChanges, pushHistory, activeToolPanel, setActiveToolPanel } = useBuilder();
   const { toast } = useToast();
   const [localData, setLocalData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'content' | 'style' | 'seo'>('content');
@@ -856,6 +856,64 @@ function PropertiesPanel() {
         setLocalData(null);
     }
   }, [selectedElement, content]);
+  
+  if (activeToolPanel) {
+    const tool = cmsTools.find(t => t.id === activeToolPanel);
+    
+    const renderToolContent = () => {
+      switch (activeToolPanel) {
+        case 'design':
+          return <DesignSystemPanel />;
+        case 'media':
+          return <MediaLibraryPanel />;
+        case 'navigation':
+          return <NavigationPanel />;
+        case 'forms':
+          return <FormsPanel />;
+        case 'blog':
+          return <BlogPanel />;
+        case 'email':
+          return <EmailPanel />;
+        case 'reports':
+          return <ReportsPanel />;
+        case 'portal':
+          return <PortalPanel />;
+        case 'analytics':
+          return <AnalyticsPanel />;
+        case 'versions':
+          return <VersionsPanel />;
+        default:
+          return <div className="p-8 text-center text-muted-foreground">Verktøy kommer snart</div>;
+      }
+    };
+    
+    return (
+      <div className="h-full border-l bg-sidebar flex flex-col">
+        <div className="flex items-center gap-2 px-3 py-2 border-b bg-sidebar shrink-0">
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            className="h-7 w-7"
+            onClick={() => setActiveToolPanel(null)}
+            data-testid="button-back-to-properties"
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          {tool && (
+            <div className="flex items-center gap-2 min-w-0">
+              <tool.icon className="h-4 w-4 text-muted-foreground shrink-0" />
+              <div className="min-w-0">
+                <p className="text-sm font-medium truncate">{tool.name}</p>
+              </div>
+            </div>
+          )}
+        </div>
+        <ScrollArea className="flex-1">
+          {renderToolContent()}
+        </ScrollArea>
+      </div>
+    );
+  }
 
   const updateHero = useMutation({
     mutationFn: (data: any) => authenticatedApiRequest('/api/cms/hero', {
@@ -1441,68 +1499,6 @@ function Toolbar() {
   );
 }
 
-interface ToolPanelOverlayProps {
-  toolId: ToolPanelId;
-  onClose: () => void;
-}
-
-function ToolPanelOverlay({ toolId, onClose }: ToolPanelOverlayProps) {
-  const { toast } = useToast();
-  const tool = cmsTools.find(t => t.id === toolId);
-  
-  if (!tool) return null;
-
-  const renderToolContent = () => {
-    switch (toolId) {
-      case 'design':
-        return <DesignSystemPanel />;
-      case 'media':
-        return <MediaLibraryPanel />;
-      case 'navigation':
-        return <NavigationPanel />;
-      case 'forms':
-        return <FormsPanel />;
-      case 'blog':
-        return <BlogPanel />;
-      case 'email':
-        return <EmailPanel />;
-      case 'reports':
-        return <ReportsPanel />;
-      case 'portal':
-        return <PortalPanel />;
-      case 'analytics':
-        return <AnalyticsPanel />;
-      case 'versions':
-        return <VersionsPanel />;
-      default:
-        return <div className="p-8 text-center text-muted-foreground">Verktøy kommer snart</div>;
-    }
-  };
-
-  return (
-    <div className="absolute inset-0 z-50 flex">
-      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative ml-auto w-[600px] max-w-[90vw] h-full bg-background border-l shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
-        <div className="flex items-center justify-between gap-4 px-4 py-3 border-b bg-sidebar">
-          <div className="flex items-center gap-3">
-            <tool.icon className="h-5 w-5 text-muted-foreground" />
-            <div>
-              <h2 className="font-semibold">{tool.name}</h2>
-              <p className="text-xs text-muted-foreground">{tool.description}</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-tool-panel">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </div>
-        <ScrollArea className="flex-1">
-          {renderToolContent()}
-        </ScrollArea>
-      </div>
-    </div>
-  );
-}
-
 function DesignSystemPanel() {
   const { toast } = useToast();
   const [colors, setColors] = useState({
@@ -1954,12 +1950,19 @@ interface VisualBuilderProps {
 }
 
 export function VisualBuilder({ onLogout }: VisualBuilderProps) {
-  const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+  const [selectedElement, setSelectedElementState] = useState<SelectedElement | null>(null);
   const [deviceMode, setDeviceMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [zoom, setZoom] = useState(100);
   const [hasChanges, setHasChanges] = useState(false);
   const [publishStatus, setPublishStatus] = useState<'draft' | 'published' | 'modified'>('published');
   const [activeToolPanel, setActiveToolPanel] = useState<ToolPanelId>(null);
+  
+  const setSelectedElement = useCallback((element: SelectedElement | null) => {
+    setSelectedElementState(element);
+    if (element) {
+      setActiveToolPanel(null);
+    }
+  }, []);
   
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -2044,7 +2047,7 @@ export function VisualBuilder({ onLogout }: VisualBuilderProps) {
         setActiveToolPanel,
       }}
     >
-      <div className="h-screen flex flex-col relative">
+      <div className="h-screen flex flex-col">
         <Toolbar />
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
@@ -2059,10 +2062,6 @@ export function VisualBuilder({ onLogout }: VisualBuilderProps) {
             <PropertiesPanel />
           </ResizablePanel>
         </ResizablePanelGroup>
-        
-        {activeToolPanel && (
-          <ToolPanelOverlay toolId={activeToolPanel} onClose={() => setActiveToolPanel(null)} />
-        )}
       </div>
     </BuilderContext.Provider>
   );
