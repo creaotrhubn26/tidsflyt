@@ -307,6 +307,63 @@ export const landingCta = pgTable("landing_cta", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// CMS: Why Tidsflyt Page - Hero Section
+export const whyPageHero = pgTable("why_page_hero", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull().default("Hvorfor velge Tidsflyt?"),
+  titleHighlight: text("title_highlight").default("Tidsflyt"),
+  subtitle: text("subtitle").default("Tidsflyt er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering."),
+  ctaPrimaryText: text("cta_primary_text").default("Prøv gratis"),
+  ctaPrimaryUrl: text("cta_primary_url").default("/login"),
+  ctaSecondaryText: text("cta_secondary_text").default("Snakk med oss"),
+  ctaSecondaryUrl: text("cta_secondary_url").default("/kontakt"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// CMS: Why Tidsflyt Page - Stats
+export const whyPageStats = pgTable("why_page_stats", {
+  id: serial("id").primaryKey(),
+  value: text("value").notNull(),
+  label: text("label").notNull(),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+});
+
+// CMS: Why Tidsflyt Page - Benefits
+export const whyPageBenefits = pgTable("why_page_benefits", {
+  id: serial("id").primaryKey(),
+  icon: text("icon").notNull().default("Clock"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+});
+
+// CMS: Why Tidsflyt Page - Features
+export const whyPageFeatures = pgTable("why_page_features", {
+  id: serial("id").primaryKey(),
+  icon: text("icon").notNull().default("Smartphone"),
+  title: text("title").notNull(),
+  description: text("description").notNull(),
+  displayOrder: integer("display_order").default(0),
+  isActive: boolean("is_active").default(true),
+});
+
+// CMS: Why Tidsflyt Page - Content Sections
+export const whyPageContent = pgTable("why_page_content", {
+  id: serial("id").primaryKey(),
+  sectionId: text("section_id").notNull().unique(), // e.g., "nordic", "trust", "cta"
+  title: text("title").notNull(),
+  subtitle: text("subtitle"),
+  bulletPoints: text("bullet_points").array(), // For lists like Norwegian features
+  ctaTitle: text("cta_title"),
+  ctaSubtitle: text("cta_subtitle"),
+  ctaButtonText: text("cta_button_text"),
+  ctaButtonUrl: text("cta_button_url"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Design Tokens - Global design system settings
 export const designTokens = pgTable("design_tokens", {
   id: serial("id").primaryKey(),
@@ -550,6 +607,13 @@ export const insertLandingFeatureSchema = createInsertSchema(landingFeatures).om
 export const insertLandingTestimonialSchema = createInsertSchema(landingTestimonials).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertLandingCtaSchema = createInsertSchema(landingCta).omit({ id: true, updatedAt: true });
 
+// Why Page Insert schemas
+export const insertWhyPageHeroSchema = createInsertSchema(whyPageHero).omit({ id: true, updatedAt: true });
+export const insertWhyPageStatSchema = createInsertSchema(whyPageStats).omit({ id: true });
+export const insertWhyPageBenefitSchema = createInsertSchema(whyPageBenefits).omit({ id: true });
+export const insertWhyPageFeatureSchema = createInsertSchema(whyPageFeatures).omit({ id: true });
+export const insertWhyPageContentSchema = createInsertSchema(whyPageContent).omit({ id: true, updatedAt: true });
+
 // Case Reports Insert schema
 export const insertCaseReportSchema = createInsertSchema(caseReports).omit({ id: true, createdAt: true, updatedAt: true, rejectedAt: true, approvedAt: true });
 
@@ -722,6 +786,18 @@ export type LandingTestimonial = typeof landingTestimonials.$inferSelect;
 export type InsertLandingTestimonial = z.infer<typeof insertLandingTestimonialSchema>;
 export type LandingCta = typeof landingCta.$inferSelect;
 export type InsertLandingCta = z.infer<typeof insertLandingCtaSchema>;
+
+// Why Page Types
+export type WhyPageHero = typeof whyPageHero.$inferSelect;
+export type InsertWhyPageHero = z.infer<typeof insertWhyPageHeroSchema>;
+export type WhyPageStat = typeof whyPageStats.$inferSelect;
+export type InsertWhyPageStat = z.infer<typeof insertWhyPageStatSchema>;
+export type WhyPageBenefit = typeof whyPageBenefits.$inferSelect;
+export type InsertWhyPageBenefit = z.infer<typeof insertWhyPageBenefitSchema>;
+export type WhyPageFeature = typeof whyPageFeatures.$inferSelect;
+export type InsertWhyPageFeature = z.infer<typeof insertWhyPageFeatureSchema>;
+export type WhyPageContent = typeof whyPageContent.$inferSelect;
+export type InsertWhyPageContent = z.infer<typeof insertWhyPageContentSchema>;
 
 // Case Reports Types
 export type CaseReport = typeof caseReports.$inferSelect;
