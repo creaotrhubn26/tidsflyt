@@ -5,6 +5,10 @@ import type { InsertTimeEntry } from "@shared/schema";
 import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
 import vendorApi from "./vendor-api";
+import { generateApiKey } from "./api-middleware";
+import { db } from "./db";
+import { apiKeys, vendors } from "@shared/schema";
+import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 // Zod schema for bulk time entry validation
@@ -43,6 +47,110 @@ export async function registerRoutes(
   
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
+
+  // Vendor API management routes (for admin UI)
+  app.get("/api/vendor/api-status", async (req, res) => {
+    try {
+      // For now, return mock data - in production this would be based on authenticated vendor
+      const vendorId = 1;
+      const [vendor] = await db
+        .select({
+          apiAccessEnabled: vendors.apiAccessEnabled,
+          apiSubscriptionStart: vendors.apiSubscriptionStart,
+          apiSubscriptionEnd: vendors.apiSubscriptionEnd,
+          apiMonthlyPrice: vendors.apiMonthlyPrice,
+        })
+        .from(vendors)
+        .where(eq(vendors.id, vendorId))
+        .limit(1);
+      
+      res.json(vendor || {
+        apiAccessEnabled: false,
+        apiSubscriptionStart: null,
+        apiSubscriptionEnd: null,
+        apiMonthlyPrice: "99.00",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/vendor/api-keys", async (req, res) => {
+    try {
+      const vendorId = 1;
+      const keys = await db
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.vendorId, vendorId), isNull(apiKeys.revokedAt)));
+      res.json(keys);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/vendor/api-keys", async (req, res) => {
+    try {
+      const vendorId = 1;
+      const { name, permissions } = req.body;
+      
+      if (!name) {
+        return res.status(400).json({ error: "Name is required" });
+      }
+      
+      const { key, prefix, hash } = generateApiKey();
+      
+      await db.insert(apiKeys).values({
+        vendorId,
+        name,
+        keyPrefix: prefix,
+        keyHash: hash,
+        permissions: permissions || ["read:time_entries"],
+        rateLimit: 60,
+        isActive: true,
+      });
+      
+      res.json({ key, prefix });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/vendor/api-keys/:id", async (req, res) => {
+    try {
+      const keyId = parseInt(req.params.id);
+      
+      await db
+        .update(apiKeys)
+        .set({ isActive: false, revokedAt: new Date() })
+        .where(eq(apiKeys.id, keyId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/vendor/enable-api", async (req, res) => {
+    try {
+      const vendorId = 1;
+      const now = new Date();
+      const oneYearFromNow = new Date();
+      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+      
+      await db
+        .update(vendors)
+        .set({
+          apiAccessEnabled: true,
+          apiSubscriptionStart: now,
+          apiSubscriptionEnd: oneYearFromNow,
+        })
+        .where(eq(vendors.id, vendorId));
+      
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
   
   app.get("/api/github/repos", async (req, res) => {
     try {

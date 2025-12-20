@@ -18,6 +18,8 @@ import Contact from "@/pages/contact";
 import Privacy from "@/pages/privacy";
 import Terms from "@/pages/terms";
 import AdminCaseReviews from "@/pages/admin-case-reviews";
+import ApiDocs from "@/pages/api-docs";
+import VendorApiAdmin from "@/pages/vendor-api-admin";
 
 function Router() {
   return (
@@ -38,6 +40,8 @@ function Router() {
       <Route path="/kontakt" component={Contact} />
       <Route path="/personvern" component={Privacy} />
       <Route path="/vilkar" component={Terms} />
+      <Route path="/api-docs" component={ApiDocs} />
+      <Route path="/vendor/api" component={VendorApiAdmin} />
       <Route component={NotFound} />
     </Switch>
   );
