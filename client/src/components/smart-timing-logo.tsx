@@ -58,7 +58,7 @@ export function SmartTimingLogo({
   const sizes = {
     sm: { icon: 24, text: "text-sm" },
     md: { icon: 32, text: "text-lg" },
-    lg: { icon: 40, text: "text-xl" },
+    lg: { icon: 64, text: "text-2xl" },
   };
 
   const s = sizes[size];
