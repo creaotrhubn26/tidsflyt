@@ -481,28 +481,34 @@ export default function LandingPage() {
       }
       if (designTokens.muted_color) {
         root.style.setProperty('--muted', hexToHSL(designTokens.muted_color));
+        root.style.setProperty('--muted-foreground', hexToHSL(designTokens.muted_color));
       }
       if (designTokens.border_color) {
         root.style.setProperty('--border', hexToHSL(designTokens.border_color));
       }
+      if (designTokens.background_color) {
+        root.style.setProperty('--background', hexToHSL(designTokens.background_color));
+      }
+      if (designTokens.surface_color) {
+        root.style.setProperty('--card', hexToHSL(designTokens.surface_color));
+      }
+      if (designTokens.text_color) {
+        root.style.setProperty('--foreground', hexToHSL(designTokens.text_color));
+        root.style.setProperty('--card-foreground', hexToHSL(designTokens.text_color));
+      }
       if (designTokens.font_family) {
-        root.style.setProperty('--font-sans', designTokens.font_family);
+        root.style.setProperty('--font-sans', designTokens.font_family + ', system-ui, sans-serif');
       }
       if (designTokens.border_radius_md) {
         root.style.setProperty('--radius', designTokens.border_radius_md);
       }
+      if (designTokens.shadow_md) {
+        root.style.setProperty('--shadow-md', designTokens.shadow_md);
+      }
+      if (designTokens.shadow_lg) {
+        root.style.setProperty('--shadow-lg', designTokens.shadow_lg);
+      }
     }
-    
-    return () => {
-      const root = document.documentElement;
-      root.style.removeProperty('--primary');
-      root.style.removeProperty('--accent');
-      root.style.removeProperty('--secondary');
-      root.style.removeProperty('--muted');
-      root.style.removeProperty('--border');
-      root.style.removeProperty('--font-sans');
-      root.style.removeProperty('--radius');
-    };
   }, [designTokens]);
 
   const hero = content?.hero || defaultHero;
