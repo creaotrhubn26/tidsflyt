@@ -70,7 +70,7 @@ export function SmartTimingLogo({
         <div className="flex flex-col">
           <span className={cn("font-bold text-foreground", s.text)}>Tidsflyt</span>
           {size === "lg" && (
-            <span className="text-xs text-muted-foreground">Timeføring for profesjonelle</span>
+            <span className="text-xs text-muted-foreground mt-1">Timeføring for profesjonelle</span>
           )}
         </div>
       )}
