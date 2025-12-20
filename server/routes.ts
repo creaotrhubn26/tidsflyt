@@ -4,6 +4,7 @@ import { storage } from "./storage";
 import type { InsertTimeEntry } from "@shared/schema";
 import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
+import vendorApi from "./vendor-api";
 import { z } from "zod";
 
 // Zod schema for bulk time entry validation
@@ -39,6 +40,9 @@ export async function registerRoutes(
   
   // Register Smart Timing API routes
   registerSmartTimingRoutes(app);
+  
+  // Register Vendor API routes (v1)
+  app.use("/api/v1/vendor", vendorApi);
   
   app.get("/api/github/repos", async (req, res) => {
     try {
