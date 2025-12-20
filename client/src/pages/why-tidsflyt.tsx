@@ -115,7 +115,7 @@ const defaultHero = {
 
 const defaultNordicContent = {
   title: "Bygget for norske forhold",
-  subtitle: "Mange tidsregistreringssystemer er laget for det amerikanske markedet. Tidsflyt er annerledes - vi har bygget en løsning som forstår norsk arbeidsliv.",
+  subtitle: "Tidsflyt er utviklet spesielt for norske bedrifter - med full forståelse for norsk arbeidsliv, lovverk og kultur.",
   bullet_points: [
     "Norske helligdager og røde dager innebygd",
     "Støtte for norsk ferielov og avspasering",
