@@ -64,10 +64,10 @@ export function SmartTimingLogo({
   const s = sizes[size];
 
   return (
-    <div className={cn("flex items-center gap-3", className)}>
+    <div className={cn("flex items-center gap-3", size === "lg" ? "flex-col gap-2" : "", className)}>
       <MiniPocketWatch size={s.icon} />
       {showText && !collapsed && (
-        <div className="flex flex-col">
+        <div className={cn("flex flex-col", size === "lg" ? "items-center" : "")}>
           <span className={cn("font-bold text-foreground", s.text)}>Tidsflyt</span>
           {size === "lg" && (
             <span className="text-xs text-muted-foreground mt-1">Timeføring for profesjonelle</span>
