@@ -15,6 +15,7 @@ import {
   X, ChevronRight, ChevronDown, Bell, Gift, Award, Target, Briefcase, Building,
   Globe, MapPin, Send, MessageCircle, ThumbsUp, Bookmark, Tag, FileText, BarChart3,
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
+  Palette, Type, Box, Layers, RefreshCw,
   type LucideIcon
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -473,12 +474,13 @@ export default function CMSPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-6 mb-6" data-testid="cms-tabs">
+        <TabsList className="grid w-full grid-cols-7 mb-6" data-testid="cms-tabs">
           <TabsTrigger value="hero" data-testid="tab-hero">Hero</TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">Funksjoner</TabsTrigger>
           <TabsTrigger value="testimonials" data-testid="tab-testimonials">Referanser</TabsTrigger>
           <TabsTrigger value="partners" data-testid="tab-partners">Partnere</TabsTrigger>
           <TabsTrigger value="sections" data-testid="tab-sections">Seksjoner</TabsTrigger>
+          <TabsTrigger value="design" data-testid="tab-design">Design</TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
         </TabsList>
 
@@ -500,6 +502,10 @@ export default function CMSPage() {
 
         <TabsContent value="sections">
           <SectionsEditor sections={content?.sections || null} />
+        </TabsContent>
+
+        <TabsContent value="design">
+          <DesignEditor />
         </TabsContent>
 
         <TabsContent value="activity">
@@ -1773,5 +1779,840 @@ function ActivityLogViewer() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+interface DesignTokens {
+  id?: number;
+  name?: string;
+  primary_color?: string;
+  primary_color_light?: string;
+  primary_color_dark?: string;
+  secondary_color?: string;
+  accent_color?: string;
+  background_color?: string;
+  background_color_dark?: string;
+  surface_color?: string;
+  surface_color_dark?: string;
+  text_color?: string;
+  text_color_dark?: string;
+  muted_color?: string;
+  border_color?: string;
+  font_family?: string;
+  font_family_heading?: string;
+  font_size_base?: string;
+  font_size_scale?: string;
+  line_height_base?: string;
+  line_height_heading?: string;
+  font_weight_normal?: string;
+  font_weight_medium?: string;
+  font_weight_bold?: string;
+  letter_spacing?: string;
+  letter_spacing_heading?: string;
+  spacing_unit?: string;
+  spacing_xs?: string;
+  spacing_sm?: string;
+  spacing_md?: string;
+  spacing_lg?: string;
+  spacing_xl?: string;
+  spacing_2xl?: string;
+  spacing_3xl?: string;
+  border_radius_none?: string;
+  border_radius_sm?: string;
+  border_radius_md?: string;
+  border_radius_lg?: string;
+  border_radius_xl?: string;
+  border_radius_full?: string;
+  border_width?: string;
+  shadow_none?: string;
+  shadow_sm?: string;
+  shadow_md?: string;
+  shadow_lg?: string;
+  shadow_xl?: string;
+  animation_duration?: string;
+  animation_duration_slow?: string;
+  animation_duration_fast?: string;
+  animation_easing?: string;
+  enable_animations?: boolean;
+  enable_hover_effects?: boolean;
+  container_max_width?: string;
+  container_padding?: string;
+}
+
+interface DesignPreset {
+  id: number;
+  name: string;
+  description: string | null;
+  thumbnail: string | null;
+  tokens: DesignTokens;
+  section_settings: Record<string, any> | null;
+  is_built_in: boolean;
+}
+
+const defaultTokens: DesignTokens = {
+  primary_color: '#2563eb',
+  primary_color_light: '#3b82f6',
+  primary_color_dark: '#1d4ed8',
+  secondary_color: '#64748b',
+  accent_color: '#06b6d4',
+  background_color: '#ffffff',
+  background_color_dark: '#0f172a',
+  surface_color: '#f8fafc',
+  surface_color_dark: '#1e293b',
+  text_color: '#0f172a',
+  text_color_dark: '#f8fafc',
+  muted_color: '#64748b',
+  border_color: '#e2e8f0',
+  font_family: 'Inter',
+  font_family_heading: 'Inter',
+  font_size_base: '16px',
+  font_size_scale: '1.25',
+  line_height_base: '1.5',
+  line_height_heading: '1.2',
+  font_weight_normal: '400',
+  font_weight_medium: '500',
+  font_weight_bold: '700',
+  letter_spacing: '0',
+  letter_spacing_heading: '-0.02em',
+  spacing_xs: '4px',
+  spacing_sm: '8px',
+  spacing_md: '16px',
+  spacing_lg: '24px',
+  spacing_xl: '32px',
+  spacing_2xl: '48px',
+  spacing_3xl: '64px',
+  border_radius_sm: '4px',
+  border_radius_md: '8px',
+  border_radius_lg: '12px',
+  border_radius_xl: '16px',
+  border_radius_full: '9999px',
+  border_width: '1px',
+  shadow_sm: '0 1px 2px 0 rgb(0 0 0 / 0.05)',
+  shadow_md: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+  shadow_lg: '0 10px 15px -3px rgb(0 0 0 / 0.1)',
+  shadow_xl: '0 20px 25px -5px rgb(0 0 0 / 0.1)',
+  animation_duration: '200ms',
+  animation_duration_slow: '400ms',
+  animation_duration_fast: '100ms',
+  animation_easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+  enable_animations: true,
+  enable_hover_effects: true,
+  container_max_width: '1280px',
+  container_padding: '16px',
+};
+
+const builtInPresets: Omit<DesignPreset, 'id'>[] = [
+  {
+    name: 'Standard Blå',
+    description: 'Profesjonell blå fargepalett for bedriftsnettsteder',
+    thumbnail: null,
+    is_built_in: true,
+    tokens: { ...defaultTokens },
+    section_settings: null,
+  },
+  {
+    name: 'Mørk Elegant',
+    description: 'Mørkt tema med lilla aksenter',
+    thumbnail: null,
+    is_built_in: true,
+    tokens: {
+      ...defaultTokens,
+      primary_color: '#8b5cf6',
+      primary_color_light: '#a78bfa',
+      primary_color_dark: '#7c3aed',
+      accent_color: '#f472b6',
+      background_color: '#1a1a2e',
+      surface_color: '#16213e',
+      text_color: '#e2e8f0',
+      muted_color: '#94a3b8',
+      border_color: '#334155',
+    },
+    section_settings: null,
+  },
+  {
+    name: 'Frisk Grønn',
+    description: 'Naturlig grønn palett for miljøbevisste merkevarer',
+    thumbnail: null,
+    is_built_in: true,
+    tokens: {
+      ...defaultTokens,
+      primary_color: '#059669',
+      primary_color_light: '#10b981',
+      primary_color_dark: '#047857',
+      accent_color: '#84cc16',
+      secondary_color: '#6b7280',
+    },
+    section_settings: null,
+  },
+  {
+    name: 'Varm Oransje',
+    description: 'Energisk oransje tema for kreative prosjekter',
+    thumbnail: null,
+    is_built_in: true,
+    tokens: {
+      ...defaultTokens,
+      primary_color: '#ea580c',
+      primary_color_light: '#f97316',
+      primary_color_dark: '#c2410c',
+      accent_color: '#fbbf24',
+      secondary_color: '#78716c',
+    },
+    section_settings: null,
+  },
+];
+
+function ColorPicker({ value, onChange, label }: { value: string; onChange: (val: string) => void; label: string }) {
+  return (
+    <div className="flex items-center gap-3">
+      <div 
+        className="w-10 h-10 rounded-md border cursor-pointer relative overflow-hidden"
+        style={{ backgroundColor: value }}
+      >
+        <input
+          type="color"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+          data-testid={`color-picker-${label.toLowerCase().replace(/\s/g, '-')}`}
+        />
+      </div>
+      <div className="flex-1">
+        <Label className="text-xs text-muted-foreground">{label}</Label>
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 text-xs font-mono"
+          data-testid={`color-input-${label.toLowerCase().replace(/\s/g, '-')}`}
+        />
+      </div>
+    </div>
+  );
+}
+
+function DesignEditor() {
+  const { toast } = useToast();
+  const [activeSection, setActiveSection] = useState("colors");
+  const [tokens, setTokens] = useState<DesignTokens>(defaultTokens);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  const { data: savedTokens, isLoading } = useQuery<DesignTokens | null>({
+    queryKey: ['/api/cms/design-tokens'],
+  });
+
+  const { data: presets } = useQuery<DesignPreset[]>({
+    queryKey: ['/api/cms/design-presets'],
+  });
+
+  useEffect(() => {
+    if (savedTokens) {
+      setTokens({ ...defaultTokens, ...savedTokens });
+    }
+  }, [savedTokens]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: DesignTokens) => {
+      return authenticatedApiRequest('/api/cms/design-tokens', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'Design-tokens er oppdatert' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/design-tokens'] });
+      setHasChanges(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Feil', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const applyPresetMutation = useMutation({
+    mutationFn: async (presetId: number) => {
+      return authenticatedApiRequest(`/api/cms/design-presets/${presetId}/apply`, {
+        method: 'POST',
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Tema brukt', description: 'Design-preset er aktivert' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/design-tokens'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/section-design'] });
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Feil', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const updateToken = (key: keyof DesignTokens, value: string | boolean) => {
+    setTokens(prev => ({ ...prev, [key]: value }));
+    setHasChanges(true);
+  };
+
+  const handleSave = () => {
+    saveMutation.mutate(tokens);
+  };
+
+  const handleApplyBuiltInPreset = (preset: Omit<DesignPreset, 'id'>) => {
+    setTokens({ ...defaultTokens, ...preset.tokens });
+    setHasChanges(true);
+    toast({ title: 'Tema lastet', description: `${preset.name} er lastet inn. Klikk Lagre for å bruke.` });
+  };
+
+  if (isLoading) {
+    return (
+      <Card>
+        <CardContent className="flex items-center justify-center py-12">
+          <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <Palette className="h-5 w-5" />
+              Design System
+            </CardTitle>
+            <CardDescription>
+              Tilpass farger, typografi, mellomrom og andre designelementer
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            {hasChanges && (
+              <span className="text-sm text-amber-600 dark:text-amber-400">Ulagrede endringer</span>
+            )}
+            <Button 
+              onClick={handleSave} 
+              disabled={saveMutation.isPending || !hasChanges}
+              data-testid="button-save-design"
+            >
+              {saveMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4 mr-2" />
+              )}
+              Lagre design
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeSection} onValueChange={setActiveSection}>
+            <TabsList className="grid w-full grid-cols-5 mb-6">
+              <TabsTrigger value="presets" data-testid="tab-design-presets">
+                <Layers className="h-4 w-4 mr-2" />
+                Temaer
+              </TabsTrigger>
+              <TabsTrigger value="colors" data-testid="tab-design-colors">
+                <Palette className="h-4 w-4 mr-2" />
+                Farger
+              </TabsTrigger>
+              <TabsTrigger value="typography" data-testid="tab-design-typography">
+                <Type className="h-4 w-4 mr-2" />
+                Typografi
+              </TabsTrigger>
+              <TabsTrigger value="spacing" data-testid="tab-design-spacing">
+                <Box className="h-4 w-4 mr-2" />
+                Mellomrom
+              </TabsTrigger>
+              <TabsTrigger value="effects" data-testid="tab-design-effects">
+                <Sparkles className="h-4 w-4 mr-2" />
+                Effekter
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="presets" className="space-y-6">
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Ferdiglagde temaer</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  {builtInPresets.map((preset, index) => (
+                    <Card 
+                      key={index} 
+                      className="cursor-pointer hover-elevate transition-all"
+                      onClick={() => handleApplyBuiltInPreset(preset)}
+                      data-testid={`preset-card-${index}`}
+                    >
+                      <CardContent className="p-4">
+                        <div 
+                          className="h-20 rounded-md mb-3 flex items-end p-2"
+                          style={{ 
+                            background: `linear-gradient(135deg, ${preset.tokens.primary_color} 0%, ${preset.tokens.primary_color_dark} 100%)` 
+                          }}
+                        >
+                          <div className="flex gap-1">
+                            <div className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: preset.tokens.accent_color }} />
+                            <div className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: preset.tokens.secondary_color }} />
+                          </div>
+                        </div>
+                        <h4 className="font-medium text-sm">{preset.name}</h4>
+                        <p className="text-xs text-muted-foreground mt-1">{preset.description}</p>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+
+              {presets && presets.length > 0 && (
+                <div>
+                  <h3 className="text-lg font-semibold mb-4">Lagrede temaer</h3>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    {presets.map((preset) => (
+                      <Card 
+                        key={preset.id} 
+                        className="cursor-pointer hover-elevate transition-all"
+                        onClick={() => applyPresetMutation.mutate(preset.id)}
+                        data-testid={`saved-preset-${preset.id}`}
+                      >
+                        <CardContent className="p-4">
+                          <div 
+                            className="h-20 rounded-md mb-3"
+                            style={{ 
+                              background: `linear-gradient(135deg, ${preset.tokens.primary_color || '#2563eb'} 0%, ${preset.tokens.primary_color_dark || '#1d4ed8'} 100%)` 
+                            }}
+                          />
+                          <h4 className="font-medium text-sm">{preset.name}</h4>
+                          {preset.description && (
+                            <p className="text-xs text-muted-foreground mt-1">{preset.description}</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="colors" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Primærfarger</h3>
+                  <ColorPicker 
+                    label="Primærfarge" 
+                    value={tokens.primary_color || '#2563eb'} 
+                    onChange={(v) => updateToken('primary_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Primær lys" 
+                    value={tokens.primary_color_light || '#3b82f6'} 
+                    onChange={(v) => updateToken('primary_color_light', v)} 
+                  />
+                  <ColorPicker 
+                    label="Primær mørk" 
+                    value={tokens.primary_color_dark || '#1d4ed8'} 
+                    onChange={(v) => updateToken('primary_color_dark', v)} 
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Sekundærfarger</h3>
+                  <ColorPicker 
+                    label="Sekundærfarge" 
+                    value={tokens.secondary_color || '#64748b'} 
+                    onChange={(v) => updateToken('secondary_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Aksentfarge" 
+                    value={tokens.accent_color || '#06b6d4'} 
+                    onChange={(v) => updateToken('accent_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Dempet farge" 
+                    value={tokens.muted_color || '#64748b'} 
+                    onChange={(v) => updateToken('muted_color', v)} 
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Bakgrunnsfarger</h3>
+                  <ColorPicker 
+                    label="Bakgrunn (lys)" 
+                    value={tokens.background_color || '#ffffff'} 
+                    onChange={(v) => updateToken('background_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Bakgrunn (mørk)" 
+                    value={tokens.background_color_dark || '#0f172a'} 
+                    onChange={(v) => updateToken('background_color_dark', v)} 
+                  />
+                  <ColorPicker 
+                    label="Overflate (lys)" 
+                    value={tokens.surface_color || '#f8fafc'} 
+                    onChange={(v) => updateToken('surface_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Overflate (mørk)" 
+                    value={tokens.surface_color_dark || '#1e293b'} 
+                    onChange={(v) => updateToken('surface_color_dark', v)} 
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Tekstfarger</h3>
+                  <ColorPicker 
+                    label="Tekst (lys modus)" 
+                    value={tokens.text_color || '#0f172a'} 
+                    onChange={(v) => updateToken('text_color', v)} 
+                  />
+                  <ColorPicker 
+                    label="Tekst (mørk modus)" 
+                    value={tokens.text_color_dark || '#f8fafc'} 
+                    onChange={(v) => updateToken('text_color_dark', v)} 
+                  />
+                  <ColorPicker 
+                    label="Kantfarge" 
+                    value={tokens.border_color || '#e2e8f0'} 
+                    onChange={(v) => updateToken('border_color', v)} 
+                  />
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="typography" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Skrifttyper</h3>
+                  <div>
+                    <Label>Brødtekst font</Label>
+                    <select
+                      value={tokens.font_family || 'Inter'}
+                      onChange={(e) => updateToken('font_family', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-font-family"
+                    >
+                      <option value="Inter">Inter</option>
+                      <option value="system-ui">System UI</option>
+                      <option value="Arial">Arial</option>
+                      <option value="Helvetica">Helvetica</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Overskrift font</Label>
+                    <select
+                      value={tokens.font_family_heading || 'Inter'}
+                      onChange={(e) => updateToken('font_family_heading', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-font-heading"
+                    >
+                      <option value="Inter">Inter</option>
+                      <option value="system-ui">System UI</option>
+                      <option value="Arial">Arial</option>
+                      <option value="Helvetica">Helvetica</option>
+                      <option value="Georgia">Georgia</option>
+                      <option value="Times New Roman">Times New Roman</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Størrelser</h3>
+                  <div>
+                    <Label>Basis skriftstørrelse</Label>
+                    <Input
+                      value={tokens.font_size_base || '16px'}
+                      onChange={(e) => updateToken('font_size_base', e.target.value)}
+                      placeholder="16px"
+                      data-testid="input-font-size-base"
+                    />
+                  </div>
+                  <div>
+                    <Label>Størrelsesskala (ratio)</Label>
+                    <select
+                      value={tokens.font_size_scale || '1.25'}
+                      onChange={(e) => updateToken('font_size_scale', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-font-scale"
+                    >
+                      <option value="1.125">Minor Second (1.125)</option>
+                      <option value="1.2">Minor Third (1.2)</option>
+                      <option value="1.25">Major Third (1.25)</option>
+                      <option value="1.333">Perfect Fourth (1.333)</option>
+                      <option value="1.5">Perfect Fifth (1.5)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Linjehøyde</h3>
+                  <div>
+                    <Label>Brødtekst linjehøyde</Label>
+                    <Input
+                      value={tokens.line_height_base || '1.5'}
+                      onChange={(e) => updateToken('line_height_base', e.target.value)}
+                      placeholder="1.5"
+                      data-testid="input-line-height-base"
+                    />
+                  </div>
+                  <div>
+                    <Label>Overskrift linjehøyde</Label>
+                    <Input
+                      value={tokens.line_height_heading || '1.2'}
+                      onChange={(e) => updateToken('line_height_heading', e.target.value)}
+                      placeholder="1.2"
+                      data-testid="input-line-height-heading"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Vekter</h3>
+                  <div>
+                    <Label>Normal vekt</Label>
+                    <select
+                      value={tokens.font_weight_normal || '400'}
+                      onChange={(e) => updateToken('font_weight_normal', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-weight-normal"
+                    >
+                      <option value="300">Light (300)</option>
+                      <option value="400">Normal (400)</option>
+                      <option value="500">Medium (500)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Halvfet vekt</Label>
+                    <select
+                      value={tokens.font_weight_medium || '500'}
+                      onChange={(e) => updateToken('font_weight_medium', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-weight-medium"
+                    >
+                      <option value="500">Medium (500)</option>
+                      <option value="600">Semi-bold (600)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <Label>Fet vekt</Label>
+                    <select
+                      value={tokens.font_weight_bold || '700'}
+                      onChange={(e) => updateToken('font_weight_bold', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-weight-bold"
+                    >
+                      <option value="600">Semi-bold (600)</option>
+                      <option value="700">Bold (700)</option>
+                      <option value="800">Extra-bold (800)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="spacing" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Mellomrom-skala</h3>
+                  <div className="space-y-3">
+                    {[
+                      { key: 'spacing_xs', label: 'XS (ekstra liten)' },
+                      { key: 'spacing_sm', label: 'SM (liten)' },
+                      { key: 'spacing_md', label: 'MD (medium)' },
+                      { key: 'spacing_lg', label: 'LG (stor)' },
+                      { key: 'spacing_xl', label: 'XL (ekstra stor)' },
+                      { key: 'spacing_2xl', label: '2XL' },
+                      { key: 'spacing_3xl', label: '3XL' },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-3">
+                        <div 
+                          className="bg-primary/20 rounded" 
+                          style={{ 
+                            width: tokens[key as keyof DesignTokens] as string || '8px', 
+                            height: '24px' 
+                          }} 
+                        />
+                        <div className="flex-1">
+                          <Label className="text-xs">{label}</Label>
+                          <Input
+                            value={(tokens[key as keyof DesignTokens] as string) || ''}
+                            onChange={(e) => updateToken(key as keyof DesignTokens, e.target.value)}
+                            placeholder="8px"
+                            className="h-8"
+                            data-testid={`input-${key}`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Avrunding (Border Radius)</h3>
+                  <div className="space-y-3">
+                    {[
+                      { key: 'border_radius_sm', label: 'SM (liten)' },
+                      { key: 'border_radius_md', label: 'MD (medium)' },
+                      { key: 'border_radius_lg', label: 'LG (stor)' },
+                      { key: 'border_radius_xl', label: 'XL (ekstra stor)' },
+                      { key: 'border_radius_full', label: 'Full (sirkel)' },
+                    ].map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-3">
+                        <div 
+                          className="w-10 h-10 bg-primary/20 border border-primary/40"
+                          style={{ 
+                            borderRadius: (tokens[key as keyof DesignTokens] as string) || '4px'
+                          }} 
+                        />
+                        <div className="flex-1">
+                          <Label className="text-xs">{label}</Label>
+                          <Input
+                            value={(tokens[key as keyof DesignTokens] as string) || ''}
+                            onChange={(e) => updateToken(key as keyof DesignTokens, e.target.value)}
+                            placeholder="8px"
+                            className="h-8"
+                            data-testid={`input-${key}`}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mt-6">Container</h3>
+                  <div>
+                    <Label>Maks bredde</Label>
+                    <Input
+                      value={tokens.container_max_width || '1280px'}
+                      onChange={(e) => updateToken('container_max_width', e.target.value)}
+                      placeholder="1280px"
+                      data-testid="input-container-max-width"
+                    />
+                  </div>
+                  <div>
+                    <Label>Padding</Label>
+                    <Input
+                      value={tokens.container_padding || '16px'}
+                      onChange={(e) => updateToken('container_padding', e.target.value)}
+                      placeholder="16px"
+                      data-testid="input-container-padding"
+                    />
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="effects" className="space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Skygger</h3>
+                  {[
+                    { key: 'shadow_sm', label: 'Liten skygge' },
+                    { key: 'shadow_md', label: 'Medium skygge' },
+                    { key: 'shadow_lg', label: 'Stor skygge' },
+                    { key: 'shadow_xl', label: 'Ekstra stor skygge' },
+                  ].map(({ key, label }) => (
+                    <div key={key}>
+                      <Label className="text-xs">{label}</Label>
+                      <div className="flex gap-3 items-center">
+                        <div 
+                          className="w-16 h-10 bg-card rounded-md"
+                          style={{ boxShadow: (tokens[key as keyof DesignTokens] as string) || 'none' }}
+                        />
+                        <Input
+                          value={(tokens[key as keyof DesignTokens] as string) || ''}
+                          onChange={(e) => updateToken(key as keyof DesignTokens, e.target.value)}
+                          className="flex-1 text-xs font-mono"
+                          data-testid={`input-${key}`}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-4">
+                  <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Animasjoner</h3>
+                  <div>
+                    <Label>Standard varighet</Label>
+                    <Input
+                      value={tokens.animation_duration || '200ms'}
+                      onChange={(e) => updateToken('animation_duration', e.target.value)}
+                      placeholder="200ms"
+                      data-testid="input-animation-duration"
+                    />
+                  </div>
+                  <div>
+                    <Label>Rask varighet</Label>
+                    <Input
+                      value={tokens.animation_duration_fast || '100ms'}
+                      onChange={(e) => updateToken('animation_duration_fast', e.target.value)}
+                      placeholder="100ms"
+                      data-testid="input-animation-fast"
+                    />
+                  </div>
+                  <div>
+                    <Label>Langsom varighet</Label>
+                    <Input
+                      value={tokens.animation_duration_slow || '400ms'}
+                      onChange={(e) => updateToken('animation_duration_slow', e.target.value)}
+                      placeholder="400ms"
+                      data-testid="input-animation-slow"
+                    />
+                  </div>
+                  <div>
+                    <Label>Easing funksjon</Label>
+                    <select
+                      value={tokens.animation_easing || 'cubic-bezier(0.4, 0, 0.2, 1)'}
+                      onChange={(e) => updateToken('animation_easing', e.target.value)}
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      data-testid="select-animation-easing"
+                    >
+                      <option value="linear">Linear</option>
+                      <option value="ease">Ease</option>
+                      <option value="ease-in">Ease In</option>
+                      <option value="ease-out">Ease Out</option>
+                      <option value="ease-in-out">Ease In Out</option>
+                      <option value="cubic-bezier(0.4, 0, 0.2, 1)">Standard (Material)</option>
+                    </select>
+                  </div>
+
+                  <div className="flex items-center justify-between pt-4 border-t">
+                    <div>
+                      <Label>Aktiver animasjoner</Label>
+                      <p className="text-xs text-muted-foreground">Slå av alle animasjoner</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={tokens.enable_animations !== false}
+                      onClick={() => updateToken('enable_animations', !tokens.enable_animations)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        tokens.enable_animations !== false ? 'bg-primary' : 'bg-input'
+                      }`}
+                      data-testid="toggle-animations"
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                        tokens.enable_animations !== false ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <Label>Hover-effekter</Label>
+                      <p className="text-xs text-muted-foreground">Aktiver hover-tilstander</p>
+                    </div>
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={tokens.enable_hover_effects !== false}
+                      onClick={() => updateToken('enable_hover_effects', !tokens.enable_hover_effects)}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                        tokens.enable_hover_effects !== false ? 'bg-primary' : 'bg-input'
+                      }`}
+                      data-testid="toggle-hover-effects"
+                    >
+                      <span className={`inline-block h-4 w-4 transform rounded-full bg-background transition-transform ${
+                        tokens.enable_hover_effects !== false ? 'translate-x-6' : 'translate-x-1'
+                      }`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
