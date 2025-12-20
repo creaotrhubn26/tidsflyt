@@ -974,6 +974,30 @@ export function registerSmartTimingRoutes(app: Express) {
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         );
+        
+        CREATE TABLE IF NOT EXISTS feedback_requests (
+          id SERIAL PRIMARY KEY,
+          vendor_id INTEGER,
+          user_id TEXT,
+          request_type TEXT NOT NULL,
+          status TEXT DEFAULT 'pending',
+          triggered_at TIMESTAMP DEFAULT NOW(),
+          responded_at TIMESTAMP,
+          snoozed_until TIMESTAMP,
+          metadata JSONB
+        );
+        
+        CREATE TABLE IF NOT EXISTS feedback_responses (
+          id SERIAL PRIMARY KEY,
+          request_id INTEGER NOT NULL,
+          vendor_id INTEGER,
+          user_id TEXT,
+          rating_score INTEGER,
+          nps_score INTEGER,
+          satisfaction_label TEXT,
+          textual_feedback TEXT,
+          submitted_at TIMESTAMP DEFAULT NOW()
+        );
       `);
       
       // Also create admin_users table if not exists
@@ -4554,10 +4578,16 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
          WHERE rating_score IS NOT NULL`
       );
 
-      // Count active vendors (those with at least 5 users)
-      const vendorCount = await pool.query(
-        `SELECT COUNT(*) as count FROM vendors WHERE status = 'active'`
-      );
+      // Count active vendors (gracefully handle if table doesn't exist)
+      let vendorCountValue = 0;
+      try {
+        const vendorCount = await pool.query(
+          `SELECT COUNT(*) as count FROM vendors WHERE status = 'active'`
+        );
+        vendorCountValue = parseInt(vendorCount.rows[0]?.count || 0);
+      } catch {
+        vendorCountValue = 0;
+      }
 
       // Calculate satisfaction percentage (ratings 4-5 = satisfied)
       const satisfactionResult = await pool.query(
@@ -4570,7 +4600,6 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
 
       const stats = avgRating.rows[0];
       const satisfaction = satisfactionResult.rows[0];
-      const vendors = vendorCount.rows[0];
 
       // Calculate satisfaction percentage
       const satisfactionPct = satisfaction.total > 0 
@@ -4582,7 +4611,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         satisfactionPercentage: satisfactionPct,
         avgRating: parseFloat(stats.avg_rating).toFixed(1),
         totalResponses: parseInt(stats.total_responses),
-        vendorCount: parseInt(vendors.count),
+        vendorCount: vendorCountValue,
         uniqueRespondingVendors: parseInt(stats.vendor_count),
         uniqueRespondingUsers: parseInt(stats.user_count)
       });
@@ -4601,11 +4630,38 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       }
 
       // Check if user has completed 4+ time entries (stemplinger)
-      const entriesResult = await pool.query(
-        `SELECT COUNT(*) as entry_count FROM log_row WHERE user_id = $1`,
-        [userId]
-      );
-      const entryCount = parseInt(entriesResult.rows[0].entry_count);
+      let entryCount = 0;
+      try {
+        const entriesResult = await pool.query(
+          `SELECT COUNT(*) as entry_count FROM log_row WHERE user_id = $1`,
+          [userId]
+        );
+        entryCount = parseInt(entriesResult.rows[0].entry_count);
+      } catch {
+        entryCount = 0;
+      }
+
+      // Check vendor user count if vendorId is provided (vendor must have 5+ users)
+      let vendorUserCount = 0;
+      let vendorQualified = true;
+      if (vendorId) {
+        try {
+          const vendorUsersResult = await pool.query(
+            `SELECT COUNT(DISTINCT user_id) as user_count 
+             FROM project_info 
+             WHERE vendor_id = $1`,
+            [vendorId]
+          );
+          vendorUserCount = parseInt(vendorUsersResult.rows[0].user_count);
+          vendorQualified = vendorUserCount >= 5;
+        } catch {
+          vendorQualified = false;
+        }
+      }
+
+      // User must have 4+ entries AND vendor must have 5+ users (if vendor context exists)
+      const userQualified = entryCount >= 4;
+      const qualifiesForFeedback = userQualified && vendorQualified;
 
       // Check if user already has a pending/completed feedback request
       const existingRequest = await pool.query(
@@ -4615,14 +4671,14 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         [userId]
       );
 
-      if (entryCount >= 4 && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
+      if (qualifiesForFeedback && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
         // Create a new feedback request
         const newRequest = await pool.query(
           `INSERT INTO feedback_requests (user_id, vendor_id, request_type, status, metadata)
            VALUES ($1, $2, 'user_milestone', 'pending', $3)
            ON CONFLICT DO NOTHING
            RETURNING *`,
-          [userId, vendorId || null, JSON.stringify({ entryCount })]
+          [userId, vendorId || null, JSON.stringify({ entryCount, vendorUserCount })]
         );
 
         if (newRequest.rows[0]) {
@@ -4630,12 +4686,26 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         }
       }
 
-      // Check for existing pending request
+      // Check for existing pending request (not snoozed)
       if (existingRequest.rows[0]?.status === 'pending') {
-        return res.json({ shouldShowFeedback: true, request: existingRequest.rows[0] });
+        // Check if snoozed
+        const fullRequest = await pool.query(
+          `SELECT * FROM feedback_requests WHERE id = $1`,
+          [existingRequest.rows[0].id]
+        );
+        const req = fullRequest.rows[0];
+        if (!req.snoozed_until || new Date(req.snoozed_until) < new Date()) {
+          return res.json({ shouldShowFeedback: true, request: req });
+        }
       }
 
-      res.json({ shouldShowFeedback: false, entryCount });
+      res.json({ 
+        shouldShowFeedback: false, 
+        entryCount, 
+        vendorUserCount,
+        userQualified,
+        vendorQualified
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

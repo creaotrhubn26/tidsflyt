@@ -147,18 +147,51 @@ interface WhyPageData {
   cta: typeof defaultCtaContent | null;
 }
 
+interface FeedbackStats {
+  hasData: boolean;
+  satisfactionPercentage: number | null;
+  avgRating: string;
+  totalResponses: number;
+  vendorCount: number;
+  uniqueRespondingVendors: number;
+  uniqueRespondingUsers: number;
+}
+
 export default function WhyTidsflyt() {
   const { data, isLoading } = useQuery<WhyPageData>({
     queryKey: ["/api/cms/why-page"]
   });
 
+  const { data: feedbackStats } = useQuery<FeedbackStats>({
+    queryKey: ["/api/feedback/stats"]
+  });
+
   const hero = data?.hero || defaultHero;
-  const stats = data?.stats?.length ? data.stats : defaultStats;
   const benefits = data?.benefits?.length ? data.benefits : defaultBenefits;
   const features = data?.features?.length ? data.features : defaultFeatures;
   const nordic = data?.nordic || defaultNordicContent;
   const trust = data?.trust || defaultTrustContent;
   const cta = data?.cta || defaultCtaContent;
+
+  const getDynamicStats = () => {
+    if (feedbackStats?.hasData && feedbackStats.satisfactionPercentage !== null) {
+      return [
+        { 
+          value: `${feedbackStats.satisfactionPercentage}%`, 
+          label: "Kundetilfredshet" 
+        },
+        { value: "30 min", label: "Spart per dag" },
+        { 
+          value: feedbackStats.vendorCount > 0 ? `${feedbackStats.vendorCount}+` : "500+", 
+          label: "Norske bedrifter" 
+        },
+        { value: "99.9%", label: "Oppetid" }
+      ];
+    }
+    return data?.stats?.length ? data.stats : defaultStats;
+  };
+
+  const stats = getDynamicStats();
 
   const getBulletPoints = () => {
     if (nordic.bullet_points && Array.isArray(nordic.bullet_points)) {
