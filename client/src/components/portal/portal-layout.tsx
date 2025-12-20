@@ -15,6 +15,7 @@ import {
   LogOut,
   Menu,
   Building2,
+  Palette,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -61,6 +62,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/reports", icon: FileText, label: "Rapporter" },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
+  { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
 ];
 
