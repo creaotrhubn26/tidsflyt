@@ -1059,6 +1059,211 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: DESIGN TOKENS ==========
+  app.get("/api/cms/design-tokens", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/design-tokens", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const data = req.body;
+      const existing = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
+      
+      const columns = [
+        'primary_color', 'primary_color_light', 'primary_color_dark', 'secondary_color', 'accent_color',
+        'background_color', 'background_color_dark', 'surface_color', 'surface_color_dark',
+        'text_color', 'text_color_dark', 'muted_color', 'border_color',
+        'font_family', 'font_family_heading', 'font_size_base', 'font_size_scale',
+        'line_height_base', 'line_height_heading', 'font_weight_normal', 'font_weight_medium', 'font_weight_bold',
+        'letter_spacing', 'letter_spacing_heading',
+        'spacing_unit', 'spacing_xs', 'spacing_sm', 'spacing_md', 'spacing_lg', 'spacing_xl', 'spacing_2xl', 'spacing_3xl',
+        'border_radius_none', 'border_radius_sm', 'border_radius_md', 'border_radius_lg', 'border_radius_xl', 'border_radius_full', 'border_width',
+        'shadow_none', 'shadow_sm', 'shadow_md', 'shadow_lg', 'shadow_xl',
+        'animation_duration', 'animation_duration_slow', 'animation_duration_fast', 'animation_easing',
+        'enable_animations', 'enable_hover_effects', 'container_max_width', 'container_padding'
+      ];
+      
+      if (existing.rows.length > 0) {
+        const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+        const values = columns.map(col => data[col] ?? existing.rows[0][col]);
+        values.push(existing.rows[0].id);
+        
+        const result = await pool.query(
+          `UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1} RETURNING *`,
+          values
+        );
+        res.json(result.rows[0]);
+      } else {
+        const insertCols = columns.join(', ');
+        const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+        const values = columns.map(col => data[col] ?? null);
+        
+        const result = await pool.query(
+          `INSERT INTO design_tokens (${insertCols}) VALUES (${placeholders}) RETURNING *`,
+          values
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: SECTION DESIGN SETTINGS ==========
+  app.get("/api/cms/section-design", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM section_design_settings WHERE is_active = true ORDER BY section_name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/section-design/:section", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM section_design_settings WHERE section_name = $1 AND is_active = true LIMIT 1', [req.params.section]);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/section-design/:section", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { section } = req.params;
+      const data = req.body;
+      
+      const columns = [
+        'layout', 'content_max_width', 'padding_top', 'padding_bottom', 'padding_x', 'gap',
+        'background_color', 'background_gradient', 'background_image', 'background_overlay_color',
+        'background_overlay_opacity', 'background_blur', 'background_parallax',
+        'heading_size', 'heading_weight', 'heading_color', 'text_size', 'text_color',
+        'grid_columns', 'grid_columns_tablet', 'grid_columns_mobile', 'grid_gap',
+        'card_style', 'card_padding', 'card_radius', 'card_shadow', 'card_background', 'card_border_color', 'card_hover_effect',
+        'icon_style', 'icon_size', 'icon_color', 'icon_background',
+        'button_variant', 'button_size', 'button_radius',
+        'animation_type', 'animation_delay', 'animation_stagger',
+        'hero_height', 'hero_video_url', 'hero_video_autoplay', 'hero_video_loop', 'hero_video_muted',
+        'testimonial_layout', 'testimonial_avatar_size', 'testimonial_avatar_shape', 'testimonial_quote_style',
+        'footer_columns', 'footer_divider', 'footer_divider_color'
+      ];
+      
+      const existing = await pool.query('SELECT * FROM section_design_settings WHERE section_name = $1 LIMIT 1', [section]);
+      
+      if (existing.rows.length > 0) {
+        const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+        const values = columns.map(col => data[col] ?? existing.rows[0][col]);
+        values.push(section);
+        
+        const result = await pool.query(
+          `UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1} RETURNING *`,
+          values
+        );
+        res.json(result.rows[0]);
+      } else {
+        const insertCols = ['section_name', ...columns].join(', ');
+        const placeholders = ['section_name', ...columns].map((_, i) => `$${i + 1}`).join(', ');
+        const values = [section, ...columns.map(col => data[col] ?? null)];
+        
+        const result = await pool.query(
+          `INSERT INTO section_design_settings (${insertCols}) VALUES (${placeholders}) RETURNING *`,
+          values
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: DESIGN PRESETS ==========
+  app.get("/api/cms/design-presets", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/design-presets", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, tokens, section_settings, thumbnail } = req.body;
+      const result = await pool.query(
+        `INSERT INTO design_presets (name, description, tokens, section_settings, thumbnail) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [name, description, JSON.stringify(tokens), section_settings ? JSON.stringify(section_settings) : null, thumbnail]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/design-presets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, tokens, section_settings, thumbnail } = req.body;
+      const result = await pool.query(
+        `UPDATE design_presets SET name = $1, description = $2, tokens = $3, section_settings = $4, thumbnail = $5, updated_at = NOW() WHERE id = $6 RETURNING *`,
+        [name, description, JSON.stringify(tokens), section_settings ? JSON.stringify(section_settings) : null, thumbnail, req.params.id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/design-presets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM design_presets WHERE id = $1 AND is_built_in = false', [req.params.id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/design-presets/:id/apply", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const preset = await pool.query('SELECT * FROM design_presets WHERE id = $1', [req.params.id]);
+      if (preset.rows.length === 0) {
+        return res.status(404).json({ error: 'Preset not found' });
+      }
+      
+      const { tokens, section_settings } = preset.rows[0];
+      
+      // Apply tokens
+      if (tokens) {
+        const existing = await pool.query('SELECT id FROM design_tokens WHERE is_active = true LIMIT 1');
+        if (existing.rows.length > 0) {
+          const columns = Object.keys(tokens).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
+          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+          const values = columns.map(col => tokens[col]);
+          values.push(existing.rows[0].id);
+          await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+        }
+      }
+      
+      // Apply section settings
+      if (section_settings) {
+        for (const [sectionName, settings] of Object.entries(section_settings as Record<string, any>)) {
+          const columns = Object.keys(settings).filter(k => k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
+          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+          const values = columns.map(col => settings[col]);
+          values.push(sectionName);
+          await pool.query(`UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
+        }
+      }
+      
+      res.json({ success: true, message: 'Preset applied successfully' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== ACCESS REQUESTS ==========
   
   // Create access_requests table if not exists
