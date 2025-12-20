@@ -92,6 +92,44 @@ export function registerSmartTimingRoutes(app: Express) {
     express.static(path.join(process.cwd(), 'attached_assets'))(req, res, next);
   });
 
+  // Serve Tidsflyt logo for emails (SVG format for best quality)
+  app.get("/api/logo", (req, res) => {
+    const logoSvg = `
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" width="200" height="50">
+        <!-- Pocket Watch -->
+        <g transform="translate(5, 2)">
+          <!-- Watch loop/crown -->
+          <ellipse cx="22" cy="4" rx="4" ry="3" fill="none" stroke="#9ca3af" stroke-width="2"/>
+          <!-- Watch body -->
+          <circle cx="22" cy="25" r="20" fill="url(#watchGradient)" stroke="#9ca3af" stroke-width="1.5"/>
+          <!-- Hour markers -->
+          <line x1="22" y1="8" x2="22" y2="12" stroke="rgba(255,255,255,0.8)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="22" y1="38" x2="22" y2="42" stroke="rgba(255,255,255,0.8)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="5" y1="25" x2="9" y2="25" stroke="rgba(255,255,255,0.8)" stroke-width="1.5" stroke-linecap="round"/>
+          <line x1="35" y1="25" x2="39" y2="25" stroke="rgba(255,255,255,0.8)" stroke-width="1.5" stroke-linecap="round"/>
+          <!-- Hour hand -->
+          <line x1="22" y1="25" x2="22" y2="14" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          <!-- Minute hand -->
+          <line x1="22" y1="25" x2="32" y2="20" stroke="white" stroke-width="1.5" stroke-linecap="round"/>
+          <!-- Center dot -->
+          <circle cx="22" cy="25" r="2.5" fill="white"/>
+        </g>
+        <!-- Text -->
+        <text x="52" y="33" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Tidsflyt</text>
+        <defs>
+          <linearGradient id="watchGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" style="stop-color:#1e3a5f"/>
+            <stop offset="50%" style="stop-color:#0f2744"/>
+            <stop offset="100%" style="stop-color:#1a3350"/>
+          </linearGradient>
+        </defs>
+      </svg>
+    `;
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=31536000');
+    res.send(logoSvg.trim());
+  });
+
   // Health check
   app.get("/api/health", async (req, res) => {
     try {
@@ -3800,18 +3838,8 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
             <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
               <!-- Header -->
               <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px 16px 0 0; padding: 32px; text-align: center;">
-                <div style="display: inline-block; background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px;">
-                  <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
-                    <tr>
-                      <td style="vertical-align: middle; padding-right: 10px;">
-                        <!-- Clock icon using table-based circle -->
-                        <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 2px solid #9ca3af; text-align: center; line-height: 28px; font-size: 16px; color: white;">&#128337;</div>
-                      </td>
-                      <td style="vertical-align: middle;">
-                        <span style="font-size: 24px; font-weight: 700; color: #0f172a;">Tidsflyt</span>
-                      </td>
-                    </tr>
-                  </table>
+                <div style="display: inline-block; background: #fff; padding: 16px 28px; border-radius: 8px; margin-bottom: 16px;">
+                  <img src="https://tidsflyt.no/api/logo" alt="Tidsflyt" width="180" height="50" style="display: block; max-width: 180px; height: auto;" />
                 </div>
                 <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 500;">Ny henvendelse mottatt</h1>
               </div>
