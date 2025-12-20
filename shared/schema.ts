@@ -633,6 +633,110 @@ export type InsertEmailSendHistory = z.infer<typeof insertEmailSendHistorySchema
 export type EmailSettings = typeof emailSettings.$inferSelect;
 export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 
+// Report Templates - For customizable case report designs
+export const reportTemplates = pgTable("report_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  companyId: integer("company_id"), // null = global template
+  
+  // Paper settings
+  paperSize: text("paper_size").default("A4"), // A4, Letter, Legal
+  orientation: text("orientation").default("portrait"), // portrait, landscape
+  marginTop: text("margin_top").default("20mm"),
+  marginBottom: text("margin_bottom").default("20mm"),
+  marginLeft: text("margin_left").default("15mm"),
+  marginRight: text("margin_right").default("15mm"),
+  
+  // Header settings
+  headerEnabled: boolean("header_enabled").default(true),
+  headerHeight: text("header_height").default("25mm"),
+  headerLogoUrl: text("header_logo_url"),
+  headerLogoPosition: text("header_logo_position").default("left"), // left, center, right
+  headerTitle: text("header_title"),
+  headerSubtitle: text("header_subtitle"),
+  headerShowDate: boolean("header_show_date").default(true),
+  headerShowPageNumbers: boolean("header_show_page_numbers").default(true),
+  
+  // Footer settings
+  footerEnabled: boolean("footer_enabled").default(true),
+  footerHeight: text("footer_height").default("15mm"),
+  footerText: text("footer_text"),
+  footerShowPageNumbers: boolean("footer_show_page_numbers").default(true),
+  
+  // Styling
+  primaryColor: text("primary_color").default("#2563EB"),
+  secondaryColor: text("secondary_color").default("#64748B"),
+  fontFamily: text("font_family").default("Helvetica"),
+  fontSize: text("font_size").default("11pt"),
+  lineHeight: text("line_height").default("1.5"),
+  
+  // Content blocks (JSON array of block configurations)
+  blocks: jsonb("blocks").default([]),
+  
+  // Metadata
+  isDefault: boolean("is_default").default(false),
+  isActive: boolean("is_active").default(true),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Report Block Types - Available block types for report designer
+export const reportBlockTypes = pgTable("report_block_types", {
+  id: serial("id").primaryKey(),
+  type: text("type").notNull().unique(), // header, text, section, table, signature, divider, image, spacer
+  name: text("name").notNull(),
+  description: text("description"),
+  icon: text("icon"),
+  defaultConfig: jsonb("default_config").default({}),
+  availableFields: text("available_fields").array(), // Fields that can be bound to this block
+  isActive: boolean("is_active").default(true),
+});
+
+// Report Generated - History of generated reports
+export const reportGenerated = pgTable("report_generated", {
+  id: serial("id").primaryKey(),
+  caseReportId: integer("case_report_id").notNull(),
+  templateId: integer("template_id").notNull(),
+  generatedBy: text("generated_by"),
+  pdfUrl: text("pdf_url"),
+  metadata: jsonb("metadata"), // Snapshot of data used
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Report Assets - Uploaded logos and images for reports
+export const reportAssets = pgTable("report_assets", {
+  id: serial("id").primaryKey(),
+  companyId: integer("company_id"),
+  name: text("name").notNull(),
+  type: text("type").notNull(), // logo, signature, watermark, background
+  url: text("url").notNull(),
+  mimeType: text("mime_type"),
+  size: integer("size"),
+  width: integer("width"),
+  height: integer("height"),
+  isActive: boolean("is_active").default(true),
+  uploadedBy: text("uploaded_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Report Template Insert Schemas
+export const insertReportTemplateSchema = createInsertSchema(reportTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertReportBlockTypeSchema = createInsertSchema(reportBlockTypes).omit({ id: true });
+export const insertReportGeneratedSchema = createInsertSchema(reportGenerated).omit({ id: true, createdAt: true });
+export const insertReportAssetSchema = createInsertSchema(reportAssets).omit({ id: true, createdAt: true });
+
+// Report Template Types
+export type ReportTemplate = typeof reportTemplates.$inferSelect;
+export type InsertReportTemplate = z.infer<typeof insertReportTemplateSchema>;
+export type ReportBlockType = typeof reportBlockTypes.$inferSelect;
+export type InsertReportBlockType = z.infer<typeof insertReportBlockTypeSchema>;
+export type ReportGenerated = typeof reportGenerated.$inferSelect;
+export type InsertReportGenerated = z.infer<typeof insertReportGeneratedSchema>;
+export type ReportAsset = typeof reportAssets.$inferSelect;
+export type InsertReportAsset = z.infer<typeof insertReportAssetSchema>;
+
 // Legacy types for compatibility with current frontend
 export type User = {
   id: string;

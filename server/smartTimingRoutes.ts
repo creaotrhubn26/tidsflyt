@@ -2905,5 +2905,529 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
     }
   });
 
+  // ========== REPORT DESIGNER ==========
+
+  // Ensure report tables exist
+  async function ensureReportTables() {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS report_templates (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT,
+          company_id INTEGER,
+          paper_size TEXT DEFAULT 'A4',
+          orientation TEXT DEFAULT 'portrait',
+          margin_top TEXT DEFAULT '20mm',
+          margin_bottom TEXT DEFAULT '20mm',
+          margin_left TEXT DEFAULT '15mm',
+          margin_right TEXT DEFAULT '15mm',
+          header_enabled BOOLEAN DEFAULT true,
+          header_height TEXT DEFAULT '25mm',
+          header_logo_url TEXT,
+          header_logo_position TEXT DEFAULT 'left',
+          header_title TEXT,
+          header_subtitle TEXT,
+          header_show_date BOOLEAN DEFAULT true,
+          header_show_page_numbers BOOLEAN DEFAULT true,
+          footer_enabled BOOLEAN DEFAULT true,
+          footer_height TEXT DEFAULT '15mm',
+          footer_text TEXT,
+          footer_show_page_numbers BOOLEAN DEFAULT true,
+          primary_color TEXT DEFAULT '#2563EB',
+          secondary_color TEXT DEFAULT '#64748B',
+          font_family TEXT DEFAULT 'Helvetica',
+          font_size TEXT DEFAULT '11pt',
+          line_height TEXT DEFAULT '1.5',
+          blocks JSONB DEFAULT '[]',
+          is_default BOOLEAN DEFAULT false,
+          is_active BOOLEAN DEFAULT true,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS report_block_types (
+          id SERIAL PRIMARY KEY,
+          type TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          description TEXT,
+          icon TEXT,
+          default_config JSONB DEFAULT '{}',
+          available_fields TEXT[],
+          is_active BOOLEAN DEFAULT true
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS report_generated (
+          id SERIAL PRIMARY KEY,
+          case_report_id INTEGER NOT NULL,
+          template_id INTEGER NOT NULL,
+          generated_by TEXT,
+          pdf_url TEXT,
+          metadata JSONB,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS report_assets (
+          id SERIAL PRIMARY KEY,
+          company_id INTEGER,
+          name TEXT NOT NULL,
+          type TEXT NOT NULL,
+          url TEXT NOT NULL,
+          mime_type TEXT,
+          size INTEGER,
+          width INTEGER,
+          height INTEGER,
+          is_active BOOLEAN DEFAULT true,
+          uploaded_by TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+
+      console.log('Report designer tables created');
+    } catch (err) {
+      console.error('Error creating report tables:', err);
+    }
+  }
+
+  ensureReportTables();
+
+  // Get all report templates
+  app.get("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT * FROM report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single report template
+  app.get("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query('SELECT * FROM report_templates WHERE id = $1', [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create report template
+  app.post("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const {
+        name, description, company_id, paper_size, orientation,
+        margin_top, margin_bottom, margin_left, margin_right,
+        header_enabled, header_height, header_logo_url, header_logo_position,
+        header_title, header_subtitle, header_show_date, header_show_page_numbers,
+        footer_enabled, footer_height, footer_text, footer_show_page_numbers,
+        primary_color, secondary_color, font_family, font_size, line_height,
+        blocks, is_default
+      } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO report_templates (
+          name, description, company_id, paper_size, orientation,
+          margin_top, margin_bottom, margin_left, margin_right,
+          header_enabled, header_height, header_logo_url, header_logo_position,
+          header_title, header_subtitle, header_show_date, header_show_page_numbers,
+          footer_enabled, footer_height, footer_text, footer_show_page_numbers,
+          primary_color, secondary_color, font_family, font_size, line_height,
+          blocks, is_default, created_by
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+        RETURNING *`,
+        [
+          name, description, company_id, paper_size || 'A4', orientation || 'portrait',
+          margin_top || '20mm', margin_bottom || '20mm', margin_left || '15mm', margin_right || '15mm',
+          header_enabled !== false, header_height || '25mm', header_logo_url, header_logo_position || 'left',
+          header_title, header_subtitle, header_show_date !== false, header_show_page_numbers !== false,
+          footer_enabled !== false, footer_height || '15mm', footer_text, footer_show_page_numbers !== false,
+          primary_color || '#2563EB', secondary_color || '#64748B', font_family || 'Helvetica',
+          font_size || '11pt', line_height || '1.5', JSON.stringify(blocks || []),
+          is_default || false, req.user?.username
+        ]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update report template
+  app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const updates = req.body;
+      
+      const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
+      if (fields.length === 0) {
+        return res.status(400).json({ error: 'No fields to update' });
+      }
+
+      const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
+      const values = fields.map(f => f === 'blocks' ? JSON.stringify(updates[f]) : updates[f]);
+
+      const result = await pool.query(
+        `UPDATE report_templates SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [id, ...values]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete report template
+  app.delete("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('UPDATE report_templates SET is_active = false WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get available block types
+  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM report_block_types WHERE is_active = true ORDER BY name');
+      if (result.rows.length === 0) {
+        // Return default block types if none exist
+        const defaultBlocks = [
+          { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'] },
+          { type: 'section', name: 'Seksjon', description: 'Innholdseksjon med overskrift', icon: 'LayoutList', available_fields: ['title', 'content'] },
+          { type: 'text', name: 'Tekst', description: 'Fritekst-blokk', icon: 'Type', available_fields: ['content'] },
+          { type: 'field', name: 'Rapportfelt', description: 'Felt fra saksrapporten', icon: 'FormInput', available_fields: ['background', 'actions', 'progress', 'challenges', 'factors', 'assessment', 'recommendations', 'notes'] },
+          { type: 'table', name: 'Tabell', description: 'Data i tabellformat', icon: 'Table', available_fields: ['headers', 'rows'] },
+          { type: 'signature', name: 'Signatur', description: 'Signaturfelt', icon: 'PenTool', available_fields: ['label', 'name', 'date'] },
+          { type: 'divider', name: 'Skillelinje', description: 'Horisontal linje', icon: 'Minus', available_fields: ['style'] },
+          { type: 'spacer', name: 'Mellomrom', description: 'Vertikal avstand', icon: 'MoveVertical', available_fields: ['height'] },
+          { type: 'image', name: 'Bilde', description: 'Bilde fra ressurser', icon: 'Image', available_fields: ['url', 'alt', 'width'] },
+          { type: 'footer', name: 'Bunntekst', description: 'Bunntekst med sidetall', icon: 'AlignBottom', available_fields: ['text', 'page_numbers'] },
+        ];
+        return res.json(defaultBlocks);
+      }
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Seed default block types
+  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const defaultBlocks = [
+        { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
+        { type: 'section', name: 'Seksjon', description: 'Innholdseksjon med overskrift', icon: 'LayoutList', available_fields: ['title', 'content'], default_config: { titleSize: 'h2' } },
+        { type: 'text', name: 'Tekst', description: 'Fritekst-blokk', icon: 'Type', available_fields: ['content'], default_config: {} },
+        { type: 'field', name: 'Rapportfelt', description: 'Felt fra saksrapporten', icon: 'FormInput', available_fields: ['background', 'actions', 'progress', 'challenges', 'factors', 'assessment', 'recommendations', 'notes'], default_config: { showLabel: true } },
+        { type: 'table', name: 'Tabell', description: 'Data i tabellformat', icon: 'Table', available_fields: ['headers', 'rows'], default_config: { striped: true, bordered: true } },
+        { type: 'signature', name: 'Signatur', description: 'Signaturfelt', icon: 'PenTool', available_fields: ['label', 'name', 'date'], default_config: { showDate: true } },
+        { type: 'divider', name: 'Skillelinje', description: 'Horisontal linje', icon: 'Minus', available_fields: ['style'], default_config: { style: 'solid' } },
+        { type: 'spacer', name: 'Mellomrom', description: 'Vertikal avstand', icon: 'MoveVertical', available_fields: ['height'], default_config: { height: '10mm' } },
+        { type: 'image', name: 'Bilde', description: 'Bilde fra ressurser', icon: 'Image', available_fields: ['url', 'alt', 'width'], default_config: { width: '100%' } },
+        { type: 'footer', name: 'Bunntekst', description: 'Bunntekst med sidetall', icon: 'AlignBottom', available_fields: ['text', 'page_numbers'], default_config: { showPageNumbers: true } },
+      ];
+
+      for (const block of defaultBlocks) {
+        await pool.query(
+          `INSERT INTO report_block_types (type, name, description, icon, available_fields, default_config)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (type) DO UPDATE SET name = $2, description = $3, icon = $4, available_fields = $5, default_config = $6`,
+          [block.type, block.name, block.description, block.icon, block.available_fields, block.default_config]
+        );
+      }
+
+      res.json({ success: true, message: 'Block types seeded' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get report assets
+  app.get("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { company_id, type } = req.query;
+      let query = 'SELECT * FROM report_assets WHERE is_active = true';
+      const params: any[] = [];
+      
+      if (company_id) {
+        params.push(company_id);
+        query += ` AND (company_id = $${params.length} OR company_id IS NULL)`;
+      }
+      if (type) {
+        params.push(type);
+        query += ` AND type = $${params.length}`;
+      }
+      
+      query += ' ORDER BY created_at DESC';
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Upload report asset
+  app.post("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, type, url, mime_type, size, width, height, company_id } = req.body;
+      const result = await pool.query(
+        `INSERT INTO report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+        [name, type, url, mime_type, size, width, height, company_id, req.user?.username]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete report asset
+  app.delete("/api/report-assets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('UPDATE report_assets SET is_active = false WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Generate PDF from template
+  app.post("/api/report-templates/:templateId/generate/:caseReportId", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { templateId, caseReportId } = req.params;
+
+      // Get template
+      const templateResult = await pool.query('SELECT * FROM report_templates WHERE id = $1', [templateId]);
+      if (templateResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      const template = templateResult.rows[0];
+
+      // Get case report data
+      const reportResult = await pool.query('SELECT * FROM case_reports WHERE id = $1', [caseReportId]);
+      if (reportResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Case report not found' });
+      }
+      const caseReport = reportResult.rows[0];
+
+      // Create PDF using pdfkit
+      const PDFDocument = require('pdfkit');
+      const doc = new PDFDocument({
+        size: template.paper_size || 'A4',
+        layout: template.orientation || 'portrait',
+        margins: {
+          top: parseInt(template.margin_top) || 56,
+          bottom: parseInt(template.margin_bottom) || 56,
+          left: parseInt(template.margin_left) || 42,
+          right: parseInt(template.margin_right) || 42
+        }
+      });
+
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="rapport-${caseReportId}.pdf"`);
+      doc.pipe(res);
+
+      // Font settings
+      const fontFamily = template.font_family || 'Helvetica';
+      const fontSize = parseInt(template.font_size) || 11;
+      const primaryColor = template.primary_color || '#2563EB';
+
+      // Header
+      if (template.header_enabled) {
+        if (template.header_title) {
+          doc.fontSize(18).fillColor(primaryColor).text(template.header_title, { align: 'center' });
+        }
+        if (template.header_subtitle) {
+          doc.fontSize(12).fillColor('#666666').text(template.header_subtitle, { align: 'center' });
+        }
+        if (template.header_show_date) {
+          doc.fontSize(10).fillColor('#888888').text(
+            new Date().toLocaleDateString('nb-NO'),
+            { align: 'right' }
+          );
+        }
+        doc.moveDown(2);
+      }
+
+      // Process blocks
+      const blocks = template.blocks || [];
+      const fieldLabels: Record<string, string> = {
+        background: 'Bakgrunn',
+        actions: 'Tiltak',
+        progress: 'Fremgang',
+        challenges: 'Utfordringer',
+        factors: 'Faktorer',
+        assessment: 'Vurdering',
+        recommendations: 'Anbefalinger',
+        notes: 'Notater'
+      };
+
+      for (const block of blocks) {
+        switch (block.type) {
+          case 'section':
+            doc.fontSize(14).fillColor(primaryColor).text(block.config?.title || 'Seksjon', { underline: true });
+            if (block.config?.content) {
+              doc.fontSize(fontSize).fillColor('#333333').text(block.config.content);
+            }
+            doc.moveDown();
+            break;
+
+          case 'text':
+            doc.fontSize(fontSize).fillColor('#333333').text(block.config?.content || '');
+            doc.moveDown();
+            break;
+
+          case 'field':
+            const fieldName = block.config?.field;
+            if (fieldName && caseReport[fieldName]) {
+              const label = block.config?.label || fieldLabels[fieldName] || fieldName;
+              doc.fontSize(12).fillColor(primaryColor).text(label, { underline: true });
+              doc.fontSize(fontSize).fillColor('#333333').text(caseReport[fieldName]);
+              doc.moveDown();
+            }
+            break;
+
+          case 'divider':
+            doc.moveTo(doc.x, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y)
+              .strokeColor('#dddddd').stroke();
+            doc.moveDown();
+            break;
+
+          case 'spacer':
+            doc.moveDown(parseInt(block.config?.height) || 2);
+            break;
+
+          case 'signature':
+            doc.moveDown(2);
+            doc.fontSize(10).fillColor('#666666').text(block.config?.label || 'Signatur:');
+            doc.moveDown();
+            doc.text('_________________________________');
+            if (block.config?.showDate) {
+              doc.text(`Dato: ${new Date().toLocaleDateString('nb-NO')}`);
+            }
+            break;
+        }
+      }
+
+      // If no blocks defined, render all fields from case report
+      if (blocks.length === 0) {
+        for (const [field, label] of Object.entries(fieldLabels)) {
+          if (caseReport[field]) {
+            doc.fontSize(12).fillColor(primaryColor).text(label, { underline: true });
+            doc.fontSize(fontSize).fillColor('#333333').text(caseReport[field]);
+            doc.moveDown();
+          }
+        }
+      }
+
+      // Footer
+      if (template.footer_enabled) {
+        const pageCount = doc.bufferedPageRange().count;
+        for (let i = 0; i < pageCount; i++) {
+          doc.switchToPage(i);
+          doc.fontSize(9).fillColor('#888888');
+          if (template.footer_text) {
+            doc.text(template.footer_text, doc.page.margins.left, doc.page.height - 40, { align: 'left' });
+          }
+          if (template.footer_show_page_numbers) {
+            doc.text(`Side ${i + 1} av ${pageCount}`, 0, doc.page.height - 40, { align: 'center', width: doc.page.width });
+          }
+        }
+      }
+
+      // Log generation
+      await pool.query(
+        `INSERT INTO report_generated (case_report_id, template_id, generated_by, metadata)
+         VALUES ($1, $2, $3, $4)`,
+        [caseReportId, templateId, req.user?.username, JSON.stringify({ generated_at: new Date() })]
+      );
+
+      doc.end();
+    } catch (err: any) {
+      console.error('PDF generation error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get generation history
+  app.get("/api/report-generated", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const result = await pool.query(
+        `SELECT g.*, t.name as template_name, r.case_id, r.month
+         FROM report_generated g
+         LEFT JOIN report_templates t ON g.template_id = t.id
+         LEFT JOIN case_reports r ON g.case_report_id = r.id
+         ORDER BY g.created_at DESC LIMIT $1`,
+        [limit]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Seed a default template
+  app.post("/api/report-templates/seed-default", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const defaultBlocks = [
+        { id: '1', type: 'section', config: { title: 'Bakgrunn', field: 'background' } },
+        { id: '2', type: 'field', config: { field: 'background', label: 'Bakgrunn', showLabel: true } },
+        { id: '3', type: 'divider', config: {} },
+        { id: '4', type: 'field', config: { field: 'actions', label: 'Tiltak', showLabel: true } },
+        { id: '5', type: 'divider', config: {} },
+        { id: '6', type: 'field', config: { field: 'progress', label: 'Fremgang', showLabel: true } },
+        { id: '7', type: 'divider', config: {} },
+        { id: '8', type: 'field', config: { field: 'challenges', label: 'Utfordringer', showLabel: true } },
+        { id: '9', type: 'divider', config: {} },
+        { id: '10', type: 'field', config: { field: 'assessment', label: 'Vurdering', showLabel: true } },
+        { id: '11', type: 'divider', config: {} },
+        { id: '12', type: 'field', config: { field: 'recommendations', label: 'Anbefalinger', showLabel: true } },
+        { id: '13', type: 'spacer', config: { height: 20 } },
+        { id: '14', type: 'signature', config: { label: 'Godkjent av:', showDate: true } },
+      ];
+
+      const result = await pool.query(
+        `INSERT INTO report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
+         VALUES ($1, $2, $3, $4, $5, true, $6)
+         ON CONFLICT DO NOTHING
+         RETURNING *`,
+        [
+          'Standard Saksrapport',
+          'Standard mal for saksrapporter med alle felter',
+          'Saksrapport',
+          'Smart Timing - Timeføringssystem',
+          JSON.stringify(defaultBlocks),
+          req.user?.username
+        ]
+      );
+
+      res.json({ success: true, template: result.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }
