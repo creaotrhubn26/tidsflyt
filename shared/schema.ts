@@ -117,8 +117,44 @@ export const vendors = pgTable("vendors", {
   settings: jsonb("settings").default({}), // Custom settings per vendor
   maxUsers: integer("max_users").default(50), // Maks antall brukere
   subscriptionPlan: text("subscription_plan").default("standard"), // basic, standard, premium
+  // API Access fields
+  apiAccessEnabled: boolean("api_access_enabled").default(false),
+  apiSubscriptionStart: timestamp("api_subscription_start"),
+  apiSubscriptionEnd: timestamp("api_subscription_end"),
+  apiMonthlyPrice: numeric("api_monthly_price", { precision: 10, scale: 2 }).default("99.00"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// API Keys table - for vendor API access
+export const apiKeys = pgTable("api_keys", {
+  id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id").notNull(),
+  name: text("name").notNull(), // Descriptive name for the key
+  keyPrefix: text("key_prefix").notNull(), // First 8 chars shown to user (st_...)
+  keyHash: text("key_hash").notNull(), // SHA-256 hash of full key
+  permissions: text("permissions").array().default([]), // read:time_entries, read:users, etc.
+  rateLimit: integer("rate_limit").default(60), // requests per minute
+  isActive: boolean("is_active").default(true),
+  lastUsedAt: timestamp("last_used_at"),
+  expiresAt: timestamp("expires_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  revokedAt: timestamp("revoked_at"),
+});
+
+// API Usage Log - for tracking and billing
+export const apiUsageLog = pgTable("api_usage_log", {
+  id: serial("id").primaryKey(),
+  apiKeyId: integer("api_key_id").notNull(),
+  vendorId: integer("vendor_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  method: text("method").notNull(),
+  statusCode: integer("status_code"),
+  responseTimeMs: integer("response_time_ms"),
+  requestId: text("request_id"),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
 });
 
 // Admin users table - supports super_admin and vendor_admin roles
@@ -139,6 +175,16 @@ export const adminUsers = pgTable("admin_users", {
 export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true, updatedAt: true });
 export type Vendor = typeof vendors.$inferSelect;
 export type InsertVendor = z.infer<typeof insertVendorSchema>;
+
+// API Keys insert schema
+export const insertApiKeySchema = createInsertSchema(apiKeys).omit({ id: true, createdAt: true, revokedAt: true, lastUsedAt: true });
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type InsertApiKey = z.infer<typeof insertApiKeySchema>;
+
+// API Usage Log insert schema
+export const insertApiUsageLogSchema = createInsertSchema(apiUsageLog).omit({ id: true, createdAt: true });
+export type ApiUsageLog = typeof apiUsageLog.$inferSelect;
+export type InsertApiUsageLog = z.infer<typeof insertApiUsageLogSchema>;
 
 // CMS: Site Settings
 export const siteSettings = pgTable("site_settings", {
