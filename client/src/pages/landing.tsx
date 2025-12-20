@@ -605,9 +605,11 @@ export default function LandingPage() {
             <a href="#features" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-nav-features">
               Funksjoner
             </a>
-            <a href="#testimonials" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-nav-testimonials">
-              Referanser
-            </a>
+            {hasTestimonials && (
+              <a href="#testimonials" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-nav-testimonials">
+                Referanser
+              </a>
+            )}
             <a href="#contact" className="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors" data-testid="link-nav-contact">
               Kontakt
             </a>
@@ -843,9 +845,11 @@ export default function LandingPage() {
               <a href="#features" className="hover:text-foreground transition-colors" data-testid="link-footer-features">
                 Funksjoner
               </a>
-              <a href="#testimonials" className="hover:text-foreground transition-colors" data-testid="link-footer-testimonials">
-                Referanser
-              </a>
+              {hasTestimonials && (
+                <a href="#testimonials" className="hover:text-foreground transition-colors" data-testid="link-footer-testimonials">
+                  Referanser
+                </a>
+              )}
               <a href="#contact" className="hover:text-foreground transition-colors" data-testid="link-footer-contact">
                 Kontakt
               </a>
