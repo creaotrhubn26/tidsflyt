@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { 
@@ -155,6 +155,51 @@ interface LandingContent {
   testimonials: LandingTestimonial[];
   sections: LandingSections | null;
   partners: LandingPartner[];
+}
+
+interface DesignTokens {
+  primary_color?: string;
+  primary_color_light?: string;
+  primary_color_dark?: string;
+  secondary_color?: string;
+  accent_color?: string;
+  background_color?: string;
+  surface_color?: string;
+  text_color?: string;
+  muted_color?: string;
+  border_color?: string;
+  font_family?: string;
+  font_family_heading?: string;
+  border_radius_md?: string;
+  border_radius_lg?: string;
+  shadow_md?: string;
+  shadow_lg?: string;
+  enable_animations?: boolean;
+}
+
+function hexToHSL(hex: string): string {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (!result) return hex;
+  
+  let r = parseInt(result[1], 16) / 255;
+  let g = parseInt(result[2], 16) / 255;
+  let b = parseInt(result[3], 16) / 255;
+  
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+  
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
 }
 
 const iconMap: Record<string, LucideIcon> = {
@@ -416,6 +461,49 @@ export default function LandingPage() {
   const { data: content, isLoading } = useQuery<LandingContent>({
     queryKey: ['/api/cms/landing'],
   });
+
+  const { data: designTokens } = useQuery<DesignTokens | null>({
+    queryKey: ['/api/cms/design-tokens'],
+  });
+
+  useEffect(() => {
+    if (designTokens) {
+      const root = document.documentElement;
+      
+      if (designTokens.primary_color) {
+        root.style.setProperty('--primary', hexToHSL(designTokens.primary_color));
+      }
+      if (designTokens.accent_color) {
+        root.style.setProperty('--accent', hexToHSL(designTokens.accent_color));
+      }
+      if (designTokens.secondary_color) {
+        root.style.setProperty('--secondary', hexToHSL(designTokens.secondary_color));
+      }
+      if (designTokens.muted_color) {
+        root.style.setProperty('--muted', hexToHSL(designTokens.muted_color));
+      }
+      if (designTokens.border_color) {
+        root.style.setProperty('--border', hexToHSL(designTokens.border_color));
+      }
+      if (designTokens.font_family) {
+        root.style.setProperty('--font-sans', designTokens.font_family);
+      }
+      if (designTokens.border_radius_md) {
+        root.style.setProperty('--radius', designTokens.border_radius_md);
+      }
+    }
+    
+    return () => {
+      const root = document.documentElement;
+      root.style.removeProperty('--primary');
+      root.style.removeProperty('--accent');
+      root.style.removeProperty('--secondary');
+      root.style.removeProperty('--muted');
+      root.style.removeProperty('--border');
+      root.style.removeProperty('--font-sans');
+      root.style.removeProperty('--radius');
+    };
+  }, [designTokens]);
 
   const hero = content?.hero || defaultHero;
   const features = content?.features?.length ? content.features : defaultFeatures;
