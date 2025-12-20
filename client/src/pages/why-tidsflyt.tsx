@@ -127,7 +127,7 @@ const defaultNordicContent = {
 
 const defaultTrustContent = {
   title: "Anbefalt av norske tiltaksbedrifter",
-  subtitle: "Norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra miljøarbeid til arbeidsinkludering - alle finner verdi i vår løsning."
+  subtitle: "Norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning."
 };
 
 const defaultCtaContent = {
@@ -206,7 +206,7 @@ export default function WhyTidsflyt() {
   // Dynamic trust subtitle based on real vendor count
   const getDynamicTrustSubtitle = () => {
     if (hasRealFeedbackData && feedbackStats.vendorCount > 0) {
-      return `Over ${feedbackStats.vendorCount} norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra miljøarbeid til arbeidsinkludering - alle finner verdi i vår løsning.`;
+      return `Over ${feedbackStats.vendorCount} norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning.`;
     }
     return trust.subtitle;
   };
