@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor, RichTextViewer } from "@/components/ui/rich-text-editor";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   Dialog,
@@ -318,85 +319,78 @@ export default function CaseReportsPage() {
 
                 <div className="space-y-2">
                   <Label htmlFor="background">Bakgrunn for tiltaket</Label>
-                  <Textarea
-                    id="background"
+                  <RichTextEditor
                     value={formData.background}
-                    onChange={(e) => setFormData({ ...formData, background: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, background: value })}
                     placeholder="Beskriv bakgrunnen for tiltaket..."
-                    rows={3}
-                    data-testid="input-background"
+                    minHeight="120px"
+                    testId="editor-background"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="actions">Arbeid og tiltak som er gjennomført</Label>
-                  <Textarea
-                    id="actions"
+                  <RichTextEditor
                     value={formData.actions}
-                    onChange={(e) => setFormData({ ...formData, actions: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, actions: value })}
                     placeholder="Beskriv arbeidet som er gjennomført..."
-                    rows={3}
-                    data-testid="input-actions"
+                    minHeight="150px"
+                    testId="editor-actions"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="progress">Fremgang og utvikling</Label>
-                  <Textarea
-                    id="progress"
+                  <RichTextEditor
                     value={formData.progress}
-                    onChange={(e) => setFormData({ ...formData, progress: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, progress: value })}
                     placeholder="Beskriv fremgangen..."
-                    rows={3}
-                    data-testid="input-progress"
+                    minHeight="120px"
+                    testId="editor-progress"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="challenges">Utfordringer</Label>
-                  <Textarea
-                    id="challenges"
+                  <RichTextEditor
                     value={formData.challenges}
-                    onChange={(e) => setFormData({ ...formData, challenges: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, challenges: value })}
                     placeholder="Beskriv eventuelle utfordringer..."
-                    rows={3}
-                    data-testid="input-challenges"
+                    minHeight="120px"
+                    testId="editor-challenges"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="factors">Faktorer som påvirker</Label>
-                  <Textarea
-                    id="factors"
+                  <RichTextEditor
                     value={formData.factors}
-                    onChange={(e) => setFormData({ ...formData, factors: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, factors: value })}
                     placeholder="Beskriv faktorer som påvirker..."
-                    rows={2}
-                    data-testid="input-factors"
+                    minHeight="100px"
+                    testId="editor-factors"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="assessment">Vurdering</Label>
-                  <Textarea
-                    id="assessment"
+                  <RichTextEditor
                     value={formData.assessment}
-                    onChange={(e) => setFormData({ ...formData, assessment: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, assessment: value })}
                     placeholder="Din vurdering..."
-                    rows={3}
-                    data-testid="input-assessment"
+                    minHeight="120px"
+                    testId="editor-assessment"
                   />
                 </div>
 
                 <div className="space-y-2">
                   <Label htmlFor="recommendations">Anbefalinger</Label>
-                  <Textarea
-                    id="recommendations"
+                  <RichTextEditor
                     value={formData.recommendations}
-                    onChange={(e) => setFormData({ ...formData, recommendations: e.target.value })}
+                    onChange={(value) => setFormData({ ...formData, recommendations: value })}
                     placeholder="Dine anbefalinger..."
-                    rows={3}
-                    data-testid="input-recommendations"
+                    minHeight="120px"
+                    testId="editor-recommendations"
                   />
                 </div>
 

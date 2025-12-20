@@ -298,3 +298,120 @@
     inset: -1px;
   }
 }
+
+/* React Quill Editor Styles */
+.rich-text-editor .ql-toolbar {
+  border: none;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--muted));
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.rich-text-editor .ql-container {
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 0.875rem;
+  min-height: var(--min-height, 200px);
+}
+
+.rich-text-editor .ql-editor {
+  min-height: var(--min-height, 200px);
+  padding: 0.75rem 1rem;
+  color: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-editor.ql-blank::before {
+  color: hsl(var(--muted-foreground));
+  font-style: normal;
+}
+
+.rich-text-editor .ql-toolbar button {
+  color: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-toolbar button:hover {
+  color: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar button.ql-active {
+  color: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar .ql-stroke {
+  stroke: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-toolbar button:hover .ql-stroke {
+  stroke: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar button.ql-active .ql-stroke {
+  stroke: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar .ql-fill {
+  fill: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-toolbar button:hover .ql-fill {
+  fill: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar button.ql-active .ql-fill {
+  fill: hsl(var(--primary));
+}
+
+.rich-text-editor .ql-toolbar .ql-picker {
+  color: hsl(var(--foreground));
+}
+
+.rich-text-editor .ql-toolbar .ql-picker-options {
+  background: hsl(var(--popover));
+  border-color: hsl(var(--border));
+  border-radius: var(--radius);
+}
+
+.rich-text-editor .ql-toolbar .ql-picker-item:hover {
+  color: hsl(var(--primary));
+}
+
+/* Rich Text Viewer Styles */
+.rich-text-viewer h1 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-viewer h2 {
+  font-size: 1.25rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-viewer h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-viewer p {
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-viewer ul,
+.rich-text-viewer ol {
+  padding-left: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.rich-text-viewer blockquote {
+  border-left: 3px solid hsl(var(--border));
+  padding-left: 1rem;
+  font-style: italic;
+  color: hsl(var(--muted-foreground));
+}
+
+.rich-text-viewer a {
+  color: hsl(var(--primary));
+  text-decoration: underline;
+}
