@@ -23,6 +23,10 @@ export default function Contact() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
+    company: "",
+    orgNumber: "",
+    website: "",
+    phone: "",
     subject: "",
     message: ""
   });
@@ -59,7 +63,7 @@ export default function Contact() {
           title: "Melding sendt",
           description: "Vi har mottatt din melding og vil svare så snart som mulig."
         });
-        setFormData({ name: "", email: "", subject: "", message: "" });
+        setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "" });
       } else {
         toast({
           title: "Feil",
@@ -138,31 +142,85 @@ export default function Contact() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Navn</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    required
-                    data-testid="input-contact-name"
-                  />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Kontaktperson *</Label>
+                    <Input
+                      id="name"
+                      placeholder="Ditt navn"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      required
+                      data-testid="input-contact-name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">E-post *</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      placeholder="din@bedrift.no"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      required
+                      data-testid="input-contact-email"
+                    />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">E-post</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    required
-                    data-testid="input-contact-email"
-                  />
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="company">Bedriftsnavn</Label>
+                    <Input
+                      id="company"
+                      placeholder="Bedriftens navn"
+                      value={formData.company}
+                      onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                      data-testid="input-contact-company"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="orgNumber">Org.nummer</Label>
+                    <Input
+                      id="orgNumber"
+                      placeholder="123 456 789"
+                      value={formData.orgNumber}
+                      onChange={(e) => setFormData({ ...formData, orgNumber: e.target.value })}
+                      data-testid="input-contact-orgnumber"
+                    />
+                  </div>
                 </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="website">Nettside</Label>
+                    <Input
+                      id="website"
+                      type="url"
+                      placeholder="https://www.bedrift.no"
+                      value={formData.website}
+                      onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                      data-testid="input-contact-website"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="phone">Telefon</Label>
+                    <Input
+                      id="phone"
+                      type="tel"
+                      placeholder="+47 XXX XX XXX"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      data-testid="input-contact-phone"
+                    />
+                  </div>
+                </div>
+
                 <div className="space-y-2">
-                  <Label htmlFor="subject">Emne</Label>
+                  <Label htmlFor="subject">Emne *</Label>
                   <Input
                     id="subject"
+                    placeholder="Hva gjelder henvendelsen?"
                     value={formData.subject}
                     onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
                     required
@@ -170,9 +228,10 @@ export default function Contact() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="message">Melding</Label>
+                  <Label htmlFor="message">Melding *</Label>
                   <Textarea
                     id="message"
+                    placeholder="Beskriv hva du ønsker å vite mer om..."
                     value={formData.message}
                     onChange={(e) => setFormData({ ...formData, message: e.target.value })}
                     rows={5}
@@ -184,7 +243,7 @@ export default function Contact() {
                   {isSubmitting ? "Sender..." : (
                     <>
                       <Send className="h-4 w-4 mr-2" />
-                      Send melding
+                      Send henvendelse
                     </>
                   )}
                 </Button>

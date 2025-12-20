@@ -3677,10 +3677,10 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
 
   app.post("/api/contact", async (req, res) => {
     try {
-      const { name, email, subject, message } = req.body;
+      const { name, email, company, orgNumber, website, phone, subject, message } = req.body;
       
       if (!name || !email || !subject || !message) {
-        return res.status(400).json({ error: 'Alle felt må fylles ut' });
+        return res.status(400).json({ error: 'Alle obligatoriske felt må fylles ut' });
       }
 
       const nodemailer = await import('nodemailer');
@@ -3696,38 +3696,109 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
 
       const recipientEmail = 'daniel@creatorhubn.com';
       
+      // Build company info section
+      const hasCompanyInfo = company || orgNumber || website || phone;
+      const companySection = hasCompanyInfo ? `
+        <div style="margin-bottom: 24px; padding: 20px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); border-radius: 12px; border-left: 4px solid #0ea5e9;">
+          <h3 style="margin: 0 0 16px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Bedriftsinformasjon</h3>
+          ${website ? `
+            <div style="display: flex; align-items: center; margin-bottom: 12px;">
+              <img src="https://www.google.com/s2/favicons?domain=${website.replace(/^https?:\/\//, '')}&sz=32" alt="Logo" style="width: 32px; height: 32px; border-radius: 6px; margin-right: 12px; background: #fff; padding: 2px;" onerror="this.style.display='none'" />
+              <div>
+                ${company ? `<div style="font-weight: 600; color: #0f172a; font-size: 15px;">${company}</div>` : ''}
+                ${orgNumber ? `<div style="color: #64748b; font-size: 13px;">Org.nr: ${orgNumber}</div>` : ''}
+              </div>
+            </div>
+          ` : `
+            ${company ? `<div style="font-weight: 600; color: #0f172a; font-size: 15px; margin-bottom: 8px;">${company}</div>` : ''}
+            ${orgNumber ? `<div style="color: #64748b; font-size: 13px; margin-bottom: 8px;">Org.nr: ${orgNumber}</div>` : ''}
+          `}
+          <table style="width: 100%; border-collapse: collapse;">
+            ${website ? `
+              <tr>
+                <td style="padding: 6px 0; color: #64748b; font-size: 13px; width: 80px;">Nettside:</td>
+                <td style="padding: 6px 0;"><a href="${website}" style="color: #0ea5e9; text-decoration: none; font-size: 13px;">${website}</a></td>
+              </tr>
+            ` : ''}
+            ${phone ? `
+              <tr>
+                <td style="padding: 6px 0; color: #64748b; font-size: 13px; width: 80px;">Telefon:</td>
+                <td style="padding: 6px 0;"><a href="tel:${phone}" style="color: #0ea5e9; text-decoration: none; font-size: 13px;">${phone}</a></td>
+              </tr>
+            ` : ''}
+          </table>
+        </div>
+      ` : '';
+
       await transporter.sendMail({
         from: `"Tidsflyt Kontaktskjema" <${process.env.GMAIL_USER || 'noreply@tidsflyt.no'}>`,
         to: recipientEmail,
         replyTo: email,
-        subject: `Kontaktskjema: ${subject}`,
+        subject: `${company ? `[${company}] ` : ''}Henvendelse: ${subject}`,
         html: `
-          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-            <h2 style="color: #1e3a5f;">Ny melding fra kontaktskjemaet</h2>
-            <table style="width: 100%; border-collapse: collapse;">
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Navn:</strong></td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">${name}</td>
-              </tr>
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>E-post:</strong></td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="mailto:${email}">${email}</a></td>
-              </tr>
-              <tr>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Emne:</strong></td>
-                <td style="padding: 10px; border-bottom: 1px solid #eee;">${subject}</td>
-              </tr>
-            </table>
-            <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
-              <strong>Melding:</strong>
-              <p style="white-space: pre-wrap;">${message}</p>
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          </head>
+          <body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;">
+            <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
+              <!-- Header -->
+              <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px 16px 0 0; padding: 32px; text-align: center;">
+                <div style="display: inline-block; background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px;">
+                  <span style="font-size: 24px; font-weight: 700; color: #0f172a;">Tidsflyt</span>
+                </div>
+                <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 500;">Ny henvendelse mottatt</h1>
+              </div>
+
+              <!-- Content -->
+              <div style="background: #fff; padding: 32px; border-radius: 0 0 16px 16px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                <!-- Contact Person -->
+                <div style="margin-bottom: 24px; padding-bottom: 20px; border-bottom: 1px solid #e2e8f0;">
+                  <h3 style="margin: 0 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Kontaktperson</h3>
+                  <div style="display: flex; align-items: center;">
+                    <div style="width: 48px; height: 48px; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border-radius: 50%; display: flex; align-items: center; justify-content: center; margin-right: 16px;">
+                      <span style="color: #fff; font-size: 20px; font-weight: 600;">${name.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div>
+                      <div style="font-weight: 600; color: #0f172a; font-size: 16px;">${name}</div>
+                      <a href="mailto:${email}" style="color: #0ea5e9; text-decoration: none; font-size: 14px;">${email}</a>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Company Info -->
+                ${companySection}
+
+                <!-- Subject -->
+                <div style="margin-bottom: 24px;">
+                  <h3 style="margin: 0 0 8px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Emne</h3>
+                  <div style="color: #334155; font-size: 15px; font-weight: 500;">${subject}</div>
+                </div>
+
+                <!-- Message -->
+                <div style="background: #f8fafc; border-radius: 12px; padding: 20px; border: 1px solid #e2e8f0;">
+                  <h3 style="margin: 0 0 12px 0; color: #0f172a; font-size: 16px; font-weight: 600;">Melding</h3>
+                  <div style="color: #475569; font-size: 14px; line-height: 1.6; white-space: pre-wrap;">${message}</div>
+                </div>
+
+                <!-- Reply Button -->
+                <div style="margin-top: 24px; text-align: center;">
+                  <a href="mailto:${email}?subject=Svar: ${subject}" style="display: inline-block; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); color: #fff; padding: 14px 32px; border-radius: 8px; text-decoration: none; font-weight: 600; font-size: 14px;">Svar på henvendelsen</a>
+                </div>
+              </div>
+
+              <!-- Footer -->
+              <div style="text-align: center; padding: 24px; color: #64748b; font-size: 12px;">
+                <p style="margin: 0 0 8px 0;">Denne meldingen ble sendt via kontaktskjemaet på <a href="https://tidsflyt.no" style="color: #0ea5e9; text-decoration: none;">tidsflyt.no</a></p>
+                <p style="margin: 0;">Tidsflyt AS | Timeregistrering for norske bedrifter</p>
+              </div>
             </div>
-            <p style="margin-top: 20px; color: #666; font-size: 12px;">
-              Denne meldingen ble sendt via kontaktskjemaet på tidsflyt.no
-            </p>
-          </div>
+          </body>
+          </html>
         `,
-        text: `Ny melding fra kontaktskjemaet\n\nNavn: ${name}\nE-post: ${email}\nEmne: ${subject}\n\nMelding:\n${message}`,
+        text: `Ny henvendelse fra kontaktskjemaet\n\nKontaktperson: ${name}\nE-post: ${email}${company ? `\nBedrift: ${company}` : ''}${orgNumber ? `\nOrg.nr: ${orgNumber}` : ''}${website ? `\nNettside: ${website}` : ''}${phone ? `\nTelefon: ${phone}` : ''}\n\nEmne: ${subject}\n\nMelding:\n${message}`,
       });
 
       // Store in database for records
