@@ -8,7 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink } from "lucide-react";
+import { 
+  Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink,
+  ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
+  Heart, Home, Phone, Mail, Calendar, Download, Upload, Settings, Search, Menu,
+  X, ChevronRight, ChevronDown, Bell, Gift, Award, Target, Briefcase, Building,
+  Globe, MapPin, Send, MessageCircle, ThumbsUp, Bookmark, Tag, FileText, BarChart3,
+  PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
+  type LucideIcon
+} from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -141,7 +149,105 @@ interface LandingContent {
   partners: LandingPartner[];
 }
 
-const iconOptions = ["Clock", "Users", "FileText", "Shield", "BarChart3", "Smartphone", "Settings", "Star", "Heart", "Zap"];
+const cmsIconMap: Record<string, LucideIcon> = {
+  ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
+  Heart, Home, Phone, Mail, Calendar, Download, Upload, Settings, Search, Menu,
+  X, ChevronRight, ChevronDown, Bell, Gift, Award, Target, Briefcase, Building,
+  Globe, MapPin, Send, MessageCircle, ThumbsUp, Bookmark, Tag, FileText, BarChart3,
+  PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
+};
+
+const iconOptionsWithLabels = [
+  { value: "", label: "Ingen ikon" },
+  { value: "ArrowRight", label: "Pil høyre" },
+  { value: "Play", label: "Avspill" },
+  { value: "Clock", label: "Klokke" },
+  { value: "Zap", label: "Lyn" },
+  { value: "Star", label: "Stjerne" },
+  { value: "Check", label: "Hake" },
+  { value: "Shield", label: "Skjold" },
+  { value: "Users", label: "Brukere" },
+  { value: "TrendingUp", label: "Trend opp" },
+  { value: "CheckCircle", label: "Hake sirkel" },
+  { value: "Heart", label: "Hjerte" },
+  { value: "Home", label: "Hjem" },
+  { value: "Phone", label: "Telefon" },
+  { value: "Mail", label: "E-post" },
+  { value: "Calendar", label: "Kalender" },
+  { value: "Download", label: "Last ned" },
+  { value: "Upload", label: "Last opp" },
+  { value: "Settings", label: "Innstillinger" },
+  { value: "Search", label: "Søk" },
+  { value: "Menu", label: "Meny" },
+  { value: "X", label: "Lukk" },
+  { value: "ChevronRight", label: "Chevron høyre" },
+  { value: "ChevronDown", label: "Chevron ned" },
+  { value: "Bell", label: "Varsel" },
+  { value: "Gift", label: "Gave" },
+  { value: "Award", label: "Premie" },
+  { value: "Target", label: "Mål" },
+  { value: "Briefcase", label: "Koffert" },
+  { value: "Building", label: "Bygning" },
+  { value: "Globe", label: "Globus" },
+  { value: "MapPin", label: "Kartmarkør" },
+  { value: "Send", label: "Send" },
+  { value: "MessageCircle", label: "Melding" },
+  { value: "ThumbsUp", label: "Tommel opp" },
+  { value: "Bookmark", label: "Bokmerke" },
+  { value: "Tag", label: "Etikett" },
+  { value: "FileText", label: "Dokument" },
+  { value: "BarChart3", label: "Stolpediagram" },
+  { value: "PieChart", label: "Sektordiagram" },
+  { value: "Activity", label: "Aktivitet" },
+  { value: "Rocket", label: "Rakett" },
+  { value: "Sparkles", label: "Glitre" },
+  { value: "Crown", label: "Krone" },
+  { value: "Flame", label: "Flamme" },
+  { value: "Coffee", label: "Kaffe" },
+  { value: "Sun", label: "Sol" },
+  { value: "Moon", label: "Måne" },
+  { value: "Smartphone", label: "Smarttelefon" },
+];
+
+const iconOptions = iconOptionsWithLabels.map(o => o.value).filter(Boolean);
+
+function IconSelect({ 
+  value, 
+  onChange, 
+  testId 
+}: { 
+  value: string; 
+  onChange: (value: string) => void; 
+  testId?: string;
+}) {
+  const selectedIcon = value ? cmsIconMap[value] : null;
+  
+  return (
+    <div className="relative">
+      <select
+        className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 py-1 text-sm appearance-none cursor-pointer"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        data-testid={testId}
+      >
+        {iconOptionsWithLabels.map(opt => (
+          <option key={opt.value} value={opt.value}>{opt.label}</option>
+        ))}
+      </select>
+      <div className="absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground">
+        {selectedIcon ? (
+          (() => {
+            const Icon = selectedIcon;
+            return <Icon className="h-4 w-4" />;
+          })()
+        ) : (
+          <div className="h-4 w-4" />
+        )}
+      </div>
+      <ChevronDown className="absolute right-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+    </div>
+  );
+}
 
 function ImageUploader({ 
   value, 
@@ -628,16 +734,11 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                   </div>
                   <div className="space-y-2">
                     <Label>Ikon</Label>
-                    <select
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    <IconSelect
                       value={formData.cta_primary_icon}
-                      onChange={(e) => setFormData({ ...formData, cta_primary_icon: e.target.value })}
-                      data-testid="select-hero-cta-primary-icon"
-                    >
-                      {iconOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setFormData({ ...formData, cta_primary_icon: val })}
+                      testId="select-hero-cta-primary-icon"
+                    />
                   </div>
                 </div>
               </div>
@@ -680,16 +781,11 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                   </div>
                   <div className="space-y-2">
                     <Label>Ikon</Label>
-                    <select
-                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    <IconSelect
                       value={formData.cta_secondary_icon}
-                      onChange={(e) => setFormData({ ...formData, cta_secondary_icon: e.target.value })}
-                      data-testid="select-hero-cta-secondary-icon"
-                    >
-                      {iconOptions.map(opt => (
-                        <option key={opt.value} value={opt.value}>{opt.label}</option>
-                      ))}
-                    </select>
+                      onChange={(val) => setFormData({ ...formData, cta_secondary_icon: val })}
+                      testId="select-hero-cta-secondary-icon"
+                    />
                   </div>
                 </div>
               </div>
@@ -706,16 +802,11 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                     placeholder="Gratis prøveperiode"
                     data-testid="input-hero-badge1"
                   />
-                  <select
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  <IconSelect
                     value={formData.badge1_icon}
-                    onChange={(e) => setFormData({ ...formData, badge1_icon: e.target.value })}
-                    data-testid="select-hero-badge1-icon"
-                  >
-                    {iconOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormData({ ...formData, badge1_icon: val })}
+                    testId="select-hero-badge1-icon"
+                  />
                 </div>
                 <div className="border rounded-lg p-4 space-y-3">
                   <Label>Badge 2</Label>
@@ -725,16 +816,11 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                     placeholder="Ingen kredittkort"
                     data-testid="input-hero-badge2"
                   />
-                  <select
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  <IconSelect
                     value={formData.badge2_icon}
-                    onChange={(e) => setFormData({ ...formData, badge2_icon: e.target.value })}
-                    data-testid="select-hero-badge2-icon"
-                  >
-                    {iconOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormData({ ...formData, badge2_icon: val })}
+                    testId="select-hero-badge2-icon"
+                  />
                 </div>
                 <div className="border rounded-lg p-4 space-y-3">
                   <Label>Badge 3</Label>
@@ -744,16 +830,11 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                     placeholder="GDPR-kompatibel"
                     data-testid="input-hero-badge3"
                   />
-                  <select
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                  <IconSelect
                     value={formData.badge3_icon}
-                    onChange={(e) => setFormData({ ...formData, badge3_icon: e.target.value })}
-                    data-testid="select-hero-badge3-icon"
-                  >
-                    {iconOptions.map(opt => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
+                    onChange={(val) => setFormData({ ...formData, badge3_icon: val })}
+                    testId="select-hero-badge3-icon"
+                  />
                 </div>
               </div>
             </TabsContent>
@@ -872,15 +953,10 @@ function SortableFeatureItem({
       </div>
       {editingFeature?.id === feature.id ? (
         <div className="flex-1 grid md:grid-cols-4 gap-4 items-end">
-          <select
-            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+          <IconSelect
             value={editingFeature.icon}
-            onChange={(e) => setEditingFeature({ ...editingFeature, icon: e.target.value })}
-          >
-            {iconOptions.map((icon) => (
-              <option key={icon} value={icon}>{icon}</option>
-            ))}
-          </select>
+            onChange={(val) => setEditingFeature({ ...editingFeature, icon: val })}
+          />
           <Input
             value={editingFeature.title}
             onChange={(e) => setEditingFeature({ ...editingFeature, title: e.target.value })}
@@ -1002,16 +1078,11 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
           <div className="grid md:grid-cols-4 gap-4 items-end">
             <div className="space-y-2">
               <Label>Ikon</Label>
-              <select
-                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
+              <IconSelect
                 value={newFeature.icon}
-                onChange={(e) => setNewFeature({ ...newFeature, icon: e.target.value })}
-                data-testid="select-new-feature-icon"
-              >
-                {iconOptions.map((icon) => (
-                  <option key={icon} value={icon}>{icon}</option>
-                ))}
-              </select>
+                onChange={(val) => setNewFeature({ ...newFeature, icon: val })}
+                testId="select-new-feature-icon"
+              />
             </div>
             <div className="space-y-2">
               <Label>Tittel</Label>
