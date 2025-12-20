@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Phone, MapPin, ArrowLeft, Send } from "lucide-react";
+import { Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 
 interface PageContent {
@@ -16,6 +16,17 @@ interface PageContent {
   email: string;
   phone: string;
   address: string;
+}
+
+interface BrregCompany {
+  organisasjonsnummer: string;
+  navn: string;
+  hjemmeside?: string;
+  forretningsadresse?: {
+    adresse?: string[];
+    postnummer?: string;
+    poststed?: string;
+  };
 }
 
 export default function Contact() {
@@ -31,6 +42,86 @@ export default function Contact() {
     message: ""
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [brregSearchResults, setBrregSearchResults] = useState<BrregCompany[]>([]);
+  const [brregLoading, setBrregLoading] = useState(false);
+  const [brregVerified, setBrregVerified] = useState(false);
+  const [showBrregDropdown, setShowBrregDropdown] = useState(false);
+  const brregDropdownRef = useRef<HTMLDivElement>(null);
+  const brregInputRef = useRef<HTMLInputElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (brregDropdownRef.current && !brregDropdownRef.current.contains(event.target as Node)) {
+        setShowBrregDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Search brreg.no when org number changes
+  const searchBrreg = async (query: string) => {
+    if (query.length < 3) {
+      setBrregSearchResults([]);
+      setShowBrregDropdown(false);
+      return;
+    }
+
+    setBrregLoading(true);
+    try {
+      const isOrgNumber = /^\d{9}$/.test(query.replace(/\s/g, ''));
+      let url: string;
+      
+      if (isOrgNumber) {
+        url = `https://data.brreg.no/enhetsregisteret/api/enheter/${query.replace(/\s/g, '')}`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setBrregSearchResults([data]);
+          setShowBrregDropdown(true);
+        } else {
+          setBrregSearchResults([]);
+          setShowBrregDropdown(false);
+        }
+      } else {
+        url = `https://data.brreg.no/enhetsregisteret/api/enheter?navn=${encodeURIComponent(query)}&size=5`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          if (data._embedded?.enheter) {
+            setBrregSearchResults(data._embedded.enheter);
+            setShowBrregDropdown(true);
+          } else {
+            setBrregSearchResults([]);
+            setShowBrregDropdown(false);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Brreg search error:', error);
+      setBrregSearchResults([]);
+    } finally {
+      setBrregLoading(false);
+    }
+  };
+
+  const selectBrregCompany = (company: BrregCompany) => {
+    setFormData(prev => ({
+      ...prev,
+      orgNumber: company.organisasjonsnummer,
+      company: company.navn,
+      website: company.hjemmeside ? (company.hjemmeside.startsWith('http') ? company.hjemmeside : `https://${company.hjemmeside}`) : prev.website,
+    }));
+    setBrregVerified(true);
+    setShowBrregDropdown(false);
+    setBrregSearchResults([]);
+  };
+
+  const resetBrregVerification = () => {
+    setBrregVerified(false);
+    setFormData(prev => ({ ...prev, company: "", orgNumber: "" }));
+  };
 
   const { data: pageContent } = useQuery<PageContent>({
     queryKey: ['/api/cms/pages/contact'],
@@ -64,6 +155,7 @@ export default function Contact() {
           description: "Vi har mottatt din melding og vil svare så snart som mulig."
         });
         setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "" });
+        setBrregVerified(false);
       } else {
         toast({
           title: "Feil",
@@ -168,28 +260,116 @@ export default function Contact() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="company">Bedriftsnavn</Label>
+                {/* Brreg Search Section */}
+                <div className="space-y-2" ref={brregDropdownRef}>
+                  <Label htmlFor="orgSearch" className="flex items-center gap-2">
+                    <Building2 className="h-4 w-4" />
+                    Søk etter bedrift (org.nr eller navn)
+                  </Label>
+                  <div className="relative">
                     <Input
-                      id="company"
-                      placeholder="Bedriftens navn"
-                      value={formData.company}
-                      onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                      data-testid="input-contact-company"
+                      id="orgSearch"
+                      ref={brregInputRef}
+                      placeholder="Skriv org.nummer eller bedriftsnavn..."
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        if (!brregVerified) {
+                          searchBrreg(value);
+                        }
+                      }}
+                      disabled={brregVerified}
+                      className={brregVerified ? "bg-muted" : ""}
+                      data-testid="input-contact-brreg-search"
                     />
+                    {brregLoading && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                      </div>
+                    )}
+                    {showBrregDropdown && brregSearchResults.length > 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
+                        {brregSearchResults.map((company) => (
+                          <button
+                            key={company.organisasjonsnummer}
+                            type="button"
+                            onClick={() => selectBrregCompany(company)}
+                            className="w-full px-4 py-3 text-left hover-elevate active-elevate-2 flex items-start gap-3 border-b border-border last:border-0"
+                            data-testid={`button-brreg-select-${company.organisasjonsnummer}`}
+                          >
+                            <Building2 className="h-5 w-5 mt-0.5 text-primary flex-shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <div className="font-medium text-foreground truncate">{company.navn}</div>
+                              <div className="text-sm text-muted-foreground">
+                                Org.nr: {company.organisasjonsnummer}
+                                {company.forretningsadresse?.poststed && ` • ${company.forretningsadresse.poststed}`}
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="orgNumber">Org.nummer</Label>
-                    <Input
-                      id="orgNumber"
-                      placeholder="123 456 789"
-                      value={formData.orgNumber}
-                      onChange={(e) => setFormData({ ...formData, orgNumber: e.target.value })}
-                      data-testid="input-contact-orgnumber"
-                    />
-                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Søk henter informasjon fra Brønnøysundregistrene
+                  </p>
                 </div>
+
+                {/* Verified Company Info */}
+                {brregVerified && (
+                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 text-primary">
+                        <CheckCircle2 className="h-5 w-5" />
+                        <span className="font-medium">Bedrift verifisert fra Brreg</span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={resetBrregVerification}
+                        data-testid="button-reset-brreg"
+                      >
+                        Endre
+                      </Button>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <span className="text-muted-foreground">Bedriftsnavn:</span>
+                        <p className="font-medium" data-testid="text-verified-company">{formData.company}</p>
+                      </div>
+                      <div>
+                        <span className="text-muted-foreground">Org.nummer:</span>
+                        <p className="font-medium" data-testid="text-verified-orgnumber">{formData.orgNumber}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Manual entry if not verified */}
+                {!brregVerified && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="company">Bedriftsnavn (manuelt)</Label>
+                      <Input
+                        id="company"
+                        placeholder="Eller skriv inn manuelt"
+                        value={formData.company}
+                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                        data-testid="input-contact-company"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="orgNumber">Org.nummer (manuelt)</Label>
+                      <Input
+                        id="orgNumber"
+                        placeholder="123 456 789"
+                        value={formData.orgNumber}
+                        onChange={(e) => setFormData({ ...formData, orgNumber: e.target.value })}
+                        data-testid="input-contact-orgnumber"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
