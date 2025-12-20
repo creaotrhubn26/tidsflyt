@@ -4,8 +4,12 @@ import {
   type SiteSetting, type InsertSiteSetting, type LandingHero, type InsertLandingHero,
   type LandingFeature, type InsertLandingFeature, type LandingTestimonial, type InsertLandingTestimonial,
   type LandingCta, type InsertLandingCta,
+  type WhyPageHero, type InsertWhyPageHero, type WhyPageStat, type InsertWhyPageStat,
+  type WhyPageBenefit, type InsertWhyPageBenefit, type WhyPageFeature, type InsertWhyPageFeature,
+  type WhyPageContent, type InsertWhyPageContent,
   logRow, companyUsers, projectInfo, userSettings, companyAuditLog, companies,
-  siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta
+  siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta,
+  whyPageHero, whyPageStats, whyPageBenefits, whyPageFeatures, whyPageContent
 } from "@shared/schema";
 import { randomUUID } from "crypto";
 import { db, pool } from "./db";
@@ -60,6 +64,28 @@ export interface IStorage {
   
   getLandingCta(): Promise<LandingCta | undefined>;
   upsertLandingCta(data: InsertLandingCta): Promise<LandingCta>;
+  
+  // Why Page Methods
+  getWhyPageHero(): Promise<WhyPageHero | undefined>;
+  upsertWhyPageHero(data: InsertWhyPageHero): Promise<WhyPageHero>;
+  
+  getWhyPageStats(): Promise<WhyPageStat[]>;
+  createWhyPageStat(data: InsertWhyPageStat): Promise<WhyPageStat>;
+  updateWhyPageStat(id: number, data: Partial<InsertWhyPageStat>): Promise<WhyPageStat | undefined>;
+  deleteWhyPageStat(id: number): Promise<boolean>;
+  
+  getWhyPageBenefits(): Promise<WhyPageBenefit[]>;
+  createWhyPageBenefit(data: InsertWhyPageBenefit): Promise<WhyPageBenefit>;
+  updateWhyPageBenefit(id: number, data: Partial<InsertWhyPageBenefit>): Promise<WhyPageBenefit | undefined>;
+  deleteWhyPageBenefit(id: number): Promise<boolean>;
+  
+  getWhyPageFeatures(): Promise<WhyPageFeature[]>;
+  createWhyPageFeature(data: InsertWhyPageFeature): Promise<WhyPageFeature>;
+  updateWhyPageFeature(id: number, data: Partial<InsertWhyPageFeature>): Promise<WhyPageFeature | undefined>;
+  deleteWhyPageFeature(id: number): Promise<boolean>;
+  
+  getWhyPageContent(sectionId: string): Promise<WhyPageContent | undefined>;
+  upsertWhyPageContent(sectionId: string, data: InsertWhyPageContent): Promise<WhyPageContent>;
 }
 
 export class ExternalDbStorage implements IStorage {
@@ -429,6 +455,115 @@ export class ExternalDbStorage implements IStorage {
       return result[0];
     }
     const result = await db.insert(landingCta).values(data).returning();
+    return result[0];
+  }
+
+  // Why Page Methods
+  async getWhyPageHero(): Promise<WhyPageHero | undefined> {
+    const result = await db.select().from(whyPageHero).where(eq(whyPageHero.isActive, true)).limit(1);
+    return result[0];
+  }
+
+  async upsertWhyPageHero(data: InsertWhyPageHero): Promise<WhyPageHero> {
+    const existing = await this.getWhyPageHero();
+    if (existing) {
+      const result = await db.update(whyPageHero)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(whyPageHero.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(whyPageHero).values(data).returning();
+    return result[0];
+  }
+
+  async getWhyPageStats(): Promise<WhyPageStat[]> {
+    return await db.select().from(whyPageStats)
+      .where(eq(whyPageStats.isActive, true))
+      .orderBy(whyPageStats.displayOrder);
+  }
+
+  async createWhyPageStat(data: InsertWhyPageStat): Promise<WhyPageStat> {
+    const result = await db.insert(whyPageStats).values(data).returning();
+    return result[0];
+  }
+
+  async updateWhyPageStat(id: number, data: Partial<InsertWhyPageStat>): Promise<WhyPageStat | undefined> {
+    const result = await db.update(whyPageStats)
+      .set(data)
+      .where(eq(whyPageStats.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhyPageStat(id: number): Promise<boolean> {
+    await db.update(whyPageStats).set({ isActive: false }).where(eq(whyPageStats.id, id));
+    return true;
+  }
+
+  async getWhyPageBenefits(): Promise<WhyPageBenefit[]> {
+    return await db.select().from(whyPageBenefits)
+      .where(eq(whyPageBenefits.isActive, true))
+      .orderBy(whyPageBenefits.displayOrder);
+  }
+
+  async createWhyPageBenefit(data: InsertWhyPageBenefit): Promise<WhyPageBenefit> {
+    const result = await db.insert(whyPageBenefits).values(data).returning();
+    return result[0];
+  }
+
+  async updateWhyPageBenefit(id: number, data: Partial<InsertWhyPageBenefit>): Promise<WhyPageBenefit | undefined> {
+    const result = await db.update(whyPageBenefits)
+      .set(data)
+      .where(eq(whyPageBenefits.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhyPageBenefit(id: number): Promise<boolean> {
+    await db.update(whyPageBenefits).set({ isActive: false }).where(eq(whyPageBenefits.id, id));
+    return true;
+  }
+
+  async getWhyPageFeatures(): Promise<WhyPageFeature[]> {
+    return await db.select().from(whyPageFeatures)
+      .where(eq(whyPageFeatures.isActive, true))
+      .orderBy(whyPageFeatures.displayOrder);
+  }
+
+  async createWhyPageFeature(data: InsertWhyPageFeature): Promise<WhyPageFeature> {
+    const result = await db.insert(whyPageFeatures).values(data).returning();
+    return result[0];
+  }
+
+  async updateWhyPageFeature(id: number, data: Partial<InsertWhyPageFeature>): Promise<WhyPageFeature | undefined> {
+    const result = await db.update(whyPageFeatures)
+      .set(data)
+      .where(eq(whyPageFeatures.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async deleteWhyPageFeature(id: number): Promise<boolean> {
+    await db.update(whyPageFeatures).set({ isActive: false }).where(eq(whyPageFeatures.id, id));
+    return true;
+  }
+
+  async getWhyPageContent(sectionId: string): Promise<WhyPageContent | undefined> {
+    const result = await db.select().from(whyPageContent).where(eq(whyPageContent.sectionId, sectionId)).limit(1);
+    return result[0];
+  }
+
+  async upsertWhyPageContent(sectionId: string, data: InsertWhyPageContent): Promise<WhyPageContent> {
+    const existing = await this.getWhyPageContent(sectionId);
+    if (existing) {
+      const result = await db.update(whyPageContent)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(whyPageContent.id, existing.id))
+        .returning();
+      return result[0];
+    }
+    const result = await db.insert(whyPageContent).values({ ...data, sectionId }).returning();
     return result[0];
   }
 }
