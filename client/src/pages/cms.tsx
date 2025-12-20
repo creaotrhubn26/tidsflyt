@@ -5,6 +5,7 @@ import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { VisualBuilder } from "@/components/cms/visual-builder";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -449,6 +450,41 @@ export default function CMSPage() {
       </div>
     );
   }
+
+  return <VisualBuilder onLogout={handleLogout} />;
+}
+
+function CMSPageLegacy() {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("hero");
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
+
+  const isSuperAdmin = adminProfile?.role === 'super_admin';
+
+  useEffect(() => {
+    const token = getAdminToken();
+    if (token) {
+      setIsAuthenticated(true);
+      authenticatedApiRequest('/api/admin/profile')
+        .then((profile: AdminProfile) => setAdminProfile(profile))
+        .catch(() => {});
+    }
+  }, []);
+
+  const handleLogout = () => {
+    clearAdminToken();
+    setIsAuthenticated(false);
+    toast({ title: "Logget ut", description: "Du er nå logget ut." });
+  };
+
+  const { data: content, isLoading } = useQuery<LandingContent>({
+    queryKey: ['/api/cms/landing'],
+    enabled: isAuthenticated,
+  });
 
   if (isLoading) {
     return (
