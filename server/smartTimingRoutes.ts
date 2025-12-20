@@ -371,7 +371,10 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { username, password } = req.body;
       const result = await pool.query(
-        'SELECT * FROM admin_users WHERE (username = $1 OR email = $1) AND is_active = true',
+        `SELECT a.*, v.name as vendor_name, v.slug as vendor_slug 
+         FROM admin_users a 
+         LEFT JOIN vendors v ON a.vendor_id = v.id 
+         WHERE (a.username = $1 OR a.email = $1) AND a.is_active = true`,
         [username]
       );
       
@@ -389,14 +392,29 @@ export function registerSmartTimingRoutes(app: Express) {
       await pool.query('UPDATE admin_users SET last_login = NOW() WHERE id = $1', [admin.id]);
       
       const token = jwt.sign(
-        { id: admin.id, username: admin.username, role: admin.role },
+        { 
+          id: admin.id, 
+          username: admin.username, 
+          role: admin.role,
+          vendorId: admin.vendor_id,
+          vendorName: admin.vendor_name,
+          vendorSlug: admin.vendor_slug
+        },
         JWT_SECRET,
         { expiresIn: '24h' }
       );
       
       res.json({
         token,
-        admin: { id: admin.id, username: admin.username, email: admin.email, role: admin.role }
+        admin: { 
+          id: admin.id, 
+          username: admin.username, 
+          email: admin.email, 
+          role: admin.role,
+          vendorId: admin.vendor_id,
+          vendorName: admin.vendor_name,
+          vendorSlug: admin.vendor_slug
+        }
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -406,13 +424,207 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/admin/profile", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
-        'SELECT id, username, email, role, last_login, created_at FROM admin_users WHERE id = $1',
+        `SELECT a.id, a.username, a.email, a.role, a.vendor_id, a.last_login, a.created_at,
+                v.name as vendor_name, v.slug as vendor_slug
+         FROM admin_users a
+         LEFT JOIN vendors v ON a.vendor_id = v.id
+         WHERE a.id = $1`,
         [req.admin.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Admin not found' });
       res.json(result.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== VENDOR MANAGEMENT (Super Admin only) ==========
+  app.get("/api/vendors", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Only super_admin can see all vendors
+      if (req.admin.role !== 'super_admin') {
+        // Vendor admins can only see their own vendor
+        if (!req.admin.vendorId) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+        const result = await pool.query('SELECT * FROM vendors WHERE id = $1', [req.admin.vendorId]);
+        return res.json(result.rows);
+      }
+      
+      const result = await pool.query('SELECT * FROM vendors ORDER BY name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/vendors/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const vendorId = parseInt(req.params.id);
+      
+      // Vendor admins can only see their own vendor
+      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const result = await pool.query('SELECT * FROM vendors WHERE id = $1', [vendorId]);
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/vendors", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Only super_admin can create vendors
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can create vendors' });
+      }
+      
+      const { name, slug, email, phone, address, status, maxUsers, subscriptionPlan } = req.body;
+      const result = await pool.query(
+        `INSERT INTO vendors (name, slug, email, phone, address, status, max_users, subscription_plan)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [name, slug, email, phone, address, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/vendors/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const vendorId = parseInt(req.params.id);
+      
+      // Only super_admin can update any vendor, vendor_admin can update their own
+      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings } = req.body;
+      const result = await pool.query(
+        `UPDATE vendors SET 
+          name = COALESCE($1, name),
+          email = COALESCE($2, email),
+          phone = COALESCE($3, phone),
+          address = COALESCE($4, address),
+          logo_url = COALESCE($5, logo_url),
+          status = COALESCE($6, status),
+          max_users = COALESCE($7, max_users),
+          subscription_plan = COALESCE($8, subscription_plan),
+          settings = COALESCE($9, settings),
+          updated_at = NOW()
+         WHERE id = $10 RETURNING *`,
+        [name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings, vendorId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/vendors/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Only super_admin can delete vendors
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can delete vendors' });
+      }
+      
+      const vendorId = parseInt(req.params.id);
+      await pool.query('DELETE FROM vendors WHERE id = $1', [vendorId]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get vendor admins
+  app.get("/api/vendors/:id/admins", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const vendorId = parseInt(req.params.id);
+      
+      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const result = await pool.query(
+        `SELECT id, username, email, role, is_active, last_login, created_at 
+         FROM admin_users WHERE vendor_id = $1 ORDER BY username`,
+        [vendorId]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create vendor admin
+  app.post("/api/vendors/:id/admins", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const vendorId = parseInt(req.params.id);
+      
+      // Only super_admin or vendor_admin of this vendor can create admins
+      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      const { username, email, password } = req.body;
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      const result = await pool.query(
+        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+         VALUES ($1, $2, $3, 'vendor_admin', $4) RETURNING id, username, email, role, vendor_id, created_at`,
+        [username, email, passwordHash, vendorId]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Create super admin (only existing super_admin)
+  app.post("/api/admin/create-super", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can create super admins' });
+      }
+      
+      const { username, email, password } = req.body;
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      const result = await pool.query(
+        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+         VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
+        [username, email, passwordHash]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Bootstrap: Create first super admin (only works if no admins exist)
+  app.post("/api/admin/bootstrap", async (req, res) => {
+    try {
+      const existingAdmins = await pool.query('SELECT COUNT(*) as count FROM admin_users');
+      if (parseInt(existingAdmins.rows[0].count) > 0) {
+        return res.status(403).json({ error: 'Bootstrap only allowed when no admins exist' });
+      }
+      
+      const { username, email, password } = req.body;
+      const passwordHash = await bcrypt.hash(password, 10);
+      
+      const result = await pool.query(
+        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+         VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
+        [username, email, passwordHash]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
     }
   });
 

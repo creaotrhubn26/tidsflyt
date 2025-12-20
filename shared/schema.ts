@@ -6,7 +6,8 @@ import { z } from "zod";
 // Companies table
 export const companies = pgTable("companies", {
   id: serial("id").primaryKey(),
-  name: text("name").notNull().unique(),
+  vendorId: integer("vendor_id"), // null = legacy, otherwise belongs to vendor
+  name: text("name").notNull(),
   logoBase64: text("logo_base64"),
   displayOrder: integer("display_order").default(0),
   enforceHourlyRate: boolean("enforce_hourly_rate").default(false),
@@ -103,18 +104,41 @@ export const quickTemplates = pgTable("quick_templates", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-// Admin users table
+// Vendors table - Leverandører som bruker Smart Timing
+export const vendors = pgTable("vendors", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(), // URL-vennlig identifikator
+  email: text("email"),
+  phone: text("phone"),
+  address: text("address"),
+  logoUrl: text("logo_url"),
+  status: text("status").default("active"), // active, suspended, inactive
+  settings: jsonb("settings").default({}), // Custom settings per vendor
+  maxUsers: integer("max_users").default(50), // Maks antall brukere
+  subscriptionPlan: text("subscription_plan").default("standard"), // basic, standard, premium
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Admin users table - supports super_admin and vendor_admin roles
 export const adminUsers = pgTable("admin_users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
   passwordHash: text("password_hash").notNull(),
-  role: text("role").default("admin"),
+  role: text("role").default("vendor_admin"), // super_admin, vendor_admin
+  vendorId: integer("vendor_id"), // null for super_admin, required for vendor_admin
   isActive: boolean("is_active").default(true),
   lastLogin: timestamp("last_login"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
+
+// Vendor insert schema
+export const insertVendorSchema = createInsertSchema(vendors).omit({ id: true, createdAt: true, updatedAt: true });
+export type Vendor = typeof vendors.$inferSelect;
+export type InsertVendor = z.infer<typeof insertVendorSchema>;
 
 // CMS: Site Settings
 export const siteSettings = pgTable("site_settings", {
@@ -638,6 +662,7 @@ export const reportTemplates = pgTable("report_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
+  vendorId: integer("vendor_id"), // null = global template, otherwise vendor-specific
   companyId: integer("company_id"), // null = global template
   
   // Paper settings
