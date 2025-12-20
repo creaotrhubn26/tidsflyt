@@ -15,7 +15,8 @@ import {
   X, ChevronRight, ChevronDown, Bell, Gift, Award, Target, Briefcase, Building,
   Globe, MapPin, Send, MessageCircle, ThumbsUp, Bookmark, Tag, FileText, BarChart3,
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
-  Palette, Type, Box, Layers, RefreshCw,
+  Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
+  PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight,
   type LucideIcon
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -474,13 +475,28 @@ export default function CMSPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-7 mb-6" data-testid="cms-tabs">
+        <TabsList className="flex flex-wrap gap-1 w-full mb-6" data-testid="cms-tabs">
           <TabsTrigger value="hero" data-testid="tab-hero">Hero</TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">Funksjoner</TabsTrigger>
           <TabsTrigger value="testimonials" data-testid="tab-testimonials">Referanser</TabsTrigger>
           <TabsTrigger value="partners" data-testid="tab-partners">Partnere</TabsTrigger>
           <TabsTrigger value="sections" data-testid="tab-sections">Seksjoner</TabsTrigger>
           <TabsTrigger value="design" data-testid="tab-design">Design</TabsTrigger>
+          <TabsTrigger value="media" data-testid="tab-media">
+            <Image className="h-4 w-4 mr-1" />Media
+          </TabsTrigger>
+          <TabsTrigger value="seo" data-testid="tab-seo">
+            <Search className="h-4 w-4 mr-1" />SEO
+          </TabsTrigger>
+          <TabsTrigger value="forms" data-testid="tab-forms">
+            <FormInput className="h-4 w-4 mr-1" />Skjemaer
+          </TabsTrigger>
+          <TabsTrigger value="navigation" data-testid="tab-navigation">
+            <Menu className="h-4 w-4 mr-1" />Navigasjon
+          </TabsTrigger>
+          <TabsTrigger value="blog" data-testid="tab-blog">
+            <Newspaper className="h-4 w-4 mr-1" />Blogg
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
         </TabsList>
 
@@ -506,6 +522,26 @@ export default function CMSPage() {
 
         <TabsContent value="design">
           <DesignEditor />
+        </TabsContent>
+
+        <TabsContent value="media">
+          <MediaLibrary />
+        </TabsContent>
+
+        <TabsContent value="seo">
+          <SEOEditor />
+        </TabsContent>
+
+        <TabsContent value="forms">
+          <FormBuilder />
+        </TabsContent>
+
+        <TabsContent value="navigation">
+          <NavigationEditor />
+        </TabsContent>
+
+        <TabsContent value="blog">
+          <BlogEditor />
         </TabsContent>
 
         <TabsContent value="activity">
@@ -2613,6 +2649,1413 @@ function DesignEditor() {
           </Tabs>
         </CardContent>
       </Card>
+    </div>
+  );
+}
+
+// ========== MEDIA LIBRARY ==========
+interface MediaItem {
+  id: number;
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  file_size: number;
+  url: string;
+  alt_text: string | null;
+  title: string | null;
+  description: string | null;
+  folder_id: number | null;
+  tags: string[] | null;
+  width: number | null;
+  height: number | null;
+  created_at: string;
+}
+
+interface MediaFolder {
+  id: number;
+  name: string;
+  parent_id: number | null;
+}
+
+function MediaLibrary() {
+  const { toast } = useToast();
+  const [currentFolder, setCurrentFolder] = useState<number | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [showNewFolder, setShowNewFolder] = useState(false);
+
+  const { data: mediaData, isLoading: mediaLoading, refetch: refetchMedia } = useQuery<MediaItem[]>({
+    queryKey: ['/api/cms/media', currentFolder],
+    queryFn: async () => {
+      const url = currentFolder ? `/api/cms/media?folder_id=${currentFolder}` : '/api/cms/media';
+      const res = await fetch(url);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  });
+  const media = Array.isArray(mediaData) ? mediaData : [];
+
+  const { data: foldersData, refetch: refetchFolders } = useQuery<MediaFolder[]>({
+    queryKey: ['/api/cms/media/folders'],
+    queryFn: async () => {
+      const res = await fetch('/api/cms/media/folders');
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  });
+  const folders = Array.isArray(foldersData) ? foldersData : [];
+
+  const createFolderMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return authenticatedApiRequest('/api/cms/media/folders', {
+        method: 'POST',
+        body: JSON.stringify({ name, parent_id: currentFolder })
+      });
+    },
+    onSuccess: () => {
+      refetchFolders();
+      setNewFolderName("");
+      setShowNewFolder(false);
+      toast({ title: "Mappe opprettet" });
+    }
+  });
+
+  const updateMediaMutation = useMutation({
+    mutationFn: async (data: Partial<MediaItem> & { id: number }) => {
+      return authenticatedApiRequest(`/api/cms/media/${data.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      refetchMedia();
+      toast({ title: "Media oppdatert" });
+    }
+  });
+
+  const deleteMediaMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/media/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      refetchMedia();
+      setSelectedMedia(null);
+      toast({ title: "Media slettet" });
+    }
+  });
+
+  const formatFileSize = (bytes: number) => {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Image className="h-5 w-5" />
+                Mediebibliotek
+              </CardTitle>
+              <CardDescription>Last opp og organiser bilder og filer</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)} data-testid="button-new-folder">
+                <FolderPlus className="h-4 w-4 mr-1" />
+                Ny mappe
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-6">
+            <div className="w-48 space-y-2">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Mapper</h4>
+              <Button
+                variant={currentFolder === null ? "secondary" : "ghost"}
+                className="w-full justify-start"
+                onClick={() => setCurrentFolder(null)}
+                data-testid="folder-root"
+              >
+                <FolderOpen className="h-4 w-4 mr-2" />
+                Alle filer
+              </Button>
+              {folders.map(folder => (
+                <Button
+                  key={folder.id}
+                  variant={currentFolder === folder.id ? "secondary" : "ghost"}
+                  className="w-full justify-start"
+                  onClick={() => setCurrentFolder(folder.id)}
+                  data-testid={`folder-${folder.id}`}
+                >
+                  <FolderOpen className="h-4 w-4 mr-2" />
+                  {folder.name}
+                </Button>
+              ))}
+            </div>
+
+            <div className="flex-1">
+              {mediaLoading ? (
+                <div className="flex items-center justify-center h-64">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : media.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                  <Image className="h-12 w-12 mb-4 opacity-50" />
+                  <p>Ingen filer i denne mappen</p>
+                  <p className="text-sm">Last opp filer via URL for å komme i gang</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-4 gap-4">
+                  {media.map(item => (
+                    <div
+                      key={item.id}
+                      className={`group relative rounded-lg border p-2 cursor-pointer hover-elevate ${
+                        selectedMedia?.id === item.id ? 'ring-2 ring-primary' : ''
+                      }`}
+                      onClick={() => setSelectedMedia(item)}
+                      data-testid={`media-${item.id}`}
+                    >
+                      {item.mime_type.startsWith('image/') ? (
+                        <img
+                          src={item.url}
+                          alt={item.alt_text || item.original_name}
+                          className="w-full h-24 object-cover rounded"
+                        />
+                      ) : (
+                        <div className="w-full h-24 flex items-center justify-center bg-muted rounded">
+                          <FileText className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                      )}
+                      <p className="mt-2 text-xs truncate">{item.original_name}</p>
+                      <p className="text-xs text-muted-foreground">{formatFileSize(item.file_size)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {selectedMedia && (
+              <div className="w-72 border-l pl-6 space-y-4">
+                <h4 className="font-medium">Detaljer</h4>
+                {selectedMedia.mime_type.startsWith('image/') && (
+                  <img
+                    src={selectedMedia.url}
+                    alt={selectedMedia.alt_text || ''}
+                    className="w-full h-32 object-cover rounded"
+                  />
+                )}
+                <div className="space-y-3">
+                  <div>
+                    <Label className="text-xs">Tittel</Label>
+                    <Input
+                      value={selectedMedia.title || ''}
+                      onChange={(e) => setSelectedMedia({ ...selectedMedia, title: e.target.value })}
+                      placeholder="Tittel"
+                      data-testid="input-media-title"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Alt-tekst</Label>
+                    <Input
+                      value={selectedMedia.alt_text || ''}
+                      onChange={(e) => setSelectedMedia({ ...selectedMedia, alt_text: e.target.value })}
+                      placeholder="Beskrivelse for skjermlesere"
+                      data-testid="input-media-alt"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-xs">URL</Label>
+                    <Input value={selectedMedia.url} readOnly className="text-xs" data-testid="input-media-url" />
+                  </div>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      onClick={() => updateMediaMutation.mutate(selectedMedia)}
+                      disabled={updateMediaMutation.isPending}
+                      data-testid="button-save-media"
+                    >
+                      {updateMediaMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                      Lagre
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={() => deleteMediaMutation.mutate(selectedMedia.id)}
+                      disabled={deleteMediaMutation.isPending}
+                      data-testid="button-delete-media"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={showNewFolder} onOpenChange={setShowNewFolder}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Opprett ny mappe</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="Mappenavn"
+              data-testid="input-new-folder-name"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowNewFolder(false)}>Avbryt</Button>
+              <Button
+                onClick={() => createFolderMutation.mutate(newFolderName)}
+                disabled={!newFolderName || createFolderMutation.isPending}
+                data-testid="button-create-folder"
+              >
+                {createFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Opprett
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ========== SEO EDITOR ==========
+interface GlobalSEO {
+  id?: number;
+  site_name: string;
+  site_description: string;
+  default_og_image: string;
+  google_site_verification: string;
+  bing_site_verification: string;
+  favicon_url: string;
+}
+
+function SEOEditor() {
+  const { toast } = useToast();
+  const [globalSeo, setGlobalSeo] = useState<GlobalSEO>({
+    site_name: '',
+    site_description: '',
+    default_og_image: '',
+    google_site_verification: '',
+    bing_site_verification: '',
+    favicon_url: ''
+  });
+
+  const { data: seoData, isLoading } = useQuery<GlobalSEO | null>({
+    queryKey: ['/api/cms/seo/global'],
+    queryFn: async () => {
+      const res = await fetch('/api/cms/seo/global');
+      const data = await res.json();
+      return data && !data.error ? data : null;
+    }
+  });
+
+  useEffect(() => {
+    if (seoData) {
+      setGlobalSeo(seoData);
+    }
+  }, [seoData]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      return authenticatedApiRequest('/api/cms/seo/global', {
+        method: 'PUT',
+        body: JSON.stringify(globalSeo)
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "SEO-innstillinger lagret" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Feil", description: error.message, variant: "destructive" });
+    }
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Search className="h-5 w-5" />
+                SEO-innstillinger
+              </CardTitle>
+              <CardDescription>Optimaliser nettstedet for søkemotorer</CardDescription>
+            </div>
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-seo">
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Lagre endringer
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Grunnleggende</h3>
+              <div>
+                <Label>Nettstedsnavn</Label>
+                <Input
+                  value={globalSeo.site_name}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, site_name: e.target.value })}
+                  placeholder="Smart Timing"
+                  data-testid="input-seo-site-name"
+                />
+              </div>
+              <div>
+                <Label>Nettstedsbeskrivelse</Label>
+                <Textarea
+                  value={globalSeo.site_description}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, site_description: e.target.value })}
+                  placeholder="Profesjonell timeregistrering for norske bedrifter"
+                  rows={3}
+                  data-testid="input-seo-site-description"
+                />
+              </div>
+              <div>
+                <Label>Favicon URL</Label>
+                <Input
+                  value={globalSeo.favicon_url}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, favicon_url: e.target.value })}
+                  placeholder="/favicon.ico"
+                  data-testid="input-seo-favicon"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Sosiale medier</h3>
+              <div>
+                <Label>Standard Open Graph-bilde</Label>
+                <Input
+                  value={globalSeo.default_og_image}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, default_og_image: e.target.value })}
+                  placeholder="https://example.com/og-image.jpg"
+                  data-testid="input-seo-og-image"
+                />
+                <p className="text-xs text-muted-foreground mt-1">Anbefalt størrelse: 1200x630 piksler</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="border-t pt-6">
+            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-4">Verifisering</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <Label>Google Search Console</Label>
+                <Input
+                  value={globalSeo.google_site_verification}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, google_site_verification: e.target.value })}
+                  placeholder="Verifiseringskode"
+                  data-testid="input-seo-google-verification"
+                />
+              </div>
+              <div>
+                <Label>Bing Webmaster Tools</Label>
+                <Input
+                  value={globalSeo.bing_site_verification}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, bing_site_verification: e.target.value })}
+                  placeholder="Verifiseringskode"
+                  data-testid="input-seo-bing-verification"
+                />
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ========== FORM BUILDER ==========
+interface FormField {
+  id: string;
+  type: 'text' | 'email' | 'tel' | 'textarea' | 'select' | 'checkbox' | 'number';
+  label: string;
+  placeholder?: string;
+  required: boolean;
+  options?: string[];
+}
+
+interface CMSForm {
+  id: number;
+  name: string;
+  description: string | null;
+  fields: FormField[];
+  submit_button_text: string;
+  success_message: string;
+  notification_email: string | null;
+  is_active: boolean;
+  created_at: string;
+}
+
+interface FormSubmission {
+  id: number;
+  form_id: number;
+  data: Record<string, any>;
+  ip_address: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+function FormBuilder() {
+  const { toast } = useToast();
+  const [selectedForm, setSelectedForm] = useState<CMSForm | null>(null);
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newFormName, setNewFormName] = useState("");
+  const [viewSubmissions, setViewSubmissions] = useState<number | null>(null);
+
+  const { data: formsData, refetch: refetchForms } = useQuery<CMSForm[]>({
+    queryKey: ['/api/cms/forms'],
+    queryFn: async () => {
+      const res = await fetch('/api/cms/forms');
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  });
+  const forms = Array.isArray(formsData) ? formsData : [];
+
+  const { data: submissions = [] } = useQuery<FormSubmission[]>({
+    queryKey: ['/api/cms/forms', viewSubmissions, 'submissions'],
+    queryFn: async () => {
+      if (!viewSubmissions) return [];
+      const res = await authenticatedApiRequest(`/api/cms/forms/${viewSubmissions}/submissions`);
+      return res;
+    },
+    enabled: !!viewSubmissions
+  });
+
+  const createFormMutation = useMutation({
+    mutationFn: async (name: string) => {
+      return authenticatedApiRequest('/api/cms/forms', {
+        method: 'POST',
+        body: JSON.stringify({
+          name,
+          fields: [
+            { id: '1', type: 'text', label: 'Navn', required: true },
+            { id: '2', type: 'email', label: 'E-post', required: true },
+            { id: '3', type: 'textarea', label: 'Melding', required: true }
+          ],
+          submit_button_text: 'Send inn',
+          success_message: 'Takk for din henvendelse!'
+        })
+      });
+    },
+    onSuccess: () => {
+      refetchForms();
+      setNewFormName("");
+      setShowNewForm(false);
+      toast({ title: "Skjema opprettet" });
+    }
+  });
+
+  const updateFormMutation = useMutation({
+    mutationFn: async (form: CMSForm) => {
+      return authenticatedApiRequest(`/api/cms/forms/${form.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(form)
+      });
+    },
+    onSuccess: () => {
+      refetchForms();
+      toast({ title: "Skjema oppdatert" });
+    }
+  });
+
+  const deleteFormMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/forms/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      refetchForms();
+      setSelectedForm(null);
+      toast({ title: "Skjema slettet" });
+    }
+  });
+
+  const addField = () => {
+    if (!selectedForm) return;
+    const newField: FormField = {
+      id: Date.now().toString(),
+      type: 'text',
+      label: 'Nytt felt',
+      required: false
+    };
+    setSelectedForm({
+      ...selectedForm,
+      fields: [...selectedForm.fields, newField]
+    });
+  };
+
+  const updateField = (fieldId: string, updates: Partial<FormField>) => {
+    if (!selectedForm) return;
+    setSelectedForm({
+      ...selectedForm,
+      fields: selectedForm.fields.map(f => f.id === fieldId ? { ...f, ...updates } : f)
+    });
+  };
+
+  const removeField = (fieldId: string) => {
+    if (!selectedForm) return;
+    setSelectedForm({
+      ...selectedForm,
+      fields: selectedForm.fields.filter(f => f.id !== fieldId)
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <FormInput className="h-5 w-5" />
+                Skjemabygger
+              </CardTitle>
+              <CardDescription>Opprett og administrer kontaktskjemaer</CardDescription>
+            </div>
+            <Button onClick={() => setShowNewForm(true)} data-testid="button-new-form">
+              <Plus className="h-4 w-4 mr-2" />
+              Nytt skjema
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {forms.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <FormInput className="h-12 w-12 mb-4 opacity-50" />
+              <p>Ingen skjemaer ennå</p>
+              <Button variant="outline" className="mt-4" onClick={() => setShowNewForm(true)} data-testid="button-create-first-form">
+                Opprett ditt første skjema
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {forms.map(form => (
+                <Card
+                  key={form.id}
+                  className={`cursor-pointer hover-elevate ${selectedForm?.id === form.id ? 'ring-2 ring-primary' : ''}`}
+                  onClick={() => setSelectedForm(form)}
+                  data-testid={`form-${form.id}`}
+                >
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">{form.name}</CardTitle>
+                    <CardDescription className="text-xs">
+                      {form.fields?.length || 0} felt
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={(e) => { e.stopPropagation(); setViewSubmissions(form.id); }}
+                        data-testid={`button-view-submissions-${form.id}`}
+                      >
+                        <Inbox className="h-3 w-3 mr-1" />
+                        Svar
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant={form.is_active ? "default" : "secondary"}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          updateFormMutation.mutate({ ...form, is_active: !form.is_active });
+                        }}
+                        data-testid={`button-toggle-form-${form.id}`}
+                      >
+                        {form.is_active ? 'Aktiv' : 'Inaktiv'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedForm && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>Rediger: {selectedForm.name}</CardTitle>
+                <CardDescription>Embed-kode: /api/forms/{selectedForm.id}/submit</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button onClick={() => updateFormMutation.mutate(selectedForm)} disabled={updateFormMutation.isPending} data-testid="button-save-form">
+                  {updateFormMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Lagre
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => deleteFormMutation.mutate(selectedForm.id)}
+                  disabled={deleteFormMutation.isPending}
+                  data-testid="button-delete-form"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Skjemanavn</Label>
+                <Input
+                  value={selectedForm.name}
+                  onChange={(e) => setSelectedForm({ ...selectedForm, name: e.target.value })}
+                  data-testid="input-form-name"
+                />
+              </div>
+              <div>
+                <Label>Varslingsmail</Label>
+                <Input
+                  type="email"
+                  value={selectedForm.notification_email || ''}
+                  onChange={(e) => setSelectedForm({ ...selectedForm, notification_email: e.target.value })}
+                  placeholder="kontakt@firma.no"
+                  data-testid="input-form-notification-email"
+                />
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <Label>Felt</Label>
+                <Button size="sm" variant="outline" onClick={addField} data-testid="button-add-field">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Legg til felt
+                </Button>
+              </div>
+              <div className="space-y-3">
+                {selectedForm.fields?.map((field, index) => (
+                  <div key={field.id} className="flex gap-3 items-start p-3 bg-muted/50 rounded-lg">
+                    <div className="flex-1 grid grid-cols-4 gap-3">
+                      <Input
+                        value={field.label}
+                        onChange={(e) => updateField(field.id, { label: e.target.value })}
+                        placeholder="Feltlabel"
+                        data-testid={`input-field-label-${index}`}
+                      />
+                      <select
+                        value={field.type}
+                        onChange={(e) => updateField(field.id, { type: e.target.value as FormField['type'] })}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        data-testid={`select-field-type-${index}`}
+                      >
+                        <option value="text">Tekst</option>
+                        <option value="email">E-post</option>
+                        <option value="tel">Telefon</option>
+                        <option value="number">Tall</option>
+                        <option value="textarea">Tekstområde</option>
+                        <option value="checkbox">Avkrysning</option>
+                        <option value="select">Nedtrekksliste</option>
+                      </select>
+                      <Input
+                        value={field.placeholder || ''}
+                        onChange={(e) => updateField(field.id, { placeholder: e.target.value })}
+                        placeholder="Placeholder"
+                        data-testid={`input-field-placeholder-${index}`}
+                      />
+                      <div className="flex items-center gap-2">
+                        <label className="flex items-center gap-1 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={field.required}
+                            onChange={(e) => updateField(field.id, { required: e.target.checked })}
+                            className="rounded"
+                            data-testid={`checkbox-field-required-${index}`}
+                          />
+                          Påkrevd
+                        </label>
+                      </div>
+                    </div>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => removeField(field.id)}
+                      data-testid={`button-remove-field-${index}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Knappetekst</Label>
+                <Input
+                  value={selectedForm.submit_button_text}
+                  onChange={(e) => setSelectedForm({ ...selectedForm, submit_button_text: e.target.value })}
+                  placeholder="Send inn"
+                  data-testid="input-form-submit-text"
+                />
+              </div>
+              <div>
+                <Label>Suksessmelding</Label>
+                <Input
+                  value={selectedForm.success_message}
+                  onChange={(e) => setSelectedForm({ ...selectedForm, success_message: e.target.value })}
+                  placeholder="Takk for din henvendelse!"
+                  data-testid="input-form-success-message"
+                />
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={showNewForm} onOpenChange={setShowNewForm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Opprett nytt skjema</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={newFormName}
+              onChange={(e) => setNewFormName(e.target.value)}
+              placeholder="Skjemanavn"
+              data-testid="input-new-form-name"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowNewForm(false)}>Avbryt</Button>
+              <Button
+                onClick={() => createFormMutation.mutate(newFormName)}
+                disabled={!newFormName || createFormMutation.isPending}
+                data-testid="button-create-form"
+              >
+                {createFormMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Opprett
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!viewSubmissions} onOpenChange={(open) => !open && setViewSubmissions(null)}>
+        <DialogContent className="max-w-3xl">
+          <DialogHeader>
+            <DialogTitle>Skjemainnsendelser</DialogTitle>
+          </DialogHeader>
+          <div className="max-h-96 overflow-auto">
+            {submissions.length === 0 ? (
+              <p className="text-center text-muted-foreground py-8">Ingen innsendelser ennå</p>
+            ) : (
+              <div className="space-y-4">
+                {submissions.map(sub => (
+                  <Card key={sub.id} data-testid={`submission-${sub.id}`}>
+                    <CardContent className="pt-4">
+                      <div className="text-xs text-muted-foreground mb-2">
+                        {new Date(sub.created_at).toLocaleString('nb-NO')}
+                      </div>
+                      <div className="space-y-1">
+                        {Object.entries(sub.data).map(([key, value]) => (
+                          <div key={key} className="text-sm">
+                            <span className="font-medium">{key}:</span> {String(value)}
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// ========== NAVIGATION EDITOR ==========
+interface NavItem {
+  id: string;
+  label: string;
+  url: string;
+  target?: '_blank' | '_self';
+  children?: NavItem[];
+}
+
+interface Navigation {
+  id: number;
+  name: string;
+  location: string;
+  items: NavItem[];
+  is_active: boolean;
+}
+
+function NavigationEditor() {
+  const { toast } = useToast();
+  const [selectedLocation, setSelectedLocation] = useState<string>('header');
+  const [navData, setNavData] = useState<Navigation | null>(null);
+
+  const { data: navigation, refetch } = useQuery<Navigation | null>({
+    queryKey: ['/api/cms/navigation', selectedLocation],
+    queryFn: async () => {
+      const res = await fetch(`/api/cms/navigation/${selectedLocation}`);
+      const data = await res.json();
+      return data && !data.error ? data : null;
+    }
+  });
+
+  useEffect(() => {
+    if (navigation) {
+      setNavData(navigation);
+    } else {
+      setNavData({
+        id: 0,
+        name: selectedLocation === 'header' ? 'Hovedmeny' : selectedLocation === 'footer' ? 'Footermeny' : 'Meny',
+        location: selectedLocation,
+        items: [],
+        is_active: true
+      });
+    }
+  }, [navigation, selectedLocation]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      if (!navData) return;
+      return authenticatedApiRequest(`/api/cms/navigation/${selectedLocation}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name: navData.name, items: navData.items })
+      });
+    },
+    onSuccess: () => {
+      refetch();
+      toast({ title: "Navigasjon lagret" });
+    }
+  });
+
+  const addItem = () => {
+    if (!navData) return;
+    const newItem: NavItem = {
+      id: Date.now().toString(),
+      label: 'Ny lenke',
+      url: '#',
+      target: '_self'
+    };
+    setNavData({ ...navData, items: [...navData.items, newItem] });
+  };
+
+  const updateItem = (itemId: string, updates: Partial<NavItem>) => {
+    if (!navData) return;
+    setNavData({
+      ...navData,
+      items: navData.items.map(item => item.id === itemId ? { ...item, ...updates } : item)
+    });
+  };
+
+  const removeItem = (itemId: string) => {
+    if (!navData) return;
+    setNavData({
+      ...navData,
+      items: navData.items.filter(item => item.id !== itemId)
+    });
+  };
+
+  const locations = [
+    { value: 'header', label: 'Hovedmeny (Header)' },
+    { value: 'footer', label: 'Footermeny' },
+    { value: 'mobile', label: 'Mobilmeny' }
+  ];
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Menu className="h-5 w-5" />
+                Navigasjon
+              </CardTitle>
+              <CardDescription>Administrer nettstedets menyer og lenker</CardDescription>
+            </div>
+            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-nav">
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Lagre endringer
+            </Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-6">
+            <div className="w-48 space-y-2">
+              <h4 className="text-sm font-medium text-muted-foreground mb-3">Menyplasseringer</h4>
+              {locations.map(loc => (
+                <Button
+                  key={loc.value}
+                  variant={selectedLocation === loc.value ? "secondary" : "ghost"}
+                  className="w-full justify-start"
+                  onClick={() => setSelectedLocation(loc.value)}
+                  data-testid={`nav-location-${loc.value}`}
+                >
+                  {loc.label}
+                </Button>
+              ))}
+            </div>
+
+            <div className="flex-1">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-medium">{navData?.name || 'Meny'}</h3>
+                <Button size="sm" variant="outline" onClick={addItem} data-testid="button-add-nav-item">
+                  <Plus className="h-4 w-4 mr-1" />
+                  Legg til lenke
+                </Button>
+              </div>
+
+              {navData?.items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground border-2 border-dashed rounded-lg">
+                  <Link2 className="h-8 w-8 mb-2 opacity-50" />
+                  <p>Ingen menyelementer</p>
+                  <Button variant="outline" size="sm" className="mt-2" onClick={addItem} data-testid="button-add-first-nav-item">
+                    Legg til første lenke
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {navData?.items.map((item, index) => (
+                    <div key={item.id} className="flex gap-3 items-center p-3 bg-muted/50 rounded-lg">
+                      <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
+                      <Input
+                        value={item.label}
+                        onChange={(e) => updateItem(item.id, { label: e.target.value })}
+                        placeholder="Lenketekst"
+                        className="flex-1"
+                        data-testid={`input-nav-label-${index}`}
+                      />
+                      <Input
+                        value={item.url}
+                        onChange={(e) => updateItem(item.id, { url: e.target.value })}
+                        placeholder="URL"
+                        className="flex-1"
+                        data-testid={`input-nav-url-${index}`}
+                      />
+                      <select
+                        value={item.target || '_self'}
+                        onChange={(e) => updateItem(item.id, { target: e.target.value as '_blank' | '_self' })}
+                        className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        data-testid={`select-nav-target-${index}`}
+                      >
+                        <option value="_self">Samme vindu</option>
+                        <option value="_blank">Nytt vindu</option>
+                      </select>
+                      <Button size="icon" variant="ghost" onClick={() => removeItem(item.id)} data-testid={`button-remove-nav-${index}`}>
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ========== BLOG EDITOR ==========
+interface BlogPost {
+  id: number;
+  title: string;
+  slug: string;
+  excerpt: string | null;
+  content: string | null;
+  featured_image: string | null;
+  author: string | null;
+  category_id: number | null;
+  category_name?: string | null;
+  tags: string[] | null;
+  status: 'draft' | 'published' | 'archived';
+  published_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+interface BlogCategory {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+}
+
+function BlogEditor() {
+  const { toast } = useToast();
+  const [selectedPost, setSelectedPost] = useState<BlogPost | null>(null);
+  const [showNewPost, setShowNewPost] = useState(false);
+  const [showNewCategory, setShowNewCategory] = useState(false);
+  const [newPostTitle, setNewPostTitle] = useState("");
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>('');
+
+  const { data: postsData, refetch: refetchPosts } = useQuery<BlogPost[]>({
+    queryKey: ['/api/cms/posts', filterStatus],
+    queryFn: async () => {
+      const url = filterStatus ? `/api/cms/posts?status=${filterStatus}` : '/api/cms/posts';
+      const res = await fetch(url);
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  });
+  const posts = Array.isArray(postsData) ? postsData : [];
+
+  const { data: categoriesData, refetch: refetchCategories } = useQuery<BlogCategory[]>({
+    queryKey: ['/api/cms/categories'],
+    queryFn: async () => {
+      const res = await fetch('/api/cms/categories');
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    }
+  });
+  const categories = Array.isArray(categoriesData) ? categoriesData : [];
+
+  const createPostMutation = useMutation({
+    mutationFn: async (title: string) => {
+      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      return authenticatedApiRequest('/api/cms/posts', {
+        method: 'POST',
+        body: JSON.stringify({ title, slug, status: 'draft' })
+      });
+    },
+    onSuccess: (newPost) => {
+      refetchPosts();
+      setNewPostTitle("");
+      setShowNewPost(false);
+      setSelectedPost(newPost);
+      toast({ title: "Innlegg opprettet" });
+    }
+  });
+
+  const updatePostMutation = useMutation({
+    mutationFn: async (post: BlogPost) => {
+      return authenticatedApiRequest(`/api/cms/posts/${post.id}`, {
+        method: 'PUT',
+        body: JSON.stringify(post)
+      });
+    },
+    onSuccess: () => {
+      refetchPosts();
+      toast({ title: "Innlegg oppdatert" });
+    }
+  });
+
+  const deletePostMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/posts/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      refetchPosts();
+      setSelectedPost(null);
+      toast({ title: "Innlegg slettet" });
+    }
+  });
+
+  const createCategoryMutation = useMutation({
+    mutationFn: async (name: string) => {
+      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      return authenticatedApiRequest('/api/cms/categories', {
+        method: 'POST',
+        body: JSON.stringify({ name, slug })
+      });
+    },
+    onSuccess: () => {
+      refetchCategories();
+      setNewCategoryName("");
+      setShowNewCategory(false);
+      toast({ title: "Kategori opprettet" });
+    }
+  });
+
+  const getStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      draft: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+      published: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+      archived: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+    };
+    const labels: Record<string, string> = {
+      draft: 'Utkast',
+      published: 'Publisert',
+      archived: 'Arkivert'
+    };
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>{labels[status]}</span>;
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Newspaper className="h-5 w-5" />
+                Blogg og Artikler
+              </CardTitle>
+              <CardDescription>Opprett og publiser innhold</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowNewCategory(true)} data-testid="button-new-category">
+                <Tag className="h-4 w-4 mr-2" />
+                Ny kategori
+              </Button>
+              <Button onClick={() => setShowNewPost(true)} data-testid="button-new-post">
+                <Plus className="h-4 w-4 mr-2" />
+                Nytt innlegg
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="flex gap-4 mb-6">
+            <select
+              value={filterStatus}
+              onChange={(e) => setFilterStatus(e.target.value)}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              data-testid="select-filter-status"
+            >
+              <option value="">Alle innlegg</option>
+              <option value="draft">Utkast</option>
+              <option value="published">Publisert</option>
+              <option value="archived">Arkivert</option>
+            </select>
+          </div>
+
+          {posts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+              <Newspaper className="h-12 w-12 mb-4 opacity-50" />
+              <p>Ingen innlegg ennå</p>
+              <Button variant="outline" className="mt-4" onClick={() => setShowNewPost(true)} data-testid="button-create-first-post">
+                Opprett ditt første innlegg
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {posts.map(post => (
+                <div
+                  key={post.id}
+                  className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer hover-elevate ${
+                    selectedPost?.id === post.id ? 'ring-2 ring-primary' : ''
+                  }`}
+                  onClick={() => setSelectedPost(post)}
+                  data-testid={`post-${post.id}`}
+                >
+                  <div>
+                    <h4 className="font-medium">{post.title}</h4>
+                    <div className="flex gap-2 items-center mt-1">
+                      {getStatusBadge(post.status)}
+                      {post.category_name && (
+                        <span className="text-xs text-muted-foreground">{post.category_name}</span>
+                      )}
+                      <span className="text-xs text-muted-foreground">
+                        {new Date(post.created_at).toLocaleDateString('nb-NO')}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedPost(post); }} data-testid={`button-edit-post-${post.id}`}>
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {selectedPost && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <CardTitle>Rediger innlegg</CardTitle>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => updatePostMutation.mutate({ ...selectedPost, status: 'published' })}
+                  disabled={updatePostMutation.isPending || selectedPost.status === 'published'}
+                  data-testid="button-publish-post"
+                >
+                  Publiser
+                </Button>
+                <Button onClick={() => updatePostMutation.mutate(selectedPost)} disabled={updatePostMutation.isPending} data-testid="button-save-post">
+                  {updatePostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Lagre
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => deletePostMutation.mutate(selectedPost.id)}
+                  disabled={deletePostMutation.isPending}
+                  data-testid="button-delete-post"
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <div>
+                  <Label>Tittel</Label>
+                  <Input
+                    value={selectedPost.title}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, title: e.target.value })}
+                    data-testid="input-post-title"
+                  />
+                </div>
+                <div>
+                  <Label>URL-slug</Label>
+                  <Input
+                    value={selectedPost.slug}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, slug: e.target.value })}
+                    data-testid="input-post-slug"
+                  />
+                </div>
+                <div>
+                  <Label>Utdrag</Label>
+                  <Textarea
+                    value={selectedPost.excerpt || ''}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, excerpt: e.target.value })}
+                    rows={2}
+                    data-testid="input-post-excerpt"
+                  />
+                </div>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <Label>Kategori</Label>
+                  <select
+                    value={selectedPost.category_id || ''}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, category_id: e.target.value ? Number(e.target.value) : null })}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    data-testid="select-post-category"
+                  >
+                    <option value="">Ingen kategori</option>
+                    {categories.map(cat => (
+                      <option key={cat.id} value={cat.id}>{cat.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label>Forfatter</Label>
+                  <Input
+                    value={selectedPost.author || ''}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, author: e.target.value })}
+                    data-testid="input-post-author"
+                  />
+                </div>
+                <div>
+                  <Label>Fremhevet bilde URL</Label>
+                  <Input
+                    value={selectedPost.featured_image || ''}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, featured_image: e.target.value })}
+                    placeholder="https://..."
+                    data-testid="input-post-image"
+                  />
+                </div>
+                <div>
+                  <Label>Status</Label>
+                  <select
+                    value={selectedPost.status}
+                    onChange={(e) => setSelectedPost({ ...selectedPost, status: e.target.value as BlogPost['status'] })}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    data-testid="select-post-status"
+                  >
+                    <option value="draft">Utkast</option>
+                    <option value="published">Publisert</option>
+                    <option value="archived">Arkivert</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+            <div>
+              <Label>Innhold</Label>
+              <Textarea
+                value={selectedPost.content || ''}
+                onChange={(e) => setSelectedPost({ ...selectedPost, content: e.target.value })}
+                rows={12}
+                placeholder="Skriv innholdet her..."
+                data-testid="input-post-content"
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={showNewPost} onOpenChange={setShowNewPost}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Opprett nytt innlegg</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={newPostTitle}
+              onChange={(e) => setNewPostTitle(e.target.value)}
+              placeholder="Innleggets tittel"
+              data-testid="input-new-post-title"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowNewPost(false)}>Avbryt</Button>
+              <Button
+                onClick={() => createPostMutation.mutate(newPostTitle)}
+                disabled={!newPostTitle || createPostMutation.isPending}
+                data-testid="button-create-post"
+              >
+                {createPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Opprett
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showNewCategory} onOpenChange={setShowNewCategory}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Opprett ny kategori</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="Kategorinavn"
+              data-testid="input-new-category-name"
+            />
+            <div className="flex gap-2 justify-end">
+              <Button variant="outline" onClick={() => setShowNewCategory(false)}>Avbryt</Button>
+              <Button
+                onClick={() => createCategoryMutation.mutate(newCategoryName)}
+                disabled={!newCategoryName || createCategoryMutation.isPending}
+                data-testid="button-create-category"
+              >
+                {createCategoryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                Opprett
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

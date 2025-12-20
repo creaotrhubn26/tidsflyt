@@ -1583,5 +1583,407 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: MEDIA LIBRARY ==========
+  app.get("/api/cms/media", async (req, res) => {
+    try {
+      const { folder_id } = req.query;
+      let query = 'SELECT * FROM cms_media';
+      const params: any[] = [];
+      
+      if (folder_id) {
+        query += ' WHERE folder_id = $1';
+        params.push(folder_id);
+      } else {
+        query += ' WHERE folder_id IS NULL';
+      }
+      query += ' ORDER BY created_at DESC';
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/media/folders", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_media_folders ORDER BY name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/media/folders", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, parent_id } = req.body;
+      const result = await pool.query(
+        'INSERT INTO cms_media_folders (name, parent_id) VALUES ($1, $2) RETURNING *',
+        [name, parent_id || null]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/media", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { filename, original_name, mime_type, file_size, url, alt_text, title, folder_id, width, height } = req.body;
+      const result = await pool.query(
+        `INSERT INTO cms_media (filename, original_name, mime_type, file_size, url, alt_text, title, folder_id, width, height)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [filename, original_name, mime_type, file_size, url, alt_text, title, folder_id || null, width, height]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/media/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { alt_text, title, description, folder_id, tags } = req.body;
+      const result = await pool.query(
+        `UPDATE cms_media SET alt_text = $1, title = $2, description = $3, folder_id = $4, tags = $5, updated_at = NOW()
+         WHERE id = $6 RETURNING *`,
+        [alt_text, title, description, folder_id, tags, id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/media/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_media WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: SEO SETTINGS ==========
+  app.get("/api/cms/seo/global", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_global_seo LIMIT 1');
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url } = req.body;
+      const existing = await pool.query('SELECT * FROM cms_global_seo LIMIT 1');
+      
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE cms_global_seo SET site_name = $1, site_description = $2, default_og_image = $3, 
+           google_site_verification = $4, bing_site_verification = $5, favicon_url = $6, updated_at = NOW()
+           WHERE id = $7 RETURNING *`,
+          [site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url, existing.rows[0].id]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO cms_global_seo (site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/seo/:pageType/:pageId?", async (req, res) => {
+    try {
+      const { pageType, pageId } = req.params;
+      const result = await pool.query(
+        'SELECT * FROM cms_seo_settings WHERE page_type = $1 AND (page_id = $2 OR ($2 IS NULL AND page_id IS NULL)) LIMIT 1',
+        [pageType, pageId || null]
+      );
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/seo/:pageType/:pageId?", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { pageType, pageId } = req.params;
+      const data = req.body;
+      
+      const result = await pool.query(
+        `INSERT INTO cms_seo_settings (page_type, page_id, meta_title, meta_description, og_title, og_description, og_image, 
+         twitter_card, canonical_url, robots, schema_type, schema_data)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         ON CONFLICT (page_type, page_id) DO UPDATE SET
+         meta_title = $3, meta_description = $4, og_title = $5, og_description = $6, og_image = $7,
+         twitter_card = $8, canonical_url = $9, robots = $10, schema_type = $11, schema_data = $12, updated_at = NOW()
+         RETURNING *`,
+        [pageType, pageId || null, data.meta_title, data.meta_description, data.og_title, data.og_description, 
+         data.og_image, data.twitter_card, data.canonical_url, data.robots, data.schema_type, data.schema_data]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: FORMS ==========
+  app.get("/api/cms/forms", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_forms ORDER BY created_at DESC');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/forms/:id", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_forms WHERE id = $1', [req.params.id]);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/forms", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, fields, submit_button_text, success_message, notification_email } = req.body;
+      const result = await pool.query(
+        `INSERT INTO cms_forms (name, description, fields, submit_button_text, success_message, notification_email)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, description, fields, submit_button_text, success_message, notification_email, is_active } = req.body;
+      const result = await pool.query(
+        `UPDATE cms_forms SET name = $1, description = $2, fields = $3, submit_button_text = $4, 
+         success_message = $5, notification_email = $6, is_active = $7, updated_at = NOW()
+         WHERE id = $8 RETURNING *`,
+        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email, is_active, req.params.id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_forms WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Form submissions (public endpoint for submitting)
+  app.post("/api/forms/:id/submit", async (req, res) => {
+    try {
+      const formResult = await pool.query('SELECT * FROM cms_forms WHERE id = $1 AND is_active = true', [req.params.id]);
+      if (formResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Form not found' });
+      }
+      
+      const result = await pool.query(
+        `INSERT INTO cms_form_submissions (form_id, data, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [req.params.id, JSON.stringify(req.body), req.ip, req.headers['user-agent']]
+      );
+      res.json({ success: true, message: formResult.rows[0].success_message });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/forms/:id/submissions", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM cms_form_submissions WHERE form_id = $1 ORDER BY created_at DESC',
+        [req.params.id]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: NAVIGATION ==========
+  app.get("/api/cms/navigation", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_navigation WHERE is_active = true ORDER BY location');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/navigation/:location", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_navigation WHERE location = $1 AND is_active = true LIMIT 1', [req.params.location]);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/navigation/:location", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { location } = req.params;
+      const { name, items } = req.body;
+      
+      const existing = await pool.query('SELECT * FROM cms_navigation WHERE location = $1', [location]);
+      
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE cms_navigation SET name = $1, items = $2, updated_at = NOW() WHERE location = $3 RETURNING *`,
+          [name, JSON.stringify(items || []), location]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO cms_navigation (name, location, items) VALUES ($1, $2, $3) RETURNING *`,
+          [name, location, JSON.stringify(items || [])]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: BLOG/POSTS ==========
+  app.get("/api/cms/posts", async (req, res) => {
+    try {
+      const { status, category_id } = req.query;
+      let query = 'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id';
+      const conditions: string[] = [];
+      const params: any[] = [];
+      
+      if (status) {
+        params.push(status);
+        conditions.push(`p.status = $${params.length}`);
+      }
+      if (category_id) {
+        params.push(category_id);
+        conditions.push(`p.category_id = $${params.length}`);
+      }
+      
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+      query += ' ORDER BY p.created_at DESC';
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/posts/:id", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_posts WHERE id = $1', [req.params.id]);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/posts", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status } = req.body;
+      const published_at = status === 'published' ? new Date() : null;
+      
+      const result = await pool.query(
+        `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft', published_at]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status } = req.body;
+      const existingPost = await pool.query('SELECT status, published_at FROM cms_posts WHERE id = $1', [req.params.id]);
+      let published_at = existingPost.rows[0]?.published_at;
+      
+      if (status === 'published' && existingPost.rows[0]?.status !== 'published') {
+        published_at = new Date();
+      }
+      
+      const result = await pool.query(
+        `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4, featured_image = $5, 
+         author = $6, category_id = $7, tags = $8, status = $9, published_at = $10, updated_at = NOW()
+         WHERE id = $11 RETURNING *`,
+        [title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at, req.params.id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_posts WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Categories
+  app.get("/api/cms/categories", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM cms_categories ORDER BY name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/categories", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, description, parent_id } = req.body;
+      const result = await pool.query(
+        'INSERT INTO cms_categories (name, slug, description, parent_id) VALUES ($1, $2, $3, $4) RETURNING *',
+        [name, slug, description, parent_id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/categories/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_categories WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }
