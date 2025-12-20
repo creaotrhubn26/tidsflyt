@@ -117,12 +117,6 @@ const defaultFeatures: LandingFeature[] = [
   { id: 6, icon: "Smartphone", title: "Mobilvennlig", description: "Responsivt design som fungerer perfekt på alle enheter.", display_order: 5 },
 ];
 
-const defaultTestimonials: LandingTestimonial[] = [
-  { id: 1, quote: "Smart Timing har forenklet vår timeføring betydelig.", name: "Erik Hansen", role: "Daglig leder", display_order: 0 },
-  { id: 2, quote: "Rapporteringsfunksjonene er utmerkede.", name: "Maria Olsen", role: "Prosjektleder", display_order: 1 },
-  { id: 3, quote: "Enkel å ta i bruk og god kundeservice.", name: "Anders Berg", role: "Økonomisjef", display_order: 2 },
-];
-
 const defaultSections: LandingSections = {
   features_title: "Alt du trenger for effektiv timeføring",
   features_subtitle: "Smart Timing gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.",
@@ -183,7 +177,8 @@ export default function LandingPage() {
 
   const hero = content?.hero || defaultHero;
   const features = content?.features?.length ? content.features : defaultFeatures;
-  const testimonials = content?.testimonials?.length ? content.testimonials : defaultTestimonials;
+  const testimonials = content?.testimonials || [];
+  const hasTestimonials = testimonials.length > 0;
   const sections = content?.sections || defaultSections;
 
   const newUserForm = useForm<NewUserFormData>({
@@ -723,32 +718,34 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="testimonials" className="py-20 bg-muted/30">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold mb-4" data-testid="testimonials-title">
-              {sections.testimonials_title}
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              {sections.testimonials_subtitle}
-            </p>
-          </div>
+      {hasTestimonials && (
+        <section id="testimonials" className="py-20 bg-muted/30">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-16">
+              <h2 className="text-3xl md:text-4xl font-bold mb-4" data-testid="testimonials-title">
+                {sections.testimonials_title}
+              </h2>
+              <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
+                {sections.testimonials_subtitle}
+              </p>
+            </div>
 
-          <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
-            {testimonials.map((testimonial, index) => (
-              <Card key={testimonial.id} className="bg-background" data-testid={`testimonial-card-${index}`}>
-                <CardContent className="p-6">
-                  <p className="text-foreground mb-4 italic" data-testid={`text-testimonial-quote-${index}`}>"{testimonial.quote}"</p>
-                  <div>
-                    <p className="font-semibold" data-testid={`text-testimonial-name-${index}`}>{testimonial.name}</p>
-                    <p className="text-sm text-muted-foreground" data-testid={`text-testimonial-role-${index}`}>{testimonial.role}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
+            <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+              {testimonials.map((testimonial, index) => (
+                <Card key={testimonial.id} className="bg-background" data-testid={`testimonial-card-${index}`}>
+                  <CardContent className="p-6">
+                    <p className="text-foreground mb-4 italic" data-testid={`text-testimonial-quote-${index}`}>"{testimonial.quote}"</p>
+                    <div>
+                      <p className="font-semibold" data-testid={`text-testimonial-name-${index}`}>{testimonial.name}</p>
+                      <p className="text-sm text-muted-foreground" data-testid={`text-testimonial-role-${index}`}>{testimonial.role}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       <section className="py-20 bg-primary text-primary-foreground">
         <div className="container mx-auto px-4 text-center">
