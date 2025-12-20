@@ -839,9 +839,33 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== CASE REPORTS ==========
   
-  // Setup case_reports table
-  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+  // Helper function to ensure case_reports table exists with correct schema
+  async function ensureCaseReportsTable() {
     try {
+      // Check if table exists and has correct columns
+      const tableCheck = await pool.query(`
+        SELECT column_name FROM information_schema.columns 
+        WHERE table_name = 'case_reports' LIMIT 1
+      `);
+      
+      if (tableCheck.rows.length > 0) {
+        // Check if it has user_id column (snake_case)
+        const columnCheck = await pool.query(`
+          SELECT column_name FROM information_schema.columns 
+          WHERE table_name = 'case_reports' AND column_name = 'user_id'
+        `);
+        
+        if (columnCheck.rows.length === 0) {
+          // Table exists but with wrong column names (camelCase), drop and recreate
+          console.log('Dropping case_reports table with incorrect schema...');
+          await pool.query('DROP TABLE IF EXISTS case_reports');
+        } else {
+          console.log('Case reports table already exists with correct schema');
+          return;
+        }
+      }
+      
+      // Create table with snake_case columns
       await pool.query(`
         CREATE TABLE IF NOT EXISTS case_reports (
           id SERIAL PRIMARY KEY,
@@ -867,6 +891,19 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      console.log('Case reports table created with correct schema');
+    } catch (err) {
+      console.error('Error ensuring case_reports table:', err);
+    }
+  }
+  
+  // Ensure table exists on startup
+  ensureCaseReportsTable();
+
+  // Setup case_reports table (admin endpoint)
+  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await ensureCaseReportsTable();
       res.json({ success: true, message: 'Case reports table created' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
