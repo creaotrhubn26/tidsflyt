@@ -76,3 +76,20 @@ shared/           # Shared code between client/server
 - **date-fns**: Date manipulation with Norwegian locale support
 - **zod**: Runtime schema validation
 - **class-variance-authority**: Component variant styling
+
+## CMS Portal Editor
+
+### Tab Structure (Redesigned)
+The CMS editor uses 6 categorical tabs for better organization:
+1. **Layout**: Preview panel with responsive device modes (desktop/tablet/mobile) and region-based properties panel
+2. **Colors**: Main colors, background colors, text colors, status colors, border colors
+3. **Typography**: Font families, font sizes, heading weights, line heights
+4. **Navigation**: Menu structure management with up/down keyboard navigation (WCAG 2.5.7 compliant)
+5. **Components**: Spacing, border radius, shadows
+6. **Export**: CSS variables output and W3C DTCG format token export
+
+### WCAG Accessibility
+- Keyboard navigation via @dnd-kit KeyboardSensor
+- Up/down button alternatives for drag-drop reordering
+- ARIA labels and roles for screen readers
+- Focus management for interactive elements

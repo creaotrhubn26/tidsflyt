@@ -4,6 +4,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
@@ -6490,12 +6491,13 @@ const defaultLayout: PortalDesignSettings['layout'] = {
 };
 
 type PreviewMode = 'desktop' | 'tablet' | 'mobile';
+type EditorTab = 'layout' | 'colors' | 'typography' | 'navigation' | 'components' | 'export';
 
 function PortalDesigner() {
   const { toast } = useToast();
   const [selectedRegion, setSelectedRegion] = useState<RegionType>(null);
   const [selectedNavIndex, setSelectedNavIndex] = useState<number | null>(null);
-  const [activeTab, setActiveTab] = useState<'visual' | 'tokens' | 'code'>('visual');
+  const [activeTab, setActiveTab] = useState<EditorTab>('layout');
   const [previewMode, setPreviewMode] = useState<PreviewMode>('desktop');
   
   const initialSettings: PortalDesignSettings = {
@@ -6686,40 +6688,26 @@ function PortalDesigner() {
     </div>
   );
 
+  const tabCategories = [
+    { id: 'layout' as EditorTab, label: 'Layout', icon: Layout, description: 'Header, sidebar, innhold og footer' },
+    { id: 'colors' as EditorTab, label: 'Farger', icon: Palette, description: 'Primær, aksent og bakgrunnsfarger' },
+    { id: 'typography' as EditorTab, label: 'Typografi', icon: Type, description: 'Skrifttyper, størrelser og vekter' },
+    { id: 'navigation' as EditorTab, label: 'Navigasjon', icon: Menu, description: 'Meny-elementer og rekkefølge' },
+    { id: 'components' as EditorTab, label: 'Komponenter', icon: Layers, description: 'Kort, knapper og skygger' },
+    { id: 'export' as EditorTab, label: 'Eksport', icon: Download, description: 'CSS og design tokens' },
+  ];
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
-            <Layout className="h-5 w-5" />
-            Visuell Portal Editor
+            <PenTool className="h-5 w-5" />
+            Portal Design Studio
           </h2>
-          <p className="text-sm text-muted-foreground">Klikk på en region for å redigere</p>
+          <p className="text-sm text-muted-foreground">Tilpass utseendet til portalen din</p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex border rounded-lg overflow-hidden">
-            <button
-              onClick={() => setActiveTab('visual')}
-              className={`px-3 py-1.5 text-sm ${activeTab === 'visual' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
-              data-testid="tab-visual-editor"
-            >
-              <Eye className="h-4 w-4 inline mr-1" />Visuell
-            </button>
-            <button
-              onClick={() => setActiveTab('tokens')}
-              className={`px-3 py-1.5 text-sm ${activeTab === 'tokens' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
-              data-testid="tab-tokens"
-            >
-              <Layers className="h-4 w-4 inline mr-1" />Tokens
-            </button>
-            <button
-              onClick={() => setActiveTab('code')}
-              className={`px-3 py-1.5 text-sm ${activeTab === 'code' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
-              data-testid="tab-code"
-            >
-              <PenTool className="h-4 w-4 inline mr-1" />CSS
-            </button>
-          </div>
           <div className="flex gap-1">
             <Button
               size="icon"
@@ -6748,49 +6736,79 @@ function PortalDesigner() {
             data-testid="button-save-portal"
           >
             {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-            Lagre
+            Lagre endringer
           </Button>
         </div>
       </div>
 
-      {activeTab === 'visual' && (
-        <div className="flex gap-4">
-          {/* Visual Canvas */}
-          <div className="flex-1">
+      {/* Category Tabs */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2">
+        {tabCategories.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`p-3 rounded-lg border text-left transition-all ${
+              activeTab === tab.id 
+                ? 'bg-primary text-primary-foreground border-primary' 
+                : 'bg-card hover-elevate border-border'
+            }`}
+            data-testid={`tab-${tab.id}`}
+          >
+            <div className="flex items-center gap-2 mb-1">
+              <tab.icon className="h-4 w-4" />
+              <span className="font-medium text-sm">{tab.label}</span>
+            </div>
+            <p className={`text-xs ${activeTab === tab.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+              {tab.description}
+            </p>
+          </button>
+        ))}
+      </div>
+
+      {/* Layout Tab */}
+      {activeTab === 'layout' && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Preview Panel */}
+          <div className="lg:col-span-2">
             <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center justify-center gap-2 mb-4" role="group" aria-label="Forhåndsvisning-enheter">
-                  <Button
-                    size="sm"
-                    variant={previewMode === 'desktop' ? 'default' : 'outline'}
-                    onClick={() => setPreviewMode('desktop')}
-                    aria-pressed={previewMode === 'desktop'}
-                    data-testid="preview-desktop"
-                  >
-                    <Monitor className="h-4 w-4 mr-1" />
-                    Desktop
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={previewMode === 'tablet' ? 'default' : 'outline'}
-                    onClick={() => setPreviewMode('tablet')}
-                    aria-pressed={previewMode === 'tablet'}
-                    data-testid="preview-tablet"
-                  >
-                    <Tablet className="h-4 w-4 mr-1" />
-                    Nettbrett
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant={previewMode === 'mobile' ? 'default' : 'outline'}
-                    onClick={() => setPreviewMode('mobile')}
-                    aria-pressed={previewMode === 'mobile'}
-                    data-testid="preview-mobile"
-                  >
-                    <Smartphone className="h-4 w-4 mr-1" />
-                    Mobil
-                  </Button>
+              <CardHeader className="py-3">
+                <div className="flex items-center justify-between gap-2">
+                  <CardTitle className="text-sm">Forhåndsvisning</CardTitle>
+                  <div className="flex items-center gap-1" role="group" aria-label="Forhåndsvisning-enheter">
+                    <Button
+                      size="sm"
+                      variant={previewMode === 'desktop' ? 'default' : 'outline'}
+                      onClick={() => setPreviewMode('desktop')}
+                      aria-pressed={previewMode === 'desktop'}
+                      data-testid="preview-desktop"
+                    >
+                      <Monitor className="h-4 w-4 mr-1" />
+                      Desktop
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={previewMode === 'tablet' ? 'default' : 'outline'}
+                      onClick={() => setPreviewMode('tablet')}
+                      aria-pressed={previewMode === 'tablet'}
+                      data-testid="preview-tablet"
+                    >
+                      <Tablet className="h-4 w-4 mr-1" />
+                      Nettbrett
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant={previewMode === 'mobile' ? 'default' : 'outline'}
+                      onClick={() => setPreviewMode('mobile')}
+                      aria-pressed={previewMode === 'mobile'}
+                      data-testid="preview-mobile"
+                    >
+                      <Smartphone className="h-4 w-4 mr-1" />
+                      Mobil
+                    </Button>
+                  </div>
                 </div>
+              </CardHeader>
+              <CardContent className="p-4">
                 <div 
                   className="border-2 rounded-lg overflow-hidden transition-all mx-auto"
                   style={{ 
@@ -7277,156 +7295,227 @@ function PortalDesigner() {
         </div>
       )}
 
-      {activeTab === 'tokens' && (
-        <Card>
-          <CardContent className="p-6">
-            <div className="grid gap-6 md:grid-cols-3">
-              {/* Typography */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Type className="h-4 w-4" />
-                  Typografi
-                </h3>
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Font-familie</Label>
-                    <Input
-                      value={settings.tokens.typography.fontFamily}
-                      onChange={(e) => updateToken('typography', 'fontFamily', e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Overskrift-font</Label>
-                    <Input
-                      value={settings.tokens.typography.headingFont}
-                      onChange={(e) => updateToken('typography', 'headingFont', e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Basis font-størrelse</Label>
-                    <Input
-                      value={settings.tokens.typography.baseFontSize}
-                      onChange={(e) => updateToken('typography', 'baseFontSize', e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Overskrift-vekt</Label>
-                    <Input
-                      value={settings.tokens.typography.headingWeight}
-                      onChange={(e) => updateToken('typography', 'headingWeight', e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Linjehøyde</Label>
-                    <Input
-                      value={settings.tokens.typography.lineHeight}
-                      onChange={(e) => updateToken('typography', 'lineHeight', e.target.value)}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-                </div>
-              </div>
+      {/* Colors Tab */}
+      {activeTab === 'colors' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Card data-testid="card-main-colors">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Palette className="h-4 w-4" />
+                Hovedfarger
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ColorInput label="Primærfarge" value={settings.primary_color} onChange={(v) => updateSettings({ ...settings, primary_color: v })} testId="input-primary-color" />
+              <ColorInput label="Aksentfarge" value={settings.accent_color} onChange={(v) => updateSettings({ ...settings, accent_color: v })} testId="input-accent-color" />
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-background-colors">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layout className="h-4 w-4" />
+                Bakgrunnsfarger
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ColorInput label="Header" value={settings.header_bg || '#ffffff'} onChange={(v) => updateSettings({ ...settings, header_bg: v })} testId="input-header-bg-color" />
+              <ColorInput label="Sidebar" value={settings.sidebar_bg || '#1f2937'} onChange={(v) => updateSettings({ ...settings, sidebar_bg: v })} testId="input-sidebar-bg-color" />
+              <ColorInput label="Innhold" value={settings.content_bg || '#f9fafb'} onChange={(v) => updateSettings({ ...settings, content_bg: v })} testId="input-content-bg-color" />
+              <ColorInput label="Footer" value={settings.footer_bg || '#ffffff'} onChange={(v) => updateSettings({ ...settings, footer_bg: v })} testId="input-footer-bg-color" />
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-text-colors">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Type className="h-4 w-4" />
+                Tekstfarger
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ColorInput label="Primærtekst" value={settings.tokens.colors.text} onChange={(v) => updateToken('colors', 'text', v)} testId="input-text-primary" />
+              <ColorInput label="Sekundærtekst" value={settings.tokens.colors.textSecondary} onChange={(v) => updateToken('colors', 'textSecondary', v)} testId="input-text-secondary" />
+              <ColorInput label="Dempet tekst" value={settings.tokens.colors.textMuted} onChange={(v) => updateToken('colors', 'textMuted', v)} testId="input-text-muted" />
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-status-colors">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <CheckCircle className="h-4 w-4" />
+                Statusfarger
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ColorInput label="Suksess" value={settings.tokens.colors.success} onChange={(v) => updateToken('colors', 'success', v)} testId="input-color-success" />
+              <ColorInput label="Advarsel" value={settings.tokens.colors.warning} onChange={(v) => updateToken('colors', 'warning', v)} testId="input-color-warning" />
+              <ColorInput label="Feil" value={settings.tokens.colors.error} onChange={(v) => updateToken('colors', 'error', v)} testId="input-color-error" />
+              <ColorInput label="Info" value={settings.tokens.colors.info} onChange={(v) => updateToken('colors', 'info', v)} testId="input-color-info" />
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layers className="h-4 w-4" />
+                Kanter
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <ColorInput label="Border farge" value={settings.tokens.borders.borderColor} onChange={(v) => updateToken('borders', 'borderColor', v)} testId="input-border-color" />
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-              {/* Spacing */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Box className="h-4 w-4" />
-                  Avstander
-                </h3>
-                <div className="space-y-3">
-                  <SizeInput label="Sidebar bredde" value={settings.tokens.spacing.sidebarWidth} onChange={(v) => updateToken('spacing', 'sidebarWidth', v)} />
-                  <SizeInput label="Header høyde" value={settings.tokens.spacing.headerHeight} onChange={(v) => updateToken('spacing', 'headerHeight', v)} />
-                  <SizeInput label="Innholds-padding" value={settings.tokens.spacing.contentPadding} onChange={(v) => updateToken('spacing', 'contentPadding', v)} />
-                  <SizeInput label="Kort-padding" value={settings.tokens.spacing.cardPadding} onChange={(v) => updateToken('spacing', 'cardPadding', v)} />
-                  <SizeInput label="Gap" value={settings.tokens.spacing.gap} onChange={(v) => updateToken('spacing', 'gap', v)} />
-                </div>
+      {/* Typography Tab */}
+      {activeTab === 'typography' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Card data-testid="card-font-families">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Type className="h-4 w-4" />
+                Skrifttyper
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Hovedfont</Label>
+                <Input value={settings.tokens.typography.fontFamily} onChange={(e) => updateToken('typography', 'fontFamily', e.target.value)} className="h-8 text-xs" />
               </div>
-
-              {/* Borders */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Layers className="h-4 w-4" />
-                  Kanter og skygger
-                </h3>
-                <div className="space-y-3">
-                  <SizeInput label="Border radius" value={settings.tokens.borders.radius} onChange={(v) => updateToken('borders', 'radius', v)} />
-                  <SizeInput label="Kort radius" value={settings.tokens.borders.cardRadius} onChange={(v) => updateToken('borders', 'cardRadius', v)} />
-                  <SizeInput label="Knapp radius" value={settings.tokens.borders.buttonRadius} onChange={(v) => updateToken('borders', 'buttonRadius', v)} />
-                  <SizeInput label="Border tykkelse" value={settings.tokens.borders.borderWidth} onChange={(v) => updateToken('borders', 'borderWidth', v)} />
-                  <ColorInput label="Border farge" value={settings.tokens.borders.borderColor} onChange={(v) => updateToken('borders', 'borderColor', v)} testId="input-border-color" />
-                </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Overskriftsfont</Label>
+                <Input value={settings.tokens.typography.headingFont} onChange={(e) => updateToken('typography', 'headingFont', e.target.value)} className="h-8 text-xs" />
               </div>
-
-              {/* Status Colors */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Palette className="h-4 w-4" />
-                  Statusfarger
-                </h3>
-                <div className="space-y-3">
-                  <ColorInput label="Suksess" value={settings.tokens.colors.success} onChange={(v) => updateToken('colors', 'success', v)} testId="input-color-success" />
-                  <ColorInput label="Advarsel" value={settings.tokens.colors.warning} onChange={(v) => updateToken('colors', 'warning', v)} testId="input-color-warning" />
-                  <ColorInput label="Feil" value={settings.tokens.colors.error} onChange={(v) => updateToken('colors', 'error', v)} testId="input-color-error" />
-                  <ColorInput label="Info" value={settings.tokens.colors.info} onChange={(v) => updateToken('colors', 'info', v)} testId="input-color-info" />
-                </div>
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-font-sizes">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Box className="h-4 w-4" />
+                Størrelser
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <SizeInput label="Basis fontstørrelse" value={settings.tokens.typography.baseFontSize} onChange={(v) => updateToken('typography', 'baseFontSize', v)} />
+              <div className="space-y-1">
+                <Label className="text-xs">Overskriftsvekt</Label>
+                <Input value={settings.tokens.typography.headingWeight} onChange={(e) => updateToken('typography', 'headingWeight', e.target.value)} className="h-8 text-xs" />
               </div>
-
-              {/* Text Colors */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Type className="h-4 w-4" />
-                  Tekstfarger
-                </h3>
-                <div className="space-y-3">
-                  <ColorInput label="Primær tekst" value={settings.tokens.colors.text} onChange={(v) => updateToken('colors', 'text', v)} testId="input-text-primary" />
-                  <ColorInput label="Sekundær tekst" value={settings.tokens.colors.textSecondary} onChange={(v) => updateToken('colors', 'textSecondary', v)} testId="input-text-secondary" />
-                  <ColorInput label="Dempet tekst" value={settings.tokens.colors.textMuted} onChange={(v) => updateToken('colors', 'textMuted', v)} testId="input-text-muted" />
-                </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Linjehøyde</Label>
+                <Input value={settings.tokens.typography.lineHeight} onChange={(e) => updateToken('typography', 'lineHeight', e.target.value)} className="h-8 text-xs" />
               </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
 
-              {/* Shadows */}
-              <div className="space-y-4">
-                <h3 className="font-medium flex items-center gap-2">
-                  <Layers className="h-4 w-4" />
-                  Skygger
-                </h3>
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Kort-skygge</Label>
-                    <Input
-                      value={settings.tokens.shadows.cardShadow}
-                      onChange={(e) => updateToken('shadows', 'cardShadow', e.target.value)}
-                      className="h-8 text-xs font-mono"
-                    />
+      {/* Navigation Tab */}
+      {activeTab === 'navigation' && (
+        <Card data-testid="card-navigation-menu">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Menu className="h-4 w-4" />
+              Menystruktur
+            </CardTitle>
+            <CardDescription>Organiser og aktiver/deaktiver meny-elementer. Bruk opp/ned-knapper for å endre rekkefølge.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2" role="list" aria-label="Navigasjonselementer">
+              {navItems.map((item, index) => (
+                <div 
+                  key={item.path} 
+                  className="flex items-center gap-3 p-3 rounded-lg border bg-card"
+                  role="listitem"
+                  aria-label={`${item.label}, posisjon ${index + 1} av ${navItems.length}`}
+                >
+                  <div className="flex flex-col gap-1">
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { if (index > 0) { const reordered = arrayMove(navItems, index, index - 1).map((i, idx) => ({ ...i, order: idx })); updateSettings({ ...settings, nav_items: reordered }); } }} disabled={index === 0} aria-label={`Flytt ${item.label} opp`}>
+                      <ChevronUp className="h-4 w-4" />
+                    </Button>
+                    <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { if (index < navItems.length - 1) { const reordered = arrayMove(navItems, index, index + 1).map((i, idx) => ({ ...i, order: idx })); updateSettings({ ...settings, nav_items: reordered }); } }} disabled={index === navItems.length - 1} aria-label={`Flytt ${item.label} ned`}>
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Dropdown-skygge</Label>
-                    <Input
-                      value={settings.tokens.shadows.dropdownShadow}
-                      onChange={(e) => updateToken('shadows', 'dropdownShadow', e.target.value)}
-                      className="h-8 text-xs font-mono"
-                    />
+                  <input type="checkbox" checked={item.enabled} onChange={() => { const updated = [...navItems]; updated[index] = { ...updated[index], enabled: !updated[index].enabled }; updateSettings({ ...settings, nav_items: updated }); }} className="h-4 w-4" aria-label={`Aktiver ${item.label}`} />
+                  <div className="flex-1">
+                    <p className="font-medium text-sm">{item.label}</p>
+                    <p className="text-xs text-muted-foreground">{item.path}</p>
                   </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Knapp-skygge</Label>
-                    <Input
-                      value={settings.tokens.shadows.buttonShadow}
-                      onChange={(e) => updateToken('shadows', 'buttonShadow', e.target.value)}
-                      className="h-8 text-xs font-mono"
-                    />
-                  </div>
+                  <Badge variant={item.enabled ? 'default' : 'secondary'}>
+                    {item.enabled ? 'Aktiv' : 'Inaktiv'}
+                  </Badge>
                 </div>
-              </div>
+              ))}
             </div>
           </CardContent>
         </Card>
       )}
 
-      {activeTab === 'code' && (
+      {/* Components Tab */}
+      {activeTab === 'components' && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <Card data-testid="card-spacing">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Box className="h-4 w-4" />
+                Avstander
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <SizeInput label="Sidebar bredde" value={settings.tokens.spacing.sidebarWidth} onChange={(v) => updateToken('spacing', 'sidebarWidth', v)} />
+              <SizeInput label="Header høyde" value={settings.tokens.spacing.headerHeight} onChange={(v) => updateToken('spacing', 'headerHeight', v)} />
+              <SizeInput label="Innholds-padding" value={settings.tokens.spacing.contentPadding} onChange={(v) => updateToken('spacing', 'contentPadding', v)} />
+              <SizeInput label="Kort-padding" value={settings.tokens.spacing.cardPadding} onChange={(v) => updateToken('spacing', 'cardPadding', v)} />
+              <SizeInput label="Gap" value={settings.tokens.spacing.gap} onChange={(v) => updateToken('spacing', 'gap', v)} />
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-border-radius">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layers className="h-4 w-4" />
+                Hjørner
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <SizeInput label="Standard radius" value={settings.tokens.borders.radius} onChange={(v) => updateToken('borders', 'radius', v)} />
+              <SizeInput label="Kort radius" value={settings.tokens.borders.cardRadius} onChange={(v) => updateToken('borders', 'cardRadius', v)} />
+              <SizeInput label="Knapp radius" value={settings.tokens.borders.buttonRadius} onChange={(v) => updateToken('borders', 'buttonRadius', v)} />
+              <SizeInput label="Border tykkelse" value={settings.tokens.borders.borderWidth} onChange={(v) => updateToken('borders', 'borderWidth', v)} />
+            </CardContent>
+          </Card>
+          
+          <Card data-testid="card-shadows">
+            <CardHeader className="py-3">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <Layers className="h-4 w-4" />
+                Skygger
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1">
+                <Label className="text-xs">Kort-skygge</Label>
+                <Input value={settings.tokens.shadows.cardShadow} onChange={(e) => updateToken('shadows', 'cardShadow', e.target.value)} className="h-8 text-xs font-mono" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Dropdown-skygge</Label>
+                <Input value={settings.tokens.shadows.dropdownShadow} onChange={(e) => updateToken('shadows', 'dropdownShadow', e.target.value)} className="h-8 text-xs font-mono" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Knapp-skygge</Label>
+                <Input value={settings.tokens.shadows.buttonShadow} onChange={(e) => updateToken('shadows', 'buttonShadow', e.target.value)} className="h-8 text-xs font-mono" />
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Export Tab */}
+      {activeTab === 'export' && (
         <div className="grid grid-cols-2 gap-4">
           <Card>
             <CardHeader>
