@@ -5039,6 +5039,467 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
     }
   });
 
+  // ============================================
+  // CMS Content Modeling API Routes
+  // ============================================
+
+  // Get all content types
+  app.get("/api/cms/content-types", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const result = await pool.query(`
+        SELECT ct.*, 
+               COUNT(cf.id) as field_count,
+               (SELECT COUNT(*) FROM cms_content_entries ce WHERE ce.content_type_id = ct.id) as entry_count
+        FROM cms_content_types ct
+        LEFT JOIN cms_content_fields cf ON cf.content_type_id = ct.id
+        GROUP BY ct.id
+        ORDER BY ct.name
+      `);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single content type with fields
+  app.get("/api/cms/content-types/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const typeResult = await pool.query(`SELECT * FROM cms_content_types WHERE id = $1`, [id]);
+      if (!typeResult.rows[0]) {
+        return res.status(404).json({ error: 'Content type not found' });
+      }
+      const fieldsResult = await pool.query(
+        `SELECT * FROM cms_content_fields WHERE content_type_id = $1 ORDER BY display_order`,
+        [id]
+      );
+      res.json({ ...typeResult.rows[0], fields: fieldsResult.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create content type
+  app.post("/api/cms/content-types", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { name, slug, description, icon, displayField } = req.body;
+      const result = await pool.query(
+        `INSERT INTO cms_content_types (name, slug, description, icon, display_field)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [name, slug, description, icon || 'FileText', displayField]
+      );
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, new_data)
+         VALUES ('create', 'content_type', $1, $2, $3, $4, $5)`,
+        [result.rows[0].id, name, req.admin?.id, req.admin?.username, JSON.stringify(result.rows[0])]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update content type
+  app.patch("/api/cms/content-types/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, slug, description, icon, displayField } = req.body;
+      
+      const prevResult = await pool.query(`SELECT * FROM cms_content_types WHERE id = $1`, [id]);
+      
+      const result = await pool.query(
+        `UPDATE cms_content_types 
+         SET name = COALESCE($1, name), 
+             slug = COALESCE($2, slug),
+             description = COALESCE($3, description),
+             icon = COALESCE($4, icon),
+             display_field = COALESCE($5, display_field),
+             updated_at = NOW()
+         WHERE id = $6
+         RETURNING *`,
+        [name, slug, description, icon, displayField, id]
+      );
+      
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: 'Content type not found' });
+      }
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, prev_data, new_data)
+         VALUES ('update', 'content_type', $1, $2, $3, $4, $5, $6)`,
+        [id, name || prevResult.rows[0]?.name, req.admin?.id, req.admin?.username, JSON.stringify(prevResult.rows[0]), JSON.stringify(result.rows[0])]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete content type
+  app.delete("/api/cms/content-types/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      // Check if system type
+      const checkResult = await pool.query(`SELECT is_system, name FROM cms_content_types WHERE id = $1`, [id]);
+      if (checkResult.rows[0]?.is_system) {
+        return res.status(400).json({ error: 'Cannot delete system content types' });
+      }
+      
+      // Delete fields first
+      await pool.query(`DELETE FROM cms_content_fields WHERE content_type_id = $1`, [id]);
+      // Delete entries
+      await pool.query(`DELETE FROM cms_content_entries WHERE content_type_id = $1`, [id]);
+      // Delete type
+      await pool.query(`DELETE FROM cms_content_types WHERE id = $1`, [id]);
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name)
+         VALUES ('delete', 'content_type', $1, $2, $3, $4)`,
+        [id, checkResult.rows[0]?.name, req.admin?.id, req.admin?.username]
+      );
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Add field to content type
+  app.post("/api/cms/content-types/:id/fields", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, slug, fieldType, isRequired, isUnique, isLocalizable, defaultValue, validations, appearance, displayOrder } = req.body;
+      
+      const result = await pool.query(
+        `INSERT INTO cms_content_fields (content_type_id, name, slug, field_type, is_required, is_unique, is_localizable, default_value, validations, appearance, display_order)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         RETURNING *`,
+        [id, name, slug, fieldType, isRequired || false, isUnique || false, isLocalizable || false, 
+         defaultValue ? JSON.stringify(defaultValue) : null, 
+         validations ? JSON.stringify(validations) : null, 
+         appearance ? JSON.stringify(appearance) : null, 
+         displayOrder || 0]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update field
+  app.patch("/api/cms/content-fields/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { name, slug, fieldType, isRequired, isUnique, isLocalizable, defaultValue, validations, appearance, displayOrder } = req.body;
+      
+      const result = await pool.query(
+        `UPDATE cms_content_fields 
+         SET name = COALESCE($1, name),
+             slug = COALESCE($2, slug),
+             field_type = COALESCE($3, field_type),
+             is_required = COALESCE($4, is_required),
+             is_unique = COALESCE($5, is_unique),
+             is_localizable = COALESCE($6, is_localizable),
+             default_value = COALESCE($7, default_value),
+             validations = COALESCE($8, validations),
+             appearance = COALESCE($9, appearance),
+             display_order = COALESCE($10, display_order),
+             updated_at = NOW()
+         WHERE id = $11
+         RETURNING *`,
+        [name, slug, fieldType, isRequired, isUnique, isLocalizable, 
+         defaultValue ? JSON.stringify(defaultValue) : null,
+         validations ? JSON.stringify(validations) : null,
+         appearance ? JSON.stringify(appearance) : null,
+         displayOrder, id]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete field
+  app.delete("/api/cms/content-fields/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await pool.query(`DELETE FROM cms_content_fields WHERE id = $1`, [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get content entries for a type
+  app.get("/api/cms/content-types/:id/entries", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status, limit = 50, offset = 0 } = req.query;
+      
+      let query = `SELECT * FROM cms_content_entries WHERE content_type_id = $1`;
+      const params: any[] = [id];
+      
+      if (status) {
+        query += ` AND status = $${params.length + 1}`;
+        params.push(status);
+      }
+      
+      query += ` ORDER BY updated_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create content entry
+  app.post("/api/cms/content-entries", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { contentTypeId, data, status, locale, scheduledAt } = req.body;
+      
+      const result = await pool.query(
+        `INSERT INTO cms_content_entries (content_type_id, data, status, locale, scheduled_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $6)
+         RETURNING *`,
+        [contentTypeId, JSON.stringify(data), status || 'draft', locale || 'nb-NO', scheduledAt || null, req.admin?.username]
+      );
+      
+      // Create initial version
+      await pool.query(
+        `INSERT INTO cms_content_entry_versions (entry_id, version_number, data, status, changed_by, change_description)
+         VALUES ($1, 1, $2, $3, $4, 'Initial creation')`,
+        [result.rows[0].id, JSON.stringify(data), status || 'draft', req.admin?.username]
+      );
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name, new_data)
+         VALUES ('create', 'content_entry', $1, $2, $3, $4)`,
+        [result.rows[0].id, req.admin?.id, req.admin?.username, JSON.stringify(result.rows[0])]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single entry
+  app.get("/api/cms/content-entries/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(`SELECT * FROM cms_content_entries WHERE id = $1`, [id]);
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: 'Entry not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update entry
+  app.patch("/api/cms/content-entries/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { data, status, scheduledAt } = req.body;
+      
+      const prevResult = await pool.query(`SELECT * FROM cms_content_entries WHERE id = $1`, [id]);
+      
+      const result = await pool.query(
+        `UPDATE cms_content_entries 
+         SET data = COALESCE($1, data),
+             status = COALESCE($2, status),
+             scheduled_at = $3,
+             updated_by = $4,
+             updated_at = NOW()
+         WHERE id = $5
+         RETURNING *`,
+        [data ? JSON.stringify(data) : null, status, scheduledAt, req.admin?.username, id]
+      );
+      
+      if (!result.rows[0]) {
+        return res.status(404).json({ error: 'Entry not found' });
+      }
+      
+      // Create new version
+      const versionResult = await pool.query(
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next FROM cms_content_entry_versions WHERE entry_id = $1`,
+        [id]
+      );
+      await pool.query(
+        `INSERT INTO cms_content_entry_versions (entry_id, version_number, data, status, changed_by)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [id, versionResult.rows[0].next, JSON.stringify(data || prevResult.rows[0]?.data), status || prevResult.rows[0]?.status, req.admin?.username]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Publish entry
+  app.post("/api/cms/content-entries/:id/publish", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(
+        `UPDATE cms_content_entries 
+         SET status = 'published', 
+             published_at = NOW(), 
+             published_by = $1,
+             updated_at = NOW()
+         WHERE id = $2
+         RETURNING *`,
+        [req.admin?.username, id]
+      );
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name)
+         VALUES ('publish', 'content_entry', $1, $2, $3)`,
+        [id, req.admin?.id, req.admin?.username]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Unpublish entry
+  app.post("/api/cms/content-entries/:id/unpublish", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      const result = await pool.query(
+        `UPDATE cms_content_entries 
+         SET status = 'draft', 
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [id]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete entry
+  app.delete("/api/cms/content-entries/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      
+      // Delete versions first
+      await pool.query(`DELETE FROM cms_content_entry_versions WHERE entry_id = $1`, [id]);
+      // Delete entry
+      await pool.query(`DELETE FROM cms_content_entries WHERE id = $1`, [id]);
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name)
+         VALUES ('delete', 'content_entry', $1, $2, $3)`,
+        [id, req.admin?.id, req.admin?.username]
+      );
+      
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get entry versions
+  app.get("/api/cms/content-entries/:id/versions", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `SELECT * FROM cms_content_entry_versions WHERE entry_id = $1 ORDER BY version_number DESC`,
+        [id]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Restore entry version
+  app.post("/api/cms/content-entries/:id/restore/:versionId", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id, versionId } = req.params;
+      
+      // Get version data
+      const versionResult = await pool.query(
+        `SELECT * FROM cms_content_entry_versions WHERE id = $1 AND entry_id = $2`,
+        [versionId, id]
+      );
+      
+      if (!versionResult.rows[0]) {
+        return res.status(404).json({ error: 'Version not found' });
+      }
+      
+      // Update entry with version data
+      const result = await pool.query(
+        `UPDATE cms_content_entries 
+         SET data = $1,
+             status = 'draft',
+             updated_by = $2,
+             updated_at = NOW()
+         WHERE id = $3
+         RETURNING *`,
+        [versionResult.rows[0].data, req.admin?.username, id]
+      );
+      
+      // Log activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name, details)
+         VALUES ('restore', 'content_entry', $1, $2, $3, $4)`,
+        [id, req.admin?.id, req.admin?.username, JSON.stringify({ restoredFrom: versionId })]
+      );
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get CMS activity log
+  app.get("/api/cms/activity-log", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { limit = 50, offset = 0, resourceType } = req.query;
+      
+      let query = `SELECT * FROM cms_activity_log`;
+      const params: any[] = [];
+      
+      if (resourceType) {
+        query += ` WHERE resource_type = $1`;
+        params.push(resourceType);
+      }
+      
+      query += ` ORDER BY created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+      params.push(limit, offset);
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Run database migrations on startup
   (async () => {
     try {

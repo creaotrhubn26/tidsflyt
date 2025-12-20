@@ -986,6 +986,96 @@ export type InsertFeedbackRequest = z.infer<typeof insertFeedbackRequestSchema>;
 export type FeedbackResponse = typeof feedbackResponses.$inferSelect;
 export type InsertFeedbackResponse = z.infer<typeof insertFeedbackResponseSchema>;
 
+// CMS Content Modeling (Contentful-style structured content)
+export const contentTypes = pgTable("cms_content_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull().unique(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  icon: text("icon").default("FileText"),
+  displayField: text("display_field"), // Which field to use as title/display
+  isSystem: boolean("is_system").default(false), // Built-in types can't be deleted
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const contentFields = pgTable("cms_content_fields", {
+  id: serial("id").primaryKey(),
+  contentTypeId: integer("content_type_id").notNull(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  fieldType: text("field_type").notNull(), // text, richText, number, boolean, date, media, reference, json, select
+  isRequired: boolean("is_required").default(false),
+  isUnique: boolean("is_unique").default(false),
+  isLocalizable: boolean("is_localizable").default(false),
+  defaultValue: jsonb("default_value"),
+  validations: jsonb("validations"), // { min, max, regex, options, etc }
+  appearance: jsonb("appearance"), // { editor: 'singleLine'|'multiLine'|'richText', helpText: '...' }
+  displayOrder: integer("display_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const contentEntries = pgTable("cms_content_entries", {
+  id: serial("id").primaryKey(),
+  contentTypeId: integer("content_type_id").notNull(),
+  status: text("status").default("draft").notNull(), // draft, published, archived
+  data: jsonb("data").notNull(), // Actual field values
+  locale: text("locale").default("nb-NO"),
+  publishedAt: timestamp("published_at"),
+  publishedBy: text("published_by"),
+  scheduledAt: timestamp("scheduled_at"), // For scheduled publishing
+  archivedAt: timestamp("archived_at"),
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const contentEntryVersions = pgTable("cms_content_entry_versions", {
+  id: serial("id").primaryKey(),
+  entryId: integer("entry_id").notNull(),
+  versionNumber: integer("version_number").notNull(),
+  data: jsonb("data").notNull(),
+  status: text("status").notNull(),
+  changedBy: text("changed_by"),
+  changeDescription: text("change_description"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const cmsActivityLog = pgTable("cms_activity_log", {
+  id: serial("id").primaryKey(),
+  action: text("action").notNull(), // create, update, delete, publish, unpublish, archive, restore
+  resourceType: text("resource_type").notNull(), // content_type, content_entry, field, media
+  resourceId: integer("resource_id"),
+  resourceName: text("resource_name"),
+  userId: text("user_id"),
+  userName: text("user_name"),
+  details: jsonb("details"),
+  prevData: jsonb("prev_data"),
+  newData: jsonb("new_data"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// CMS Content Modeling Insert Schemas
+export const insertContentTypeSchema = createInsertSchema(contentTypes).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertContentFieldSchema = createInsertSchema(contentFields).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertContentEntrySchema = createInsertSchema(contentEntries).omit({ id: true, createdAt: true, updatedAt: true, publishedAt: true, archivedAt: true });
+export const insertContentEntryVersionSchema = createInsertSchema(contentEntryVersions).omit({ id: true, createdAt: true });
+export const insertCmsActivityLogSchema = createInsertSchema(cmsActivityLog).omit({ id: true, createdAt: true });
+
+// CMS Content Modeling Types
+export type ContentType = typeof contentTypes.$inferSelect;
+export type InsertContentType = z.infer<typeof insertContentTypeSchema>;
+export type ContentField = typeof contentFields.$inferSelect;
+export type InsertContentField = z.infer<typeof insertContentFieldSchema>;
+export type ContentEntry = typeof contentEntries.$inferSelect;
+export type InsertContentEntry = z.infer<typeof insertContentEntrySchema>;
+export type ContentEntryVersion = typeof contentEntryVersions.$inferSelect;
+export type InsertContentEntryVersion = z.infer<typeof insertContentEntryVersionSchema>;
+export type CmsActivityLog = typeof cmsActivityLog.$inferSelect;
+export type InsertCmsActivityLog = z.infer<typeof insertCmsActivityLogSchema>;
+
 // Legacy types for compatibility with current frontend
 export type User = {
   id: string;

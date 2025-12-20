@@ -23,6 +23,7 @@ import {
   Globe, MapPin, Send, Rocket, Award, Target, Briefcase, Settings, Grid3X3,
   Undo2, Redo2, Palette, AlignLeft, AlignCenter, AlignRight, Bold, Italic,
   Search, FileText, Link2, ImageIcon, Trash2, Copy, GripVertical, PlusCircle,
+  Database, Edit, Archive,
   type LucideIcon
 } from "lucide-react";
 
@@ -132,7 +133,7 @@ interface HistoryEntry {
   timestamp: number;
 }
 
-type ToolPanelId = 'design' | 'media' | 'navigation' | 'forms' | 'blog' | 'email' | 'reports' | 'portal' | 'analytics' | 'versions' | null;
+type ToolPanelId = 'design' | 'media' | 'navigation' | 'forms' | 'blog' | 'email' | 'reports' | 'portal' | 'analytics' | 'versions' | 'content-modeling' | null;
 
 interface BuilderContextType {
   selectedElement: SelectedElement | null;
@@ -252,6 +253,7 @@ function LayerItem({ label, icon: Icon, type, id, isVisible = true, children, de
 }
 
 const cmsTools = [
+  { id: 'content-modeling', name: 'Innholdstyper', icon: Database, description: 'Egendefinerte innholdstyper' },
   { id: 'design', name: 'Design System', icon: Palette, description: 'Farger og typografi' },
   { id: 'media', name: 'Mediebibliotek', icon: ImageIcon, description: 'Bilder og filer' },
   { id: 'navigation', name: 'Navigasjon', icon: Layers, description: 'Menystruktur' },
@@ -862,6 +864,8 @@ function PropertiesPanel() {
     
     const renderToolContent = () => {
       switch (activeToolPanel) {
+        case 'content-modeling':
+          return <ContentModelingPanel />;
         case 'design':
           return <DesignSystemPanel />;
         case 'media':
@@ -1499,6 +1503,356 @@ function Toolbar() {
   );
 }
 
+interface ContentTypeData {
+  id: number;
+  name: string;
+  slug: string;
+  description: string | null;
+  icon: string;
+  display_field: string | null;
+  is_system: boolean;
+  field_count: string;
+  entry_count: string;
+  fields?: ContentFieldData[];
+}
+
+interface ContentFieldData {
+  id: number;
+  content_type_id: number;
+  name: string;
+  slug: string;
+  field_type: string;
+  is_required: boolean;
+  is_unique: boolean;
+  is_localizable: boolean;
+  display_order: number;
+}
+
+const fieldTypes = [
+  { value: 'text', label: 'Tekst', icon: Type },
+  { value: 'richText', label: 'Rik tekst', icon: FileText },
+  { value: 'number', label: 'Tall', icon: Box },
+  { value: 'boolean', label: 'Avkrysning', icon: CheckCircle },
+  { value: 'date', label: 'Dato', icon: Calendar },
+  { value: 'media', label: 'Media', icon: ImageIcon },
+  { value: 'reference', label: 'Referanse', icon: Link2 },
+  { value: 'json', label: 'JSON', icon: Database },
+  { value: 'select', label: 'Velg', icon: Box },
+];
+
+function ContentModelingPanel() {
+  const { toast } = useToast();
+  const [selectedType, setSelectedType] = useState<ContentTypeData | null>(null);
+  const [isCreating, setIsCreating] = useState(false);
+  const [isAddingField, setIsAddingField] = useState(false);
+  const [newTypeName, setNewTypeName] = useState('');
+  const [newTypeSlug, setNewTypeSlug] = useState('');
+  const [newTypeDescription, setNewTypeDescription] = useState('');
+  const [newFieldName, setNewFieldName] = useState('');
+  const [newFieldSlug, setNewFieldSlug] = useState('');
+  const [newFieldType, setNewFieldType] = useState('text');
+  const [newFieldRequired, setNewFieldRequired] = useState(false);
+
+  const { data: contentTypes = [], isLoading, refetch } = useQuery<ContentTypeData[]>({
+    queryKey: ['/api/cms/content-types'],
+    enabled: true,
+  });
+
+  const { data: selectedTypeDetails } = useQuery<ContentTypeData>({
+    queryKey: ['/api/cms/content-types', selectedType?.id],
+    enabled: !!selectedType?.id,
+  });
+
+  const createType = useMutation({
+    mutationFn: (data: { name: string; slug: string; description: string }) =>
+      authenticatedApiRequest('/api/cms/content-types', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      toast({ title: 'Opprettet', description: 'Innholdstype er opprettet' });
+      refetch();
+      setIsCreating(false);
+      setNewTypeName('');
+      setNewTypeSlug('');
+      setNewTypeDescription('');
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Feil', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteType = useMutation({
+    mutationFn: (id: number) =>
+      authenticatedApiRequest(`/api/cms/content-types/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast({ title: 'Slettet', description: 'Innholdstype er slettet' });
+      refetch();
+      setSelectedType(null);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Feil', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const addField = useMutation({
+    mutationFn: (data: { name: string; slug: string; fieldType: string; isRequired: boolean }) =>
+      authenticatedApiRequest(`/api/cms/content-types/${selectedType?.id}/fields`, {
+        method: 'POST',
+        body: JSON.stringify(data),
+      }),
+    onSuccess: () => {
+      toast({ title: 'Lagt til', description: 'Felt er lagt til' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/content-types', selectedType?.id] });
+      refetch();
+      setIsAddingField(false);
+      setNewFieldName('');
+      setNewFieldSlug('');
+      setNewFieldType('text');
+      setNewFieldRequired(false);
+    },
+    onError: (err: Error) => {
+      toast({ title: 'Feil', description: err.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteField = useMutation({
+    mutationFn: (fieldId: number) =>
+      authenticatedApiRequest(`/api/cms/content-fields/${fieldId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast({ title: 'Slettet', description: 'Felt er slettet' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/content-types', selectedType?.id] });
+      refetch();
+    },
+  });
+
+  const handleCreateType = () => {
+    if (!newTypeName.trim()) return;
+    const slug = newTypeSlug.trim() || newTypeName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+    createType.mutate({ name: newTypeName, slug, description: newTypeDescription });
+  };
+
+  const handleAddField = () => {
+    if (!newFieldName.trim()) return;
+    const slug = newFieldSlug.trim() || newFieldName.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    addField.mutate({ name: newFieldName, slug, fieldType: newFieldType, isRequired: newFieldRequired });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="p-8 flex justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (selectedType && selectedTypeDetails) {
+    return (
+      <div className="p-4 space-y-4">
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setSelectedType(null)} data-testid="button-back-types">
+            <ArrowLeft className="h-4 w-4 mr-1" />
+            Tilbake
+          </Button>
+        </div>
+
+        <div className="space-y-1">
+          <h3 className="font-medium">{selectedTypeDetails.name}</h3>
+          <p className="text-xs text-muted-foreground">{selectedTypeDetails.description || 'Ingen beskrivelse'}</p>
+          <Badge variant="outline" className="text-xs">{selectedTypeDetails.slug}</Badge>
+        </div>
+
+        <Separator />
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-medium">Felt ({selectedTypeDetails.fields?.length || 0})</h4>
+            <Button size="sm" variant="outline" onClick={() => setIsAddingField(true)} data-testid="button-add-field">
+              <Plus className="h-3 w-3 mr-1" />
+              Legg til felt
+            </Button>
+          </div>
+
+          {isAddingField && (
+            <div className="p-3 border rounded-md space-y-3 bg-muted/50">
+              <div className="space-y-2">
+                <Label className="text-xs">Feltnavn</Label>
+                <Input
+                  value={newFieldName}
+                  onChange={(e) => setNewFieldName(e.target.value)}
+                  placeholder="f.eks. Tittel"
+                  className="h-8"
+                  data-testid="input-new-field-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Slug</Label>
+                <Input
+                  value={newFieldSlug}
+                  onChange={(e) => setNewFieldSlug(e.target.value)}
+                  placeholder="Auto-generert"
+                  className="h-8"
+                  data-testid="input-new-field-slug"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Type</Label>
+                <Select value={newFieldType} onValueChange={setNewFieldType}>
+                  <SelectTrigger className="h-8" data-testid="select-field-type">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {fieldTypes.map((ft) => (
+                      <SelectItem key={ft.value} value={ft.value}>{ft.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch 
+                  checked={newFieldRequired} 
+                  onCheckedChange={setNewFieldRequired}
+                  data-testid="switch-field-required"
+                />
+                <Label className="text-xs">Obligatorisk</Label>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleAddField} disabled={addField.isPending} data-testid="button-save-field">
+                  {addField.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Lagre'}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => setIsAddingField(false)}>Avbryt</Button>
+              </div>
+            </div>
+          )}
+
+          {selectedTypeDetails.fields?.length === 0 && !isAddingField && (
+            <p className="text-xs text-muted-foreground text-center py-4">Ingen felt ennå. Legg til ditt første felt.</p>
+          )}
+
+          {selectedTypeDetails.fields?.map((field) => {
+            const fieldType = fieldTypes.find(ft => ft.value === field.field_type);
+            const FieldIcon = fieldType?.icon || Box;
+            return (
+              <div key={field.id} className="flex items-center gap-3 p-2 border rounded-md group" data-testid={`field-item-${field.id}`}>
+                <FieldIcon className="h-4 w-4 text-muted-foreground" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium truncate">{field.name}</p>
+                  <p className="text-xs text-muted-foreground">{fieldType?.label || field.field_type}</p>
+                </div>
+                {field.is_required && <Badge variant="secondary" className="text-xs">Krev</Badge>}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 opacity-0 group-hover:opacity-100"
+                  onClick={() => deleteField.mutate(field.id)}
+                  data-testid={`button-delete-field-${field.id}`}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+
+        {!selectedType.is_system && (
+          <>
+            <Separator />
+            <Button
+              variant="destructive"
+              size="sm"
+              className="w-full"
+              onClick={() => deleteType.mutate(selectedType.id)}
+              disabled={deleteType.isPending}
+              data-testid="button-delete-type"
+            >
+              {deleteType.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Slett innholdstype'}
+            </Button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-4">
+      <p className="text-sm text-muted-foreground">
+        Lag egendefinerte innholdstyper for strukturert innhold som blogginnlegg, teammedlemmer, produkter osv.
+      </p>
+
+      <Button size="sm" className="w-full" onClick={() => setIsCreating(true)} data-testid="button-create-type">
+        <Plus className="h-4 w-4 mr-2" />
+        Ny innholdstype
+      </Button>
+
+      {isCreating && (
+        <div className="p-3 border rounded-md space-y-3 bg-muted/50">
+          <div className="space-y-2">
+            <Label className="text-xs">Navn</Label>
+            <Input
+              value={newTypeName}
+              onChange={(e) => setNewTypeName(e.target.value)}
+              placeholder="f.eks. Blogginnlegg"
+              className="h-8"
+              data-testid="input-new-type-name"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Slug</Label>
+            <Input
+              value={newTypeSlug}
+              onChange={(e) => setNewTypeSlug(e.target.value)}
+              placeholder="Auto-generert fra navn"
+              className="h-8"
+              data-testid="input-new-type-slug"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-xs">Beskrivelse</Label>
+            <Textarea
+              value={newTypeDescription}
+              onChange={(e) => setNewTypeDescription(e.target.value)}
+              placeholder="Valgfri beskrivelse"
+              className="min-h-[60px]"
+              data-testid="textarea-new-type-description"
+            />
+          </div>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleCreateType} disabled={createType.isPending} data-testid="button-save-type">
+              {createType.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Opprett'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setIsCreating(false)}>Avbryt</Button>
+          </div>
+        </div>
+      )}
+
+      {contentTypes.length === 0 && !isCreating && (
+        <div className="text-center py-8 text-muted-foreground">
+          <Database className="h-8 w-8 mx-auto mb-2 opacity-50" />
+          <p className="text-sm">Ingen innholdstyper ennå</p>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {contentTypes.map((type) => (
+          <div
+            key={type.id}
+            className="flex items-center gap-3 p-3 border rounded-md cursor-pointer hover-elevate"
+            onClick={() => setSelectedType(type)}
+            data-testid={`content-type-${type.id}`}
+          >
+            <Database className="h-5 w-5 text-muted-foreground" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium truncate">{type.name}</p>
+              <p className="text-xs text-muted-foreground">{type.field_count} felt | {type.entry_count} oppføringer</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function DesignSystemPanel() {
   const { toast } = useToast();
   const [colors, setColors] = useState({
@@ -1914,33 +2268,113 @@ function AnalyticsPanel() {
   );
 }
 
+interface ActivityLogItem {
+  id: number;
+  action: string;
+  resource_type: string;
+  resource_id: number | null;
+  resource_name: string | null;
+  user_name: string | null;
+  created_at: string;
+}
+
 function VersionsPanel() {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<'versions' | 'activity'>('versions');
+  
+  const { data: activityLog = [], isLoading: activityLoading } = useQuery<ActivityLogItem[]>({
+    queryKey: ['/api/cms/activity-log'],
+    enabled: activeTab === 'activity',
+  });
+
   const versions = [
     { id: 1, type: 'Hero', date: '2024-01-20 14:32', user: 'Admin' },
     { id: 2, type: 'Funksjoner', date: '2024-01-20 12:15', user: 'Admin' },
     { id: 3, type: 'Design', date: '2024-01-19 16:45', user: 'Admin' },
-    { id: 4, type: 'Navigasjon', date: '2024-01-18 09:20', user: 'Admin' },
   ];
 
-  const { toast } = useToast();
+  const getActionLabel = (action: string) => {
+    const labels: Record<string, string> = {
+      'create': 'Opprettet',
+      'update': 'Oppdatert',
+      'delete': 'Slettet',
+      'publish': 'Publisert',
+      'unpublish': 'Avpublisert',
+      'archive': 'Arkivert',
+      'restore': 'Gjenopprettet',
+    };
+    return labels[action] || action;
+  };
+
+  const getResourceLabel = (type: string) => {
+    const labels: Record<string, string> = {
+      'content_type': 'Innholdstype',
+      'content_entry': 'Innhold',
+      'field': 'Felt',
+      'media': 'Media',
+    };
+    return labels[type] || type;
+  };
 
   return (
-    <div className="p-4 space-y-4">
-      <p className="text-sm text-muted-foreground">Se og gjenopprett tidligere versjoner av innholdet ditt.</p>
-
-      <div className="space-y-2">
-        {versions.map((version) => (
-          <div key={version.id} className="flex items-center justify-between gap-4 p-3 border rounded-md" data-testid={`version-item-${version.id}`}>
-            <div>
-              <p className="font-medium">{version.type}</p>
-              <p className="text-xs text-muted-foreground">{version.date} av {version.user}</p>
-            </div>
-            <Button size="sm" variant="outline" onClick={() => toast({ title: 'Gjenopprettet', description: `${version.type} er gjenopprettet` })} data-testid={`button-restore-${version.id}`}>
-              Gjenopprett
-            </Button>
+    <div className="h-full flex flex-col">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'versions' | 'activity')} className="flex-1 flex flex-col">
+        <TabsList className="w-full rounded-none border-b bg-transparent h-10 p-0 shrink-0">
+          <TabsTrigger value="versions" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+            Versjoner
+          </TabsTrigger>
+          <TabsTrigger value="activity" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+            Aktivitetslogg
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="versions" className="flex-1 m-0 p-4 space-y-4">
+          <p className="text-sm text-muted-foreground">Se og gjenopprett tidligere versjoner.</p>
+          <div className="space-y-2">
+            {versions.map((version) => (
+              <div key={version.id} className="flex items-center justify-between gap-4 p-3 border rounded-md" data-testid={`version-item-${version.id}`}>
+                <div>
+                  <p className="font-medium text-sm">{version.type}</p>
+                  <p className="text-xs text-muted-foreground">{version.date} av {version.user}</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => toast({ title: 'Gjenopprettet', description: `${version.type} er gjenopprettet` })} data-testid={`button-restore-${version.id}`}>
+                  Gjenopprett
+                </Button>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </TabsContent>
+        
+        <TabsContent value="activity" className="flex-1 m-0 p-4 space-y-4">
+          <p className="text-sm text-muted-foreground">Se alle endringer i CMS.</p>
+          
+          {activityLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : activityLog.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">Ingen aktivitet ennå</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {activityLog.map((item) => (
+                <div key={item.id} className="p-3 border rounded-md" data-testid={`activity-item-${item.id}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Badge variant="outline" className="text-xs">{getActionLabel(item.action)}</Badge>
+                    <span className="text-xs text-muted-foreground">{getResourceLabel(item.resource_type)}</span>
+                  </div>
+                  <p className="text-sm font-medium">{item.resource_name || `ID: ${item.resource_id}`}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.user_name || 'Ukjent'} - {new Date(item.created_at).toLocaleString('nb-NO')}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

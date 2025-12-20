@@ -88,16 +88,39 @@ shared/           # Shared code between client/server
 - **zod**: Runtime schema validation
 - **class-variance-authority**: Component variant styling
 
-## CMS Portal Editor
+## CMS Visual Builder
 
-### Tab Structure (Redesigned)
-The CMS editor uses 6 categorical tabs for better organization:
-1. **Layout**: Preview panel with responsive device modes (desktop/tablet/mobile) and region-based properties panel
-2. **Colors**: Main colors, background colors, text colors, status colors, border colors
-3. **Typography**: Font families, font sizes, heading weights, line heights
-4. **Navigation**: Menu structure management with up/down keyboard navigation (WCAG 2.5.7 compliant)
-5. **Components**: Spacing, border radius, shadows
-6. **Export**: CSS variables output and W3C DTCG format token export
+### Three-Panel Layout (Webflow/Figma Pattern)
+The CMS editor follows modern visual builder patterns:
+- **Left Panel**: Layer tree (structure), templates, and tools list
+- **Center Panel**: Canvas preview (always 100% visible, never blurred)
+- **Right Panel**: Context-sensitive inspector (element properties OR tool content)
+
+### Tool Integration
+All CMS tools appear in the right inspector panel (not overlays):
+1. **Content Types**: Define custom content structures (Contentful-style content modeling)
+2. **Design System**: Colors and typography
+3. **Media Library**: Images and files
+4. **Navigation**: Menu structure management
+5. **Forms**: Contact forms
+6. **Blog**: Blog posts
+7. **Email Templates**: Automated emails
+8. **Reports**: Report design
+9. **Portal Design**: User portal
+10. **Analytics**: Statistics
+11. **Version History**: Restore previous versions
+
+### Content Modeling (New Feature)
+- **Content Types**: Define custom content structures (like "Blog Post", "Team Member", etc.)
+- **Content Fields**: Add fields of various types (text, rich text, number, boolean, date, media, reference, JSON, select)
+- **Content Entries**: Create actual content entries following the defined structure
+- **Version History**: Track all changes with version snapshots
+- **Scheduling**: Schedule content for future publication
+
+### UX Improvements
+- Selecting an element automatically closes any open tool panel
+- Back button in tool panel header to return to element properties
+- Canvas remains fully interactive at all times
 
 ### WCAG Accessibility
 - Keyboard navigation via @dnd-kit KeyboardSensor
