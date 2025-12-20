@@ -4434,5 +4434,264 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
     }
   });
 
+  // ========== FEEDBACK SYSTEM ROUTES ==========
+
+  // Get pending feedback requests for current user
+  app.get("/api/feedback/pending", async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+      const vendorId = req.query.vendorId as string;
+      
+      if (!userId && !vendorId) {
+        return res.status(400).json({ error: 'userId or vendorId required' });
+      }
+
+      let query = `SELECT * FROM feedback_requests WHERE status = 'pending'`;
+      const params: any[] = [];
+      
+      if (userId) {
+        query += ` AND user_id = $${params.length + 1}`;
+        params.push(userId);
+      }
+      if (vendorId) {
+        query += ` AND vendor_id = $${params.length + 1}`;
+        params.push(parseInt(vendorId));
+      }
+      
+      // Check if snoozed
+      query += ` AND (snoozed_until IS NULL OR snoozed_until < NOW())`;
+      query += ` ORDER BY triggered_at DESC LIMIT 1`;
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Submit feedback response
+  app.post("/api/feedback/respond", async (req, res) => {
+    try {
+      const { requestId, vendorId, userId, ratingScore, npsScore, satisfactionLabel, textualFeedback } = req.body;
+      
+      if (!requestId || !ratingScore) {
+        return res.status(400).json({ error: 'requestId and ratingScore are required' });
+      }
+
+      // Insert feedback response
+      const responseResult = await pool.query(
+        `INSERT INTO feedback_responses (request_id, vendor_id, user_id, rating_score, nps_score, satisfaction_label, textual_feedback)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         RETURNING *`,
+        [requestId, vendorId || null, userId || null, ratingScore, npsScore || null, satisfactionLabel || null, textualFeedback || null]
+      );
+
+      // Mark request as completed
+      await pool.query(
+        `UPDATE feedback_requests SET status = 'completed', responded_at = NOW() WHERE id = $1`,
+        [requestId]
+      );
+
+      res.json({ success: true, response: responseResult.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Snooze feedback request
+  app.post("/api/feedback/snooze", async (req, res) => {
+    try {
+      const { requestId, snoozeHours = 24 } = req.body;
+      
+      if (!requestId) {
+        return res.status(400).json({ error: 'requestId is required' });
+      }
+
+      const snoozedUntil = new Date(Date.now() + snoozeHours * 60 * 60 * 1000);
+      
+      await pool.query(
+        `UPDATE feedback_requests SET status = 'snoozed', snoozed_until = $2 WHERE id = $1`,
+        [requestId, snoozedUntil]
+      );
+
+      res.json({ success: true, snoozedUntil });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Dismiss feedback request
+  app.post("/api/feedback/dismiss", async (req, res) => {
+    try {
+      const { requestId } = req.body;
+      
+      if (!requestId) {
+        return res.status(400).json({ error: 'requestId is required' });
+      }
+
+      await pool.query(
+        `UPDATE feedback_requests SET status = 'dismissed' WHERE id = $1`,
+        [requestId]
+      );
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get aggregated feedback statistics (for public Why page)
+  app.get("/api/feedback/stats", async (req, res) => {
+    try {
+      // Get average satisfaction rating
+      const avgRating = await pool.query(
+        `SELECT 
+           COALESCE(AVG(rating_score), 0) as avg_rating,
+           COUNT(*) as total_responses,
+           COUNT(DISTINCT vendor_id) as vendor_count,
+           COUNT(DISTINCT user_id) as user_count
+         FROM feedback_responses
+         WHERE rating_score IS NOT NULL`
+      );
+
+      // Count active vendors (those with at least 5 users)
+      const vendorCount = await pool.query(
+        `SELECT COUNT(*) as count FROM vendors WHERE status = 'active'`
+      );
+
+      // Calculate satisfaction percentage (ratings 4-5 = satisfied)
+      const satisfactionResult = await pool.query(
+        `SELECT 
+           COUNT(CASE WHEN rating_score >= 4 THEN 1 END) as satisfied,
+           COUNT(*) as total
+         FROM feedback_responses
+         WHERE rating_score IS NOT NULL`
+      );
+
+      const stats = avgRating.rows[0];
+      const satisfaction = satisfactionResult.rows[0];
+      const vendors = vendorCount.rows[0];
+
+      // Calculate satisfaction percentage
+      const satisfactionPct = satisfaction.total > 0 
+        ? Math.round((satisfaction.satisfied / satisfaction.total) * 100)
+        : null;
+
+      res.json({
+        hasData: parseInt(stats.total_responses) > 0,
+        satisfactionPercentage: satisfactionPct,
+        avgRating: parseFloat(stats.avg_rating).toFixed(1),
+        totalResponses: parseInt(stats.total_responses),
+        vendorCount: parseInt(vendors.count),
+        uniqueRespondingVendors: parseInt(stats.vendor_count),
+        uniqueRespondingUsers: parseInt(stats.user_count)
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Check and trigger feedback request for user milestones
+  app.post("/api/feedback/check-milestone", async (req, res) => {
+    try {
+      const { userId, vendorId } = req.body;
+      
+      if (!userId) {
+        return res.status(400).json({ error: 'userId is required' });
+      }
+
+      // Check if user has completed 4+ time entries (stemplinger)
+      const entriesResult = await pool.query(
+        `SELECT COUNT(*) as entry_count FROM log_row WHERE user_id = $1`,
+        [userId]
+      );
+      const entryCount = parseInt(entriesResult.rows[0].entry_count);
+
+      // Check if user already has a pending/completed feedback request
+      const existingRequest = await pool.query(
+        `SELECT id, status FROM feedback_requests 
+         WHERE user_id = $1 AND request_type = 'user_milestone'
+         ORDER BY triggered_at DESC LIMIT 1`,
+        [userId]
+      );
+
+      if (entryCount >= 4 && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
+        // Create a new feedback request
+        const newRequest = await pool.query(
+          `INSERT INTO feedback_requests (user_id, vendor_id, request_type, status, metadata)
+           VALUES ($1, $2, 'user_milestone', 'pending', $3)
+           ON CONFLICT DO NOTHING
+           RETURNING *`,
+          [userId, vendorId || null, JSON.stringify({ entryCount })]
+        );
+
+        if (newRequest.rows[0]) {
+          return res.json({ shouldShowFeedback: true, request: newRequest.rows[0] });
+        }
+      }
+
+      // Check for existing pending request
+      if (existingRequest.rows[0]?.status === 'pending') {
+        return res.json({ shouldShowFeedback: true, request: existingRequest.rows[0] });
+      }
+
+      res.json({ shouldShowFeedback: false, entryCount });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Check and trigger feedback request for vendor milestones
+  app.post("/api/feedback/check-vendor-milestone", async (req, res) => {
+    try {
+      const { vendorId } = req.body;
+      
+      if (!vendorId) {
+        return res.status(400).json({ error: 'vendorId is required' });
+      }
+
+      // Check if vendor has 5+ users (using project_info or session table)
+      const usersResult = await pool.query(
+        `SELECT COUNT(DISTINCT user_id) as user_count 
+         FROM project_info 
+         WHERE vendor_id = $1`,
+        [vendorId]
+      );
+      const userCount = parseInt(usersResult.rows[0].user_count);
+
+      // Check if vendor already has a pending/completed feedback request
+      const existingRequest = await pool.query(
+        `SELECT id, status FROM feedback_requests 
+         WHERE vendor_id = $1 AND request_type = 'vendor_milestone' AND user_id IS NULL
+         ORDER BY triggered_at DESC LIMIT 1`,
+        [vendorId]
+      );
+
+      if (userCount >= 5 && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
+        // Create a new feedback request for vendor admin
+        const newRequest = await pool.query(
+          `INSERT INTO feedback_requests (vendor_id, request_type, status, metadata)
+           VALUES ($1, 'vendor_milestone', 'pending', $2)
+           ON CONFLICT DO NOTHING
+           RETURNING *`,
+          [vendorId, JSON.stringify({ userCount })]
+        );
+
+        if (newRequest.rows[0]) {
+          return res.json({ shouldShowFeedback: true, request: newRequest.rows[0] });
+        }
+      }
+
+      // Check for existing pending request
+      if (existingRequest.rows[0]?.status === 'pending') {
+        return res.json({ shouldShowFeedback: true, request: existingRequest.rows[0] });
+      }
+
+      res.json({ shouldShowFeedback: false, userCount });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }
