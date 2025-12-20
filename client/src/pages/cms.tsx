@@ -4101,9 +4101,11 @@ function VersionHistory() {
     },
     onSuccess: () => {
       toast({ title: 'Suksess', description: 'Versjonen ble gjenopprettet' });
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/versions'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/design-tokens'] });
+      queryClient.invalidateQueries({ predicate: (query) => 
+        Array.isArray(query.queryKey) && 
+        typeof query.queryKey[0] === 'string' && 
+        query.queryKey[0].startsWith('/api/cms')
+      });
       setShowDetailDialog(false);
     },
     onError: (error: any) => {
