@@ -173,8 +173,11 @@ export default function WhyTidsflyt() {
   const trust = data?.trust || defaultTrustContent;
   const cta = data?.cta || defaultCtaContent;
 
+  // Only show stats if we have real feedback data
+  const hasRealFeedbackData = feedbackStats?.hasData && feedbackStats.satisfactionPercentage !== null;
+  
   const getDynamicStats = () => {
-    if (feedbackStats?.hasData && feedbackStats.satisfactionPercentage !== null) {
+    if (hasRealFeedbackData) {
       return [
         { 
           value: `${feedbackStats.satisfactionPercentage}%`, 
@@ -182,13 +185,13 @@ export default function WhyTidsflyt() {
         },
         { value: "30 min", label: "Spart per dag" },
         { 
-          value: feedbackStats.vendorCount > 0 ? `${feedbackStats.vendorCount}+` : "500+", 
+          value: feedbackStats.vendorCount > 0 ? `${feedbackStats.vendorCount}+` : "Mange", 
           label: "Norske bedrifter" 
         },
         { value: "99.9%", label: "Oppetid" }
       ];
     }
-    return data?.stats?.length ? data.stats : defaultStats;
+    return null; // Don't show stats when no real data
   };
 
   const stats = getDynamicStats();
@@ -272,18 +275,20 @@ export default function WhyTidsflyt() {
           </div>
         </section>
 
-        <section className="py-16 border-b">
-          <div className="container mx-auto px-4">
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
-              {stats.map((stat: any, index: number) => (
-                <div key={index} className="text-center" data-testid={`stat-${index}`}>
-                  <div className="text-3xl md:text-4xl font-bold text-primary mb-2">{stat.value}</div>
-                  <div className="text-sm text-muted-foreground">{stat.label}</div>
-                </div>
-              ))}
+        {stats && (
+          <section className="py-16 border-b">
+            <div className="container mx-auto px-4">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
+                {stats.map((stat: any, index: number) => (
+                  <div key={index} className="text-center" data-testid={`stat-${index}`}>
+                    <div className="text-3xl md:text-4xl font-bold text-primary mb-2">{stat.value}</div>
+                    <div className="text-sm text-muted-foreground">{stat.label}</div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         <section className="py-16 md:py-24">
           <div className="container mx-auto px-4">
