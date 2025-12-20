@@ -421,6 +421,8 @@ export default function CMSPage() {
                 <Input
                   id="username"
                   type="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
                   value={loginUsername}
                   onChange={(e) => setLoginUsername(e.target.value)}
                   placeholder="admin"
@@ -7483,6 +7485,8 @@ function VendorManagement() {
                     <Label htmlFor="admin-username">Brukernavn</Label>
                     <Input
                       id="admin-username"
+                      autoCapitalize="none"
+                      autoCorrect="off"
                       value={adminForm.username}
                       onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })}
                       placeholder="brukernavn"
