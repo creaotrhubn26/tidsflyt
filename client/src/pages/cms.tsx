@@ -497,6 +497,12 @@ export default function CMSPage() {
           <TabsTrigger value="blog" data-testid="tab-blog">
             <Newspaper className="h-4 w-4 mr-1" />Blogg
           </TabsTrigger>
+          <TabsTrigger value="analytics" data-testid="tab-analytics">
+            <BarChart3 className="h-4 w-4 mr-1" />GA4
+          </TabsTrigger>
+          <TabsTrigger value="email" data-testid="tab-email">
+            <Mail className="h-4 w-4 mr-1" />E-post
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
           <TabsTrigger value="versions" data-testid="tab-versions">
             <RefreshCw className="h-4 w-4 mr-1" />Versjoner
@@ -545,6 +551,14 @@ export default function CMSPage() {
 
         <TabsContent value="blog">
           <BlogEditor />
+        </TabsContent>
+
+        <TabsContent value="analytics">
+          <AnalyticsEditor />
+        </TabsContent>
+
+        <TabsContent value="email">
+          <EmailEditor />
         </TabsContent>
 
         <TabsContent value="activity">
@@ -4325,6 +4339,802 @@ function VersionHistory() {
               </div>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Analytics Settings interface
+interface AnalyticsSettingsData {
+  id?: number;
+  ga4_measurement_id: string | null;
+  ga4_stream_id: string | null;
+  enable_tracking: boolean;
+  enable_page_views: boolean;
+  enable_events: boolean;
+  enable_consent_mode: boolean;
+  cookie_consent: string;
+  excluded_paths: string[] | null;
+  custom_events: any;
+}
+
+function AnalyticsEditor() {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState<AnalyticsSettingsData>({
+    ga4_measurement_id: '',
+    ga4_stream_id: '',
+    enable_tracking: false,
+    enable_page_views: true,
+    enable_events: true,
+    enable_consent_mode: true,
+    cookie_consent: 'required',
+    excluded_paths: [],
+    custom_events: null,
+  });
+
+  const { data: settings, isLoading } = useQuery<AnalyticsSettingsData>({
+    queryKey: ['/api/cms/analytics'],
+    queryFn: () => authenticatedApiRequest('/api/cms/analytics'),
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setFormData({
+        ga4_measurement_id: settings.ga4_measurement_id || '',
+        ga4_stream_id: settings.ga4_stream_id || '',
+        enable_tracking: settings.enable_tracking || false,
+        enable_page_views: settings.enable_page_views ?? true,
+        enable_events: settings.enable_events ?? true,
+        enable_consent_mode: settings.enable_consent_mode ?? true,
+        cookie_consent: settings.cookie_consent || 'required',
+        excluded_paths: settings.excluded_paths || [],
+        custom_events: settings.custom_events,
+      });
+    }
+  }, [settings]);
+
+  const saveMutation = useMutation({
+    mutationFn: async (data: AnalyticsSettingsData) => {
+      return authenticatedApiRequest('/api/cms/analytics', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'Analytics-innstillinger er oppdatert' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/analytics'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BarChart3 className="h-5 w-5" />
+            Google Analytics 4
+          </CardTitle>
+          <CardDescription>
+            Konfigurer GA4-sporing for nettstedet ditt
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between p-4 rounded-lg border">
+            <div>
+              <Label className="text-base font-medium">Aktiver sporing</Label>
+              <p className="text-sm text-muted-foreground">Slå på Google Analytics 4-sporing</p>
+            </div>
+            <Button
+              variant={formData.enable_tracking ? "default" : "outline"}
+              onClick={() => setFormData({ ...formData, enable_tracking: !formData.enable_tracking })}
+              data-testid="toggle-tracking"
+            >
+              {formData.enable_tracking ? <ToggleRight className="h-5 w-5" /> : <ToggleRight className="h-5 w-5 opacity-50" />}
+            </Button>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="ga4-id">GA4 Measurement ID</Label>
+              <Input
+                id="ga4-id"
+                value={formData.ga4_measurement_id || ''}
+                onChange={(e) => setFormData({ ...formData, ga4_measurement_id: e.target.value })}
+                placeholder="G-XXXXXXXXXX"
+                data-testid="input-ga4-id"
+              />
+              <p className="text-xs text-muted-foreground">Finn denne i GA4 under Admin - Data Streams</p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="ga4-stream">Stream ID (valgfritt)</Label>
+              <Input
+                id="ga4-stream"
+                value={formData.ga4_stream_id || ''}
+                onChange={(e) => setFormData({ ...formData, ga4_stream_id: e.target.value })}
+                placeholder="1234567890"
+                data-testid="input-ga4-stream"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-medium">Sporingsalternativer</h4>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="flex items-center justify-between p-3 rounded-md border">
+                <div>
+                  <Label>Sidevisninger</Label>
+                  <p className="text-xs text-muted-foreground">Spor automatisk sidevisninger</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={formData.enable_page_views ? "default" : "outline"}
+                  onClick={() => setFormData({ ...formData, enable_page_views: !formData.enable_page_views })}
+                >
+                  {formData.enable_page_views ? 'På' : 'Av'}
+                </Button>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-md border">
+                <div>
+                  <Label>Hendelser</Label>
+                  <p className="text-xs text-muted-foreground">Spor klikk og interaksjoner</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={formData.enable_events ? "default" : "outline"}
+                  onClick={() => setFormData({ ...formData, enable_events: !formData.enable_events })}
+                >
+                  {formData.enable_events ? 'På' : 'Av'}
+                </Button>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-md border">
+                <div>
+                  <Label>Samtykke-modus</Label>
+                  <p className="text-xs text-muted-foreground">Respekter GDPR-samtykke</p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={formData.enable_consent_mode ? "default" : "outline"}
+                  onClick={() => setFormData({ ...formData, enable_consent_mode: !formData.enable_consent_mode })}
+                >
+                  {formData.enable_consent_mode ? 'På' : 'Av'}
+                </Button>
+              </div>
+              <div className="space-y-2">
+                <Label>Cookie-samtykke</Label>
+                <select
+                  value={formData.cookie_consent}
+                  onChange={(e) => setFormData({ ...formData, cookie_consent: e.target.value })}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="required">Påkrevd (alltid spør)</option>
+                  <option value="optional">Valgfritt</option>
+                  <option value="granted">Alltid godkjent</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end">
+            <Button
+              onClick={() => saveMutation.mutate(formData)}
+              disabled={saveMutation.isPending}
+              data-testid="button-save-analytics"
+            >
+              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Lagre innstillinger
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GA4 Integrasjonskode</CardTitle>
+          <CardDescription>
+            Denne koden legges automatisk til på nettstedet når sporing er aktivert
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto">
+{`<!-- Google Analytics 4 -->
+<script async src="https://www.googletagmanager.com/gtag/js?id=${formData.ga4_measurement_id || 'G-XXXXXXXXXX'}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '${formData.ga4_measurement_id || 'G-XXXXXXXXXX'}', {
+    send_page_view: ${formData.enable_page_views}
+  });
+</script>`}
+          </pre>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// Email Template interface
+interface EmailTemplate {
+  id: number;
+  name: string;
+  slug: string;
+  subject: string;
+  html_content: string;
+  text_content: string | null;
+  variables: string[] | null;
+  category: string;
+  is_active: boolean;
+}
+
+interface EmailSettingsData {
+  id?: number;
+  provider: string;
+  smtp_host: string | null;
+  smtp_port: number;
+  smtp_secure: boolean;
+  smtp_user: string | null;
+  from_email: string | null;
+  from_name: string | null;
+  reply_to_email: string | null;
+}
+
+function EmailEditor() {
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState('templates');
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(null);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [showTestDialog, setShowTestDialog] = useState(false);
+  const [testEmail, setTestEmail] = useState('');
+  const [templateForm, setTemplateForm] = useState({
+    name: '',
+    slug: '',
+    subject: '',
+    html_content: '',
+    text_content: '',
+    variables: [] as string[],
+    category: 'general',
+  });
+  const [settingsForm, setSettingsForm] = useState<EmailSettingsData>({
+    provider: 'smtp',
+    smtp_host: 'smtp.gmail.com',
+    smtp_port: 587,
+    smtp_secure: false,
+    smtp_user: '',
+    from_email: '',
+    from_name: '',
+    reply_to_email: '',
+  });
+
+  const { data: templates = [], isLoading: templatesLoading } = useQuery<EmailTemplate[]>({
+    queryKey: ['/api/cms/email/templates'],
+    queryFn: () => authenticatedApiRequest('/api/cms/email/templates'),
+  });
+
+  const { data: settings, isLoading: settingsLoading } = useQuery<EmailSettingsData>({
+    queryKey: ['/api/cms/email/settings'],
+    queryFn: () => authenticatedApiRequest('/api/cms/email/settings'),
+  });
+
+  const { data: history = [] } = useQuery<any[]>({
+    queryKey: ['/api/cms/email/history'],
+    queryFn: () => authenticatedApiRequest('/api/cms/email/history?limit=20'),
+  });
+
+  useEffect(() => {
+    if (settings) {
+      setSettingsForm({
+        provider: settings.provider || 'smtp',
+        smtp_host: settings.smtp_host || 'smtp.gmail.com',
+        smtp_port: settings.smtp_port || 587,
+        smtp_secure: settings.smtp_secure || false,
+        smtp_user: settings.smtp_user || '',
+        from_email: settings.from_email || '',
+        from_name: settings.from_name || '',
+        reply_to_email: settings.reply_to_email || '',
+      });
+    }
+  }, [settings]);
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async (data: typeof templateForm & { id?: number }) => {
+      const url = data.id 
+        ? `/api/cms/email/templates/${data.id}`
+        : '/api/cms/email/templates';
+      return authenticatedApiRequest(url, {
+        method: data.id ? 'PUT' : 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'E-postmal er lagret' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/email/templates'] });
+      setShowTemplateDialog(false);
+      setSelectedTemplate(null);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/email/templates/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Slettet', description: 'E-postmal er slettet' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/email/templates'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const saveSettingsMutation = useMutation({
+    mutationFn: async (data: EmailSettingsData) => {
+      return authenticatedApiRequest('/api/cms/email/settings', {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'E-postinnstillinger er oppdatert' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/email/settings'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const sendTestMutation = useMutation({
+    mutationFn: async (data: { template_id: number; recipient_email: string }) => {
+      return authenticatedApiRequest('/api/cms/email/test', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Sendt', description: 'Test-e-post er sendt' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/email/history'] });
+      setShowTestDialog(false);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const seedTemplatesMutation = useMutation({
+    mutationFn: async () => {
+      return authenticatedApiRequest('/api/cms/email/seed-templates', { method: 'POST' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Suksess', description: 'Standard e-postmaler er lagt til' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/email/templates'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const openTemplateEditor = (template?: EmailTemplate) => {
+    if (template) {
+      setSelectedTemplate(template);
+      setTemplateForm({
+        name: template.name,
+        slug: template.slug,
+        subject: template.subject,
+        html_content: template.html_content,
+        text_content: template.text_content || '',
+        variables: template.variables || [],
+        category: template.category,
+      });
+    } else {
+      setSelectedTemplate(null);
+      setTemplateForm({
+        name: '',
+        slug: '',
+        subject: '',
+        html_content: '',
+        text_content: '',
+        variables: [],
+        category: 'general',
+      });
+    }
+    setShowTemplateDialog(true);
+  };
+
+  const categoryLabels: Record<string, string> = {
+    general: 'Generell',
+    onboarding: 'Onboarding',
+    auth: 'Autentisering',
+    notification: 'Varsling',
+    marketing: 'Markedsføring',
+  };
+
+  return (
+    <div className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="templates">E-postmaler</TabsTrigger>
+          <TabsTrigger value="settings">Innstillinger</TabsTrigger>
+          <TabsTrigger value="history">Historikk</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="templates" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5" />
+                  E-postmaler
+                </CardTitle>
+                <CardDescription>Administrer e-postmaler for utsendelse</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => seedTemplatesMutation.mutate()} disabled={seedTemplatesMutation.isPending}>
+                  {seedTemplatesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+                  Legg til standardmaler
+                </Button>
+                <Button onClick={() => openTemplateEditor()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ny mal
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {templatesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : !Array.isArray(templates) || templates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Mail className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Ingen e-postmaler funnet</p>
+                  <Button variant="ghost" onClick={() => seedTemplatesMutation.mutate()}>
+                    Legg til standardmaler
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className="flex items-center justify-between p-3 rounded-md border hover-elevate"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-muted">
+                          <Mail className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{template.name}</span>
+                            <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
+                              {categoryLabels[template.category] || template.category}
+                            </span>
+                          </div>
+                          <div className="text-sm text-muted-foreground">{template.subject}</div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setSelectedTemplate(template);
+                            setShowTestDialog(true);
+                          }}
+                        >
+                          <Send className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={() => openTemplateEditor(template)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (confirm('Er du sikker på at du vil slette denne malen?')) {
+                              deleteTemplateMutation.mutate(template.id);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="settings">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Settings className="h-5 w-5" />
+                SMTP-innstillinger
+              </CardTitle>
+              <CardDescription>Konfigurer e-postserver for utsendelse</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-host">SMTP-server</Label>
+                  <Input
+                    id="smtp-host"
+                    value={settingsForm.smtp_host || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, smtp_host: e.target.value })}
+                    placeholder="smtp.gmail.com"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-port">Port</Label>
+                  <Input
+                    id="smtp-port"
+                    type="number"
+                    value={settingsForm.smtp_port}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, smtp_port: parseInt(e.target.value) })}
+                    placeholder="587"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="smtp-user">Brukernavn</Label>
+                  <Input
+                    id="smtp-user"
+                    value={settingsForm.smtp_user || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, smtp_user: e.target.value })}
+                    placeholder="din@epost.no"
+                  />
+                </div>
+                <div className="flex items-center justify-between p-3 rounded-md border">
+                  <Label>SSL/TLS</Label>
+                  <Button
+                    size="sm"
+                    variant={settingsForm.smtp_secure ? "default" : "outline"}
+                    onClick={() => setSettingsForm({ ...settingsForm, smtp_secure: !settingsForm.smtp_secure })}
+                  >
+                    {settingsForm.smtp_secure ? 'På' : 'Av'}
+                  </Button>
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="from-email">Fra e-post</Label>
+                  <Input
+                    id="from-email"
+                    value={settingsForm.from_email || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, from_email: e.target.value })}
+                    placeholder="noreply@smarttiming.no"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="from-name">Fra navn</Label>
+                  <Input
+                    id="from-name"
+                    value={settingsForm.from_name || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, from_name: e.target.value })}
+                    placeholder="Smart Timing"
+                  />
+                </div>
+                <div className="space-y-2 md:col-span-2">
+                  <Label htmlFor="reply-to">Svar-til e-post</Label>
+                  <Input
+                    id="reply-to"
+                    value={settingsForm.reply_to_email || ''}
+                    onChange={(e) => setSettingsForm({ ...settingsForm, reply_to_email: e.target.value })}
+                    placeholder="support@smarttiming.no"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-muted/50 p-4 rounded-md">
+                <p className="text-sm text-muted-foreground">
+                  <strong>Tips:</strong> For Gmail, bruk smtp.gmail.com med port 587. 
+                  Du trenger et App-passord som er konfigurert i GMAIL_APP_PASSWORD-hemmeligheten.
+                </p>
+              </div>
+
+              <div className="flex justify-end">
+                <Button
+                  onClick={() => saveSettingsMutation.mutate(settingsForm)}
+                  disabled={saveSettingsMutation.isPending}
+                >
+                  {saveSettingsMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                  Lagre innstillinger
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="history">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Clock className="h-5 w-5" />
+                Sendehistorikk
+              </CardTitle>
+              <CardDescription>Oversikt over sendte e-poster</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {!Array.isArray(history) || history.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Inbox className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Ingen e-poster sendt ennå</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {history.map((item: any) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 rounded-md border">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{item.subject}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            item.status === 'sent' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100' : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100'
+                          }`}>
+                            {item.status === 'sent' ? 'Sendt' : 'Feilet'}
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground">
+                          Til: {item.recipient_email} | {new Date(item.created_at).toLocaleString('nb-NO')}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedTemplate ? 'Rediger e-postmal' : 'Ny e-postmal'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="template-name">Navn</Label>
+                <Input
+                  id="template-name"
+                  value={templateForm.name}
+                  onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                  placeholder="Velkommen e-post"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-slug">Slug</Label>
+                <Input
+                  id="template-slug"
+                  value={templateForm.slug}
+                  onChange={(e) => setTemplateForm({ ...templateForm, slug: e.target.value })}
+                  placeholder="welcome"
+                />
+              </div>
+            </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="template-subject">Emne</Label>
+                <Input
+                  id="template-subject"
+                  value={templateForm.subject}
+                  onChange={(e) => setTemplateForm({ ...templateForm, subject: e.target.value })}
+                  placeholder="Velkommen til {{company_name}}!"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="template-category">Kategori</Label>
+                <select
+                  id="template-category"
+                  value={templateForm.category}
+                  onChange={(e) => setTemplateForm({ ...templateForm, category: e.target.value })}
+                  className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="general">Generell</option>
+                  <option value="onboarding">Onboarding</option>
+                  <option value="auth">Autentisering</option>
+                  <option value="notification">Varsling</option>
+                  <option value="marketing">Markedsføring</option>
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-html">HTML-innhold</Label>
+              <Textarea
+                id="template-html"
+                value={templateForm.html_content}
+                onChange={(e) => setTemplateForm({ ...templateForm, html_content: e.target.value })}
+                placeholder="<html><body>...</body></html>"
+                className="min-h-[200px] font-mono text-sm"
+              />
+              <p className="text-xs text-muted-foreground">
+                Bruk &#123;&#123;variabel&#125;&#125; for dynamiske verdier. Eksempel: &#123;&#123;name&#125;&#125;, &#123;&#123;company_name&#125;&#125;
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="template-text">Ren tekst (valgfritt)</Label>
+              <Textarea
+                id="template-text"
+                value={templateForm.text_content}
+                onChange={(e) => setTemplateForm({ ...templateForm, text_content: e.target.value })}
+                placeholder="Alternativ tekst for e-postklienter uten HTML-støtte"
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>
+                Avbryt
+              </Button>
+              <Button
+                onClick={() => saveTemplateMutation.mutate({
+                  ...templateForm,
+                  id: selectedTemplate?.id,
+                })}
+                disabled={saveTemplateMutation.isPending}
+              >
+                {saveTemplateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Lagre
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showTestDialog} onOpenChange={setShowTestDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Send test-e-post</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Send en test av malen "{selectedTemplate?.name}" til en e-postadresse.
+            </p>
+            <div className="space-y-2">
+              <Label htmlFor="test-email">Mottaker e-post</Label>
+              <Input
+                id="test-email"
+                type="email"
+                value={testEmail}
+                onChange={(e) => setTestEmail(e.target.value)}
+                placeholder="test@example.com"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowTestDialog(false)}>
+                Avbryt
+              </Button>
+              <Button
+                onClick={() => {
+                  if (selectedTemplate && testEmail) {
+                    sendTestMutation.mutate({
+                      template_id: selectedTemplate.id,
+                      recipient_email: testEmail,
+                    });
+                  }
+                }}
+                disabled={sendTestMutation.isPending || !testEmail}
+              >
+                {sendTestMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Send className="h-4 w-4 mr-2" />}
+                Send test
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -2249,5 +2249,661 @@ export function registerSmartTimingRoutes(app: Express) {
   // Export the createContentVersion function for use in other routes
   (app as any).createContentVersion = createContentVersion;
 
+  // ============================================
+  // GA4 Analytics Settings API
+  // ============================================
+
+  // Get analytics settings
+  app.get("/api/cms/analytics", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM analytics_settings WHERE id = 1');
+      if (result.rows.length === 0) {
+        // Create default settings
+        const insertResult = await pool.query(
+          `INSERT INTO analytics_settings (id, enable_tracking, enable_page_views, enable_events, enable_consent_mode) 
+           VALUES (1, false, true, true, true) RETURNING *`
+        );
+        return res.json(insertResult.rows[0]);
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update analytics settings
+  app.put("/api/cms/analytics", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const {
+        ga4_measurement_id, ga4_stream_id, enable_tracking, enable_page_views,
+        enable_events, enable_consent_mode, cookie_consent, excluded_paths, custom_events
+      } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, enable_tracking, 
+         enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
+         custom_events, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+         ga4_measurement_id = EXCLUDED.ga4_measurement_id,
+         ga4_stream_id = EXCLUDED.ga4_stream_id,
+         enable_tracking = EXCLUDED.enable_tracking,
+         enable_page_views = EXCLUDED.enable_page_views,
+         enable_events = EXCLUDED.enable_events,
+         enable_consent_mode = EXCLUDED.enable_consent_mode,
+         cookie_consent = EXCLUDED.cookie_consent,
+         excluded_paths = EXCLUDED.excluded_paths,
+         custom_events = EXCLUDED.custom_events,
+         updated_at = NOW()
+         RETURNING *`,
+        [ga4_measurement_id, ga4_stream_id, enable_tracking, enable_page_views,
+         enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
+         custom_events ? JSON.stringify(custom_events) : null]
+      );
+
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public endpoint to get GA4 tracking code
+  app.get("/api/analytics/config", async (req, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT ga4_measurement_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent FROM analytics_settings WHERE id = 1 AND is_active = true'
+      );
+      if (result.rows.length === 0 || !result.rows[0].enable_tracking) {
+        return res.json({ enabled: false });
+      }
+      res.json({ enabled: true, ...result.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================
+  // SEO Global Settings API
+  // ============================================
+
+  // Get global SEO settings
+  app.get("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM seo_global_settings WHERE id = 1');
+      if (result.rows.length === 0) {
+        const insertResult = await pool.query(
+          `INSERT INTO seo_global_settings (id, site_name, sitemap_enabled, sitemap_auto_generate) 
+           VALUES (1, 'Smart Timing', true, true) RETURNING *`
+        );
+        return res.json(insertResult.rows[0]);
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update global SEO settings
+  app.put("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const {
+        site_name, site_description, default_og_image, favicon_url,
+        google_verification, bing_verification, robots_txt, sitemap_enabled, sitemap_auto_generate
+      } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
+         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
+         sitemap_auto_generate, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+         site_name = EXCLUDED.site_name,
+         site_description = EXCLUDED.site_description,
+         default_og_image = EXCLUDED.default_og_image,
+         favicon_url = EXCLUDED.favicon_url,
+         google_verification = EXCLUDED.google_verification,
+         bing_verification = EXCLUDED.bing_verification,
+         robots_txt = EXCLUDED.robots_txt,
+         sitemap_enabled = EXCLUDED.sitemap_enabled,
+         sitemap_auto_generate = EXCLUDED.sitemap_auto_generate,
+         updated_at = NOW()
+         RETURNING *`,
+        [site_name, site_description, default_og_image, favicon_url,
+         google_verification, bing_verification, robots_txt, sitemap_enabled, sitemap_auto_generate]
+      );
+
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================
+  // SEO Pages API
+  // ============================================
+
+  // Get all SEO pages
+  app.get("/api/cms/seo/pages", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM seo_pages ORDER BY page_path');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create SEO page
+  app.post("/api/cms/seo/pages", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const {
+        page_path, title, meta_description, meta_keywords, canonical_url,
+        og_title, og_description, og_image, og_type, twitter_card, twitter_title,
+        twitter_description, twitter_image, robots_index, robots_follow,
+        structured_data, priority, change_frequency
+      } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO seo_pages (page_path, title, meta_description, meta_keywords, canonical_url,
+         og_title, og_description, og_image, og_type, twitter_card, twitter_title,
+         twitter_description, twitter_image, robots_index, robots_follow, structured_data, 
+         priority, change_frequency)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+         RETURNING *`,
+        [page_path, title, meta_description, meta_keywords, canonical_url,
+         og_title, og_description, og_image, og_type || 'website', twitter_card || 'summary_large_image',
+         twitter_title, twitter_description, twitter_image, robots_index ?? true, robots_follow ?? true,
+         structured_data ? JSON.stringify(structured_data) : null, priority || 0.5, change_frequency || 'weekly']
+      );
+
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update SEO page
+  app.put("/api/cms/seo/pages/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const {
+        page_path, title, meta_description, meta_keywords, canonical_url,
+        og_title, og_description, og_image, og_type, twitter_card, twitter_title,
+        twitter_description, twitter_image, robots_index, robots_follow,
+        structured_data, priority, change_frequency, is_active
+      } = req.body;
+
+      const result = await pool.query(
+        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3, 
+         meta_keywords = $4, canonical_url = $5, og_title = $6, og_description = $7,
+         og_image = $8, og_type = $9, twitter_card = $10, twitter_title = $11,
+         twitter_description = $12, twitter_image = $13, robots_index = $14, robots_follow = $15,
+         structured_data = $16, priority = $17, change_frequency = $18, is_active = $19, updated_at = NOW()
+         WHERE id = $20 RETURNING *`,
+        [page_path, title, meta_description, meta_keywords, canonical_url,
+         og_title, og_description, og_image, og_type, twitter_card, twitter_title,
+         twitter_description, twitter_image, robots_index, robots_follow,
+         structured_data ? JSON.stringify(structured_data) : null, priority, change_frequency,
+         is_active, req.params.id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'SEO page not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete SEO page
+  app.delete("/api/cms/seo/pages/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM seo_pages WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public endpoint to get SEO for a page
+  app.get("/api/seo/page", async (req, res) => {
+    try {
+      const path = req.query.path as string || '/';
+      const result = await pool.query(
+        'SELECT * FROM seo_pages WHERE page_path = $1 AND is_active = true',
+        [path]
+      );
+      if (result.rows.length === 0) {
+        return res.json(null);
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================
+  // Sitemap Generation API
+  // ============================================
+
+  // Generate sitemap.xml
+  app.get("/sitemap.xml", async (req, res) => {
+    try {
+      const globalSettings = await pool.query(
+        'SELECT sitemap_enabled FROM seo_global_settings WHERE id = 1'
+      );
+      
+      if (globalSettings.rows.length === 0 || !globalSettings.rows[0].sitemap_enabled) {
+        return res.status(404).send('Sitemap disabled');
+      }
+
+      const pages = await pool.query(
+        'SELECT page_path, priority, change_frequency, updated_at FROM seo_pages WHERE is_active = true AND robots_index = true'
+      );
+
+      const baseUrl = `https://${req.get('host')}`;
+      
+      let sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      sitemap += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+      
+      // Add static pages
+      const staticPages = ['/', '/login', '/register'];
+      for (const page of staticPages) {
+        sitemap += '  <url>\n';
+        sitemap += `    <loc>${baseUrl}${page}</loc>\n`;
+        sitemap += '    <changefreq>weekly</changefreq>\n';
+        sitemap += '    <priority>0.8</priority>\n';
+        sitemap += '  </url>\n';
+      }
+
+      // Add dynamic SEO pages
+      for (const page of pages.rows) {
+        sitemap += '  <url>\n';
+        sitemap += `    <loc>${baseUrl}${page.page_path}</loc>\n`;
+        if (page.updated_at) {
+          sitemap += `    <lastmod>${new Date(page.updated_at).toISOString().split('T')[0]}</lastmod>\n`;
+        }
+        sitemap += `    <changefreq>${page.change_frequency || 'weekly'}</changefreq>\n`;
+        sitemap += `    <priority>${page.priority || 0.5}</priority>\n`;
+        sitemap += '  </url>\n';
+      }
+
+      // Add blog posts if they exist
+      try {
+        const posts = await pool.query(
+          "SELECT slug, updated_at FROM cms_posts WHERE status = 'published'"
+        );
+        for (const post of posts.rows) {
+          sitemap += '  <url>\n';
+          sitemap += `    <loc>${baseUrl}/blog/${post.slug}</loc>\n`;
+          if (post.updated_at) {
+            sitemap += `    <lastmod>${new Date(post.updated_at).toISOString().split('T')[0]}</lastmod>\n`;
+          }
+          sitemap += '    <changefreq>monthly</changefreq>\n';
+          sitemap += '    <priority>0.6</priority>\n';
+          sitemap += '  </url>\n';
+        }
+      } catch (e) {
+        // cms_posts table might not exist
+      }
+
+      sitemap += '</urlset>';
+
+      // Update last generated timestamp
+      await pool.query(
+        'UPDATE seo_global_settings SET last_sitemap_generated = NOW() WHERE id = 1'
+      );
+
+      res.set('Content-Type', 'application/xml');
+      res.send(sitemap);
+    } catch (err: any) {
+      res.status(500).send('Error generating sitemap');
+    }
+  });
+
+  // ============================================
+  // Robots.txt API
+  // ============================================
+
+  app.get("/robots.txt", async (req, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT robots_txt FROM seo_global_settings WHERE id = 1'
+      );
+
+      let robotsTxt = '';
+      if (result.rows.length > 0 && result.rows[0].robots_txt) {
+        robotsTxt = result.rows[0].robots_txt;
+      } else {
+        // Default robots.txt
+        robotsTxt = `User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin/
+Disallow: /cms/
+Disallow: /dashboard/
+
+Sitemap: https://${req.get('host')}/sitemap.xml`;
+      }
+
+      res.set('Content-Type', 'text/plain');
+      res.send(robotsTxt);
+    } catch (err: any) {
+      res.status(500).send('Error generating robots.txt');
+    }
+  });
+
+  // ============================================
+  // Email Templates API
+  // ============================================
+
+  // Get all email templates
+  app.get("/api/cms/email/templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM email_templates ORDER BY category, name');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single email template
+  app.get("/api/cms/email/templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM email_templates WHERE id = $1', [req.params.id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create email template
+  app.post("/api/cms/email/templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, subject, html_content, text_content, variables, category } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [name, slug, subject, html_content, text_content, variables, category || 'general']
+      );
+
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update email template
+  app.put("/api/cms/email/templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, subject, html_content, text_content, variables, category, is_active } = req.body;
+
+      const result = await pool.query(
+        `UPDATE email_templates SET name = $1, slug = $2, subject = $3, html_content = $4,
+         text_content = $5, variables = $6, category = $7, is_active = $8, updated_at = NOW()
+         WHERE id = $9 RETURNING *`,
+        [name, slug, subject, html_content, text_content, variables, category, is_active, req.params.id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete email template
+  app.delete("/api/cms/email/templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM email_templates WHERE id = $1', [req.params.id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================
+  // Email Settings API
+  // ============================================
+
+  // Get email settings
+  app.get("/api/cms/email/settings", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      if (result.rows.length === 0) {
+        const insertResult = await pool.query(
+          `INSERT INTO email_settings (id, provider, smtp_host, smtp_port, smtp_secure) 
+           VALUES (1, 'smtp', 'smtp.gmail.com', 587, false) RETURNING *`
+        );
+        return res.json(insertResult.rows[0]);
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update email settings
+  app.put("/api/cms/email/settings", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { provider, smtp_host, smtp_port, smtp_secure, smtp_user, from_email, from_name, reply_to_email } = req.body;
+
+      const result = await pool.query(
+        `INSERT INTO email_settings (id, provider, smtp_host, smtp_port, smtp_secure, smtp_user, 
+         from_email, from_name, reply_to_email, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+         provider = EXCLUDED.provider,
+         smtp_host = EXCLUDED.smtp_host,
+         smtp_port = EXCLUDED.smtp_port,
+         smtp_secure = EXCLUDED.smtp_secure,
+         smtp_user = EXCLUDED.smtp_user,
+         from_email = EXCLUDED.from_email,
+         from_name = EXCLUDED.from_name,
+         reply_to_email = EXCLUDED.reply_to_email,
+         updated_at = NOW()
+         RETURNING *`,
+        [provider, smtp_host, smtp_port, smtp_secure, smtp_user, from_email, from_name, reply_to_email]
+      );
+
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================
+  // Email Sending API
+  // ============================================
+
+  // Send test email
+  app.post("/api/cms/email/test", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { template_id, recipient_email, variables } = req.body;
+      
+      // Get template
+      const templateResult = await pool.query('SELECT * FROM email_templates WHERE id = $1', [template_id]);
+      if (templateResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Template not found' });
+      }
+      const template = templateResult.rows[0];
+
+      // Get email settings
+      const settingsResult = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      if (settingsResult.rows.length === 0) {
+        return res.status(400).json({ error: 'Email settings not configured' });
+      }
+      const settings = settingsResult.rows[0];
+
+      // Replace variables in template
+      let htmlContent = template.html_content;
+      let subject = template.subject;
+      if (variables) {
+        for (const [key, value] of Object.entries(variables)) {
+          const regex = new RegExp(`{{${key}}}`, 'g');
+          htmlContent = htmlContent.replace(regex, value as string);
+          subject = subject.replace(regex, value as string);
+        }
+      }
+
+      // Send email using nodemailer
+      const nodemailer = await import('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: settings.smtp_host || 'smtp.gmail.com',
+        port: settings.smtp_port || 587,
+        secure: settings.smtp_secure || false,
+        auth: {
+          user: settings.smtp_user || process.env.GMAIL_USER,
+          pass: process.env.GMAIL_APP_PASSWORD,
+        },
+      });
+
+      await transporter.sendMail({
+        from: `"${settings.from_name || 'Smart Timing'}" <${settings.from_email || settings.smtp_user}>`,
+        to: recipient_email,
+        subject: subject,
+        html: htmlContent,
+        text: template.text_content,
+      });
+
+      // Log send history
+      await pool.query(
+        `INSERT INTO email_send_history (template_id, recipient_email, subject, status, sent_at, metadata)
+         VALUES ($1, $2, $3, 'sent', NOW(), $4)`,
+        [template_id, recipient_email, subject, JSON.stringify({ test: true, variables })]
+      );
+
+      res.json({ success: true, message: 'Test email sent successfully' });
+    } catch (err: any) {
+      console.error('Email send error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get email send history
+  app.get("/api/cms/email/history", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const limit = parseInt(req.query.limit as string) || 50;
+      const result = await pool.query(
+        `SELECT h.*, t.name as template_name FROM email_send_history h
+         LEFT JOIN email_templates t ON h.template_id = t.id
+         ORDER BY h.created_at DESC LIMIT $1`,
+        [limit]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Seed default email templates
+  app.post("/api/cms/email/seed-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const defaultTemplates = [
+        {
+          name: 'Velkommen',
+          slug: 'welcome',
+          subject: 'Velkommen til {{company_name}}!',
+          category: 'onboarding',
+          variables: ['name', 'company_name', 'login_url'],
+          html_content: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #0066cc;">Velkommen, {{name}}!</h1>
+    <p>Vi er glade for å ha deg med i {{company_name}}.</p>
+    <p>Du kan logge inn på kontoen din her:</p>
+    <a href="{{login_url}}" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Logg inn</a>
+    <p style="margin-top: 20px;">Med vennlig hilsen,<br>{{company_name}}</p>
+  </div>
+</body>
+</html>`,
+          text_content: 'Velkommen, {{name}}! Vi er glade for å ha deg med i {{company_name}}. Logg inn her: {{login_url}}'
+        },
+        {
+          name: 'Tilbakestill passord',
+          slug: 'reset-password',
+          subject: 'Tilbakestill passordet ditt',
+          category: 'auth',
+          variables: ['name', 'reset_url', 'expiry_hours'],
+          html_content: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #0066cc;">Tilbakestill passord</h1>
+    <p>Hei {{name}},</p>
+    <p>Vi har mottatt en forespørsel om å tilbakestille passordet ditt.</p>
+    <p>Klikk på knappen nedenfor for å sette et nytt passord:</p>
+    <a href="{{reset_url}}" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Tilbakestill passord</a>
+    <p style="margin-top: 20px; font-size: 0.9em; color: #666;">Denne lenken utløper om {{expiry_hours}} timer.</p>
+  </div>
+</body>
+</html>`,
+          text_content: 'Hei {{name}}, Tilbakestill passordet ditt her: {{reset_url}}. Lenken utløper om {{expiry_hours}} timer.'
+        },
+        {
+          name: 'Timeregistrering påminnelse',
+          slug: 'time-reminder',
+          subject: 'Påminnelse: Registrer timene dine',
+          category: 'notification',
+          variables: ['name', 'week_number', 'dashboard_url'],
+          html_content: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #0066cc;">Timeregistrering</h1>
+    <p>Hei {{name}},</p>
+    <p>Dette er en påminnelse om å registrere timene dine for uke {{week_number}}.</p>
+    <a href="{{dashboard_url}}" style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; text-decoration: none; border-radius: 4px;">Registrer timer</a>
+  </div>
+</body>
+</html>`,
+          text_content: 'Hei {{name}}, Husk å registrere timene dine for uke {{week_number}}. Gå til: {{dashboard_url}}'
+        },
+        {
+          name: 'Timer godkjent',
+          slug: 'time-approved',
+          subject: 'Timene dine er godkjent',
+          category: 'notification',
+          variables: ['name', 'hours', 'period', 'approver_name'],
+          html_content: `<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"></head>
+<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+  <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
+    <h1 style="color: #28a745;">Timer godkjent</h1>
+    <p>Hei {{name}},</p>
+    <p>Dine {{hours}} timer for {{period}} er nå godkjent av {{approver_name}}.</p>
+    <p>Med vennlig hilsen,<br>Smart Timing</p>
+  </div>
+</body>
+</html>`,
+          text_content: 'Hei {{name}}, Dine {{hours}} timer for {{period}} er godkjent av {{approver_name}}.'
+        }
+      ];
+
+      for (const template of defaultTemplates) {
+        await pool.query(
+          `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (slug) DO NOTHING`,
+          [template.name, template.slug, template.subject, template.html_content, template.text_content, template.variables, template.category]
+        );
+      }
+
+      res.json({ success: true, message: 'Default templates seeded' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }
