@@ -9,6 +9,7 @@ import Landing from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import TimeTracking from "@/pages/time-tracking";
 import Reports from "@/pages/reports";
+import CaseReports from "@/pages/case-reports";
 import Users from "@/pages/users";
 import Profile from "@/pages/profile";
 import CMS from "@/pages/cms";
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/time" component={TimeTracking} />
       <Route path="/reports" component={Reports} />
+      <Route path="/case-reports" component={CaseReports} />
       <Route path="/users" component={Users} />
       <Route path="/profile" component={Profile} />
       <Route path="/invites" component={Users} />

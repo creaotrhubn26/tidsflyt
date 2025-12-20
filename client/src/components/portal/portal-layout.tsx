@@ -7,6 +7,7 @@ import {
   UserPlus,
   FolderKanban,
   FileText,
+  ClipboardList,
   Settings,
   Clock,
   ChevronLeft,
@@ -49,6 +50,7 @@ const baseNavItems: Omit<NavItem, 'badge'>[] = [
   { path: "/users", icon: Users, label: "Brukere" },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner" },
   { path: "/cases", icon: FolderKanban, label: "Saker" },
+  { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/reports", icon: FileText, label: "Rapporter" },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
 ];
