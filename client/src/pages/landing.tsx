@@ -16,6 +16,11 @@ import {
   LucideIcon,
   UserPlus,
   LogIn,
+  Play,
+  Zap,
+  Star,
+  Check,
+  TrendingUp,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -42,10 +47,29 @@ interface LandingHero {
   title_highlight: string | null;
   subtitle: string | null;
   cta_primary_text: string | null;
+  cta_primary_url: string | null;
+  cta_primary_type: string | null;
+  cta_primary_icon: string | null;
   cta_secondary_text: string | null;
+  cta_secondary_url: string | null;
+  cta_secondary_type: string | null;
+  cta_secondary_icon: string | null;
   badge1: string | null;
+  badge1_icon: string | null;
   badge2: string | null;
+  badge2_icon: string | null;
   badge3: string | null;
+  badge3_icon: string | null;
+  background_image: string | null;
+  background_gradient: string | null;
+  background_overlay: boolean | null;
+  layout: string | null;
+  stat1_value: string | null;
+  stat1_label: string | null;
+  stat2_value: string | null;
+  stat2_label: string | null;
+  stat3_value: string | null;
+  stat3_label: string | null;
 }
 
 interface LandingFeature {
@@ -115,10 +139,29 @@ const defaultHero: LandingHero = {
   title_highlight: "Norske Bedrifter",
   subtitle: "Effektiv og brukervennlig timeregistrering for konsulenter, prosjektteam og bedrifter. Spar tid på administrasjon og få full kontroll over timene dine.",
   cta_primary_text: "Start gratis prøveperiode",
+  cta_primary_url: null,
+  cta_primary_type: "modal",
+  cta_primary_icon: "ArrowRight",
   cta_secondary_text: "Les mer",
+  cta_secondary_url: "#features",
+  cta_secondary_type: "scroll",
+  cta_secondary_icon: null,
   badge1: "Ingen kredittkort nødvendig",
+  badge1_icon: "Check",
   badge2: "14 dagers gratis prøveperiode",
+  badge2_icon: "Clock",
   badge3: "Norsk kundesupport",
+  badge3_icon: "Shield",
+  background_image: null,
+  background_gradient: null,
+  background_overlay: true,
+  layout: "center",
+  stat1_value: null,
+  stat1_label: null,
+  stat2_value: null,
+  stat2_label: null,
+  stat3_value: null,
+  stat3_label: null,
 };
 
 const defaultFeatures: LandingFeature[] = [
@@ -144,6 +187,8 @@ const defaultSections: LandingSections = {
   contact_phone: "+47 22 33 44 55",
   contact_address: "Oslo, Norge",
   footer_copyright: "© 2025 Smart Timing. Alle rettigheter reservert.",
+  partners_title: "Våre partnere",
+  partners_subtitle: "Stolt samarbeid med ledende norske bedrifter",
 };
 
 interface BrregCompany {
@@ -172,6 +217,77 @@ interface NewUserFormData {
 interface LoginFormData {
   username: string;
   password: string;
+}
+
+const heroIconMap: Record<string, LucideIcon> = {
+  ArrowRight,
+  Play,
+  Clock,
+  Zap,
+  Star,
+  Check,
+  Shield,
+  Users,
+  TrendingUp,
+  CheckCircle,
+};
+
+function HeroButton({
+  text,
+  url,
+  type,
+  icon,
+  variant,
+  onClick,
+}: {
+  text: string;
+  url: string | null;
+  type: string | null;
+  icon: string | null;
+  variant: "default" | "outline";
+  onClick?: () => void;
+}) {
+  const [, setLocation] = useLocation();
+  const IconComponent = icon ? heroIconMap[icon] : (variant === 'default' ? ArrowRight : null);
+  const actionType = type || 'scroll';
+  
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    
+    if (actionType === 'modal' && onClick) {
+      onClick();
+    } else if (actionType === 'scroll' && url) {
+      const element = document.querySelector(url);
+      element?.scrollIntoView({ behavior: 'smooth' });
+    } else if (actionType === 'internal' && url) {
+      setLocation(url);
+    } else if (actionType === 'external' && url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else if (onClick) {
+      onClick();
+    }
+  };
+
+  return (
+    <Button 
+      size="lg" 
+      variant={variant}
+      className="gap-2" 
+      onClick={handleClick}
+      data-testid={`button-hero-${variant}`}
+    >
+      {text}
+      {IconComponent && <IconComponent className="h-4 w-4" />}
+    </Button>
+  );
+}
+
+function HeroBadgeIcon({ icon }: { icon: string | null }) {
+  if (!icon) {
+    return <CheckCircle className="h-4 w-4 text-green-500" />;
+  }
+  const IconComponent = heroIconMap[icon] || CheckCircle;
+  return <IconComponent className="h-4 w-4 text-green-500" />;
 }
 
 export default function LandingPage() {
@@ -643,9 +759,27 @@ export default function LandingPage() {
         </DialogContent>
       </Dialog>
 
-      <section className="py-20 md:py-32 bg-gradient-to-b from-background to-muted/30">
-        <div className="container mx-auto px-4 text-center">
-          <div className="flex items-center justify-center gap-2 mb-6">
+      <section 
+        className="py-20 md:py-32 relative"
+        style={{
+          backgroundImage: hero.background_image 
+            ? `url(${hero.background_image})`
+            : hero.background_gradient || 'linear-gradient(to bottom, var(--background), var(--muted))',
+          backgroundSize: 'cover',
+          backgroundPosition: 'center',
+        }}
+      >
+        {hero.background_overlay !== false && (hero.background_image || hero.background_gradient) && (
+          <div className="absolute inset-0 bg-black/60" />
+        )}
+        <div className={`container mx-auto px-4 relative z-10 ${
+          hero.layout === 'left' ? 'text-left' : 
+          hero.layout === 'right' ? 'text-right' : 'text-center'
+        }`}>
+          <div className={`flex items-center gap-2 mb-6 ${
+            hero.layout === 'left' ? 'justify-start' : 
+            hero.layout === 'right' ? 'justify-end' : 'justify-center'
+          }`}>
             <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg">
               <Clock className="h-8 w-8 text-white" />
             </div>
@@ -654,10 +788,14 @@ export default function LandingPage() {
           {isLoading ? (
             <Skeleton className="h-16 w-96 mx-auto mb-6" />
           ) : (
-            <h1 className="text-4xl md:text-6xl font-bold tracking-tight mb-6" data-testid="hero-title">
+            <h1 className={`text-4xl md:text-6xl font-bold tracking-tight mb-6 ${
+              (hero.background_image || hero.background_gradient) ? 'text-white' : ''
+            }`} data-testid="hero-title">
               {hero.title}
               {hero.title_highlight && (
-                <span className="block text-primary">{hero.title_highlight}</span>
+                <span className={`block ${(hero.background_image || hero.background_gradient) ? 'text-blue-400' : 'text-primary'}`}>
+                  {hero.title_highlight}
+                </span>
               )}
             </h1>
           )}
@@ -665,39 +803,93 @@ export default function LandingPage() {
           {isLoading ? (
             <Skeleton className="h-8 w-full max-w-2xl mx-auto mb-10" />
           ) : (
-            <p className="text-xl text-muted-foreground max-w-2xl mx-auto mb-10">
+            <p className={`text-xl max-w-2xl mb-10 ${
+              (hero.background_image || hero.background_gradient) ? 'text-white/80' : 'text-muted-foreground'
+            } ${hero.layout === 'center' ? 'mx-auto' : ''}`}>
               {hero.subtitle}
             </p>
           )}
 
-          <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button size="lg" className="gap-2" onClick={handleLoginClick} data-testid="button-start-free">
-              {hero.cta_primary_text || "Start gratis prøveperiode"}
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-            <a href="#features" data-testid="link-learn-more">
-              <Button size="lg" variant="outline" data-testid="button-learn-more">
-                {hero.cta_secondary_text || "Les mer"}
-              </Button>
-            </a>
+          <div className={`flex flex-col sm:flex-row gap-4 ${
+            hero.layout === 'left' ? 'items-start justify-start' : 
+            hero.layout === 'right' ? 'items-end justify-end' : 'items-center justify-center'
+          }`}>
+            <HeroButton
+              text={hero.cta_primary_text || "Start gratis prøveperiode"}
+              url={hero.cta_primary_url}
+              type={hero.cta_primary_type}
+              icon={hero.cta_primary_icon}
+              variant="default"
+              onClick={handleLoginClick}
+            />
+            <HeroButton
+              text={hero.cta_secondary_text || "Les mer"}
+              url={hero.cta_secondary_url || "#features"}
+              type={hero.cta_secondary_type || "scroll"}
+              icon={hero.cta_secondary_icon}
+              variant="outline"
+            />
           </div>
 
-          <div className="mt-16 flex flex-wrap items-center justify-center gap-8 text-sm text-muted-foreground">
+          {(hero.stat1_value || hero.stat2_value || hero.stat3_value) && (
+            <div className={`mt-12 flex flex-wrap gap-8 md:gap-16 ${
+              hero.layout === 'left' ? 'justify-start' : 
+              hero.layout === 'right' ? 'justify-end' : 'justify-center'
+            }`}>
+              {hero.stat1_value && (
+                <div className="text-center">
+                  <div className={`text-3xl md:text-4xl font-bold ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white' : ''
+                  }`}>{hero.stat1_value}</div>
+                  <div className={`text-sm ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white/70' : 'text-muted-foreground'
+                  }`}>{hero.stat1_label}</div>
+                </div>
+              )}
+              {hero.stat2_value && (
+                <div className="text-center">
+                  <div className={`text-3xl md:text-4xl font-bold ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white' : ''
+                  }`}>{hero.stat2_value}</div>
+                  <div className={`text-sm ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white/70' : 'text-muted-foreground'
+                  }`}>{hero.stat2_label}</div>
+                </div>
+              )}
+              {hero.stat3_value && (
+                <div className="text-center">
+                  <div className={`text-3xl md:text-4xl font-bold ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white' : ''
+                  }`}>{hero.stat3_value}</div>
+                  <div className={`text-sm ${
+                    (hero.background_image || hero.background_gradient) ? 'text-white/70' : 'text-muted-foreground'
+                  }`}>{hero.stat3_label}</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className={`mt-16 flex flex-wrap gap-8 text-sm ${
+            (hero.background_image || hero.background_gradient) ? 'text-white/80' : 'text-muted-foreground'
+          } ${
+            hero.layout === 'left' ? 'justify-start' : 
+            hero.layout === 'right' ? 'justify-end' : 'justify-center'
+          }`}>
             {hero.badge1 && (
               <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                <HeroBadgeIcon icon={hero.badge1_icon} />
                 <span>{hero.badge1}</span>
               </div>
             )}
             {hero.badge2 && (
               <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                <HeroBadgeIcon icon={hero.badge2_icon} />
                 <span>{hero.badge2}</span>
               </div>
             )}
             {hero.badge3 && (
               <div className="flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 text-green-500" />
+                <HeroBadgeIcon icon={hero.badge3_icon} />
                 <span>{hero.badge3}</span>
               </div>
             )}
