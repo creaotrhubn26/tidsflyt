@@ -9,7 +9,7 @@ import { z } from "zod";
 // Zod schema for bulk time entry validation
 const bulkTimeEntrySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid date format (expected YYYY-MM-DD)"),
-  hours: z.number().positive("Hours must be positive").max(24, "Hours cannot exceed 24"),
+  hours: z.number().min(0, "Hours cannot be negative").max(24, "Hours cannot exceed 24"),
   description: z.string().min(1, "Description is required").max(500, "Description too long"),
   caseNumber: z.string().nullable().optional(),
 });

@@ -32,6 +32,62 @@ interface DayEntry {
   hours: number;
   enabled: boolean;
   hasExisting: boolean;
+  isHoliday: boolean;
+  holidayName?: string;
+}
+
+// Norwegian public holidays calculation
+function getNorwegianHolidays(year: number): Map<string, string> {
+  const holidays = new Map<string, string>();
+  
+  // Fixed holidays
+  holidays.set(`${year}-01-01`, "Nyttårsdag");
+  holidays.set(`${year}-05-01`, "Arbeidernes dag");
+  holidays.set(`${year}-05-17`, "Grunnlovsdag");
+  holidays.set(`${year}-12-25`, "1. juledag");
+  holidays.set(`${year}-12-26`, "2. juledag");
+  
+  // Easter-based holidays (using Gauss algorithm)
+  const a = year % 19;
+  const b = Math.floor(year / 100);
+  const c = year % 100;
+  const d = Math.floor(b / 4);
+  const e = b % 4;
+  const f = Math.floor((b + 8) / 25);
+  const g = Math.floor((b - f + 1) / 3);
+  const h = (19 * a + b - d - g + 15) % 30;
+  const i = Math.floor(c / 4);
+  const k = c % 4;
+  const l = (32 + 2 * e + 2 * i - h - k) % 7;
+  const m = Math.floor((a + 11 * h + 22 * l) / 451);
+  const month = Math.floor((h + l - 7 * m + 114) / 31);
+  const day = ((h + l - 7 * m + 114) % 31) + 1;
+  
+  const easterSunday = new Date(year, month - 1, day);
+  
+  const addDays = (date: Date, days: number) => {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  };
+  
+  const formatDate = (date: Date) => {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  };
+  
+  // Easter-based holidays
+  holidays.set(formatDate(addDays(easterSunday, -3)), "Skjærtorsdag");
+  holidays.set(formatDate(addDays(easterSunday, -2)), "Langfredag");
+  holidays.set(formatDate(easterSunday), "1. påskedag");
+  holidays.set(formatDate(addDays(easterSunday, 1)), "2. påskedag");
+  holidays.set(formatDate(addDays(easterSunday, 39)), "Kristi himmelfartsdag");
+  holidays.set(formatDate(addDays(easterSunday, 49)), "1. pinsedag");
+  holidays.set(formatDate(addDays(easterSunday, 50)), "2. pinsedag");
+  
+  return holidays;
 }
 
 const projectOptions = [
@@ -69,6 +125,11 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
 
   const existingDates = useMemo(() => new Set(existingData?.existingDates || []), [existingData]);
 
+  // Get holidays for the selected month's year
+  const holidays = useMemo(() => {
+    return getNorwegianHolidays(selectedMonth.getFullYear());
+  }, [selectedMonth]);
+
   // Generate weekday entries when moving to step 2
   useEffect(() => {
     if (step === 2) {
@@ -77,17 +138,21 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
       
       const entries: DayEntry[] = weekdays.map(day => {
         const dateStr = format(day, "yyyy-MM-dd");
+        const holidayName = holidays.get(dateStr);
+        const isHoliday = !!holidayName;
         return {
           date: dateStr,
           hours: parseFloat(defaultHours) || 7.5,
-          enabled: true,
+          enabled: !isHoliday, // Disable holidays by default
           hasExisting: existingDates.has(dateStr),
+          isHoliday,
+          holidayName,
         };
       });
       
       setDayEntries(entries);
     }
-  }, [step, monthStart, monthEnd, defaultHours, existingDates]);
+  }, [step, monthStart, monthEnd, defaultHours, existingDates, holidays]);
 
   // Update hasExisting when existingDates changes
   useEffect(() => {
@@ -162,7 +227,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
 
     // Validate all entries have valid hours
     const invalidDays = enabledEntries.filter(e => 
-      isNaN(e.hours) || e.hours <= 0 || e.hours > 24
+      isNaN(e.hours) || e.hours < 0 || e.hours > 24
     );
     
     if (invalidDays.length > 0) {
@@ -219,6 +284,25 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     .reduce((sum, e) => sum + e.hours, 0);
 
   const conflictCount = dayEntries.filter(e => e.enabled && e.hasExisting).length;
+
+  // Find holidays falling on weekends this month (for info display)
+  const weekendHolidays = useMemo(() => {
+    const result: { date: string; name: string }[] = [];
+    const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
+    
+    for (const day of days) {
+      if (isWeekend(day)) {
+        const dateStr = format(day, "yyyy-MM-dd");
+        const holidayName = holidays.get(dateStr);
+        if (holidayName) {
+          result.push({ date: dateStr, name: holidayName });
+        }
+      }
+    }
+    return result;
+  }, [monthStart, monthEnd, holidays]);
+
+  const weekdayHolidayCount = dayEntries.filter(e => e.isHoliday).length;
 
   // Group entries by week for calendar display
   const weekGroups = useMemo(() => {
@@ -345,6 +429,29 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
               </Badge>
             </div>
 
+            {/* Holiday info */}
+            {(weekdayHolidayCount > 0 || weekendHolidays.length > 0) && (
+              <div className="p-3 bg-accent/10 rounded-md border border-accent/20 text-sm">
+                <p className="font-medium mb-1">Helligdager denne måneden</p>
+                {weekdayHolidayCount > 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    {weekdayHolidayCount} helligdag(er) på hverdager er markert i kalenderen (deaktivert som standard)
+                  </p>
+                )}
+                {weekendHolidays.length > 0 && (
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    <span>Helligdager på helg: </span>
+                    {weekendHolidays.map((h, i) => (
+                      <span key={h.date}>
+                        {h.name} ({format(new Date(h.date), "d. MMM", { locale: nb })})
+                        {i < weekendHolidays.length - 1 ? ", " : ""}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Conflict warning */}
             {conflictCount > 0 && (
               <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-md border border-warning/20">
@@ -381,7 +488,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                     const entryIndex = dayEntries.findIndex(e => e.date === entry.date);
                     const dayNum = parseInt(format(new Date(entry.date), "d"));
                     
-                    const isInvalidHours = entry.enabled && (isNaN(entry.hours) || entry.hours <= 0 || entry.hours > 24);
+                    const isInvalidHours = entry.enabled && (isNaN(entry.hours) || entry.hours < 0 || entry.hours > 24);
                     
                     return (
                       <div
@@ -391,10 +498,12 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                           entry.enabled 
                             ? "bg-primary/10 border-primary/30" 
                             : "bg-muted/30 border-muted",
+                          entry.isHoliday && "bg-accent/20 border-accent/40",
                           entry.hasExisting && entry.enabled && "ring-2 ring-warning/50",
                           isInvalidHours && "ring-2 ring-destructive/50 bg-destructive/10"
                         )}
                         data-testid={`day-cell-${entry.date}`}
+                        title={entry.holidayName || undefined}
                       >
                         <div className="flex items-center justify-between mb-1">
                           <Checkbox
@@ -405,7 +514,8 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                           />
                           <span className={cn(
                             "text-xs font-medium",
-                            !entry.enabled && "text-muted-foreground"
+                            !entry.enabled && "text-muted-foreground",
+                            entry.isHoliday && "text-accent-foreground"
                           )}>
                             {dayNum}
                           </span>
@@ -421,7 +531,12 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                           className="h-7 text-xs text-center px-1"
                           data-testid={`input-hours-${entry.date}`}
                         />
-                        {entry.hasExisting && (
+                        {entry.isHoliday && (
+                          <span className="text-[10px] text-accent-foreground mt-0.5 block truncate" title={entry.holidayName}>
+                            {entry.holidayName}
+                          </span>
+                        )}
+                        {entry.hasExisting && !entry.isHoliday && (
                           <span className="text-[10px] text-warning mt-0.5 block">Finnes</span>
                         )}
                       </div>

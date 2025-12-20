@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays } from "lucide-react";
+import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays, UserX } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,8 @@ export default function TimeTrackingPage() {
   const [manualProject, setManualProject] = useState("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
+  const [showClientSickDialog, setShowClientSickDialog] = useState(false);
+  const [clientSickNote, setClientSickNote] = useState("");
   
   const timerStartRef = useRef<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -230,7 +232,25 @@ export default function TimeTrackingPage() {
     });
   };
 
-  const totalToday = todayEntries.reduce((sum, e) => sum + e.hours, 0);
+  const handleClientSickSave = () => {
+    const note = clientSickNote.trim() || "Klient syk - ingen arbeid utført";
+    
+    // Create entry with 0 hours (comment only, not counted in totals)
+    createMutation.mutate({
+      description: `[Klient syk] ${note}`,
+      hours: 0, // Zero hours - this is a comment, not billable time
+      caseNumber: "client_sick",
+    });
+
+    setShowClientSickDialog(false);
+    setClientSickNote("");
+  };
+
+  const totalToday = todayEntries.reduce((sum, e) => {
+    // Don't count "client_sick" entries in the total
+    if (e.caseNumber === "client_sick") return sum;
+    return sum + e.hours;
+  }, 0);
 
   return (
     <PortalLayout>
@@ -347,7 +367,11 @@ export default function TimeTrackingPage() {
               Totalt: <span className="font-mono font-medium text-foreground">{formatDuration(totalToday)}</span>
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setShowClientSickDialog(true)} data-testid="add-client-sick">
+              <UserX className="h-4 w-4 mr-2" />
+              Klient syk
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setShowBulkDialog(true)} data-testid="add-bulk-entry">
               <CalendarDays className="h-4 w-4 mr-2" />
               Fyll ut måned
@@ -545,6 +569,45 @@ export default function TimeTrackingPage() {
             </Button>
             <Button onClick={handleManualSave} disabled={createMutation.isPending} data-testid="save-manual-entry">
               {createMutation.isPending ? "Lagrer..." : "Lagre"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showClientSickDialog} onOpenChange={setShowClientSickDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <UserX className="h-5 w-5" />
+              Klient syk
+            </DialogTitle>
+            <DialogDescription>
+              Registrer at klienten var syk. Dette teller ikke som arbeidstid med mindre noe annet er avtalt.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="client-sick-note">Notat (valgfritt)</Label>
+              <Input
+                id="client-sick-note"
+                value={clientSickNote}
+                onChange={(e) => setClientSickNote(e.target.value)}
+                placeholder="F.eks. Avlyst pga. sykdom"
+                data-testid="client-sick-note"
+              />
+            </div>
+            <div className="p-3 bg-muted/50 rounded-md text-sm text-muted-foreground">
+              Denne registreringen vil vises i timelisten som en kommentar, men vil ikke telle i timeantallet.
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowClientSickDialog(false)}>
+              Avbryt
+            </Button>
+            <Button onClick={handleClientSickSave} disabled={createMutation.isPending} data-testid="save-client-sick">
+              {createMutation.isPending ? "Lagrer..." : "Registrer"}
             </Button>
           </DialogFooter>
         </DialogContent>
