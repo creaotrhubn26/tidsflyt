@@ -837,5 +837,205 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CASE REPORTS ==========
+  
+  // Setup case_reports table
+  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS case_reports (
+          id SERIAL PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          user_cases_id INTEGER,
+          case_id TEXT NOT NULL,
+          month TEXT NOT NULL,
+          background TEXT,
+          actions TEXT,
+          progress TEXT,
+          challenges TEXT,
+          factors TEXT,
+          assessment TEXT,
+          recommendations TEXT,
+          notes TEXT,
+          status TEXT NOT NULL DEFAULT 'draft',
+          rejection_reason TEXT,
+          rejected_by TEXT,
+          rejected_at TIMESTAMP,
+          approved_by TEXT,
+          approved_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      res.json({ success: true, message: 'Case reports table created' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get all case reports for a user
+  app.get("/api/case-reports", async (req, res) => {
+    try {
+      const { user_id } = req.query;
+      const userId = user_id || 'default';
+      
+      const result = await pool.query(
+        `SELECT * FROM case_reports WHERE user_id = $1 ORDER BY created_at DESC`,
+        [userId]
+      );
+      res.json({ reports: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single case report
+  app.get("/api/case-reports/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create new case report
+  app.post("/api/case-reports", async (req, res) => {
+    try {
+      const { 
+        user_id, user_cases_id, case_id, month, background, actions, 
+        progress, challenges, factors, assessment, recommendations, notes 
+      } = req.body;
+      
+      const result = await pool.query(
+        `INSERT INTO case_reports 
+         (user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
+         RETURNING *`,
+        [user_id || 'default', user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Update case report
+  app.put("/api/case-reports/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { 
+        background, actions, progress, challenges, factors, 
+        assessment, recommendations, notes, status,
+        rejection_reason, rejected_by
+      } = req.body;
+      
+      let query = `UPDATE case_reports SET updated_at = NOW()`;
+      const values: any[] = [];
+      let paramIndex = 1;
+      
+      if (background !== undefined) { query += `, background = $${paramIndex++}`; values.push(background); }
+      if (actions !== undefined) { query += `, actions = $${paramIndex++}`; values.push(actions); }
+      if (progress !== undefined) { query += `, progress = $${paramIndex++}`; values.push(progress); }
+      if (challenges !== undefined) { query += `, challenges = $${paramIndex++}`; values.push(challenges); }
+      if (factors !== undefined) { query += `, factors = $${paramIndex++}`; values.push(factors); }
+      if (assessment !== undefined) { query += `, assessment = $${paramIndex++}`; values.push(assessment); }
+      if (recommendations !== undefined) { query += `, recommendations = $${paramIndex++}`; values.push(recommendations); }
+      if (notes !== undefined) { query += `, notes = $${paramIndex++}`; values.push(notes); }
+      if (status !== undefined) { 
+        query += `, status = $${paramIndex++}`; 
+        values.push(status);
+        if (status === 'rejected') {
+          query += `, rejection_reason = $${paramIndex++}, rejected_by = $${paramIndex++}, rejected_at = NOW()`;
+          values.push(rejection_reason || '');
+          values.push(rejected_by || 'admin');
+        } else if (status === 'approved') {
+          query += `, approved_at = NOW()`;
+        }
+      }
+      
+      query += ` WHERE id = $${paramIndex} RETURNING *`;
+      values.push(id);
+      
+      const result = await pool.query(query, values);
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete case report
+  app.delete("/api/case-reports/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('DELETE FROM case_reports WHERE id = $1', [id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: Get all reports for review
+  app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { status } = req.query;
+      let query = 'SELECT * FROM case_reports';
+      const params: any[] = [];
+      
+      if (status) {
+        query += ' WHERE status = $1';
+        params.push(status);
+      }
+      query += ' ORDER BY created_at DESC';
+      
+      const result = await pool.query(query, params);
+      res.json({ reports: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: Approve report
+  app.post("/api/admin/case-reports/:id/approve", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `UPDATE case_reports SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [req.admin?.username || 'admin', id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: Reject report
+  app.post("/api/admin/case-reports/:id/reject", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const result = await pool.query(
+        `UPDATE case_reports SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW() WHERE id = $3 RETURNING *`,
+        [reason, req.admin?.username || 'admin', id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   console.log("Smart Timing API routes registered");
 }

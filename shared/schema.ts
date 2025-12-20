@@ -184,6 +184,31 @@ export const landingCta = pgTable("landing_cta", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Case Reports table
+export const caseReports = pgTable("case_reports", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  userCasesId: integer("user_cases_id"),
+  caseId: text("case_id").notNull(),
+  month: text("month").notNull(),
+  background: text("background"),
+  actions: text("actions"),
+  progress: text("progress"),
+  challenges: text("challenges"),
+  factors: text("factors"),
+  assessment: text("assessment"),
+  recommendations: text("recommendations"),
+  notes: text("notes"),
+  status: text("status").default("draft").notNull(),
+  rejectionReason: text("rejection_reason"),
+  rejectedBy: text("rejected_by"),
+  rejectedAt: timestamp("rejected_at"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Company audit log
 export const companyAuditLog = pgTable("company_audit_log", {
   id: serial("id").primaryKey(),
@@ -218,6 +243,9 @@ export const insertLandingFeatureSchema = createInsertSchema(landingFeatures).om
 export const insertLandingTestimonialSchema = createInsertSchema(landingTestimonials).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertLandingCtaSchema = createInsertSchema(landingCta).omit({ id: true, updatedAt: true });
 
+// Case Reports Insert schema
+export const insertCaseReportSchema = createInsertSchema(caseReports).omit({ id: true, createdAt: true, updatedAt: true, rejectedAt: true, approvedAt: true });
+
 // Types
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -245,6 +273,10 @@ export type LandingTestimonial = typeof landingTestimonials.$inferSelect;
 export type InsertLandingTestimonial = z.infer<typeof insertLandingTestimonialSchema>;
 export type LandingCta = typeof landingCta.$inferSelect;
 export type InsertLandingCta = z.infer<typeof insertLandingCtaSchema>;
+
+// Case Reports Types
+export type CaseReport = typeof caseReports.$inferSelect;
+export type InsertCaseReport = z.infer<typeof insertCaseReportSchema>;
 
 // Legacy types for compatibility with current frontend
 export type User = {
