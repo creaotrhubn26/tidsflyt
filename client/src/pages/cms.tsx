@@ -49,10 +49,29 @@ interface LandingHero {
   title_highlight: string | null;
   subtitle: string | null;
   cta_primary_text: string | null;
+  cta_primary_url: string | null;
+  cta_primary_type: string | null;
+  cta_primary_icon: string | null;
   cta_secondary_text: string | null;
+  cta_secondary_url: string | null;
+  cta_secondary_type: string | null;
+  cta_secondary_icon: string | null;
   badge1: string | null;
+  badge1_icon: string | null;
   badge2: string | null;
+  badge2_icon: string | null;
   badge3: string | null;
+  badge3_icon: string | null;
+  background_image: string | null;
+  background_gradient: string | null;
+  background_overlay: boolean | null;
+  layout: string | null;
+  stat1_value: string | null;
+  stat1_label: string | null;
+  stat2_value: string | null;
+  stat2_label: string | null;
+  stat3_value: string | null;
+  stat3_label: string | null;
 }
 
 interface LandingFeature {
@@ -387,16 +406,62 @@ export default function CMSPage() {
 
 function HeroEditor({ hero }: { hero: LandingHero | null }) {
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("content");
   const [formData, setFormData] = useState({
     title: hero?.title || "",
     title_highlight: hero?.title_highlight || "",
     subtitle: hero?.subtitle || "",
     cta_primary_text: hero?.cta_primary_text || "",
+    cta_primary_url: hero?.cta_primary_url || "",
+    cta_primary_type: hero?.cta_primary_type || "scroll",
+    cta_primary_icon: hero?.cta_primary_icon || "",
     cta_secondary_text: hero?.cta_secondary_text || "",
+    cta_secondary_url: hero?.cta_secondary_url || "",
+    cta_secondary_type: hero?.cta_secondary_type || "scroll",
+    cta_secondary_icon: hero?.cta_secondary_icon || "",
     badge1: hero?.badge1 || "",
+    badge1_icon: hero?.badge1_icon || "",
     badge2: hero?.badge2 || "",
+    badge2_icon: hero?.badge2_icon || "",
     badge3: hero?.badge3 || "",
+    badge3_icon: hero?.badge3_icon || "",
+    background_image: hero?.background_image || "",
+    background_gradient: hero?.background_gradient || "",
+    background_overlay: hero?.background_overlay ?? true,
+    layout: hero?.layout || "center",
+    stat1_value: hero?.stat1_value || "",
+    stat1_label: hero?.stat1_label || "",
+    stat2_value: hero?.stat2_value || "",
+    stat2_label: hero?.stat2_label || "",
+    stat3_value: hero?.stat3_value || "",
+    stat3_label: hero?.stat3_label || "",
   });
+
+  const ctaTypeOptions = [
+    { value: "scroll", label: "Scroll til seksjon" },
+    { value: "internal", label: "Intern lenke" },
+    { value: "external", label: "Ekstern URL" },
+    { value: "modal", label: "Åpne dialog" },
+  ];
+
+  const layoutOptions = [
+    { value: "left", label: "Venstrejustert" },
+    { value: "center", label: "Sentrert" },
+    { value: "right", label: "Høyrejustert" },
+  ];
+
+  const iconOptions = [
+    { value: "", label: "Ingen ikon" },
+    { value: "ArrowRight", label: "Pil høyre" },
+    { value: "Play", label: "Avspill" },
+    { value: "Clock", label: "Klokke" },
+    { value: "Zap", label: "Lyn" },
+    { value: "Star", label: "Stjerne" },
+    { value: "Check", label: "Hake" },
+    { value: "Shield", label: "Skjold" },
+    { value: "Users", label: "Brukere" },
+    { value: "TrendingUp", label: "Trend opp" },
+  ];
 
   const mutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -420,92 +485,347 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
     <Card>
       <CardHeader>
         <CardTitle>Hero-seksjon</CardTitle>
-        <CardDescription>Rediger hovedoverskriften og knappene på landingssiden.</CardDescription>
+        <CardDescription>Avanserte kontroller for hovedseksjonen på landingssiden.</CardDescription>
       </CardHeader>
       <CardContent>
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="title">Hovedtittel</Label>
-              <Input
-                id="title"
-                value={formData.title}
-                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                data-testid="input-hero-title"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="title_highlight">Fremhevet tekst</Label>
-              <Input
-                id="title_highlight"
-                value={formData.title_highlight}
-                onChange={(e) => setFormData({ ...formData, title_highlight: e.target.value })}
-                data-testid="input-hero-highlight"
-              />
-            </div>
-          </div>
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid grid-cols-4 mb-4">
+              <TabsTrigger value="content" data-testid="tab-hero-content">Innhold</TabsTrigger>
+              <TabsTrigger value="buttons" data-testid="tab-hero-buttons">Knapper</TabsTrigger>
+              <TabsTrigger value="badges" data-testid="tab-hero-badges">Badges</TabsTrigger>
+              <TabsTrigger value="design" data-testid="tab-hero-design">Design</TabsTrigger>
+            </TabsList>
 
-          <div className="space-y-2">
-            <Label htmlFor="subtitle">Undertekst</Label>
-            <Textarea
-              id="subtitle"
-              value={formData.subtitle}
-              onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
-              rows={3}
-              data-testid="input-hero-subtitle"
-            />
-          </div>
+            <TabsContent value="content" className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="title">Hovedtittel</Label>
+                  <Input
+                    id="title"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    data-testid="input-hero-title"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="title_highlight">Fremhevet tekst (med farge)</Label>
+                  <Input
+                    id="title_highlight"
+                    value={formData.title_highlight}
+                    onChange={(e) => setFormData({ ...formData, title_highlight: e.target.value })}
+                    data-testid="input-hero-highlight"
+                  />
+                </div>
+              </div>
 
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="cta_primary">Primærknapp tekst</Label>
-              <Input
-                id="cta_primary"
-                value={formData.cta_primary_text}
-                onChange={(e) => setFormData({ ...formData, cta_primary_text: e.target.value })}
-                data-testid="input-hero-cta-primary"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="cta_secondary">Sekundærknapp tekst</Label>
-              <Input
-                id="cta_secondary"
-                value={formData.cta_secondary_text}
-                onChange={(e) => setFormData({ ...formData, cta_secondary_text: e.target.value })}
-                data-testid="input-hero-cta-secondary"
-              />
-            </div>
-          </div>
+              <div className="space-y-2">
+                <Label htmlFor="subtitle">Undertekst</Label>
+                <Textarea
+                  id="subtitle"
+                  value={formData.subtitle}
+                  onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
+                  rows={3}
+                  data-testid="input-hero-subtitle"
+                />
+              </div>
 
-          <div className="grid md:grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="badge1">Badge 1</Label>
-              <Input
-                id="badge1"
-                value={formData.badge1}
-                onChange={(e) => setFormData({ ...formData, badge1: e.target.value })}
-                data-testid="input-hero-badge1"
+              <div className="border rounded-lg p-4 space-y-4">
+                <h4 className="font-medium">Statistikk (valgfritt)</h4>
+                <p className="text-sm text-muted-foreground">Vis nøkkeltall under overskriften.</p>
+                <div className="grid md:grid-cols-3 gap-4">
+                  <div className="space-y-2">
+                    <Label>Verdi 1</Label>
+                    <Input
+                      value={formData.stat1_value}
+                      onChange={(e) => setFormData({ ...formData, stat1_value: e.target.value })}
+                      placeholder="f.eks. 10 000+"
+                      data-testid="input-hero-stat1-value"
+                    />
+                    <Input
+                      value={formData.stat1_label}
+                      onChange={(e) => setFormData({ ...formData, stat1_label: e.target.value })}
+                      placeholder="Etikett, f.eks. Brukere"
+                      data-testid="input-hero-stat1-label"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Verdi 2</Label>
+                    <Input
+                      value={formData.stat2_value}
+                      onChange={(e) => setFormData({ ...formData, stat2_value: e.target.value })}
+                      placeholder="f.eks. 99%"
+                      data-testid="input-hero-stat2-value"
+                    />
+                    <Input
+                      value={formData.stat2_label}
+                      onChange={(e) => setFormData({ ...formData, stat2_label: e.target.value })}
+                      placeholder="Etikett"
+                      data-testid="input-hero-stat2-label"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Verdi 3</Label>
+                    <Input
+                      value={formData.stat3_value}
+                      onChange={(e) => setFormData({ ...formData, stat3_value: e.target.value })}
+                      placeholder="f.eks. 24/7"
+                      data-testid="input-hero-stat3-value"
+                    />
+                    <Input
+                      value={formData.stat3_label}
+                      onChange={(e) => setFormData({ ...formData, stat3_label: e.target.value })}
+                      placeholder="Etikett"
+                      data-testid="input-hero-stat3-label"
+                    />
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="buttons" className="space-y-4">
+              <div className="border rounded-lg p-4 space-y-4">
+                <h4 className="font-medium">Primærknapp</h4>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tekst</Label>
+                    <Input
+                      value={formData.cta_primary_text}
+                      onChange={(e) => setFormData({ ...formData, cta_primary_text: e.target.value })}
+                      placeholder="Start gratis"
+                      data-testid="input-hero-cta-primary-text"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Handling</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      value={formData.cta_primary_type}
+                      onChange={(e) => setFormData({ ...formData, cta_primary_type: e.target.value })}
+                      data-testid="select-hero-cta-primary-type"
+                    >
+                      {ctaTypeOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>URL / Mål</Label>
+                    <Input
+                      value={formData.cta_primary_url}
+                      onChange={(e) => setFormData({ ...formData, cta_primary_url: e.target.value })}
+                      placeholder={formData.cta_primary_type === 'scroll' ? '#features' : '/register'}
+                      data-testid="input-hero-cta-primary-url"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      {formData.cta_primary_type === 'scroll' && 'Bruk # etterfulgt av seksjons-ID, f.eks. #features'}
+                      {formData.cta_primary_type === 'internal' && 'Intern sti, f.eks. /register'}
+                      {formData.cta_primary_type === 'external' && 'Full URL, f.eks. https://example.com'}
+                      {formData.cta_primary_type === 'modal' && 'Navn på dialog, f.eks. login'}
+                    </p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ikon</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      value={formData.cta_primary_icon}
+                      onChange={(e) => setFormData({ ...formData, cta_primary_icon: e.target.value })}
+                      data-testid="select-hero-cta-primary-icon"
+                    >
+                      {iconOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border rounded-lg p-4 space-y-4">
+                <h4 className="font-medium">Sekundærknapp</h4>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Tekst</Label>
+                    <Input
+                      value={formData.cta_secondary_text}
+                      onChange={(e) => setFormData({ ...formData, cta_secondary_text: e.target.value })}
+                      placeholder="Se demo"
+                      data-testid="input-hero-cta-secondary-text"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Handling</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      value={formData.cta_secondary_type}
+                      onChange={(e) => setFormData({ ...formData, cta_secondary_type: e.target.value })}
+                      data-testid="select-hero-cta-secondary-type"
+                    >
+                      {ctaTypeOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>URL / Mål</Label>
+                    <Input
+                      value={formData.cta_secondary_url}
+                      onChange={(e) => setFormData({ ...formData, cta_secondary_url: e.target.value })}
+                      placeholder={formData.cta_secondary_type === 'scroll' ? '#demo' : '/demo'}
+                      data-testid="input-hero-cta-secondary-url"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Ikon</Label>
+                    <select
+                      className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      value={formData.cta_secondary_icon}
+                      onChange={(e) => setFormData({ ...formData, cta_secondary_icon: e.target.value })}
+                      data-testid="select-hero-cta-secondary-icon"
+                    >
+                      {iconOptions.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="badges" className="space-y-4">
+              <p className="text-sm text-muted-foreground">Badges vises over overskriften for å fremheve fordeler eller egenskaper.</p>
+              <div className="grid md:grid-cols-3 gap-4">
+                <div className="border rounded-lg p-4 space-y-3">
+                  <Label>Badge 1</Label>
+                  <Input
+                    value={formData.badge1}
+                    onChange={(e) => setFormData({ ...formData, badge1: e.target.value })}
+                    placeholder="Gratis prøveperiode"
+                    data-testid="input-hero-badge1"
+                  />
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={formData.badge1_icon}
+                    onChange={(e) => setFormData({ ...formData, badge1_icon: e.target.value })}
+                    data-testid="select-hero-badge1-icon"
+                  >
+                    {iconOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="border rounded-lg p-4 space-y-3">
+                  <Label>Badge 2</Label>
+                  <Input
+                    value={formData.badge2}
+                    onChange={(e) => setFormData({ ...formData, badge2: e.target.value })}
+                    placeholder="Ingen kredittkort"
+                    data-testid="input-hero-badge2"
+                  />
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={formData.badge2_icon}
+                    onChange={(e) => setFormData({ ...formData, badge2_icon: e.target.value })}
+                    data-testid="select-hero-badge2-icon"
+                  >
+                    {iconOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="border rounded-lg p-4 space-y-3">
+                  <Label>Badge 3</Label>
+                  <Input
+                    value={formData.badge3}
+                    onChange={(e) => setFormData({ ...formData, badge3: e.target.value })}
+                    placeholder="GDPR-kompatibel"
+                    data-testid="input-hero-badge3"
+                  />
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={formData.badge3_icon}
+                    onChange={(e) => setFormData({ ...formData, badge3_icon: e.target.value })}
+                    data-testid="select-hero-badge3-icon"
+                  >
+                    {iconOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="design" className="space-y-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Layout</Label>
+                  <select
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                    value={formData.layout}
+                    onChange={(e) => setFormData({ ...formData, layout: e.target.value })}
+                    data-testid="select-hero-layout"
+                  >
+                    {layoutOptions.map(opt => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="space-y-2 flex items-center gap-3">
+                  <input
+                    type="checkbox"
+                    id="background_overlay"
+                    checked={formData.background_overlay}
+                    onChange={(e) => setFormData({ ...formData, background_overlay: e.target.checked })}
+                    className="h-4 w-4"
+                    data-testid="checkbox-hero-overlay"
+                  />
+                  <Label htmlFor="background_overlay">Vis mørk overlegg på bakgrunn</Label>
+                </div>
+              </div>
+
+              <ImageUploader
+                label="Bakgrunnsbilde"
+                value={formData.background_image}
+                onChange={(url) => setFormData({ ...formData, background_image: url })}
+                placeholder="https://eksempel.no/bakgrunn.jpg"
               />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="badge2">Badge 2</Label>
-              <Input
-                id="badge2"
-                value={formData.badge2}
-                onChange={(e) => setFormData({ ...formData, badge2: e.target.value })}
-                data-testid="input-hero-badge2"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="badge3">Badge 3</Label>
-              <Input
-                id="badge3"
-                value={formData.badge3}
-                onChange={(e) => setFormData({ ...formData, badge3: e.target.value })}
-                data-testid="input-hero-badge3"
-              />
-            </div>
-          </div>
+
+              <div className="space-y-2">
+                <Label>Bakgrunnsgradient (valgfritt)</Label>
+                <Input
+                  value={formData.background_gradient}
+                  onChange={(e) => setFormData({ ...formData, background_gradient: e.target.value })}
+                  placeholder="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+                  data-testid="input-hero-gradient"
+                />
+                <p className="text-xs text-muted-foreground">CSS gradient-verdi. Overstyres av bakgrunnsbilde hvis satt.</p>
+              </div>
+
+              {(formData.background_image || formData.background_gradient) && (
+                <div className="border rounded-lg p-4">
+                  <p className="text-sm text-muted-foreground mb-2">Forhåndsvisning:</p>
+                  <div 
+                    className="h-24 rounded-md flex items-center justify-center text-white font-medium"
+                    style={{
+                      backgroundImage: formData.background_image 
+                        ? `url(${formData.background_image})`
+                        : formData.background_gradient,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                    }}
+                  >
+                    {formData.background_overlay && (
+                      <div className="absolute inset-0 bg-black/50 rounded-md" />
+                    )}
+                    <span className="relative z-10">Forhåndsvisning</span>
+                  </div>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
 
           <Button type="submit" disabled={mutation.isPending} data-testid="button-save-hero">
             {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
