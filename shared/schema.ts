@@ -52,6 +52,7 @@ export const projectInfo = pgTable("project_info", {
 export const logRow = pgTable("log_row", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: integer("project_id"),
+  vendorId: integer("vendor_id"),
   date: date("date").notNull(),
   startTime: time("start_time").notNull(),
   endTime: time("end_time").notNull(),
