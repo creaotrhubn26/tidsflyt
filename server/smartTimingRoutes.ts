@@ -906,6 +906,15 @@ export function registerSmartTimingRoutes(app: Express) {
           details TEXT,
           created_at TIMESTAMP DEFAULT NOW()
         );
+        
+        CREATE TABLE IF NOT EXISTS cms_pages (
+          id SERIAL PRIMARY KEY,
+          page_type TEXT NOT NULL UNIQUE,
+          content JSONB NOT NULL DEFAULT '{}',
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
       `);
       
       // Also create admin_users table if not exists
@@ -1353,6 +1362,111 @@ export function registerSmartTimingRoutes(app: Express) {
            contact_title, contact_subtitle, contact_email, contact_phone, contact_address, footer_copyright]
         );
         res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: PAGES (Contact, Privacy, Terms) ==========
+  const getPageDefaults = (pageType: string) => {
+    const defaults: Record<string, any> = {
+      contact: {
+        title: 'Kontakt oss',
+        subtitle: 'Har du spørsmål? Vi hjelper deg gjerne.',
+        content: 'Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.',
+        email: 'kontakt@smarttiming.no',
+        phone: '+47 22 33 44 55',
+        address: 'Oslo, Norge'
+      },
+      privacy: {
+        title: 'Personvernerklæring',
+        subtitle: 'Slik beskytter vi dine personopplysninger',
+        content: '## 1. Innledning\nSmart Timing AS er opptatt av å beskytte personvernet til våre brukere.',
+        last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
+      },
+      terms: {
+        title: 'Brukervilkår',
+        subtitle: 'Vilkår for bruk av Smart Timing',
+        content: '## 1. Aksept av vilkår\nVed å bruke Smart Timing aksepterer du disse brukervilkårene.',
+        last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
+      }
+    };
+    return defaults[pageType];
+  };
+
+  app.get("/api/cms/pages/:pageType", async (req, res) => {
+    try {
+      const { pageType } = req.params;
+      const validTypes = ['contact', 'privacy', 'terms'];
+      if (!validTypes.includes(pageType)) {
+        return res.status(400).json({ error: 'Invalid page type' });
+      }
+      
+      try {
+        const result = await pool.query(
+          'SELECT * FROM cms_pages WHERE page_type = $1 AND is_active = true LIMIT 1',
+          [pageType]
+        );
+        
+        if (result.rows.length === 0) {
+          return res.json(getPageDefaults(pageType));
+        }
+        
+        res.json(result.rows[0].content);
+      } catch (dbErr: any) {
+        if (dbErr.message?.includes('does not exist')) {
+          return res.json(getPageDefaults(pageType));
+        }
+        throw dbErr;
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/pages/:pageType", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { pageType } = req.params;
+      const validTypes = ['contact', 'privacy', 'terms'];
+      if (!validTypes.includes(pageType)) {
+        return res.status(400).json({ error: 'Invalid page type' });
+      }
+      
+      const content = req.body;
+      
+      try {
+        await pool.query(`
+          CREATE TABLE IF NOT EXISTS cms_pages (
+            id SERIAL PRIMARY KEY,
+            page_type TEXT NOT NULL UNIQUE,
+            content JSONB NOT NULL DEFAULT '{}',
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP DEFAULT NOW(),
+            updated_at TIMESTAMP DEFAULT NOW()
+          )
+        `);
+      } catch (e) {}
+      
+      const existing = await pool.query(
+        'SELECT * FROM cms_pages WHERE page_type = $1',
+        [pageType]
+      );
+      
+      if (existing.rows.length > 0) {
+        await createContentVersion('cms_pages', existing.rows[0].id, existing.rows[0].content, req.admin?.username, `${pageType} page updated`);
+        
+        const result = await pool.query(
+          'UPDATE cms_pages SET content = $1, updated_at = NOW() WHERE page_type = $2 RETURNING *',
+          [JSON.stringify(content), pageType]
+        );
+        res.json(result.rows[0].content);
+      } else {
+        const result = await pool.query(
+          'INSERT INTO cms_pages (page_type, content) VALUES ($1, $2) RETURNING *',
+          [pageType, JSON.stringify(content)]
+        );
+        res.json(result.rows[0].content);
       }
     } catch (err: any) {
       res.status(500).json({ error: err.message });

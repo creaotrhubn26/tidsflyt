@@ -536,6 +536,9 @@ export default function CMSPage() {
               <Building2 className="h-4 w-4 mr-1" />Leverandører
             </TabsTrigger>
           )}
+          <TabsTrigger value="pages" data-testid="tab-pages">
+            <FileText className="h-4 w-4 mr-1" />Sider
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
           <TabsTrigger value="versions" data-testid="tab-versions">
             <RefreshCw className="h-4 w-4 mr-1" />Versjoner
@@ -607,6 +610,10 @@ export default function CMSPage() {
             <VendorManagement />
           </TabsContent>
         )}
+
+        <TabsContent value="pages">
+          <PagesEditor />
+        </TabsContent>
 
         <TabsContent value="activity">
           <ActivityLogViewer />
@@ -4125,6 +4132,315 @@ function BlogEditor() {
         </DialogContent>
       </Dialog>
     </div>
+  );
+}
+
+// Pages Editor for Contact, Privacy, Terms
+function PagesEditor() {
+  const { toast } = useToast();
+  const [activePageTab, setActivePageTab] = useState("contact");
+
+  const { data: contactPage, isLoading: contactLoading } = useQuery({
+    queryKey: ['/api/cms/pages', 'contact'],
+    queryFn: () => authenticatedApiRequest('/api/cms/pages/contact'),
+  });
+
+  const { data: privacyPage, isLoading: privacyLoading } = useQuery({
+    queryKey: ['/api/cms/pages', 'privacy'],
+    queryFn: () => authenticatedApiRequest('/api/cms/pages/privacy'),
+  });
+
+  const { data: termsPage, isLoading: termsLoading } = useQuery({
+    queryKey: ['/api/cms/pages', 'terms'],
+    queryFn: () => authenticatedApiRequest('/api/cms/pages/terms'),
+  });
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Rediger sider
+          </CardTitle>
+          <CardDescription>
+            Administrer innhold på Kontakt, Personvern og Vilkår-sidene
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activePageTab} onValueChange={setActivePageTab}>
+            <TabsList className="mb-6" data-testid="pages-tabs">
+              <TabsTrigger value="contact" data-testid="tab-page-contact">
+                <Mail className="h-4 w-4 mr-1" />Kontakt
+              </TabsTrigger>
+              <TabsTrigger value="privacy" data-testid="tab-page-privacy">
+                <Shield className="h-4 w-4 mr-1" />Personvern
+              </TabsTrigger>
+              <TabsTrigger value="terms" data-testid="tab-page-terms">
+                <FileText className="h-4 w-4 mr-1" />Vilkår
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="contact">
+              {contactLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : (
+                <ContactPageEditor content={contactPage} />
+              )}
+            </TabsContent>
+
+            <TabsContent value="privacy">
+              {privacyLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : (
+                <ContentPageEditor 
+                  pageType="privacy" 
+                  content={privacyPage}
+                  title="Personvernerklæring"
+                />
+              )}
+            </TabsContent>
+
+            <TabsContent value="terms">
+              {termsLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : (
+                <ContentPageEditor 
+                  pageType="terms" 
+                  content={termsPage}
+                  title="Brukervilkår"
+                />
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ContactPageEditor({ content }: { content: any }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    title: content?.title || "Kontakt oss",
+    subtitle: content?.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
+    content: content?.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
+    email: content?.email || "kontakt@smarttiming.no",
+    phone: content?.phone || "+47 22 33 44 55",
+    address: content?.address || "Oslo, Norge"
+  });
+
+  useEffect(() => {
+    if (content) {
+      setFormData({
+        title: content.title || "Kontakt oss",
+        subtitle: content.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
+        content: content.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
+        email: content.email || "kontakt@smarttiming.no",
+        phone: content.phone || "+47 22 33 44 55",
+        address: content.address || "Oslo, Norge"
+      });
+    }
+  }, [content]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      return authenticatedApiRequest('/api/cms/pages/contact', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/pages', 'contact'] });
+      toast({ title: "Lagret", description: "Kontaktsiden er oppdatert." });
+    },
+    onError: () => {
+      toast({ title: "Feil", description: "Kunne ikke lagre endringene.", variant: "destructive" });
+    }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    mutation.mutate(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Tittel</Label>
+          <Input
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            data-testid="input-page-contact-title"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Undertekst</Label>
+          <Input
+            value={formData.subtitle}
+            onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
+            data-testid="input-page-contact-subtitle"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Beskrivelse</Label>
+        <Textarea
+          value={formData.content}
+          onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+          rows={3}
+          data-testid="input-page-contact-content"
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <div className="space-y-2">
+          <Label>E-post</Label>
+          <Input
+            value={formData.email}
+            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+            data-testid="input-page-contact-email"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Telefon</Label>
+          <Input
+            value={formData.phone}
+            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+            data-testid="input-page-contact-phone"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Adresse</Label>
+          <Input
+            value={formData.address}
+            onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+            data-testid="input-page-contact-address"
+          />
+        </div>
+      </div>
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={mutation.isPending} data-testid="button-save-contact-page">
+          {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          Lagre
+        </Button>
+        <Button type="button" variant="outline" onClick={() => window.open('/kontakt', '_blank')} data-testid="button-preview-contact">
+          <Eye className="h-4 w-4 mr-2" />
+          Forhåndsvis
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+function ContentPageEditor({ pageType, content, title }: { pageType: string; content: any; title: string }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    title: content?.title || title,
+    subtitle: content?.subtitle || "",
+    content: content?.content || "",
+    last_updated: content?.last_updated || new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
+  });
+
+  useEffect(() => {
+    if (content) {
+      setFormData({
+        title: content.title || title,
+        subtitle: content.subtitle || "",
+        content: content.content || "",
+        last_updated: content.last_updated || new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
+      });
+    }
+  }, [content, title]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      return authenticatedApiRequest(`/api/cms/pages/${pageType}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/pages', pageType] });
+      toast({ title: "Lagret", description: `${title}-siden er oppdatert.` });
+    },
+    onError: () => {
+      toast({ title: "Feil", description: "Kunne ikke lagre endringene.", variant: "destructive" });
+    }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    mutation.mutate(formData);
+  };
+
+  const previewUrl = pageType === 'privacy' ? '/personvern' : '/vilkar';
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label>Tittel</Label>
+          <Input
+            value={formData.title}
+            onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+            data-testid={`input-page-${pageType}-title`}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label>Undertekst</Label>
+          <Input
+            value={formData.subtitle}
+            onChange={(e) => setFormData({ ...formData, subtitle: e.target.value })}
+            data-testid={`input-page-${pageType}-subtitle`}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label>Sist oppdatert</Label>
+        <Input
+          value={formData.last_updated}
+          onChange={(e) => setFormData({ ...formData, last_updated: e.target.value })}
+          data-testid={`input-page-${pageType}-last-updated`}
+        />
+      </div>
+
+      <div className="space-y-2">
+        <Label>Innhold (Markdown)</Label>
+        <Textarea
+          value={formData.content}
+          onChange={(e) => setFormData({ ...formData, content: e.target.value })}
+          rows={15}
+          className="font-mono text-sm"
+          placeholder="Bruk ## for overskrifter, **tekst** for fet skrift, - for punktlister"
+          data-testid={`input-page-${pageType}-content`}
+        />
+        <p className="text-xs text-muted-foreground">
+          Tips: Bruk ## for overskrifter, **tekst** for fet skrift, og - for punktlister
+        </p>
+      </div>
+
+      <div className="flex gap-2">
+        <Button type="submit" disabled={mutation.isPending} data-testid={`button-save-${pageType}-page`}>
+          {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+          Lagre
+        </Button>
+        <Button type="button" variant="outline" onClick={() => window.open(previewUrl, '_blank')} data-testid={`button-preview-${pageType}`}>
+          <Eye className="h-4 w-4 mr-2" />
+          Forhåndsvis
+        </Button>
+      </div>
+    </form>
   );
 }
 
