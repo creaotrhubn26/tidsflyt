@@ -48,17 +48,30 @@ export async function registerRoutes(
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
 
-  // Helper to get vendor ID from session or default for development
-  const getVendorIdFromRequest = (req: any): number => {
-    // In production, this would be from authenticated session
-    // For now, use session vendorId or default to 1 for development
-    return req.session?.vendorId || 1;
+  // Helper to get vendor ID from session - requires authentication
+  const getVendorIdFromSession = (req: any): number | null => {
+    // Strictly require authenticated session with vendorId
+    // No fallbacks - security first approach
+    return req.session?.vendorId || null;
+  };
+
+  // Middleware to require vendor authentication
+  const requireVendorAuth = (req: any, res: any, next: any) => {
+    const vendorId = getVendorIdFromSession(req);
+    if (vendorId === null) {
+      return res.status(401).json({ 
+        error: "Unauthorized", 
+        message: "Vendor session required. Please log in as a vendor admin." 
+      });
+    }
+    req.vendorId = vendorId;
+    next();
   };
 
   // Vendor API management routes (for admin UI)
-  app.get("/api/vendor/api-status", async (req, res) => {
+  app.get("/api/vendor/api-status", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = getVendorIdFromRequest(req);
+      const vendorId = req.vendorId;
       const [vendor] = await db
         .select({
           apiAccessEnabled: vendors.apiAccessEnabled,
@@ -81,9 +94,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vendor/api-keys", async (req, res) => {
+  app.get("/api/vendor/api-keys", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = getVendorIdFromRequest(req);
+      const vendorId = req.vendorId;
       const keys = await db
         .select()
         .from(apiKeys)
@@ -94,9 +107,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/vendor/api-keys", async (req, res) => {
+  app.post("/api/vendor/api-keys", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = getVendorIdFromRequest(req);
+      const vendorId = req.vendorId;
       const { name, permissions } = req.body;
       
       if (!name) {
@@ -121,9 +134,9 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/vendor/api-keys/:id", async (req, res) => {
+  app.delete("/api/vendor/api-keys/:id", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = getVendorIdFromRequest(req);
+      const vendorId = req.vendorId;
       const keyId = parseInt(req.params.id);
       
       // Verify the key belongs to this vendor before deleting
@@ -148,9 +161,9 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/vendor/enable-api", async (req, res) => {
+  app.post("/api/vendor/enable-api", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = getVendorIdFromRequest(req);
+      const vendorId = req.vendorId;
       const now = new Date();
       const oneYearFromNow = new Date();
       oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);

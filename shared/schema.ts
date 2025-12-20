@@ -35,6 +35,7 @@ export const companyUsers = pgTable("company_users", {
 // Project info table
 export const projectInfo = pgTable("project_info", {
   id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id"),
   konsulent: text("konsulent"),
   bedrift: text("bedrift"),
   oppdragsgiver: text("oppdragsgiver"),

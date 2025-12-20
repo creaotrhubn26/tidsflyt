@@ -250,6 +250,7 @@ router.get("/reports/:id", apiKeyAuth, requirePermission("read:reports"), async 
 router.get("/projects", apiKeyAuth, requirePermission("read:projects"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
+    const vendorId = req.vendorId!;
     const offset = (params.page - 1) * params.limit;
 
     const projects = await db
@@ -265,12 +266,14 @@ router.get("/projects", apiKeyAuth, requirePermission("read:projects"), async (r
         createdAt: projectInfo.createdAt,
       })
       .from(projectInfo)
+      .where(eq(projectInfo.vendorId, vendorId))
       .limit(params.limit)
       .offset(offset);
 
     const [countResult] = await db
       .select({ total: count() })
-      .from(projectInfo);
+      .from(projectInfo)
+      .where(eq(projectInfo.vendorId, vendorId));
 
     res.json({
       data: projects,
