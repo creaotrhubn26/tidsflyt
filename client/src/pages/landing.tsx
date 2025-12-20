@@ -1,4 +1,5 @@
-import { Link } from "wouter";
+import { useState } from "react";
+import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { 
   Clock, 
@@ -13,15 +14,27 @@ import {
   Phone,
   MapPin,
   LucideIcon,
+  UserPlus,
+  LogIn,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { useForm } from "react-hook-form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { useToast } from "@/hooks/use-toast";
 
 interface LandingHero {
   id: number;
@@ -126,7 +139,25 @@ const defaultSections: LandingSections = {
   footer_copyright: "© 2025 Smart Timing. Alle rettigheter reservert.",
 };
 
+interface NewUserFormData {
+  fullName: string;
+  email: string;
+  company: string;
+  phone: string;
+  message: string;
+}
+
+interface LoginFormData {
+  username: string;
+  password: string;
+}
+
 export default function LandingPage() {
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+  const [loginDialogOpen, setLoginDialogOpen] = useState(false);
+  const [dialogMode, setDialogMode] = useState<'choice' | 'new-user' | 'existing-user'>('choice');
+
   const { data: content, isLoading } = useQuery<LandingContent>({
     queryKey: ['/api/cms/landing'],
   });
@@ -135,6 +166,305 @@ export default function LandingPage() {
   const features = content?.features?.length ? content.features : defaultFeatures;
   const testimonials = content?.testimonials?.length ? content.testimonials : defaultTestimonials;
   const sections = content?.sections || defaultSections;
+
+  const newUserForm = useForm<NewUserFormData>({
+    defaultValues: {
+      fullName: '',
+      email: '',
+      company: '',
+      phone: '',
+      message: '',
+    },
+  });
+
+  const loginForm = useForm<LoginFormData>({
+    defaultValues: {
+      username: '',
+      password: '',
+    },
+  });
+
+  const handleLoginClick = () => {
+    setDialogMode('choice');
+    setLoginDialogOpen(true);
+  };
+
+  const handleNewUserSubmit = async (data: NewUserFormData) => {
+    try {
+      const response = await fetch('/api/access-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          full_name: data.fullName,
+          email: data.email,
+          company: data.company,
+          phone: data.phone,
+          message: data.message,
+        }),
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Forespørsel sendt",
+          description: "Vi vil kontakte deg så snart som mulig.",
+        });
+        setLoginDialogOpen(false);
+        newUserForm.reset();
+      } else {
+        const errorData = await response.json();
+        toast({
+          title: "Feil",
+          description: errorData.error || "Kunne ikke sende forespørsel",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Feil",
+        description: "Noe gikk galt. Prøv igjen senere.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleLoginSubmit = async (data: LoginFormData) => {
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        localStorage.setItem('token', result.token);
+        localStorage.setItem('user', JSON.stringify(result.user));
+        toast({
+          title: "Innlogget",
+          description: `Velkommen tilbake, ${result.user.name}!`,
+        });
+        setLoginDialogOpen(false);
+        loginForm.reset();
+        setLocation('/dashboard');
+      } else {
+        const errorData = await response.json();
+        toast({
+          title: "Innlogging feilet",
+          description: errorData.error || "Feil brukernavn eller passord",
+          variant: "destructive",
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Feil",
+        description: "Noe gikk galt. Prøv igjen senere.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const renderDialogContent = () => {
+    if (dialogMode === 'choice') {
+      return (
+        <>
+          <DialogHeader>
+            <DialogTitle>Velkommen til Smart Timing</DialogTitle>
+            <DialogDescription>
+              Velg hvordan du vil fortsette
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <Button
+              variant="outline"
+              className="h-auto p-6 flex flex-col items-start gap-2"
+              onClick={() => setDialogMode('new-user')}
+              data-testid="button-new-user"
+            >
+              <div className="flex items-center gap-3">
+                <UserPlus className="h-6 w-6 text-primary" />
+                <div className="text-left">
+                  <p className="font-semibold">Ny bruker</p>
+                  <p className="text-sm text-muted-foreground">Send forespørsel om tilgang</p>
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="h-auto p-6 flex flex-col items-start gap-2"
+              onClick={() => setDialogMode('existing-user')}
+              data-testid="button-existing-user"
+            >
+              <div className="flex items-center gap-3">
+                <LogIn className="h-6 w-6 text-primary" />
+                <div className="text-left">
+                  <p className="font-semibold">Eksisterende bruker</p>
+                  <p className="text-sm text-muted-foreground">Logg inn med dine credentials</p>
+                </div>
+              </div>
+            </Button>
+          </div>
+        </>
+      );
+    }
+
+    if (dialogMode === 'new-user') {
+      return (
+        <>
+          <DialogHeader>
+            <DialogTitle>Be om tilgang</DialogTitle>
+            <DialogDescription>
+              Fyll ut skjemaet for å be om tilgang til Smart Timing
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...newUserForm}>
+            <form onSubmit={newUserForm.handleSubmit(handleNewUserSubmit)} className="space-y-4 py-4">
+              <FormField
+                control={newUserForm.control}
+                name="fullName"
+                rules={{ required: "Navn er påkrevd" }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Fullt navn</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Ola Nordmann" {...field} data-testid="input-new-user-name" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newUserForm.control}
+                name="email"
+                rules={{ 
+                  required: "E-post er påkrevd",
+                  pattern: {
+                    value: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+                    message: "Ugyldig e-postadresse"
+                  }
+                }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>E-post</FormLabel>
+                    <FormControl>
+                      <Input type="email" placeholder="ola@bedrift.no" {...field} data-testid="input-new-user-email" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newUserForm.control}
+                name="company"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Bedrift (valgfritt)</FormLabel>
+                    <FormControl>
+                      <Input placeholder="Bedriftsnavn AS" {...field} data-testid="input-new-user-company" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newUserForm.control}
+                name="phone"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Telefon (valgfritt)</FormLabel>
+                    <FormControl>
+                      <Input type="tel" placeholder="+47 123 45 678" {...field} data-testid="input-new-user-phone" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newUserForm.control}
+                name="message"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Melding (valgfritt)</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        placeholder="Fortell oss litt om hvorfor du ønsker tilgang..." 
+                        className="min-h-[80px]"
+                        {...field} 
+                        data-testid="input-new-user-message" 
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setDialogMode('choice')} data-testid="button-back">
+                  Tilbake
+                </Button>
+                <Button type="submit" className="flex-1" data-testid="button-submit-request">
+                  Send forespørsel
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </>
+      );
+    }
+
+    if (dialogMode === 'existing-user') {
+      return (
+        <>
+          <DialogHeader>
+            <DialogTitle>Logg inn</DialogTitle>
+            <DialogDescription>
+              Skriv inn ditt brukernavn og passord
+            </DialogDescription>
+          </DialogHeader>
+          <Form {...loginForm}>
+            <form onSubmit={loginForm.handleSubmit(handleLoginSubmit)} className="space-y-4 py-4">
+              <FormField
+                control={loginForm.control}
+                name="username"
+                rules={{ required: "Brukernavn er påkrevd" }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Brukernavn</FormLabel>
+                    <FormControl>
+                      <Input placeholder="brukernavn" {...field} data-testid="input-login-username" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={loginForm.control}
+                name="password"
+                rules={{ required: "Passord er påkrevd" }}
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Passord</FormLabel>
+                    <FormControl>
+                      <Input type="password" placeholder="********" {...field} data-testid="input-login-password" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <div className="flex gap-2 pt-4">
+                <Button type="button" variant="outline" onClick={() => setDialogMode('choice')} data-testid="button-back-login">
+                  Tilbake
+                </Button>
+                <Button type="submit" className="flex-1" data-testid="button-login-submit">
+                  Logg inn
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </>
+      );
+    }
+
+    return null;
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -156,12 +486,16 @@ export default function LandingPage() {
 
           <div className="flex items-center gap-2">
             <ThemeToggle />
-            <Link href="/dashboard">
-              <Button data-testid="button-login">Logg inn</Button>
-            </Link>
+            <Button onClick={handleLoginClick} data-testid="button-login">Logg inn</Button>
           </div>
         </div>
       </header>
+
+      <Dialog open={loginDialogOpen} onOpenChange={setLoginDialogOpen}>
+        <DialogContent className="sm:max-w-md" data-testid="dialog-login">
+          {renderDialogContent()}
+        </DialogContent>
+      </Dialog>
 
       <section className="py-20 md:py-32 bg-gradient-to-b from-background to-muted/30">
         <div className="container mx-auto px-4 text-center">
@@ -191,12 +525,10 @@ export default function LandingPage() {
           )}
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link href="/dashboard">
-              <Button size="lg" className="gap-2" data-testid="button-start-free">
-                {hero.cta_primary_text || "Start gratis prøveperiode"}
-                <ArrowRight className="h-4 w-4" />
-              </Button>
-            </Link>
+            <Button size="lg" className="gap-2" onClick={handleLoginClick} data-testid="button-start-free">
+              {hero.cta_primary_text || "Start gratis prøveperiode"}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
             <a href="#features" data-testid="link-learn-more">
               <Button size="lg" variant="outline" data-testid="button-learn-more">
                 {hero.cta_secondary_text || "Les mer"}
@@ -292,12 +624,10 @@ export default function LandingPage() {
           <p className="text-xl opacity-90 max-w-2xl mx-auto mb-8">
             {sections.cta_subtitle}
           </p>
-          <Link href="/dashboard">
-            <Button size="lg" variant="secondary" className="gap-2" data-testid="button-cta-start">
-              {sections.cta_button_text}
-              <ArrowRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button size="lg" variant="secondary" className="gap-2" onClick={handleLoginClick} data-testid="button-cta-start">
+            {sections.cta_button_text}
+            <ArrowRight className="h-4 w-4" />
+          </Button>
         </div>
       </section>
 

@@ -837,6 +837,83 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== ACCESS REQUESTS ==========
+  
+  // Create access_requests table if not exists
+  async function ensureAccessRequestsTable() {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS access_requests (
+          id SERIAL PRIMARY KEY,
+          full_name TEXT NOT NULL,
+          email TEXT NOT NULL,
+          company TEXT,
+          phone TEXT,
+          message TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+    } catch (err) {
+      console.error('Error creating access_requests table:', err);
+    }
+  }
+  ensureAccessRequestsTable();
+
+  // Submit access request (public endpoint)
+  app.post("/api/access-requests", async (req, res) => {
+    try {
+      const { full_name, email, company, phone, message } = req.body;
+      
+      if (!full_name || !email) {
+        return res.status(400).json({ error: 'Navn og e-post er påkrevd' });
+      }
+      
+      const result = await pool.query(
+        `INSERT INTO access_requests (full_name, email, company, phone, message)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING *`,
+        [full_name, email, company || null, phone || null, message || null]
+      );
+      
+      res.status(201).json({ success: true, request: result.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get all access requests (admin only)
+  app.get("/api/admin/access-requests", authenticateAdmin, async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
+      res.json({ requests: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Update access request status (admin only)
+  app.patch("/api/admin/access-requests/:id", authenticateAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body;
+      
+      const result = await pool.query(
+        `UPDATE access_requests SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        [status, id]
+      );
+      
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Request not found' });
+      }
+      
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CASE REPORTS ==========
   
   // Helper function to ensure case_reports table exists with correct schema
