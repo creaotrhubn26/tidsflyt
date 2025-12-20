@@ -1073,10 +1073,18 @@ export function registerSmartTimingRoutes(app: Express) {
           email TEXT NOT NULL UNIQUE,
           password_hash TEXT NOT NULL,
           role TEXT DEFAULT 'admin',
+          vendor_id INTEGER REFERENCES vendors(id),
           is_active BOOLEAN DEFAULT TRUE,
           last_login TIMESTAMP,
-          created_at TIMESTAMP DEFAULT NOW()
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
         )
+      `);
+      
+      // Add vendor_id column if it doesn't exist (for existing tables)
+      await pool.query(`
+        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id);
+        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       `);
       
       // Create default admin if none exists, or reset password if exists
@@ -5030,6 +5038,19 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Run database migrations on startup
+  (async () => {
+    try {
+      // Add vendor_id column to admin_users if it doesn't exist
+      await pool.query(`
+        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER;
+        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+      `);
+    } catch (err) {
+      // Ignore errors - table might not exist yet
+    }
+  })();
 
   console.log("Smart Timing API routes registered");
 }
