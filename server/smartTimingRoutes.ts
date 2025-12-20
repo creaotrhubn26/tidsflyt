@@ -1592,7 +1592,7 @@ export function registerSmartTimingRoutes(app: Express) {
         pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1'),
         pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
-        pool.query("SELECT id, name, logo_url FROM vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
+        pool.query("SELECT id, name, logo_url, website_url FROM vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
       ]);
       
       res.json({

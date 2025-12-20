@@ -154,6 +154,7 @@ interface LandingClient {
   id: number;
   name: string;
   logo_url: string | null;
+  website_url: string | null;
 }
 
 interface LandingContent {
@@ -1152,7 +1153,13 @@ export default function LandingPage() {
               {clients.map((client, index) => (
                 <div key={client.id} className="grayscale hover:grayscale-0 transition-all duration-300" data-testid={`client-item-${index}`}>
                   {client.logo_url ? (
-                    <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" title={client.name} />
+                    client.website_url ? (
+                      <a href={client.website_url} target="_blank" rel="noopener noreferrer" title={client.name}>
+                        <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" />
+                      </a>
+                    ) : (
+                      <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" title={client.name} />
+                    )
                   ) : (
                     <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 rounded-md">
                       <Building className="h-5 w-5 text-muted-foreground" />
