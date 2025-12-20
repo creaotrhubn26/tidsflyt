@@ -127,7 +127,7 @@ const defaultNordicContent = {
 
 const defaultTrustContent = {
   title: "Anbefalt av norske bedrifter",
-  subtitle: "Over 500 norske bedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra små konsulentfirmaer til store entreprenørselskaper - alle finner verdi i vår løsning."
+  subtitle: "Norske bedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra små konsulentfirmaer til store entreprenørselskaper - alle finner verdi i vår løsning."
 };
 
 const defaultCtaContent = {
@@ -201,6 +201,14 @@ export default function WhyTidsflyt() {
       return nordic.bullet_points;
     }
     return defaultNordicContent.bullet_points;
+  };
+
+  // Dynamic trust subtitle based on real vendor count
+  const getDynamicTrustSubtitle = () => {
+    if (hasRealFeedbackData && feedbackStats.vendorCount > 0) {
+      return `Over ${feedbackStats.vendorCount} norske bedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra små konsulentfirmaer til store entreprenørselskaper - alle finner verdi i vår løsning.`;
+    }
+    return trust.subtitle;
   };
 
   if (isLoading) {
@@ -363,11 +371,11 @@ export default function WhyTidsflyt() {
               {trust.title}
             </h2>
             <p className="text-muted-foreground mb-8">
-              {trust.subtitle}
+              {getDynamicTrustSubtitle()}
             </p>
             <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
               <Heart className="h-4 w-4 text-red-500" />
-              <span>Laget med kjærlighet i Norge</span>
+              <span>Utviklet i Norge</span>
             </div>
           </div>
         </section>
