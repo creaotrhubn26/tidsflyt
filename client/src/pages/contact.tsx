@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Mail, Phone, MapPin, ArrowLeft, Send } from "lucide-react";
+import { Phone, MapPin, ArrowLeft, Send } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
@@ -104,18 +104,6 @@ export default function Contact() {
               <CardTitle>Kontaktinformasjon</CardTitle>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 rounded-lg bg-primary/10">
-                  <Mail className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-medium">E-post</p>
-                  <a href={`mailto:${content.email}`} className="text-muted-foreground hover:text-primary" data-testid="link-email">
-                    {content.email}
-                  </a>
-                </div>
-              </div>
-
               <div className="flex items-start gap-4">
                 <div className="p-3 rounded-lg bg-primary/10">
                   <Phone className="h-5 w-5 text-primary" />
