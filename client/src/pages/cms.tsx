@@ -26,15 +26,21 @@ function clearAdminToken() {
   sessionStorage.removeItem('cms_admin_token');
 }
 
-function authenticatedApiRequest(url: string, options: RequestInit = {}) {
+async function authenticatedApiRequest(url: string, options: { method?: string; body?: string } = {}) {
   const token = getAdminToken();
-  return apiRequest(url, {
-    ...options,
+  const response = await fetch(url, {
+    method: options.method || 'GET',
     headers: {
-      ...options.headers,
+      'Content-Type': 'application/json',
       'Authorization': `Bearer ${token}`,
     },
+    body: options.body,
   });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return response.json();
 }
 
 interface LandingHero {
@@ -824,26 +830,18 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
               </div>
             </div>
             <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label>Profilbilde URL (valgfritt)</Label>
-                <Input
-                  value={newTestimonial.avatar_url}
-                  onChange={(e) => setNewTestimonial({ ...newTestimonial, avatar_url: e.target.value })}
-                  placeholder="https://eksempel.no/bilde.jpg"
-                  data-testid="input-new-testimonial-avatar"
-                />
-                <p className="text-xs text-muted-foreground">Lim inn URL til profilbilde</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Bedriftslogo URL (valgfritt)</Label>
-                <Input
-                  value={newTestimonial.company_logo}
-                  onChange={(e) => setNewTestimonial({ ...newTestimonial, company_logo: e.target.value })}
-                  placeholder="https://eksempel.no/logo.png"
-                  data-testid="input-new-testimonial-logo"
-                />
-                <p className="text-xs text-muted-foreground">Lim inn URL til bedriftslogo</p>
-              </div>
+              <ImageUploader
+                label="Profilbilde (valgfritt)"
+                value={newTestimonial.avatar_url}
+                onChange={(url) => setNewTestimonial({ ...newTestimonial, avatar_url: url })}
+                placeholder="https://eksempel.no/bilde.jpg"
+              />
+              <ImageUploader
+                label="Bedriftslogo (valgfritt)"
+                value={newTestimonial.company_logo}
+                onChange={(url) => setNewTestimonial({ ...newTestimonial, company_logo: url })}
+                placeholder="https://eksempel.no/logo.png"
+              />
             </div>
             <Button
               onClick={() => createMutation.mutate(newTestimonial)}
@@ -1215,21 +1213,12 @@ function PartnersEditor({ partners }: { partners: LandingPartner[] }) {
                 />
               </div>
             </div>
-            <div className="space-y-2">
-              <Label>Logo URL</Label>
-              <Input
-                value={newPartner.logo_url}
-                onChange={(e) => setNewPartner({ ...newPartner, logo_url: e.target.value })}
-                placeholder="https://eksempel.no/logo.png"
-                data-testid="input-new-partner-logo"
-              />
-              {newPartner.logo_url && (
-                <div className="mt-2 p-4 border rounded-lg bg-muted/50">
-                  <p className="text-sm text-muted-foreground mb-2">Forhåndsvisning:</p>
-                  <img src={newPartner.logo_url} alt="Logo forhåndsvisning" className="h-12 object-contain" />
-                </div>
-              )}
-            </div>
+            <ImageUploader
+              label="Logo"
+              value={newPartner.logo_url}
+              onChange={(url) => setNewPartner({ ...newPartner, logo_url: url })}
+              placeholder="https://eksempel.no/logo.png"
+            />
             <Button
               onClick={() => createMutation.mutate(newPartner)}
               disabled={!newPartner.name || !newPartner.logo_url || createMutation.isPending}
