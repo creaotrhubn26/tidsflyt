@@ -1496,6 +1496,254 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: WHY PAGE ==========
+  
+  // Get all Why page content
+  app.get("/api/cms/why-page", async (req, res) => {
+    try {
+      const [heroResult, statsResult, benefitsResult, featuresResult, nordicResult, trustResult, ctaResult] = await Promise.all([
+        pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM why_page_stats WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM why_page_benefits WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM why_page_features WHERE is_active = true ORDER BY display_order'),
+        pool.query("SELECT * FROM why_page_content WHERE section_id = 'nordic' LIMIT 1").catch(() => ({ rows: [] })),
+        pool.query("SELECT * FROM why_page_content WHERE section_id = 'trust' LIMIT 1").catch(() => ({ rows: [] })),
+        pool.query("SELECT * FROM why_page_content WHERE section_id = 'cta' LIMIT 1").catch(() => ({ rows: [] })),
+      ]);
+      
+      res.json({
+        hero: heroResult.rows[0] || null,
+        stats: statsResult.rows,
+        benefits: benefitsResult.rows,
+        features: featuresResult.rows,
+        nordic: nordicResult.rows[0] || null,
+        trust: trustResult.rows[0] || null,
+        cta: ctaResult.rows[0] || null,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Why Page Hero
+  app.get("/api/cms/why-page/hero", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1');
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/why-page/hero", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url } = req.body;
+      const existing = await pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1');
+      
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE why_page_hero SET 
+            title = $1, title_highlight = $2, subtitle = $3, 
+            cta_primary_text = $4, cta_primary_url = $5,
+            cta_secondary_text = $6, cta_secondary_url = $7, updated_at = NOW()
+          WHERE id = $8 RETURNING *`,
+          [title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url, existing.rows[0].id]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO why_page_hero (title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+          [title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Why Page Stats CRUD
+  app.get("/api/cms/why-page/stats", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM why_page_stats WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/why-page/stats", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { value, label, display_order } = req.body;
+      const result = await pool.query(
+        'INSERT INTO why_page_stats (value, label, display_order) VALUES ($1, $2, $3) RETURNING *',
+        [value, label, display_order || 0]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/why-page/stats/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { value, label, display_order } = req.body;
+      const result = await pool.query(
+        'UPDATE why_page_stats SET value = $1, label = $2, display_order = $3 WHERE id = $4 RETURNING *',
+        [value, label, display_order, id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/why-page/stats/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('UPDATE why_page_stats SET is_active = false WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Why Page Benefits CRUD
+  app.get("/api/cms/why-page/benefits", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM why_page_benefits WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/why-page/benefits", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { icon, title, description, display_order } = req.body;
+      const result = await pool.query(
+        'INSERT INTO why_page_benefits (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
+        [icon || 'Clock', title, description, display_order || 0]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/why-page/benefits/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { icon, title, description, display_order } = req.body;
+      const result = await pool.query(
+        'UPDATE why_page_benefits SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
+        [icon, title, description, display_order, id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/why-page/benefits/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('UPDATE why_page_benefits SET is_active = false WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Why Page Features CRUD
+  app.get("/api/cms/why-page/features", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM why_page_features WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/why-page/features", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { icon, title, description, display_order } = req.body;
+      const result = await pool.query(
+        'INSERT INTO why_page_features (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
+        [icon || 'Smartphone', title, description, display_order || 0]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/why-page/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { icon, title, description, display_order } = req.body;
+      const result = await pool.query(
+        'UPDATE why_page_features SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
+        [icon, title, description, display_order, id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/why-page/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      await pool.query('UPDATE why_page_features SET is_active = false WHERE id = $1', [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Why Page Content Sections (Nordic, Trust, CTA)
+  app.get("/api/cms/why-page/content/:sectionId", async (req, res) => {
+    try {
+      const { sectionId } = req.params;
+      const result = await pool.query('SELECT * FROM why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
+      res.json(result.rows[0] || null);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/why-page/content/:sectionId", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { sectionId } = req.params;
+      const { title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url } = req.body;
+      
+      const existing = await pool.query('SELECT * FROM why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
+      
+      if (existing.rows.length > 0) {
+        const result = await pool.query(
+          `UPDATE why_page_content SET 
+            title = $1, subtitle = $2, bullet_points = $3, 
+            cta_title = $4, cta_subtitle = $5, cta_button_text = $6, cta_button_url = $7, updated_at = NOW()
+          WHERE section_id = $8 RETURNING *`,
+          [title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url, sectionId]
+        );
+        res.json(result.rows[0]);
+      } else {
+        const result = await pool.query(
+          `INSERT INTO why_page_content (section_id, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+          [sectionId, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
+        );
+        res.json(result.rows[0]);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: DESIGN TOKENS ==========
   app.get("/api/cms/design-tokens", async (req, res) => {
     try {
