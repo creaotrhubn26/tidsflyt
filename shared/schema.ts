@@ -23,6 +23,7 @@ export const companies = pgTable("companies", {
 // Company users table
 export const companyUsers = pgTable("company_users", {
   id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id"),
   companyId: integer("company_id").notNull(),
   userEmail: text("user_email").notNull(),
   googleEmail: text("google_email"),

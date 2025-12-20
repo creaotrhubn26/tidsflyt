@@ -8,9 +8,7 @@ import {
   caseReports,
   apiKeys,
   apiUsageLog,
-  vendors,
-  adminUsers,
-  companies
+  vendors
 } from "@shared/schema";
 import { eq, and, gte, lte, sql, desc, count } from "drizzle-orm";
 import { z } from "zod";
@@ -120,16 +118,14 @@ router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: Ap
         createdAt: companyUsers.createdAt,
       })
       .from(companyUsers)
-      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
-      .where(eq(companies.vendorId, vendorId))
+      .where(eq(companyUsers.vendorId, vendorId))
       .limit(params.limit)
       .offset(offset);
 
     const [countResult] = await db
       .select({ total: count() })
       .from(companyUsers)
-      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
-      .where(eq(companies.vendorId, vendorId));
+      .where(eq(companyUsers.vendorId, vendorId));
 
     res.json({
       data: userList,
@@ -162,8 +158,7 @@ router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req
         createdAt: companyUsers.createdAt,
       })
       .from(companyUsers)
-      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
-      .where(and(eq(companyUsers.id, parseInt(id)), eq(companies.vendorId, vendorId)))
+      .where(and(eq(companyUsers.id, parseInt(id)), eq(companyUsers.vendorId, vendorId)))
       .limit(1);
 
     if (!user) {

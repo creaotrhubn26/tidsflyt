@@ -269,7 +269,12 @@ export default function ApiDocsPage() {
       "date": "2024-01-15",
       "startTime": "08:00",
       "endTime": "16:00",
+      "breakHours": "0.5",
       "activity": "Arbeid",
+      "title": "Prosjektarbeid",
+      "project": "Prosjektnavn",
+      "place": "Kontor",
+      "notes": "Notater",
       "userId": "bruker-id"
     }
   ],
@@ -294,7 +299,12 @@ export default function ApiDocsPage() {
     "endTime": "16:00",
     "breakHours": "0.5",
     "activity": "Arbeid",
-    "notes": "Notat her"
+    "title": "Prosjektarbeid",
+    "project": "Prosjektnavn",
+    "place": "Kontor",
+    "notes": "Notater",
+    "expenseCoverage": "0.00",
+    "userId": "bruker-id"
   }
 }`}
                 />
@@ -353,6 +363,10 @@ export default function ApiDocsPage() {
                   path="/reports"
                   description="Hent alle saksrapporter"
                   permission="read:reports"
+                  parameters={[
+                    { name: "page", type: "number", description: "Sidenummer" },
+                    { name: "limit", type: "number", description: "Antall per side" },
+                  ]}
                   response={`{
   "data": [
     {
@@ -364,6 +378,24 @@ export default function ApiDocsPage() {
     }
   ],
   "pagination": { ... }
+}`}
+                />
+                <Endpoint
+                  method="GET"
+                  path="/reports/:id"
+                  description="Hent en spesifikk saksrapport"
+                  permission="read:reports"
+                  response={`{
+  "data": {
+    "id": 1,
+    "userId": "bruker-id",
+    "caseId": "sak-123",
+    "month": "2024-01",
+    "background": "Bakgrunn...",
+    "actions": "Tiltak...",
+    "progress": "Fremgang...",
+    "status": "approved"
+  }
 }`}
                 />
               </div>
@@ -378,13 +410,20 @@ export default function ApiDocsPage() {
                   path="/projects"
                   description="Hent alle prosjekter"
                   permission="read:projects"
+                  parameters={[
+                    { name: "page", type: "number", description: "Sidenummer" },
+                    { name: "limit", type: "number", description: "Antall per side" },
+                  ]}
                   response={`{
   "data": [
     {
       "id": 1,
-      "konsulent": "Navn",
-      "bedrift": "Bedriftsnavn",
-      "tiltak": "Tiltak her",
+      "konsulent": "Konsulentens navn",
+      "bedrift": "Bedriftsnavn AS",
+      "oppdragsgiver": "Oppdragsgivers navn",
+      "tiltak": "Arbeidsforberedende trening",
+      "periode": "2024-01 til 2024-12",
+      "klientId": "klient-id",
       "isActive": true
     }
   ],
