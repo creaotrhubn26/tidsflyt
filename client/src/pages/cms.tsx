@@ -59,6 +59,8 @@ interface LandingTestimonial {
   quote: string;
   name: string;
   role: string;
+  avatar_url: string | null;
+  company_logo: string | null;
   display_order: number;
   is_active: boolean;
 }
@@ -528,7 +530,7 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
 function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial[] }) {
   const { toast } = useToast();
   const [editingTestimonial, setEditingTestimonial] = useState<LandingTestimonial | null>(null);
-  const [newTestimonial, setNewTestimonial] = useState({ quote: "", name: "", role: "", display_order: testimonials.length });
+  const [newTestimonial, setNewTestimonial] = useState({ quote: "", name: "", role: "", avatar_url: "", company_logo: "", display_order: testimonials.length });
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newTestimonial) => {
@@ -536,7 +538,7 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      setNewTestimonial({ quote: "", name: "", role: "", display_order: testimonials.length + 1 });
+      setNewTestimonial({ quote: "", name: "", role: "", avatar_url: "", company_logo: "", display_order: testimonials.length + 1 });
       toast({ title: "Lagt til", description: "Ny referanse er opprettet." });
     },
   });
@@ -579,7 +581,7 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
                 data-testid="input-new-testimonial-quote"
               />
             </div>
-            <div className="grid md:grid-cols-3 gap-4">
+            <div className="grid md:grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Navn</Label>
                 <Input
@@ -598,18 +600,37 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
                   data-testid="input-new-testimonial-role"
                 />
               </div>
-              <div className="flex items-end">
-                <Button
-                  onClick={() => createMutation.mutate(newTestimonial)}
-                  disabled={!newTestimonial.quote || !newTestimonial.name || createMutation.isPending}
-                  className="w-full"
-                  data-testid="button-add-testimonial"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Legg til
-                </Button>
+            </div>
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Profilbilde URL (valgfritt)</Label>
+                <Input
+                  value={newTestimonial.avatar_url}
+                  onChange={(e) => setNewTestimonial({ ...newTestimonial, avatar_url: e.target.value })}
+                  placeholder="https://eksempel.no/bilde.jpg"
+                  data-testid="input-new-testimonial-avatar"
+                />
+                <p className="text-xs text-muted-foreground">Lim inn URL til profilbilde</p>
+              </div>
+              <div className="space-y-2">
+                <Label>Bedriftslogo URL (valgfritt)</Label>
+                <Input
+                  value={newTestimonial.company_logo}
+                  onChange={(e) => setNewTestimonial({ ...newTestimonial, company_logo: e.target.value })}
+                  placeholder="https://eksempel.no/logo.png"
+                  data-testid="input-new-testimonial-logo"
+                />
+                <p className="text-xs text-muted-foreground">Lim inn URL til bedriftslogo</p>
               </div>
             </div>
+            <Button
+              onClick={() => createMutation.mutate(newTestimonial)}
+              disabled={!newTestimonial.quote || !newTestimonial.name || createMutation.isPending}
+              data-testid="button-add-testimonial"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Legg til referanse
+            </Button>
           </div>
         </CardContent>
       </Card>
@@ -627,15 +648,30 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
                     <Textarea
                       value={editingTestimonial.quote}
                       onChange={(e) => setEditingTestimonial({ ...editingTestimonial, quote: e.target.value })}
+                      placeholder="Sitat"
                     />
                     <div className="grid md:grid-cols-2 gap-4">
                       <Input
                         value={editingTestimonial.name}
                         onChange={(e) => setEditingTestimonial({ ...editingTestimonial, name: e.target.value })}
+                        placeholder="Navn"
                       />
                       <Input
                         value={editingTestimonial.role}
                         onChange={(e) => setEditingTestimonial({ ...editingTestimonial, role: e.target.value })}
+                        placeholder="Rolle/Bedrift"
+                      />
+                    </div>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      <Input
+                        value={editingTestimonial.avatar_url || ""}
+                        onChange={(e) => setEditingTestimonial({ ...editingTestimonial, avatar_url: e.target.value })}
+                        placeholder="Profilbilde URL"
+                      />
+                      <Input
+                        value={editingTestimonial.company_logo || ""}
+                        onChange={(e) => setEditingTestimonial({ ...editingTestimonial, company_logo: e.target.value })}
+                        placeholder="Bedriftslogo URL"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -649,10 +685,26 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-4">
-                    <div>
-                      <p className="italic mb-2">"{testimonial.quote}"</p>
-                      <p className="font-medium">{testimonial.name}</p>
-                      <p className="text-sm text-muted-foreground">{testimonial.role}</p>
+                    <div className="flex items-start gap-4">
+                      {testimonial.avatar_url && (
+                        <img 
+                          src={testimonial.avatar_url} 
+                          alt={testimonial.name}
+                          className="w-12 h-12 rounded-full object-cover"
+                        />
+                      )}
+                      <div>
+                        <p className="italic mb-2">"{testimonial.quote}"</p>
+                        <p className="font-medium">{testimonial.name}</p>
+                        <p className="text-sm text-muted-foreground">{testimonial.role}</p>
+                        {testimonial.company_logo && (
+                          <img 
+                            src={testimonial.company_logo} 
+                            alt="Logo"
+                            className="h-6 mt-2 object-contain"
+                          />
+                        )}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <Button size="sm" variant="outline" onClick={() => setEditingTestimonial(testimonial)} data-testid={`button-edit-testimonial-${index}`}>

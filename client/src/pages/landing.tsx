@@ -61,6 +61,8 @@ interface LandingTestimonial {
   quote: string;
   name: string;
   role: string;
+  avatar_url: string | null;
+  company_logo: string | null;
   display_order: number;
 }
 
@@ -737,10 +739,28 @@ export default function LandingPage() {
                 <Card key={testimonial.id} className="bg-background" data-testid={`testimonial-card-${index}`}>
                   <CardContent className="p-6">
                     <p className="text-foreground mb-4 italic" data-testid={`text-testimonial-quote-${index}`}>"{testimonial.quote}"</p>
-                    <div>
-                      <p className="font-semibold" data-testid={`text-testimonial-name-${index}`}>{testimonial.name}</p>
-                      <p className="text-sm text-muted-foreground" data-testid={`text-testimonial-role-${index}`}>{testimonial.role}</p>
+                    <div className="flex items-center gap-3">
+                      {testimonial.avatar_url && (
+                        <img 
+                          src={testimonial.avatar_url} 
+                          alt={testimonial.name}
+                          className="w-12 h-12 rounded-full object-cover"
+                          data-testid={`img-testimonial-avatar-${index}`}
+                        />
+                      )}
+                      <div>
+                        <p className="font-semibold" data-testid={`text-testimonial-name-${index}`}>{testimonial.name}</p>
+                        <p className="text-sm text-muted-foreground" data-testid={`text-testimonial-role-${index}`}>{testimonial.role}</p>
+                      </div>
                     </div>
+                    {testimonial.company_logo && (
+                      <img 
+                        src={testimonial.company_logo} 
+                        alt="Bedriftslogo"
+                        className="h-8 mt-4 object-contain"
+                        data-testid={`img-testimonial-logo-${index}`}
+                      />
+                    )}
                   </CardContent>
                 </Card>
               ))}

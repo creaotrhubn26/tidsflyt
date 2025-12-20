@@ -490,6 +490,8 @@ export function registerSmartTimingRoutes(app: Express) {
           quote TEXT NOT NULL,
           name TEXT NOT NULL,
           role TEXT NOT NULL,
+          avatar_url TEXT,
+          company_logo TEXT,
           display_order INTEGER DEFAULT 0,
           is_active BOOLEAN DEFAULT TRUE,
           created_at TIMESTAMP DEFAULT NOW(),
@@ -561,6 +563,17 @@ export function registerSmartTimingRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // Add missing columns to testimonials table
+  async function updateTestimonialsTable() {
+    try {
+      await pool.query(`ALTER TABLE landing_testimonials ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+      await pool.query(`ALTER TABLE landing_testimonials ADD COLUMN IF NOT EXISTS company_logo TEXT`);
+    } catch (err) {
+      console.error('Error updating testimonials table:', err);
+    }
+  }
+  updateTestimonialsTable();
 
   // ========== CMS: SEED DEFAULT CONTENT ==========
   app.post("/api/cms/seed", async (req, res) => {
@@ -761,11 +774,11 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/cms/testimonials", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { quote, name, role, display_order } = req.body;
+      const { quote, name, role, avatar_url, company_logo, display_order } = req.body;
       const result = await pool.query(
-        `INSERT INTO landing_testimonials (quote, name, role, display_order)
-         VALUES ($1, $2, $3, $4) RETURNING *`,
-        [quote, name, role, display_order || 0]
+        `INSERT INTO landing_testimonials (quote, name, role, avatar_url, company_logo, display_order)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+        [quote, name, role, avatar_url || null, company_logo || null, display_order || 0]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -776,11 +789,11 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/testimonials/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { quote, name, role, display_order, is_active } = req.body;
+      const { quote, name, role, avatar_url, company_logo, display_order, is_active } = req.body;
       const result = await pool.query(
-        `UPDATE landing_testimonials SET quote = $1, name = $2, role = $3, display_order = $4, is_active = $5, updated_at = NOW()
-         WHERE id = $6 RETURNING *`,
-        [quote, name, role, display_order, is_active ?? true, id]
+        `UPDATE landing_testimonials SET quote = $1, name = $2, role = $3, avatar_url = $4, company_logo = $5, display_order = $6, is_active = $7, updated_at = NOW()
+         WHERE id = $8 RETURNING *`,
+        [quote, name, role, avatar_url || null, company_logo || null, display_order, is_active ?? true, id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Testimonial not found' });
       res.json(result.rows[0]);
