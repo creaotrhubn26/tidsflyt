@@ -95,7 +95,7 @@ export default function CMSPage() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("hero");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loginEmail, setLoginEmail] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
 
@@ -113,7 +113,7 @@ export default function CMSPage() {
       const response = await fetch('/api/admin/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: loginEmail, password: loginPassword }),
+        body: JSON.stringify({ username: loginUsername, password: loginPassword }),
       });
       const data = await response.json();
       if (data.token) {
@@ -156,14 +156,14 @@ export default function CMSPage() {
           <CardContent>
             <form onSubmit={handleLogin} className="space-y-4">
               <div className="space-y-2">
-                <Label htmlFor="email">E-post</Label>
+                <Label htmlFor="username">Brukernavn</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  value={loginEmail}
-                  onChange={(e) => setLoginEmail(e.target.value)}
-                  placeholder="admin@smarttiming.no"
-                  data-testid="input-cms-login-email"
+                  id="username"
+                  type="text"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  placeholder="admin"
+                  data-testid="input-cms-login-username"
                 />
               </div>
               <div className="space-y-2">
