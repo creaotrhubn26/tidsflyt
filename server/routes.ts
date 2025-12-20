@@ -48,11 +48,17 @@ export async function registerRoutes(
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
 
+  // Helper to get vendor ID from session or default for development
+  const getVendorIdFromRequest = (req: any): number => {
+    // In production, this would be from authenticated session
+    // For now, use session vendorId or default to 1 for development
+    return req.session?.vendorId || 1;
+  };
+
   // Vendor API management routes (for admin UI)
   app.get("/api/vendor/api-status", async (req, res) => {
     try {
-      // For now, return mock data - in production this would be based on authenticated vendor
-      const vendorId = 1;
+      const vendorId = getVendorIdFromRequest(req);
       const [vendor] = await db
         .select({
           apiAccessEnabled: vendors.apiAccessEnabled,
@@ -77,7 +83,7 @@ export async function registerRoutes(
 
   app.get("/api/vendor/api-keys", async (req, res) => {
     try {
-      const vendorId = 1;
+      const vendorId = getVendorIdFromRequest(req);
       const keys = await db
         .select()
         .from(apiKeys)
@@ -90,7 +96,7 @@ export async function registerRoutes(
 
   app.post("/api/vendor/api-keys", async (req, res) => {
     try {
-      const vendorId = 1;
+      const vendorId = getVendorIdFromRequest(req);
       const { name, permissions } = req.body;
       
       if (!name) {
@@ -117,7 +123,19 @@ export async function registerRoutes(
 
   app.delete("/api/vendor/api-keys/:id", async (req, res) => {
     try {
+      const vendorId = getVendorIdFromRequest(req);
       const keyId = parseInt(req.params.id);
+      
+      // Verify the key belongs to this vendor before deleting
+      const [existingKey] = await db
+        .select()
+        .from(apiKeys)
+        .where(and(eq(apiKeys.id, keyId), eq(apiKeys.vendorId, vendorId)))
+        .limit(1);
+      
+      if (!existingKey) {
+        return res.status(404).json({ error: "API key not found" });
+      }
       
       await db
         .update(apiKeys)
@@ -132,7 +150,7 @@ export async function registerRoutes(
 
   app.post("/api/vendor/enable-api", async (req, res) => {
     try {
-      const vendorId = 1;
+      const vendorId = getVendorIdFromRequest(req);
       const now = new Date();
       const oneYearFromNow = new Date();
       oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);

@@ -9,7 +9,8 @@ import {
   apiKeys,
   apiUsageLog,
   vendors,
-  adminUsers
+  adminUsers,
+  companies
 } from "@shared/schema";
 import { eq, and, gte, lte, sql, desc, count } from "drizzle-orm";
 import { z } from "zod";
@@ -29,7 +30,7 @@ router.get("/time-entries", apiKeyAuth, requirePermission("read:time_entries"), 
     const vendorId = req.vendorId!;
     const offset = (params.page - 1) * params.limit;
 
-    let query = db
+    const entries = await db
       .select({
         id: logRow.id,
         date: logRow.date,
@@ -45,15 +46,15 @@ router.get("/time-entries", apiKeyAuth, requirePermission("read:time_entries"), 
         createdAt: logRow.createdAt,
       })
       .from(logRow)
+      .where(eq(logRow.vendorId, vendorId))
       .orderBy(desc(logRow.date))
       .limit(params.limit)
       .offset(offset);
 
-    const entries = await query;
-
     const [countResult] = await db
       .select({ total: count() })
-      .from(logRow);
+      .from(logRow)
+      .where(eq(logRow.vendorId, vendorId));
 
     res.json({
       data: entries,
@@ -80,11 +81,12 @@ router.get("/time-entries", apiKeyAuth, requirePermission("read:time_entries"), 
 router.get("/time-entries/:id", apiKeyAuth, requirePermission("read:time_entries"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
+    const vendorId = req.vendorId!;
 
     const [entry] = await db
       .select()
       .from(logRow)
-      .where(eq(logRow.id, id))
+      .where(and(eq(logRow.id, id), eq(logRow.vendorId, vendorId)))
       .limit(1);
 
     if (!entry) {
@@ -104,6 +106,7 @@ router.get("/time-entries/:id", apiKeyAuth, requirePermission("read:time_entries
 router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
+    const vendorId = req.vendorId!;
     const offset = (params.page - 1) * params.limit;
 
     const userList = await db
@@ -117,12 +120,16 @@ router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: Ap
         createdAt: companyUsers.createdAt,
       })
       .from(companyUsers)
+      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
+      .where(eq(companies.vendorId, vendorId))
       .limit(params.limit)
       .offset(offset);
 
     const [countResult] = await db
       .select({ total: count() })
-      .from(companyUsers);
+      .from(companyUsers)
+      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
+      .where(eq(companies.vendorId, vendorId));
 
     res.json({
       data: userList,
@@ -142,6 +149,7 @@ router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: Ap
 router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
+    const vendorId = req.vendorId!;
 
     const [user] = await db
       .select({
@@ -154,7 +162,8 @@ router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req
         createdAt: companyUsers.createdAt,
       })
       .from(companyUsers)
-      .where(eq(companyUsers.id, parseInt(id)))
+      .innerJoin(companies, eq(companyUsers.companyId, companies.id))
+      .where(and(eq(companyUsers.id, parseInt(id)), eq(companies.vendorId, vendorId)))
       .limit(1);
 
     if (!user) {
@@ -174,6 +183,7 @@ router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req
 router.get("/reports", apiKeyAuth, requirePermission("read:reports"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
+    const vendorId = req.vendorId!;
     const offset = (params.page - 1) * params.limit;
 
     const reports = await db
@@ -187,13 +197,15 @@ router.get("/reports", apiKeyAuth, requirePermission("read:reports"), async (req
         updatedAt: caseReports.updatedAt,
       })
       .from(caseReports)
+      .where(eq(caseReports.vendorId, vendorId))
       .orderBy(desc(caseReports.createdAt))
       .limit(params.limit)
       .offset(offset);
 
     const [countResult] = await db
       .select({ total: count() })
-      .from(caseReports);
+      .from(caseReports)
+      .where(eq(caseReports.vendorId, vendorId));
 
     res.json({
       data: reports,
@@ -213,11 +225,12 @@ router.get("/reports", apiKeyAuth, requirePermission("read:reports"), async (req
 router.get("/reports/:id", apiKeyAuth, requirePermission("read:reports"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
+    const vendorId = req.vendorId!;
 
     const [report] = await db
       .select()
       .from(caseReports)
-      .where(eq(caseReports.id, parseInt(id)))
+      .where(and(eq(caseReports.id, parseInt(id)), eq(caseReports.vendorId, vendorId)))
       .limit(1);
 
     if (!report) {

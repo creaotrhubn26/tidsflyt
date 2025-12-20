@@ -447,6 +447,7 @@ export const designPresets = pgTable("design_presets", {
 // Case Reports table
 export const caseReports = pgTable("case_reports", {
   id: serial("id").primaryKey(),
+  vendorId: integer("vendor_id"),
   userId: text("user_id").notNull(),
   userCasesId: integer("user_cases_id"),
   caseId: text("case_id").notNull(),

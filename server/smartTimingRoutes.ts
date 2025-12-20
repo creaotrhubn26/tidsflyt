@@ -1820,6 +1820,7 @@ export function registerSmartTimingRoutes(app: Express) {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS case_reports (
           id SERIAL PRIMARY KEY,
+          vendor_id INTEGER,
           user_id TEXT NOT NULL,
           user_cases_id INTEGER,
           case_id TEXT NOT NULL,
