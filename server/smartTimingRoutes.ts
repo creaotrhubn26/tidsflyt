@@ -1524,6 +1524,34 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: PUBLISH ==========
+  app.post("/api/cms/publish", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { timestamp } = req.body;
+      
+      // Create a publish event/version
+      await createContentVersion('cms_publish', null, {
+        published_at: timestamp || new Date().toISOString(),
+        published_by: req.admin?.username || 'system',
+      }, req.admin?.username, 'Site published');
+      
+      // Log the activity
+      await pool.query(
+        `INSERT INTO cms_activity_log (action, entity_type, entity_id, entity_name, changes_summary, user_name)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        ['published', 'site', null, 'Landingsside', 'Alle endringer publisert til produksjon', req.admin?.username || 'system']
+      );
+      
+      res.json({ 
+        success: true, 
+        message: 'Site published successfully',
+        published_at: timestamp || new Date().toISOString() 
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: PAGES (Contact, Privacy, Terms) ==========
   const getPageDefaults = (pageType: string) => {
     const defaults: Record<string, any> = {

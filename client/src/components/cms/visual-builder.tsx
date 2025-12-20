@@ -823,7 +823,7 @@ function SEOPanel() {
 }
 
 function PropertiesPanel() {
-  const { selectedElement, content, setHasChanges, pushHistory, activeToolPanel, setActiveToolPanel } = useBuilder();
+  const { selectedElement, setSelectedElement, content, setHasChanges, pushHistory, activeToolPanel, setActiveToolPanel } = useBuilder();
   const { toast } = useToast();
   const [localData, setLocalData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'content' | 'style' | 'seo'>('content');
@@ -885,6 +885,72 @@ function PropertiesPanel() {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
       toast({ title: "Lagret", description: "Seksjon er oppdatert." });
       setHasChanges(false);
+    },
+  });
+
+  const createFeature = useMutation({
+    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/features', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Opprettet", description: "Ny funksjon er lagt til." });
+    },
+  });
+
+  const deleteFeature = useMutation({
+    mutationFn: (id: number) => authenticatedApiRequest(`/api/cms/features/${id}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Slettet", description: "Funksjon er fjernet." });
+      setSelectedElement(null);
+    },
+  });
+
+  const createTestimonial = useMutation({
+    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/testimonials', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Opprettet", description: "Ny referanse er lagt til." });
+    },
+  });
+
+  const deleteTestimonial = useMutation({
+    mutationFn: (id: number) => authenticatedApiRequest(`/api/cms/testimonials/${id}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Slettet", description: "Referanse er fjernet." });
+      setSelectedElement(null);
+    },
+  });
+
+  const createPartner = useMutation({
+    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/partners', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Opprettet", description: "Ny partner er lagt til." });
+    },
+  });
+
+  const deletePartner = useMutation({
+    mutationFn: (id: number) => authenticatedApiRequest(`/api/cms/partners/${id}`, {
+      method: 'DELETE',
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Slettet", description: "Partner er fjernet." });
+      setSelectedElement(null);
     },
   });
 
@@ -1129,6 +1195,18 @@ function PropertiesPanel() {
                 onCheckedChange={(v) => handleChange('is_active', v)}
               />
             </div>
+            <Separator />
+            <Button 
+              variant="destructive" 
+              size="sm"
+              className="w-full" 
+              onClick={() => selectedElement.id && deleteFeature.mutate(selectedElement.id)}
+              disabled={deleteFeature.isPending}
+              data-testid="button-delete-feature"
+            >
+              {deleteFeature.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Slett funksjon
+            </Button>
           </div>
         );
       case 'testimonial':
@@ -1167,6 +1245,18 @@ function PropertiesPanel() {
                 placeholder="https://..."
               />
             </div>
+            <Separator />
+            <Button 
+              variant="destructive" 
+              size="sm"
+              className="w-full" 
+              onClick={() => selectedElement.id && deleteTestimonial.mutate(selectedElement.id)}
+              disabled={deleteTestimonial.isPending}
+              data-testid="button-delete-testimonial"
+            >
+              {deleteTestimonial.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Slett referanse
+            </Button>
           </div>
         );
       case 'partner':
@@ -1196,6 +1286,18 @@ function PropertiesPanel() {
                 data-testid="prop-partner-website"
               />
             </div>
+            <Separator />
+            <Button 
+              variant="destructive" 
+              size="sm"
+              className="w-full" 
+              onClick={() => selectedElement.id && deletePartner.mutate(selectedElement.id)}
+              disabled={deletePartner.isPending}
+              data-testid="button-delete-partner"
+            >
+              {deletePartner.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              Slett partner
+            </Button>
           </div>
         );
       case 'features':
@@ -1216,6 +1318,17 @@ function PropertiesPanel() {
                 rows={2}
               />
             </div>
+            <Separator />
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => createFeature.mutate({ title: 'Ny funksjon', description: 'Beskrivelse', icon: 'Star', display_order: content?.features?.length || 0 })}
+              disabled={createFeature.isPending}
+              data-testid="button-add-feature"
+            >
+              {createFeature.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+              Legg til funksjon
+            </Button>
           </div>
         );
       case 'testimonials':
@@ -1236,6 +1349,17 @@ function PropertiesPanel() {
                 rows={2}
               />
             </div>
+            <Separator />
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => createTestimonial.mutate({ quote: 'Ny referanse', name: 'Navn', role: 'Stilling', display_order: content?.testimonials?.length || 0 })}
+              disabled={createTestimonial.isPending}
+              data-testid="button-add-testimonial"
+            >
+              {createTestimonial.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+              Legg til referanse
+            </Button>
           </div>
         );
       case 'partners':
@@ -1256,6 +1380,17 @@ function PropertiesPanel() {
                 rows={2}
               />
             </div>
+            <Separator />
+            <Button 
+              variant="outline" 
+              className="w-full" 
+              onClick={() => createPartner.mutate({ name: 'Ny partner', logo_url: '', website_url: '', display_order: content?.partners?.length || 0 })}
+              disabled={createPartner.isPending}
+              data-testid="button-add-partner"
+            >
+              {createPartner.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+              Legg til partner
+            </Button>
           </div>
         );
       case 'cta':
@@ -1392,14 +1527,33 @@ function PropertiesPanel() {
 }
 
 function Toolbar() {
-  const { deviceMode, setDeviceMode, zoom, setZoom, hasChanges, undo, redo, canUndo, canRedo, publishStatus } = useBuilder();
+  const { deviceMode, setDeviceMode, zoom, setZoom, hasChanges, undo, redo, canUndo, canRedo, publishStatus, setPublishStatus } = useBuilder();
   const { toast } = useToast();
 
+  const publishMutation = useMutation({
+    mutationFn: () => authenticatedApiRequest('/api/cms/publish', {
+      method: 'POST',
+      body: JSON.stringify({ timestamp: new Date().toISOString() }),
+    }),
+    onSuccess: () => {
+      setPublishStatus('published');
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({
+        title: "Publisert",
+        description: "Endringene er nå publisert og synlige for alle.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Feil",
+        description: error.message || "Kunne ikke publisere endringene.",
+        variant: "destructive",
+      });
+    },
+  });
+
   const handlePublish = () => {
-    toast({
-      title: "Publisert",
-      description: "Endringene er nå publisert.",
-    });
+    publishMutation.mutate();
   };
 
   return (
@@ -1495,7 +1649,8 @@ function Toolbar() {
           <Eye className="h-4 w-4 mr-1" />
           Forhåndsvis
         </Button>
-        <Button size="sm" onClick={handlePublish} data-testid="button-publish">
+        <Button size="sm" onClick={handlePublish} disabled={publishMutation.isPending} data-testid="button-publish">
+          {publishMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-1" /> : null}
           Publiser
         </Button>
       </div>
@@ -1953,45 +2108,124 @@ function DesignSystemPanel() {
   );
 }
 
+interface MediaFile {
+  id: number;
+  filename: string;
+  original_name: string;
+  mime_type: string;
+  size: number;
+  url: string;
+  folder_id: number | null;
+  created_at: string;
+}
+
 function MediaLibraryPanel() {
   const { toast } = useToast();
-  const [files, setFiles] = useState<Array<{ id: number; name: string; type: string; url: string }>>([
-    { id: 1, name: 'hero-background.jpg', type: 'image', url: '/placeholder.jpg' },
-    { id: 2, name: 'logo.svg', type: 'image', url: '/placeholder.svg' },
-    { id: 3, name: 'team-photo.png', type: 'image', url: '/placeholder.png' },
-  ]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const { data: files = [], isLoading } = useQuery<MediaFile[]>({
+    queryKey: ['/api/cms/media'],
+  });
+
+  const uploadMutation = useMutation({
+    mutationFn: async (file: File) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const token = sessionStorage.getItem('admin_token');
+      const response = await fetch('/api/cms/media', {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({ title: 'Lastet opp', description: 'Filen er lastet opp.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/media'] });
+    },
+    onError: () => {
+      toast({ title: 'Feil', description: 'Kunne ikke laste opp filen.', variant: 'destructive' });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: number) => authenticatedApiRequest(`/api/cms/media/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast({ title: 'Slettet', description: 'Filen er slettet.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/media'] });
+    },
+  });
 
   const handleUpload = () => {
-    toast({ title: 'Last opp', description: 'Velg filer for opplasting' });
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      uploadMutation.mutate(file);
+    }
   };
 
   return (
     <div className="p-4 space-y-4">
+      <input
+        type="file"
+        ref={fileInputRef}
+        onChange={handleFileChange}
+        accept="image/*"
+        className="hidden"
+        data-testid="input-file-upload"
+      />
       <div className="flex items-center gap-2">
-        <Button onClick={handleUpload} data-testid="button-upload-media">
-          <Plus className="h-4 w-4 mr-2" />
+        <Button onClick={handleUpload} disabled={uploadMutation.isPending} data-testid="button-upload-media">
+          {uploadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
           Last opp
-        </Button>
-        <Button variant="outline" data-testid="button-new-folder">
-          <Layers className="h-4 w-4 mr-2" />
-          Ny mappe
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        {files.map((file) => (
-          <div
-            key={file.id}
-            className="aspect-square rounded-lg border bg-muted/50 flex items-center justify-center cursor-pointer hover-elevate"
-            data-testid={`media-item-${file.id}`}
-          >
-            <div className="text-center p-2">
-              <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-1" />
-              <p className="text-xs truncate">{file.name}</p>
+      {isLoading ? (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : files.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">
+          Ingen filer lastet opp ennå
+        </p>
+      ) : (
+        <div className="grid grid-cols-3 gap-3">
+          {files.map((file) => (
+            <div
+              key={file.id}
+              className="aspect-square rounded-lg border bg-muted/50 flex flex-col items-center justify-center cursor-pointer hover-elevate relative group"
+              data-testid={`media-item-${file.id}`}
+            >
+              {file.mime_type?.startsWith('image/') ? (
+                <img src={file.url} alt={file.original_name} className="w-full h-full object-cover rounded-lg" />
+              ) : (
+                <div className="text-center p-2">
+                  <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-1" />
+                  <p className="text-xs truncate">{file.original_name}</p>
+                </div>
+              )}
+              <Button
+                size="icon"
+                variant="destructive"
+                className="absolute top-1 right-1 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(file.id); }}
+                data-testid={`button-delete-media-${file.id}`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </Button>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
 
       <p className="text-xs text-muted-foreground text-center">
         Klikk på et bilde for å velge det
@@ -2000,17 +2234,50 @@ function MediaLibraryPanel() {
   );
 }
 
+interface NavItem {
+  id: string;
+  label: string;
+  url: string;
+  order: number;
+}
+
 function NavigationPanel() {
   const { toast } = useToast();
-  const [menuItems, setMenuItems] = useState([
-    { id: '1', label: 'Hjem', url: '/' },
-    { id: '2', label: 'Tjenester', url: '/tjenester' },
-    { id: '3', label: 'Om oss', url: '/om-oss' },
-    { id: '4', label: 'Kontakt', url: '/kontakt' },
-  ]);
+  const [menuItems, setMenuItems] = useState<NavItem[]>([]);
+  const [isInitialized, setIsInitialized] = useState(false);
+
+  const { data: navData, isLoading } = useQuery<{ items: NavItem[] }>({
+    queryKey: ['/api/cms/navigation', 'header'],
+  });
+
+  useEffect(() => {
+    if (navData?.items && !isInitialized) {
+      setMenuItems(navData.items);
+      setIsInitialized(true);
+    }
+  }, [navData, isInitialized]);
+
+  const saveMutation = useMutation({
+    mutationFn: (items: NavItem[]) => authenticatedApiRequest('/api/cms/navigation/header', {
+      method: 'PUT',
+      body: JSON.stringify({ items }),
+    }),
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'Navigasjon er oppdatert.' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/navigation'] });
+    },
+    onError: () => {
+      toast({ title: 'Feil', description: 'Kunne ikke lagre navigasjonen.', variant: 'destructive' });
+    },
+  });
 
   const addItem = () => {
-    setMenuItems(prev => [...prev, { id: Date.now().toString(), label: 'Ny lenke', url: '#' }]);
+    setMenuItems(prev => [...prev, { 
+      id: Date.now().toString(), 
+      label: 'Ny lenke', 
+      url: '#',
+      order: prev.length 
+    }]);
   };
 
   const updateItem = (id: string, field: string, value: string) => {
@@ -2022,8 +2289,16 @@ function NavigationPanel() {
   };
 
   const handleSave = () => {
-    toast({ title: 'Lagret', description: 'Navigasjon er oppdatert' });
+    saveMutation.mutate(menuItems);
   };
+
+  if (isLoading) {
+    return (
+      <div className="p-4 flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 space-y-4">
@@ -2062,8 +2337,8 @@ function NavigationPanel() {
         ))}
       </div>
 
-      <Button onClick={handleSave} className="w-full" data-testid="button-save-navigation">
-        <Save className="h-4 w-4 mr-2" />
+      <Button onClick={handleSave} disabled={saveMutation.isPending} className="w-full" data-testid="button-save-navigation">
+        {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
         Lagre navigasjon
       </Button>
     </div>
