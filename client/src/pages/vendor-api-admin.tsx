@@ -8,8 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { Key, Plus, Trash2, Copy, CheckCircle, XCircle, Clock, Shield, RefreshCw, ExternalLink } from "lucide-react";
+import { Key, Plus, Trash2, Copy, CheckCircle, XCircle, Clock, Shield, RefreshCw, ExternalLink, LogIn, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
@@ -43,17 +44,22 @@ const AVAILABLE_PERMISSIONS = [
 
 export default function VendorApiAdminPage() {
   const { toast } = useToast();
+  const { user, isLoading: authLoading, isAuthenticated } = useAuth();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(["read:time_entries"]);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
+  const isAuthorized = user?.role === "vendor_admin" || user?.role === "super_admin";
+
   const { data: apiStatus, isLoading: statusLoading } = useQuery<VendorApiStatus>({
     queryKey: ["/api/vendor/api-status"],
+    enabled: isAuthenticated && isAuthorized,
   });
 
   const { data: apiKeys, isLoading: keysLoading } = useQuery<ApiKey[]>({
     queryKey: ["/api/vendor/api-keys"],
+    enabled: isAuthenticated && isAuthorized,
   });
 
   const createKeyMutation = useMutation({
@@ -126,6 +132,61 @@ export default function VendorApiAdminPage() {
         : [...prev, permId]
     );
   };
+
+  if (authLoading) {
+    return <div className="p-8 text-center text-muted-foreground">Laster...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <div className="container mx-auto py-16 px-4 max-w-md">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+              <LogIn className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <CardTitle>Logg inn for a fortsette</CardTitle>
+            <CardDescription>
+              Du ma vaere innlogget for a administrere API-nokler
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <a href="/api/login">
+              <Button data-testid="button-login">
+                <LogIn className="h-4 w-4 mr-2" />
+                Logg inn
+              </Button>
+            </a>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (!isAuthorized) {
+    return (
+      <div className="container mx-auto py-16 px-4 max-w-md">
+        <Card>
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+              <Lock className="h-6 w-6 text-muted-foreground" />
+            </div>
+            <CardTitle>Ingen tilgang</CardTitle>
+            <CardDescription>
+              Du har ikke tilgang til a administrere API-nokler. Kontakt din administrator for a fa tilgang.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Link href="/">
+              <Button variant="outline" data-testid="link-go-home">
+                Ga til forsiden
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   if (statusLoading) {
     return <div className="p-8 text-center text-muted-foreground">Laster...</div>;
