@@ -3056,7 +3056,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
           footer_enabled !== false, footer_height || '15mm', footer_text, footer_show_page_numbers !== false,
           primary_color || '#2563EB', secondary_color || '#64748B', font_family || 'Helvetica',
           font_size || '11pt', line_height || '1.5', JSON.stringify(blocks || []),
-          is_default || false, req.user?.username
+          is_default || false, req.admin?.username
         ]
       );
       res.json(result.rows[0]);
@@ -3192,7 +3192,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       const result = await pool.query(
         `INSERT INTO report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [name, type, url, mime_type, size, width, height, company_id, req.user?.username]
+        [name, type, url, mime_type, size, width, height, company_id, req.admin?.username]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -3360,7 +3360,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       await pool.query(
         `INSERT INTO report_generated (case_report_id, template_id, generated_by, metadata)
          VALUES ($1, $2, $3, $4)`,
-        [caseReportId, templateId, req.user?.username, JSON.stringify({ generated_at: new Date() })]
+        [caseReportId, templateId, req.admin?.username, JSON.stringify({ generated_at: new Date() })]
       );
 
       doc.end();
@@ -3419,7 +3419,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
           'Saksrapport',
           'Smart Timing - Timeføringssystem',
           JSON.stringify(defaultBlocks),
-          req.user?.username
+          req.admin?.username
         ]
       );
 

@@ -503,6 +503,9 @@ export default function CMSPage() {
           <TabsTrigger value="email" data-testid="tab-email">
             <Mail className="h-4 w-4 mr-1" />E-post
           </TabsTrigger>
+          <TabsTrigger value="reports" data-testid="tab-reports">
+            <FileText className="h-4 w-4 mr-1" />Rapporter
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
           <TabsTrigger value="versions" data-testid="tab-versions">
             <RefreshCw className="h-4 w-4 mr-1" />Versjoner
@@ -559,6 +562,10 @@ export default function CMSPage() {
 
         <TabsContent value="email">
           <EmailEditor />
+        </TabsContent>
+
+        <TabsContent value="reports">
+          <ReportDesigner />
         </TabsContent>
 
         <TabsContent value="activity">
@@ -5134,6 +5141,732 @@ function EmailEditor() {
                 Send test
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Report Template interface
+interface ReportTemplateData {
+  id?: number;
+  name: string;
+  description: string | null;
+  paper_size: string;
+  orientation: string;
+  margin_top: string;
+  margin_bottom: string;
+  margin_left: string;
+  margin_right: string;
+  header_enabled: boolean;
+  header_height: string;
+  header_logo_url: string | null;
+  header_logo_position: string;
+  header_title: string | null;
+  header_subtitle: string | null;
+  header_show_date: boolean;
+  header_show_page_numbers: boolean;
+  footer_enabled: boolean;
+  footer_height: string;
+  footer_text: string | null;
+  footer_show_page_numbers: boolean;
+  primary_color: string;
+  secondary_color: string;
+  font_family: string;
+  font_size: string;
+  line_height: string;
+  blocks: any[];
+  is_default: boolean;
+  created_at?: string;
+}
+
+interface ReportBlock {
+  id: string;
+  type: string;
+  config: Record<string, any>;
+}
+
+function ReportDesigner() {
+  const { toast } = useToast();
+  const [selectedTemplate, setSelectedTemplate] = useState<ReportTemplateData | null>(null);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState('templates');
+  const [templateForm, setTemplateForm] = useState<Partial<ReportTemplateData>>({
+    name: '',
+    description: '',
+    paper_size: 'A4',
+    orientation: 'portrait',
+    margin_top: '20mm',
+    margin_bottom: '20mm',
+    margin_left: '15mm',
+    margin_right: '15mm',
+    header_enabled: true,
+    header_height: '25mm',
+    header_logo_url: '',
+    header_logo_position: 'left',
+    header_title: '',
+    header_subtitle: '',
+    header_show_date: true,
+    header_show_page_numbers: true,
+    footer_enabled: true,
+    footer_height: '15mm',
+    footer_text: '',
+    footer_show_page_numbers: true,
+    primary_color: '#2563EB',
+    secondary_color: '#64748B',
+    font_family: 'Helvetica',
+    font_size: '11pt',
+    line_height: '1.5',
+    blocks: [],
+    is_default: false,
+  });
+  const [blocks, setBlocks] = useState<ReportBlock[]>([]);
+
+  const { data: templates = [], isLoading: templatesLoading } = useQuery<ReportTemplateData[]>({
+    queryKey: ['/api/report-templates'],
+    queryFn: () => authenticatedApiRequest('/api/report-templates'),
+  });
+
+  const { data: blockTypes = [] } = useQuery<any[]>({
+    queryKey: ['/api/report-templates/blocks/types'],
+    queryFn: () => authenticatedApiRequest('/api/report-templates/blocks/types'),
+  });
+
+  const saveTemplateMutation = useMutation({
+    mutationFn: async (data: Partial<ReportTemplateData>) => {
+      const url = data.id 
+        ? `/api/report-templates/${data.id}`
+        : '/api/report-templates';
+      return authenticatedApiRequest(url, {
+        method: data.id ? 'PUT' : 'POST',
+        body: JSON.stringify({ ...data, blocks }),
+      });
+    },
+    onSuccess: () => {
+      toast({ title: 'Lagret', description: 'Rapportmal er lagret' });
+      queryClient.invalidateQueries({ queryKey: ['/api/report-templates'] });
+      setShowTemplateDialog(false);
+      setSelectedTemplate(null);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/report-templates/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Slettet', description: 'Rapportmal er slettet' });
+      queryClient.invalidateQueries({ queryKey: ['/api/report-templates'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const seedDefaultMutation = useMutation({
+    mutationFn: async () => {
+      return authenticatedApiRequest('/api/report-templates/seed-default', { method: 'POST' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Suksess', description: 'Standard rapportmal er lagt til' });
+      queryClient.invalidateQueries({ queryKey: ['/api/report-templates'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const openTemplateEditor = (template?: ReportTemplateData) => {
+    if (template) {
+      setSelectedTemplate(template);
+      setTemplateForm({
+        name: template.name,
+        description: template.description,
+        paper_size: template.paper_size,
+        orientation: template.orientation,
+        margin_top: template.margin_top,
+        margin_bottom: template.margin_bottom,
+        margin_left: template.margin_left,
+        margin_right: template.margin_right,
+        header_enabled: template.header_enabled,
+        header_height: template.header_height,
+        header_logo_url: template.header_logo_url,
+        header_logo_position: template.header_logo_position,
+        header_title: template.header_title,
+        header_subtitle: template.header_subtitle,
+        header_show_date: template.header_show_date,
+        header_show_page_numbers: template.header_show_page_numbers,
+        footer_enabled: template.footer_enabled,
+        footer_height: template.footer_height,
+        footer_text: template.footer_text,
+        footer_show_page_numbers: template.footer_show_page_numbers,
+        primary_color: template.primary_color,
+        secondary_color: template.secondary_color,
+        font_family: template.font_family,
+        font_size: template.font_size,
+        line_height: template.line_height,
+        is_default: template.is_default,
+      });
+      setBlocks(template.blocks || []);
+    } else {
+      setSelectedTemplate(null);
+      setTemplateForm({
+        name: '',
+        description: '',
+        paper_size: 'A4',
+        orientation: 'portrait',
+        margin_top: '20mm',
+        margin_bottom: '20mm',
+        margin_left: '15mm',
+        margin_right: '15mm',
+        header_enabled: true,
+        header_height: '25mm',
+        header_logo_url: '',
+        header_logo_position: 'left',
+        header_title: '',
+        header_subtitle: '',
+        header_show_date: true,
+        header_show_page_numbers: true,
+        footer_enabled: true,
+        footer_height: '15mm',
+        footer_text: '',
+        footer_show_page_numbers: true,
+        primary_color: '#2563EB',
+        secondary_color: '#64748B',
+        font_family: 'Helvetica',
+        font_size: '11pt',
+        line_height: '1.5',
+        is_default: false,
+      });
+      setBlocks([]);
+    }
+    setShowTemplateDialog(true);
+  };
+
+  const addBlock = (type: string) => {
+    const blockType = blockTypes.find((bt: any) => bt.type === type);
+    const newBlock: ReportBlock = {
+      id: Date.now().toString(),
+      type,
+      config: blockType?.default_config || {},
+    };
+    setBlocks([...blocks, newBlock]);
+  };
+
+  const updateBlock = (id: string, config: Record<string, any>) => {
+    setBlocks(blocks.map(b => b.id === id ? { ...b, config } : b));
+  };
+
+  const removeBlock = (id: string) => {
+    setBlocks(blocks.filter(b => b.id !== id));
+  };
+
+  const moveBlock = (fromIndex: number, toIndex: number) => {
+    const newBlocks = [...blocks];
+    const [removed] = newBlocks.splice(fromIndex, 1);
+    newBlocks.splice(toIndex, 0, removed);
+    setBlocks(newBlocks);
+  };
+
+  const fieldLabels: Record<string, string> = {
+    background: 'Bakgrunn',
+    actions: 'Tiltak',
+    progress: 'Fremgang',
+    challenges: 'Utfordringer',
+    factors: 'Faktorer',
+    assessment: 'Vurdering',
+    recommendations: 'Anbefalinger',
+    notes: 'Notater',
+  };
+
+  const blockTypeLabels: Record<string, string> = {
+    header: 'Topptekst',
+    section: 'Seksjon',
+    text: 'Tekst',
+    field: 'Rapportfelt',
+    table: 'Tabell',
+    signature: 'Signatur',
+    divider: 'Skillelinje',
+    spacer: 'Mellomrom',
+    image: 'Bilde',
+    footer: 'Bunntekst',
+  };
+
+  return (
+    <div className="space-y-6">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList>
+          <TabsTrigger value="templates">Maler</TabsTrigger>
+          <TabsTrigger value="assets">Ressurser</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="templates" className="space-y-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="h-5 w-5" />
+                  Rapportmaler
+                </CardTitle>
+                <CardDescription>Design og administrer rapportmaler for saksrapporter</CardDescription>
+              </div>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => seedDefaultMutation.mutate()} disabled={seedDefaultMutation.isPending}>
+                  {seedDefaultMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}
+                  Standardmal
+                </Button>
+                <Button onClick={() => openTemplateEditor()}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Ny mal
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {templatesLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : !Array.isArray(templates) || templates.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <FileText className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                  <p>Ingen rapportmaler funnet</p>
+                  <Button variant="ghost" onClick={() => seedDefaultMutation.mutate()}>
+                    Legg til standardmal
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {templates.map((template) => (
+                    <div
+                      key={template.id}
+                      className="flex items-center justify-between p-3 rounded-md border hover-elevate"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-md bg-muted">
+                          <FileText className="h-4 w-4" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{template.name}</span>
+                            {template.is_default && (
+                              <span className="text-xs bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                                Standard
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            {template.paper_size} | {template.orientation === 'portrait' ? 'Stående' : 'Liggende'}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button variant="ghost" size="icon" onClick={() => openTemplateEditor(template)}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (confirm('Er du sikker på at du vil slette denne malen?')) {
+                              deleteTemplateMutation.mutate(template.id!);
+                            }
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="assets">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Image className="h-5 w-5" />
+                Ressurser
+              </CardTitle>
+              <CardDescription>Last opp logoer og bilder til bruk i rapporter</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-center py-8 text-muted-foreground">
+                <Upload className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Dra og slipp filer her, eller klikk for å velge</p>
+                <p className="text-sm mt-2">PNG, JPG eller SVG (maks 2MB)</p>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      <Dialog open={showTemplateDialog} onOpenChange={setShowTemplateDialog}>
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{selectedTemplate ? 'Rediger rapportmal' : 'Ny rapportmal'}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-2 space-y-4">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="template-name">Navn</Label>
+                  <Input
+                    id="template-name"
+                    value={templateForm.name || ''}
+                    onChange={(e) => setTemplateForm({ ...templateForm, name: e.target.value })}
+                    placeholder="Min rapportmal"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="template-desc">Beskrivelse</Label>
+                  <Input
+                    id="template-desc"
+                    value={templateForm.description || ''}
+                    onChange={(e) => setTemplateForm({ ...templateForm, description: e.target.value })}
+                    placeholder="Beskrivelse av malen"
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-4">
+                <div className="space-y-2">
+                  <Label>Papirstørrelse</Label>
+                  <select
+                    value={templateForm.paper_size}
+                    onChange={(e) => setTemplateForm({ ...templateForm, paper_size: e.target.value })}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="A4">A4</option>
+                    <option value="Letter">Letter</option>
+                    <option value="Legal">Legal</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Orientering</Label>
+                  <select
+                    value={templateForm.orientation}
+                    onChange={(e) => setTemplateForm({ ...templateForm, orientation: e.target.value })}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="portrait">Stående</option>
+                    <option value="landscape">Liggende</option>
+                  </select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Primærfarge</Label>
+                  <div className="flex gap-2">
+                    <input
+                      type="color"
+                      value={templateForm.primary_color}
+                      onChange={(e) => setTemplateForm({ ...templateForm, primary_color: e.target.value })}
+                      className="h-9 w-12 rounded border"
+                    />
+                    <Input
+                      value={templateForm.primary_color}
+                      onChange={(e) => setTemplateForm({ ...templateForm, primary_color: e.target.value })}
+                      className="flex-1"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Font</Label>
+                  <select
+                    value={templateForm.font_family}
+                    onChange={(e) => setTemplateForm({ ...templateForm, font_family: e.target.value })}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="Helvetica">Helvetica</option>
+                    <option value="Times-Roman">Times Roman</option>
+                    <option value="Courier">Courier</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="space-y-3 p-4 rounded-md border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-medium">Topptekst</Label>
+                  <Button
+                    size="sm"
+                    variant={templateForm.header_enabled ? "default" : "outline"}
+                    onClick={() => setTemplateForm({ ...templateForm, header_enabled: !templateForm.header_enabled })}
+                  >
+                    {templateForm.header_enabled ? 'På' : 'Av'}
+                  </Button>
+                </div>
+                {templateForm.header_enabled && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Tittel</Label>
+                      <Input
+                        value={templateForm.header_title || ''}
+                        onChange={(e) => setTemplateForm({ ...templateForm, header_title: e.target.value })}
+                        placeholder="Rapporttittel"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Undertittel</Label>
+                      <Input
+                        value={templateForm.header_subtitle || ''}
+                        onChange={(e) => setTemplateForm({ ...templateForm, header_subtitle: e.target.value })}
+                        placeholder="Undertittel"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Logo URL</Label>
+                      <Input
+                        value={templateForm.header_logo_url || ''}
+                        onChange={(e) => setTemplateForm({ ...templateForm, header_logo_url: e.target.value })}
+                        placeholder="https://..."
+                      />
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="show-date"
+                          checked={templateForm.header_show_date}
+                          onChange={(e) => setTemplateForm({ ...templateForm, header_show_date: e.target.checked })}
+                        />
+                        <Label htmlFor="show-date">Vis dato</Label>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          id="show-page"
+                          checked={templateForm.header_show_page_numbers}
+                          onChange={(e) => setTemplateForm({ ...templateForm, header_show_page_numbers: e.target.checked })}
+                        />
+                        <Label htmlFor="show-page">Vis sidetall</Label>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 p-4 rounded-md border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-medium">Innholdsblokker</Label>
+                </div>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {blockTypes.map((bt: any) => (
+                    <Button key={bt.type} size="sm" variant="outline" onClick={() => addBlock(bt.type)}>
+                      <Plus className="h-3 w-3 mr-1" />
+                      {bt.name}
+                    </Button>
+                  ))}
+                </div>
+                <div className="space-y-2">
+                  {blocks.length === 0 ? (
+                    <div className="text-center py-4 text-muted-foreground text-sm">
+                      Ingen blokker lagt til. Klikk på knappene over for å legge til innhold.
+                    </div>
+                  ) : (
+                    blocks.map((block, index) => (
+                      <div key={block.id} className="flex items-start gap-2 p-3 rounded-md border bg-muted/50">
+                        <div className="flex flex-col gap-1">
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            disabled={index === 0}
+                            onClick={() => moveBlock(index, index - 1)}
+                          >
+                            <ChevronDown className="h-3 w-3 rotate-180" />
+                          </Button>
+                          <Button
+                            size="icon"
+                            variant="ghost"
+                            className="h-6 w-6"
+                            disabled={index === blocks.length - 1}
+                            onClick={() => moveBlock(index, index + 1)}
+                          >
+                            <ChevronDown className="h-3 w-3" />
+                          </Button>
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-2">
+                            <span className="text-sm font-medium">
+                              {blockTypeLabels[block.type] || block.type}
+                            </span>
+                          </div>
+                          {block.type === 'field' && (
+                            <select
+                              value={block.config.field || ''}
+                              onChange={(e) => updateBlock(block.id, { ...block.config, field: e.target.value, label: fieldLabels[e.target.value] })}
+                              className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                            >
+                              <option value="">Velg felt...</option>
+                              {Object.entries(fieldLabels).map(([key, label]) => (
+                                <option key={key} value={key}>{label}</option>
+                              ))}
+                            </select>
+                          )}
+                          {block.type === 'text' && (
+                            <Input
+                              value={block.config.content || ''}
+                              onChange={(e) => updateBlock(block.id, { ...block.config, content: e.target.value })}
+                              placeholder="Skriv tekst..."
+                              className="h-8"
+                            />
+                          )}
+                          {block.type === 'section' && (
+                            <Input
+                              value={block.config.title || ''}
+                              onChange={(e) => updateBlock(block.id, { ...block.config, title: e.target.value })}
+                              placeholder="Seksjonstittel..."
+                              className="h-8"
+                            />
+                          )}
+                          {block.type === 'signature' && (
+                            <Input
+                              value={block.config.label || ''}
+                              onChange={(e) => updateBlock(block.id, { ...block.config, label: e.target.value })}
+                              placeholder="Signaturetikett..."
+                              className="h-8"
+                            />
+                          )}
+                          {block.type === 'spacer' && (
+                            <Input
+                              type="number"
+                              value={block.config.height || 10}
+                              onChange={(e) => updateBlock(block.id, { ...block.config, height: parseInt(e.target.value) })}
+                              placeholder="Høyde i mm"
+                              className="h-8 w-24"
+                            />
+                          )}
+                        </div>
+                        <Button size="icon" variant="ghost" onClick={() => removeBlock(block.id)}>
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              <div className="space-y-3 p-4 rounded-md border">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-medium">Bunntekst</Label>
+                  <Button
+                    size="sm"
+                    variant={templateForm.footer_enabled ? "default" : "outline"}
+                    onClick={() => setTemplateForm({ ...templateForm, footer_enabled: !templateForm.footer_enabled })}
+                  >
+                    {templateForm.footer_enabled ? 'På' : 'Av'}
+                  </Button>
+                </div>
+                {templateForm.footer_enabled && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label>Bunntekst</Label>
+                      <Input
+                        value={templateForm.footer_text || ''}
+                        onChange={(e) => setTemplateForm({ ...templateForm, footer_text: e.target.value })}
+                        placeholder="Bunntekst..."
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        id="footer-page"
+                        checked={templateForm.footer_show_page_numbers}
+                        onChange={(e) => setTemplateForm({ ...templateForm, footer_show_page_numbers: e.target.checked })}
+                      />
+                      <Label htmlFor="footer-page">Vis sidetall</Label>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm">Forhåndsvisning</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div 
+                    className="border rounded-md p-4 bg-white text-black min-h-[400px] text-xs"
+                    style={{ 
+                      fontFamily: templateForm.font_family,
+                      aspectRatio: templateForm.orientation === 'portrait' ? '210/297' : '297/210'
+                    }}
+                  >
+                    {templateForm.header_enabled && (
+                      <div className="border-b pb-2 mb-3" style={{ color: templateForm.primary_color }}>
+                        <div className="font-bold text-sm">{templateForm.header_title || 'Tittel'}</div>
+                        <div className="text-muted-foreground">{templateForm.header_subtitle}</div>
+                        {templateForm.header_show_date && (
+                          <div className="text-right text-muted-foreground">{new Date().toLocaleDateString('nb-NO')}</div>
+                        )}
+                      </div>
+                    )}
+                    <div className="space-y-2">
+                      {blocks.map((block) => (
+                        <div key={block.id}>
+                          {block.type === 'section' && (
+                            <div className="font-semibold" style={{ color: templateForm.primary_color }}>
+                              {block.config.title || 'Seksjon'}
+                            </div>
+                          )}
+                          {block.type === 'field' && (
+                            <div>
+                              <div className="font-medium" style={{ color: templateForm.primary_color }}>
+                                {block.config.label || fieldLabels[block.config.field] || 'Felt'}
+                              </div>
+                              <div className="text-muted-foreground italic">[Innhold fra rapport]</div>
+                            </div>
+                          )}
+                          {block.type === 'text' && (
+                            <div>{block.config.content || 'Tekst...'}</div>
+                          )}
+                          {block.type === 'divider' && (
+                            <hr className="border-muted" />
+                          )}
+                          {block.type === 'spacer' && (
+                            <div style={{ height: `${block.config.height || 10}px` }} />
+                          )}
+                          {block.type === 'signature' && (
+                            <div className="mt-4">
+                              <div className="text-muted-foreground">{block.config.label || 'Signatur:'}</div>
+                              <div className="border-b border-black w-48 mt-4" />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {templateForm.footer_enabled && (
+                      <div className="absolute bottom-4 left-4 right-4 text-center text-muted-foreground border-t pt-2">
+                        {templateForm.footer_text}
+                        {templateForm.footer_show_page_numbers && ' | Side 1 av 1'}
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowTemplateDialog(false)}>
+              Avbryt
+            </Button>
+            <Button
+              onClick={() => saveTemplateMutation.mutate({
+                ...templateForm,
+                id: selectedTemplate?.id,
+              })}
+              disabled={saveTemplateMutation.isPending}
+            >
+              {saveTemplateMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+              Lagre
+            </Button>
           </div>
         </DialogContent>
       </Dialog>
