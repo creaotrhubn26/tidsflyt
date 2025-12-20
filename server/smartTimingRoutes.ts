@@ -85,6 +85,13 @@ export function registerSmartTimingRoutes(app: Express) {
     express.static(uploadDir)(req, res, next);
   });
 
+  // Serve attached assets (logos, images etc.)
+  app.use('/assets', (req, res, next) => {
+    const express = require('express');
+    const path = require('path');
+    express.static(path.join(process.cwd(), 'attached_assets'))(req, res, next);
+  });
+
   // Health check
   app.get("/api/health", async (req, res) => {
     try {
