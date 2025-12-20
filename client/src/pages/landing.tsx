@@ -859,7 +859,7 @@ export default function LandingPage() {
               </div>
               <div className="space-y-2">
                 <p className="text-sm text-muted-foreground">
-                  Smart Timing bruker sikker innlogging via Google, GitHub, Apple eller e-post.
+                  Smart Timing bruker sikker innlogging via Google eller Apple.
                 </p>
                 <p className="text-xs text-muted-foreground">
                   Du ma vaere godkjent av en administrator for a logge inn.
