@@ -870,3 +870,6 @@ export type Activity = {
 export type InsertUser = Omit<User, 'id' | 'hoursThisWeek' | 'pendingApprovals'>;
 export type InsertTimeEntry = Omit<TimeEntry, 'id'>;
 export type InsertActivity = Omit<Activity, 'id'>;
+
+// Export auth models (required for Replit Auth)
+export * from "./models/auth";

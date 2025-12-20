@@ -10,6 +10,7 @@ import { db } from "./db";
 import { apiKeys, vendors } from "@shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 import { z } from "zod";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
 // Zod schema for bulk time entry validation
 const bulkTimeEntrySchema = z.object({
@@ -29,6 +30,10 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  
+  // Setup Replit Auth (MUST be before other routes)
+  await setupAuth(app);
+  registerAuthRoutes(app);
   
   // Skip seeding when using external database
   if (!process.env.EXTERNAL_DATABASE_URL) {
