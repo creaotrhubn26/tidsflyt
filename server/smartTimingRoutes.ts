@@ -3321,6 +3321,9 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
           name TEXT NOT NULL,
           description TEXT,
           company_id INTEGER,
+          template_type TEXT DEFAULT 'standard',
+          privacy_notice_enabled BOOLEAN DEFAULT false,
+          privacy_notice_text TEXT,
           paper_size TEXT DEFAULT 'A4',
           orientation TEXT DEFAULT 'portrait',
           margin_top TEXT DEFAULT '20mm',
@@ -3439,8 +3442,19 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         header_title, header_subtitle, header_show_date, header_show_page_numbers,
         footer_enabled, footer_height, footer_text, footer_show_page_numbers,
         primary_color, secondary_color, font_family, font_size, line_height,
-        blocks, is_default
+        blocks, is_default,
+        template_type, privacy_notice_enabled, privacy_notice_text
       } = req.body;
+
+      // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
+      let finalPrivacyEnabled = privacy_notice_enabled;
+      let finalPrivacyText = privacy_notice_text;
+      if (template_type === 'miljoarbeider') {
+        finalPrivacyEnabled = true;
+        if (!finalPrivacyText) {
+          finalPrivacyText = 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.';
+        }
+      }
 
       const result = await pool.query(
         `INSERT INTO report_templates (
@@ -3450,8 +3464,9 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
           header_title, header_subtitle, header_show_date, header_show_page_numbers,
           footer_enabled, footer_height, footer_text, footer_show_page_numbers,
           primary_color, secondary_color, font_family, font_size, line_height,
-          blocks, is_default, created_by
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
+          blocks, is_default, created_by,
+          template_type, privacy_notice_enabled, privacy_notice_text
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
         RETURNING *`,
         [
           name, description, company_id, paper_size || 'A4', orientation || 'portrait',
@@ -3461,7 +3476,8 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
           footer_enabled !== false, footer_height || '15mm', footer_text, footer_show_page_numbers !== false,
           primary_color || '#2563EB', secondary_color || '#64748B', font_family || 'Helvetica',
           font_size || '11pt', line_height || '1.5', JSON.stringify(blocks || []),
-          is_default || false, req.admin?.username
+          is_default || false, req.admin?.username,
+          template_type || 'standard', finalPrivacyEnabled || false, finalPrivacyText
         ]
       );
       res.json(result.rows[0]);
@@ -3474,7 +3490,15 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const updates = req.body;
+      const updates = { ...req.body };
+      
+      // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
+      if (updates.template_type === 'miljoarbeider') {
+        updates.privacy_notice_enabled = true;
+        if (!updates.privacy_notice_text) {
+          updates.privacy_notice_text = 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.';
+        }
+      }
       
       const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
       if (fields.length === 0) {
@@ -3517,9 +3541,13 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         // Return default block types if none exist
         const defaultBlocks = [
           { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'] },
+          { type: 'privacy_notice', name: 'Personvernmerknad', description: 'GDPR-merknad for miljøarbeider-rapporter', icon: 'Shield', available_fields: ['text'] },
+          { type: 'project_info', name: 'Prosjektinformasjon', description: 'Konsulent, bedrift, oppdragsgiver, tiltak, klient-ID, periode', icon: 'Briefcase', available_fields: ['consultant', 'company', 'client', 'initiative', 'client_id', 'period'] },
+          { type: 'statistics', name: 'Statistikk', description: 'Totale timer, arbeidsdager, aktiviteter', icon: 'BarChart3', available_fields: ['total_hours', 'work_days', 'activities'] },
           { type: 'section', name: 'Seksjon', description: 'Innholdseksjon med overskrift', icon: 'LayoutList', available_fields: ['title', 'content'] },
           { type: 'text', name: 'Tekst', description: 'Fritekst-blokk', icon: 'Type', available_fields: ['content'] },
           { type: 'field', name: 'Rapportfelt', description: 'Felt fra saksrapporten', icon: 'FormInput', available_fields: ['background', 'actions', 'progress', 'challenges', 'factors', 'assessment', 'recommendations', 'notes'] },
+          { type: 'time_log', name: 'Detaljert logg', description: 'Tabell med alle registreringer (dato, aktivitet, varighet, notater)', icon: 'Clock', available_fields: ['date', 'activity', 'duration', 'notes'] },
           { type: 'table', name: 'Tabell', description: 'Data i tabellformat', icon: 'Table', available_fields: ['headers', 'rows'] },
           { type: 'signature', name: 'Signatur', description: 'Signaturfelt', icon: 'PenTool', available_fields: ['label', 'name', 'date'] },
           { type: 'divider', name: 'Skillelinje', description: 'Horisontal linje', icon: 'Minus', available_fields: ['style'] },
@@ -3540,9 +3568,13 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
     try {
       const defaultBlocks = [
         { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
+        { type: 'privacy_notice', name: 'Personvernmerknad', description: 'GDPR-merknad for miljøarbeider-rapporter', icon: 'Shield', available_fields: ['text'], default_config: { text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.' } },
+        { type: 'project_info', name: 'Prosjektinformasjon', description: 'Konsulent, bedrift, oppdragsgiver, tiltak, klient-ID, periode', icon: 'Briefcase', available_fields: ['consultant', 'company', 'client', 'initiative', 'client_id', 'period'], default_config: { showAllFields: true } },
+        { type: 'statistics', name: 'Statistikk', description: 'Totale timer, arbeidsdager, aktiviteter', icon: 'BarChart3', available_fields: ['total_hours', 'work_days', 'activities'], default_config: { showAllStats: true } },
         { type: 'section', name: 'Seksjon', description: 'Innholdseksjon med overskrift', icon: 'LayoutList', available_fields: ['title', 'content'], default_config: { titleSize: 'h2' } },
         { type: 'text', name: 'Tekst', description: 'Fritekst-blokk', icon: 'Type', available_fields: ['content'], default_config: {} },
         { type: 'field', name: 'Rapportfelt', description: 'Felt fra saksrapporten', icon: 'FormInput', available_fields: ['background', 'actions', 'progress', 'challenges', 'factors', 'assessment', 'recommendations', 'notes'], default_config: { showLabel: true } },
+        { type: 'time_log', name: 'Detaljert logg', description: 'Tabell med alle registreringer (dato, aktivitet, varighet, notater)', icon: 'Clock', available_fields: ['date', 'activity', 'duration', 'notes'], default_config: { showNotes: true, focusOnDuration: true } },
         { type: 'table', name: 'Tabell', description: 'Data i tabellformat', icon: 'Table', available_fields: ['headers', 'rows'], default_config: { striped: true, bordered: true } },
         { type: 'signature', name: 'Signatur', description: 'Signaturfelt', icon: 'PenTool', available_fields: ['label', 'name', 'date'], default_config: { showDate: true } },
         { type: 'divider', name: 'Skillelinje', description: 'Horisontal linje', icon: 'Minus', available_fields: ['style'], default_config: { style: 'solid' } },
@@ -3688,8 +3720,80 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         notes: 'Notater'
       };
 
+      // Add privacy notice at top if enabled
+      if (template.privacy_notice_enabled && template.privacy_notice_text) {
+        doc.fontSize(9).fillColor('#666666')
+          .rect(doc.x, doc.y, doc.page.width - doc.page.margins.left - doc.page.margins.right, 30)
+          .fill('#f0f9ff');
+        doc.fillColor('#0369a1').text(template.privacy_notice_text, doc.x + 10, doc.y + 8, {
+          width: doc.page.width - doc.page.margins.left - doc.page.margins.right - 20
+        });
+        doc.moveDown(2);
+      }
+
       for (const block of blocks) {
         switch (block.type) {
+          case 'privacy_notice':
+            const privacyText = block.config?.text || 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav.';
+            doc.fontSize(9).fillColor('#0369a1').text(privacyText, { oblique: true });
+            doc.moveDown();
+            break;
+
+          case 'project_info':
+            doc.fontSize(12).fillColor(primaryColor).text('Prosjektinformasjon', { underline: true });
+            doc.moveDown(0.5);
+            const projectFields = [
+              { key: 'consultant', label: 'Konsulent' },
+              { key: 'company', label: 'Bedrift' },
+              { key: 'client', label: 'Oppdragsgiver' },
+              { key: 'initiative', label: 'Tiltak' },
+              { key: 'client_id', label: 'Klient-ID' },
+              { key: 'period', label: 'Periode' }
+            ];
+            for (const pf of projectFields) {
+              const value = block.config?.[pf.key] || caseReport?.[pf.key] || '-';
+              doc.fontSize(fontSize).fillColor('#333333').text(`${pf.label}: ${value}`);
+            }
+            doc.moveDown();
+            break;
+
+          case 'statistics':
+            doc.fontSize(12).fillColor(primaryColor).text('Statistikk', { underline: true });
+            doc.moveDown(0.5);
+            const stats = [
+              { label: 'Totale timer', value: block.config?.total_hours || '-' },
+              { label: 'Arbeidsdager', value: block.config?.work_days || '-' },
+              { label: 'Aktiviteter', value: block.config?.activities || '-' }
+            ];
+            for (const stat of stats) {
+              doc.fontSize(fontSize).fillColor('#333333').text(`${stat.label}: ${stat.value}`);
+            }
+            doc.moveDown();
+            break;
+
+          case 'time_log':
+            doc.fontSize(12).fillColor(primaryColor).text('Detaljert logg', { underline: true });
+            doc.moveDown(0.5);
+            doc.fontSize(9).fillColor('#666666')
+              .text('Dato', doc.x, doc.y, { width: 80, continued: true })
+              .text('Aktivitet', { width: 150, continued: true })
+              .text('Varighet', { width: 60, continued: true })
+              .text('Notater', { width: 200 });
+            doc.moveDown(0.5);
+            doc.moveTo(doc.x, doc.y).lineTo(doc.page.width - doc.page.margins.right, doc.y).strokeColor('#dddddd').stroke();
+            doc.moveDown(0.5);
+            if (block.config?.entries && Array.isArray(block.config.entries)) {
+              for (const entry of block.config.entries) {
+                doc.fontSize(fontSize).fillColor('#333333')
+                  .text(entry.date || '-', doc.x, doc.y, { width: 80, continued: true })
+                  .text(entry.activity || '-', { width: 150, continued: true })
+                  .text(entry.duration || '-', { width: 60, continued: true })
+                  .text(entry.notes || '-', { width: 200 });
+              }
+            }
+            doc.moveDown();
+            break;
+
           case 'section':
             doc.fontSize(14).fillColor(primaryColor).text(block.config?.title || 'Seksjon', { underline: true });
             if (block.config?.content) {

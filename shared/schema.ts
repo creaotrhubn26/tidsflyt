@@ -665,6 +665,11 @@ export const reportTemplates = pgTable("report_templates", {
   vendorId: integer("vendor_id"), // null = global template, otherwise vendor-specific
   companyId: integer("company_id"), // null = global template
   
+  // Template type for privacy rules
+  templateType: text("template_type").default("standard"), // standard, miljoarbeider
+  privacyNoticeEnabled: boolean("privacy_notice_enabled").default(false),
+  privacyNoticeText: text("privacy_notice_text"),
+  
   // Paper settings
   paperSize: text("paper_size").default("A4"), // A4, Letter, Legal
   orientation: text("orientation").default("portrait"), // portrait, landscape

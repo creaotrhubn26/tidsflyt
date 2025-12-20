@@ -18,9 +18,10 @@ import {
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
-  Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2,
+  Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle,
   type LucideIcon
 } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
@@ -5509,6 +5510,9 @@ interface ReportTemplateData {
   id?: number;
   name: string;
   description: string | null;
+  template_type: string;
+  privacy_notice_enabled: boolean;
+  privacy_notice_text: string | null;
   paper_size: string;
   orientation: string;
   margin_top: string;
@@ -5551,6 +5555,9 @@ function ReportDesigner() {
   const [templateForm, setTemplateForm] = useState<Partial<ReportTemplateData>>({
     name: '',
     description: '',
+    template_type: 'standard',
+    privacy_notice_enabled: false,
+    privacy_notice_text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
     paper_size: 'A4',
     orientation: 'portrait',
     margin_top: '20mm',
@@ -5642,6 +5649,9 @@ function ReportDesigner() {
       setTemplateForm({
         name: template.name,
         description: template.description,
+        template_type: template.template_type || 'standard',
+        privacy_notice_enabled: template.privacy_notice_enabled || false,
+        privacy_notice_text: template.privacy_notice_text || 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
         paper_size: template.paper_size,
         orientation: template.orientation,
         margin_top: template.margin_top,
@@ -5673,6 +5683,9 @@ function ReportDesigner() {
       setTemplateForm({
         name: '',
         description: '',
+        template_type: 'standard',
+        privacy_notice_enabled: false,
+        privacy_notice_text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
         paper_size: 'A4',
         orientation: 'portrait',
         margin_top: '20mm',
@@ -5741,6 +5754,10 @@ function ReportDesigner() {
 
   const blockTypeLabels: Record<string, string> = {
     header: 'Topptekst',
+    privacy_notice: 'Personvernmerknad',
+    project_info: 'Prosjektinformasjon',
+    statistics: 'Statistikk',
+    time_log: 'Detaljert logg',
     section: 'Seksjon',
     text: 'Tekst',
     field: 'Rapportfelt',
@@ -5890,6 +5907,81 @@ function ReportDesigner() {
                   />
                 </div>
               </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label>Rapporttype</Label>
+                  <select
+                    value={templateForm.template_type || 'standard'}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      setTemplateForm({ 
+                        ...templateForm, 
+                        template_type: newType,
+                        privacy_notice_enabled: newType === 'miljoarbeider'
+                      });
+                    }}
+                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="standard">Standard</option>
+                    <option value="miljoarbeider">Miljøarbeider</option>
+                  </select>
+                </div>
+                <div className="space-y-2 flex items-end">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="privacy-notice"
+                      checked={templateForm.privacy_notice_enabled || false}
+                      onChange={(e) => setTemplateForm({ ...templateForm, privacy_notice_enabled: e.target.checked })}
+                      className="h-4 w-4 rounded border"
+                    />
+                    <Label htmlFor="privacy-notice">Inkluder personvernmerknad</Label>
+                  </div>
+                </div>
+              </div>
+
+              {templateForm.template_type === 'miljoarbeider' && (
+                <Alert className="border-warning bg-warning/10">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <AlertTitle className="text-warning">GDPR Personvernkrav</AlertTitle>
+                  <AlertDescription className="text-sm space-y-2">
+                    <p>Rapporter for miljøarbeidere skal ikke inneholde personidentifiserbar informasjon.</p>
+                    <div className="grid md:grid-cols-2 gap-4 mt-2">
+                      <div>
+                        <p className="font-medium text-destructive">Ikke bruk:</p>
+                        <ul className="text-xs list-disc ml-4 mt-1 space-y-0.5">
+                          <li>Navn på klienter</li>
+                          <li>Fødselsdato eller eksakt alder</li>
+                          <li>Adresser eller spesifikke steder</li>
+                          <li>Unike detaljer som kan identifisere</li>
+                        </ul>
+                      </div>
+                      <div>
+                        <p className="font-medium text-success">Bruk i stedet:</p>
+                        <ul className="text-xs list-disc ml-4 mt-1 space-y-0.5">
+                          <li>"Gutten" / "Jenta" / "Brukeren"</li>
+                          <li>"Ungdom" / "Ung person"</li>
+                          <li>Generelle beskrivelser</li>
+                          <li>"Møte med ungdom om hverdagsmestring"</li>
+                        </ul>
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {templateForm.privacy_notice_enabled && (
+                <div className="space-y-2">
+                  <Label>Personvernmerknad (vises øverst i rapporten)</Label>
+                  <Textarea
+                    value={templateForm.privacy_notice_text || ''}
+                    onChange={(e) => setTemplateForm({ ...templateForm, privacy_notice_text: e.target.value })}
+                    placeholder="PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon..."
+                    rows={3}
+                  />
+                </div>
+              )}
 
               <div className="grid gap-4 md:grid-cols-4">
                 <div className="space-y-2">
