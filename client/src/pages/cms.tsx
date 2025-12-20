@@ -10,6 +10,9 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 function getAdminToken(): string | null {
   return sessionStorage.getItem('cms_admin_token');
@@ -114,6 +117,84 @@ interface LandingContent {
 }
 
 const iconOptions = ["Clock", "Users", "FileText", "Shield", "BarChart3", "Smartphone", "Settings", "Star", "Heart", "Zap"];
+
+function ImageUploader({ 
+  value, 
+  onChange, 
+  label,
+  placeholder = "https://eksempel.no/bilde.jpg"
+}: { 
+  value: string; 
+  onChange: (url: string) => void; 
+  label: string;
+  placeholder?: string;
+}) {
+  const { toast } = useToast();
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useState<HTMLInputElement | null>(null);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setIsUploading(true);
+    try {
+      const token = getAdminToken();
+      const response = await fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await response.json();
+      if (data.url) {
+        onChange(data.url);
+        toast({ title: "Lastet opp", description: "Bildet er lastet opp." });
+      } else {
+        toast({ title: "Feil", description: data.error || "Kunne ikke laste opp bilde.", variant: "destructive" });
+      }
+    } catch (err) {
+      toast({ title: "Feil", description: "Opplasting feilet.", variant: "destructive" });
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label>{label}</Label>
+      <div className="flex gap-2">
+        <Input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          className="flex-1"
+        />
+        <label className="cursor-pointer" data-testid="button-upload-image">
+          <input
+            type="file"
+            accept="image/*"
+            onChange={handleFileChange}
+            className="hidden"
+            data-testid="input-file-upload"
+          />
+          <Button type="button" variant="outline" size="icon" disabled={isUploading} asChild>
+            <span>
+              {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+            </span>
+          </Button>
+        </label>
+      </div>
+      {value && (
+        <div className="mt-2 p-2 border rounded-lg bg-muted/50 inline-block">
+          <img src={value} alt="Forhåndsvisning" className="h-12 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CMSPage() {
   const { toast } = useToast();
@@ -430,10 +511,104 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
   );
 }
 
+function SortableFeatureItem({ 
+  feature, 
+  index, 
+  editingFeature, 
+  setEditingFeature, 
+  updateMutation, 
+  deleteMutation 
+}: { 
+  feature: LandingFeature; 
+  index: number;
+  editingFeature: LandingFeature | null;
+  setEditingFeature: (f: LandingFeature | null) => void;
+  updateMutation: any;
+  deleteMutation: any;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: feature.id });
+  
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div 
+      ref={setNodeRef} 
+      style={style} 
+      className="flex items-center gap-4 p-4 border rounded-lg bg-background" 
+      data-testid={`feature-item-${index}`}
+    >
+      <div {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
+        <GripVertical className="h-4 w-4 text-muted-foreground" />
+      </div>
+      {editingFeature?.id === feature.id ? (
+        <div className="flex-1 grid md:grid-cols-4 gap-4 items-end">
+          <select
+            className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
+            value={editingFeature.icon}
+            onChange={(e) => setEditingFeature({ ...editingFeature, icon: e.target.value })}
+          >
+            {iconOptions.map((icon) => (
+              <option key={icon} value={icon}>{icon}</option>
+            ))}
+          </select>
+          <Input
+            value={editingFeature.title}
+            onChange={(e) => setEditingFeature({ ...editingFeature, title: e.target.value })}
+          />
+          <Input
+            value={editingFeature.description}
+            onChange={(e) => setEditingFeature({ ...editingFeature, description: e.target.value })}
+          />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => updateMutation.mutate(editingFeature)}>
+              Lagre
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setEditingFeature(null)}>
+              Avbryt
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="flex-1">
+            <p className="font-medium">{feature.title}</p>
+            <p className="text-sm text-muted-foreground">{feature.description}</p>
+          </div>
+          <Button size="sm" variant="outline" onClick={() => setEditingFeature(feature)} data-testid={`button-edit-feature-${index}`}>
+            Rediger
+          </Button>
+          <Button
+            size="sm"
+            variant="destructive"
+            onClick={() => deleteMutation.mutate(feature.id)}
+            data-testid={`button-delete-feature-${index}`}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function FeaturesEditor({ features }: { features: LandingFeature[] }) {
   const { toast } = useToast();
   const [editingFeature, setEditingFeature] = useState<LandingFeature | null>(null);
   const [newFeature, setNewFeature] = useState({ icon: "Clock", title: "", description: "", display_order: features.length });
+  const [localFeatures, setLocalFeatures] = useState(features);
+
+  useEffect(() => {
+    setLocalFeatures(features);
+  }, [features]);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
 
   const createMutation = useMutation({
     mutationFn: async (data: typeof newFeature) => {
@@ -466,6 +641,30 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
       toast({ title: "Slettet", description: "Funksjonen er fjernet." });
     },
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: number[]) => {
+      return authenticatedApiRequest('/api/cms/features/reorder', { 
+        method: 'POST', 
+        body: JSON.stringify({ orderedIds }) 
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Rekkefølge lagret", description: "Funksjonene er omorganisert." });
+    },
+  });
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = localFeatures.findIndex((f) => f.id === active.id);
+      const newIndex = localFeatures.findIndex((f) => f.id === over.id);
+      const newOrder = arrayMove(localFeatures, oldIndex, newIndex);
+      setLocalFeatures(newOrder);
+      reorderMutation.mutate(newOrder.map((f) => f.id));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -521,66 +720,29 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
       <Card>
         <CardHeader>
           <CardTitle>Eksisterende funksjoner</CardTitle>
-          <CardDescription>Rediger eller slett funksjoner som vises på landingssiden.</CardDescription>
+          <CardDescription>Dra og slipp for å endre rekkefølge. Rediger eller slett funksjoner.</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-4">
-            {features.map((feature, index) => (
-              <div key={feature.id} className="flex items-center gap-4 p-4 border rounded-lg" data-testid={`feature-item-${index}`}>
-                <GripVertical className="h-4 w-4 text-muted-foreground" />
-                {editingFeature?.id === feature.id ? (
-                  <div className="flex-1 grid md:grid-cols-4 gap-4 items-end">
-                    <select
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm"
-                      value={editingFeature.icon}
-                      onChange={(e) => setEditingFeature({ ...editingFeature, icon: e.target.value })}
-                    >
-                      {iconOptions.map((icon) => (
-                        <option key={icon} value={icon}>{icon}</option>
-                      ))}
-                    </select>
-                    <Input
-                      value={editingFeature.title}
-                      onChange={(e) => setEditingFeature({ ...editingFeature, title: e.target.value })}
-                    />
-                    <Input
-                      value={editingFeature.description}
-                      onChange={(e) => setEditingFeature({ ...editingFeature, description: e.target.value })}
-                    />
-                    <div className="flex gap-2">
-                      <Button size="sm" onClick={() => updateMutation.mutate(editingFeature)}>
-                        Lagre
-                      </Button>
-                      <Button size="sm" variant="outline" onClick={() => setEditingFeature(null)}>
-                        Avbryt
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex-1">
-                      <p className="font-medium">{feature.title}</p>
-                      <p className="text-sm text-muted-foreground">{feature.description}</p>
-                    </div>
-                    <Button size="sm" variant="outline" onClick={() => setEditingFeature(feature)} data-testid={`button-edit-feature-${index}`}>
-                      Rediger
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => deleteMutation.mutate(feature.id)}
-                      data-testid={`button-delete-feature-${index}`}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </>
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={localFeatures.map((f) => f.id)} strategy={verticalListSortingStrategy}>
+              <div className="space-y-4">
+                {localFeatures.map((feature, index) => (
+                  <SortableFeatureItem
+                    key={feature.id}
+                    feature={feature}
+                    index={index}
+                    editingFeature={editingFeature}
+                    setEditingFeature={setEditingFeature}
+                    updateMutation={updateMutation}
+                    deleteMutation={deleteMutation}
+                  />
+                ))}
+                {localFeatures.length === 0 && (
+                  <p className="text-center text-muted-foreground py-8">Ingen funksjoner lagt til ennå.</p>
                 )}
               </div>
-            ))}
-            {features.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">Ingen funksjoner lagt til ennå.</p>
-            )}
-          </div>
+            </SortableContext>
+          </DndContext>
         </CardContent>
       </Card>
     </div>
