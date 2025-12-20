@@ -1005,6 +1005,26 @@ export function registerSmartTimingRoutes(app: Express) {
           textual_feedback TEXT,
           submitted_at TIMESTAMP DEFAULT NOW()
         );
+        
+        CREATE TABLE IF NOT EXISTS vendors (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          slug TEXT UNIQUE,
+          email TEXT,
+          phone TEXT,
+          address TEXT,
+          logo_url TEXT,
+          status TEXT DEFAULT 'active',
+          settings JSONB DEFAULT '{}',
+          max_users INTEGER DEFAULT 50,
+          subscription_plan TEXT DEFAULT 'standard',
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          api_access_enabled BOOLEAN DEFAULT FALSE,
+          api_subscription_start TIMESTAMP,
+          api_subscription_end TIMESTAMP,
+          api_monthly_price DECIMAL(10,2) DEFAULT 99.00
+        );
       `);
       
       // Also create admin_users table if not exists
