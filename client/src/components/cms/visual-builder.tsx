@@ -828,6 +828,66 @@ function PropertiesPanel() {
   const [localData, setLocalData] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'content' | 'style' | 'seo'>('content');
 
+  const updateHero = useMutation({
+    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/hero', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Lagret", description: "Hero er oppdatert." });
+      setHasChanges(false);
+    },
+  });
+
+  const updateFeature = useMutation({
+    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/features/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Lagret", description: "Funksjon er oppdatert." });
+      setHasChanges(false);
+    },
+  });
+
+  const updateTestimonial = useMutation({
+    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/testimonials/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Lagret", description: "Referanse er oppdatert." });
+      setHasChanges(false);
+    },
+  });
+
+  const updatePartner = useMutation({
+    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/partners/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Lagret", description: "Partner er oppdatert." });
+      setHasChanges(false);
+    },
+  });
+
+  const updateSections = useMutation({
+    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/sections', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Lagret", description: "Seksjon er oppdatert." });
+      setHasChanges(false);
+    },
+  });
+
   useEffect(() => {
     if (!selectedElement) {
       setLocalData(null);
@@ -918,66 +978,6 @@ function PropertiesPanel() {
       </div>
     );
   }
-
-  const updateHero = useMutation({
-    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/hero', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      toast({ title: "Lagret", description: "Hero er oppdatert." });
-      setHasChanges(false);
-    },
-  });
-
-  const updateFeature = useMutation({
-    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/features/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      toast({ title: "Lagret", description: "Funksjon er oppdatert." });
-      setHasChanges(false);
-    },
-  });
-
-  const updateTestimonial = useMutation({
-    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/testimonials/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      toast({ title: "Lagret", description: "Referanse er oppdatert." });
-      setHasChanges(false);
-    },
-  });
-
-  const updatePartner = useMutation({
-    mutationFn: ({ id, ...data }: any) => authenticatedApiRequest(`/api/cms/partners/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      toast({ title: "Lagret", description: "Partner er oppdatert." });
-      setHasChanges(false);
-    },
-  });
-
-  const updateSections = useMutation({
-    mutationFn: (data: any) => authenticatedApiRequest('/api/cms/sections', {
-      method: 'PUT',
-      body: JSON.stringify(data),
-    }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
-      toast({ title: "Lagret", description: "Seksjon er oppdatert." });
-      setHasChanges(false);
-    },
-  });
 
   const handleChange = (field: string, value: any) => {
     const oldData = { ...localData };
