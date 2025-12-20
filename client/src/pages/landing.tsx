@@ -63,7 +63,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { useTheme } from "@/components/theme-provider";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Skeleton } from "@/components/ui/skeleton";
-import logoUrl from "@assets/Logo-ST_1766202609878.png";
+import { HangingPocketWatch } from "@/components/hanging-pocket-watch";
 import {
   Dialog,
   DialogContent,
@@ -948,15 +948,11 @@ export default function LandingPage() {
           hero.layout === 'left' ? 'text-left' : 
           hero.layout === 'right' ? 'text-right' : 'text-center'
         }`}>
-          <div className={`flex items-center gap-2 mb-6 ${
+          <div className={`flex items-center gap-2 mb-8 ${
             hero.layout === 'left' ? 'justify-start' : 
             hero.layout === 'right' ? 'justify-end' : 'justify-center'
           }`}>
-            <img 
-              src={logoUrl} 
-              alt="Smart Timing" 
-              className="w-20 h-20 object-contain"
-            />
+            <HangingPocketWatch size="xl" animate={true} />
           </div>
           
           {isLoading ? (
