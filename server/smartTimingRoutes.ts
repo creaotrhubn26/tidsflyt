@@ -516,7 +516,47 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
       `);
+      
+      // Also create admin_users table if not exists
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS admin_users (
+          id SERIAL PRIMARY KEY,
+          username TEXT NOT NULL UNIQUE,
+          email TEXT NOT NULL UNIQUE,
+          password_hash TEXT NOT NULL,
+          role TEXT DEFAULT 'admin',
+          is_active BOOLEAN DEFAULT TRUE,
+          last_login TIMESTAMP,
+          created_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+      
+      // Create default admin if none exists, or reset password if exists
+      const adminCheck = await pool.query('SELECT COUNT(*) FROM admin_users WHERE username = $1', ['admin']);
+      const passwordHash = await bcrypt.hash('admin123', 10);
+      if (parseInt(adminCheck.rows[0].count) === 0) {
+        await pool.query(
+          `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
+          ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
+        );
+      } else {
+        await pool.query(
+          `UPDATE admin_users SET password_hash = $1 WHERE username = $2`,
+          [passwordHash, 'admin']
+        );
+      }
+      
       res.json({ success: true, message: 'CMS tables created successfully' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: CLEAR TESTIMONIALS ==========
+  app.post("/api/cms/clear-testimonials", async (req, res) => {
+    try {
+      await pool.query('DELETE FROM landing_testimonials WHERE 1=1');
+      res.json({ success: true, message: 'All testimonials deleted' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -557,13 +597,7 @@ export function registerSmartTimingRoutes(app: Express) {
         ('Smartphone', 'Mobilvennlig', 'Responsivt design som fungerer perfekt på alle enheter. Registrer timer hvor som helst.', 5)
       `);
 
-      // Seed Testimonials
-      await pool.query(`
-        INSERT INTO landing_testimonials (quote, name, role, display_order) VALUES
-        ('Smart Timing har forenklet vår timeføring betydelig. Vi sparer mye tid hver måned.', 'Erik Hansen', 'Daglig leder, Konsulentselskap AS', 0),
-        ('Rapporteringsfunksjonene er utmerkede. Vi får full oversikt over alle prosjekter.', 'Maria Olsen', 'Prosjektleder, IT Solutions', 1),
-        ('Enkel å ta i bruk og god kundeservice. Anbefales på det sterkeste!', 'Anders Berg', 'Økonomisjef, Bygg & Anlegg', 2)
-      `);
+      // Note: Testimonials are NOT seeded - admin must add them via CMS for them to appear
 
       // Seed CTA/Sections
       await pool.query(`
