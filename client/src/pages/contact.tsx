@@ -45,14 +45,36 @@ export default function Contact() {
     e.preventDefault();
     setIsSubmitting(true);
     
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    try {
+      const response = await fetch('/api/contact', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+      
+      const result = await response.json();
+      
+      if (response.ok) {
+        toast({
+          title: "Melding sendt",
+          description: "Vi har mottatt din melding og vil svare så snart som mulig."
+        });
+        setFormData({ name: "", email: "", subject: "", message: "" });
+      } else {
+        toast({
+          title: "Feil",
+          description: result.error || "Kunne ikke sende melding. Prøv igjen.",
+          variant: "destructive"
+        });
+      }
+    } catch (error) {
+      toast({
+        title: "Feil",
+        description: "Kunne ikke sende melding. Prøv igjen senere.",
+        variant: "destructive"
+      });
+    }
     
-    toast({
-      title: "Melding sendt",
-      description: "Vi har mottatt din melding og vil svare så snart som mulig."
-    });
-    
-    setFormData({ name: "", email: "", subject: "", message: "" });
     setIsSubmitting(false);
   };
 

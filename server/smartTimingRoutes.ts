@@ -3672,6 +3672,82 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // ============================================
+  // Contact Form Submission
+  // ============================================
+
+  app.post("/api/contact", async (req, res) => {
+    try {
+      const { name, email, subject, message } = req.body;
+      
+      if (!name || !email || !subject || !message) {
+        return res.status(400).json({ error: 'Alle felt må fylles ut' });
+      }
+
+      const nodemailer = await import('nodemailer');
+      const transporter = nodemailer.createTransport({
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        auth: {
+          user: process.env.GMAIL_USER || 'noreply@tidsflyt.no',
+          pass: process.env.GMAIL_APP_PASSWORD,
+        },
+      });
+
+      const recipientEmail = 'daniel@creatorhubn.com';
+      
+      await transporter.sendMail({
+        from: `"Tidsflyt Kontaktskjema" <${process.env.GMAIL_USER || 'noreply@tidsflyt.no'}>`,
+        to: recipientEmail,
+        replyTo: email,
+        subject: `Kontaktskjema: ${subject}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #1e3a5f;">Ny melding fra kontaktskjemaet</h2>
+            <table style="width: 100%; border-collapse: collapse;">
+              <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Navn:</strong></td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">${name}</td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>E-post:</strong></td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;"><a href="mailto:${email}">${email}</a></td>
+              </tr>
+              <tr>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;"><strong>Emne:</strong></td>
+                <td style="padding: 10px; border-bottom: 1px solid #eee;">${subject}</td>
+              </tr>
+            </table>
+            <div style="margin-top: 20px; padding: 15px; background: #f5f5f5; border-radius: 5px;">
+              <strong>Melding:</strong>
+              <p style="white-space: pre-wrap;">${message}</p>
+            </div>
+            <p style="margin-top: 20px; color: #666; font-size: 12px;">
+              Denne meldingen ble sendt via kontaktskjemaet på tidsflyt.no
+            </p>
+          </div>
+        `,
+        text: `Ny melding fra kontaktskjemaet\n\nNavn: ${name}\nE-post: ${email}\nEmne: ${subject}\n\nMelding:\n${message}`,
+      });
+
+      // Store in database for records
+      try {
+        await pool.query(
+          `INSERT INTO cms_contact_submissions (name, email, subject, message, created_at) VALUES ($1, $2, $3, $4, NOW())`,
+          [name, email, subject, message]
+        );
+      } catch (dbErr) {
+        console.log('Contact submission saved to email but not database');
+      }
+
+      res.json({ success: true, message: 'Melding sendt' });
+    } catch (err: any) {
+      console.error('Contact form error:', err);
+      res.status(500).json({ error: 'Kunne ikke sende melding. Prøv igjen senere.' });
+    }
+  });
+
+  // ============================================
   // Email Sending API
   // ============================================
 
