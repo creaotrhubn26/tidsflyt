@@ -37,7 +37,7 @@ export default function Contact() {
     subtitle: "Har du spørsmål? Vi hjelper deg gjerne.",
     content: "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
     email: "kontakt@tidsflyt.no",
-    phone: "+47 22 33 44 55",
+    phone: "+47 97 95 92 94",
     address: "Oslo, Norge"
   };
 
