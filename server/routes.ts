@@ -91,11 +91,18 @@ export async function registerRoutes(
       });
     }
 
-    // Super admin can access all vendors (vendorId will be from query/param)
+    // Super admin can access all vendors (vendorId from query/body/param)
     // Vendor admin can only access their own vendor
     if (user.role === 'super_admin') {
-      req.vendorId = null; // Super admin flag
       req.isSuperAdmin = true;
+      // Super admin can target a specific vendor via query, body, or params
+      const targetVendorId = parseInt(req.query.vendorId || req.body?.vendorId || req.params?.vendorId);
+      if (targetVendorId && !isNaN(targetVendorId)) {
+        req.vendorId = targetVendorId;
+      } else {
+        // For routes that need a vendorId, super admin must provide one
+        req.vendorId = null;
+      }
     } else {
       if (!user.vendorId) {
         return res.status(403).json({ 
@@ -110,6 +117,20 @@ export async function registerRoutes(
     req.userId = userId;
     req.userRole = user.role;
     next();
+  };
+
+  // Helper to get effective vendorId (for routes that require it)
+  const getEffectiveVendorId = (req: any, res: any): number | null => {
+    if (req.vendorId) return req.vendorId;
+    if (req.isSuperAdmin) {
+      // Super admin must specify vendorId for vendor-specific routes
+      res.status(400).json({ 
+        error: "Bad Request", 
+        message: "Super admin must specify vendorId in query parameter." 
+      });
+      return null;
+    }
+    return req.vendorId;
   };
 
   // Middleware to require super admin role
@@ -128,7 +149,9 @@ export async function registerRoutes(
   // Vendor API management routes (for admin UI)
   app.get("/api/vendor/api-status", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = req.vendorId;
+      const vendorId = getEffectiveVendorId(req, res);
+      if (vendorId === null) return; // Response already sent
+      
       const [vendor] = await db
         .select({
           apiAccessEnabled: vendors.apiAccessEnabled,
@@ -153,7 +176,9 @@ export async function registerRoutes(
 
   app.get("/api/vendor/api-keys", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = req.vendorId;
+      const vendorId = getEffectiveVendorId(req, res);
+      if (vendorId === null) return;
+      
       const keys = await db
         .select()
         .from(apiKeys)
@@ -166,7 +191,9 @@ export async function registerRoutes(
 
   app.post("/api/vendor/api-keys", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = req.vendorId;
+      const vendorId = getEffectiveVendorId(req, res);
+      if (vendorId === null) return;
+      
       const { name, permissions } = req.body;
       
       if (!name) {
@@ -193,10 +220,12 @@ export async function registerRoutes(
 
   app.delete("/api/vendor/api-keys/:id", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = req.vendorId;
+      const vendorId = getEffectiveVendorId(req, res);
+      if (vendorId === null) return;
+      
       const keyId = parseInt(req.params.id);
       
-      // Verify the key belongs to this vendor before deleting
+      // Verify the key belongs to this vendor before deleting (or super admin can delete any)
       const [existingKey] = await db
         .select()
         .from(apiKeys)
@@ -220,7 +249,9 @@ export async function registerRoutes(
 
   app.post("/api/vendor/enable-api", requireVendorAuth, async (req: any, res) => {
     try {
-      const vendorId = req.vendorId;
+      const vendorId = getEffectiveVendorId(req, res);
+      if (vendorId === null) return;
+      
       const now = new Date();
       const oneYearFromNow = new Date();
       oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
