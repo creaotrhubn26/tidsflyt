@@ -514,8 +514,31 @@ export function registerSmartTimingRoutes(app: Express) {
           contact_phone TEXT,
           contact_address TEXT,
           footer_copyright TEXT,
+          partners_title TEXT,
+          partners_subtitle TEXT,
           is_active BOOLEAN DEFAULT TRUE,
           updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS landing_partners (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          logo_url TEXT NOT NULL,
+          website_url TEXT,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS cms_activity_log (
+          id SERIAL PRIMARY KEY,
+          admin_id INTEGER REFERENCES admin_users(id),
+          action TEXT NOT NULL,
+          entity_type TEXT NOT NULL,
+          entity_id INTEGER,
+          details TEXT,
+          created_at TIMESTAMP DEFAULT NOW()
         );
       `);
       
@@ -811,6 +834,71 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: PARTNERS ==========
+  app.get("/api/cms/partners", async (req, res) => {
+    try {
+      const result = await pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order');
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/partners", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, logo_url, website_url, display_order } = req.body;
+      const result = await pool.query(
+        `INSERT INTO landing_partners (name, logo_url, website_url, display_order)
+         VALUES ($1, $2, $3, $4) RETURNING *`,
+        [name, logo_url, website_url || null, display_order || 0]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/partners/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { name, logo_url, website_url, display_order, is_active } = req.body;
+      const result = await pool.query(
+        `UPDATE landing_partners SET name = $1, logo_url = $2, website_url = $3, display_order = $4, is_active = $5, updated_at = NOW()
+         WHERE id = $6 RETURNING *`,
+        [name, logo_url, website_url || null, display_order, is_active ?? true, id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Partner not found' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/partners/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM landing_partners WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== CMS: ACTIVITY LOG ==========
+  app.get("/api/cms/activity-log", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query(`
+        SELECT cal.*, au.username as admin_username 
+        FROM cms_activity_log cal
+        LEFT JOIN admin_users au ON cal.admin_id = au.id
+        ORDER BY cal.created_at DESC
+        LIMIT 100
+      `);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: LANDING CTA/SECTIONS ==========
   app.get("/api/cms/sections", async (req, res) => {
     try {
@@ -866,11 +954,12 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: GET ALL LANDING CONTENT ==========
   app.get("/api/cms/landing", async (req, res) => {
     try {
-      const [heroResult, featuresResult, testimonialsResult, sectionsResult] = await Promise.all([
+      const [heroResult, featuresResult, testimonialsResult, sectionsResult, partnersResult] = await Promise.all([
         pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1'),
         pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
       ]);
       
       res.json({
@@ -878,6 +967,7 @@ export function registerSmartTimingRoutes(app: Express) {
         features: featuresResult.rows,
         testimonials: testimonialsResult.rows,
         sections: sectionsResult.rows[0] || null,
+        partners: partnersResult.rows,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

@@ -8,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Save, Plus, Trash2, GripVertical, Lock } from "lucide-react";
+import { Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 function getAdminToken(): string | null {
   return sessionStorage.getItem('cms_admin_token');
@@ -80,6 +81,28 @@ interface LandingSections {
   contact_phone: string | null;
   contact_address: string | null;
   footer_copyright: string | null;
+  partners_title: string | null;
+  partners_subtitle: string | null;
+}
+
+interface LandingPartner {
+  id: number;
+  name: string;
+  logo_url: string;
+  website_url: string | null;
+  display_order: number;
+  is_active: boolean;
+}
+
+interface ActivityLogEntry {
+  id: number;
+  admin_id: number;
+  admin_username: string;
+  action: string;
+  entity_type: string;
+  entity_id: number | null;
+  details: string | null;
+  created_at: string;
 }
 
 interface LandingContent {
@@ -87,6 +110,7 @@ interface LandingContent {
   features: LandingFeature[];
   testimonials: LandingTestimonial[];
   sections: LandingSections | null;
+  partners: LandingPartner[];
 }
 
 const iconOptions = ["Clock", "Users", "FileText", "Shield", "BarChart3", "Smartphone", "Settings", "Star", "Heart", "Zap"];
@@ -205,17 +229,45 @@ export default function CMSPage() {
             Rediger innholdet på landingssiden og andre sider i applikasjonen.
           </p>
         </div>
-        <Button variant="outline" onClick={handleLogout} data-testid="button-cms-logout">
-          Logg ut
-        </Button>
+        <div className="flex items-center gap-2">
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button variant="outline" data-testid="button-preview">
+                <Eye className="h-4 w-4 mr-2" />
+                Forhåndsvisning
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-6xl h-[80vh]">
+              <DialogHeader>
+                <DialogTitle>Forhåndsvisning av landingssiden</DialogTitle>
+              </DialogHeader>
+              <div className="flex-1 overflow-hidden rounded-lg border">
+                <iframe 
+                  src="/" 
+                  className="w-full h-full min-h-[60vh]"
+                  title="Forhåndsvisning"
+                />
+              </div>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" onClick={() => window.open('/', '_blank')} data-testid="button-open-site">
+            <ExternalLink className="h-4 w-4 mr-2" />
+            Åpne nettside
+          </Button>
+          <Button variant="outline" onClick={handleLogout} data-testid="button-cms-logout">
+            Logg ut
+          </Button>
+        </div>
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="grid w-full grid-cols-4 mb-6" data-testid="cms-tabs">
+        <TabsList className="grid w-full grid-cols-6 mb-6" data-testid="cms-tabs">
           <TabsTrigger value="hero" data-testid="tab-hero">Hero</TabsTrigger>
           <TabsTrigger value="features" data-testid="tab-features">Funksjoner</TabsTrigger>
           <TabsTrigger value="testimonials" data-testid="tab-testimonials">Referanser</TabsTrigger>
+          <TabsTrigger value="partners" data-testid="tab-partners">Partnere</TabsTrigger>
           <TabsTrigger value="sections" data-testid="tab-sections">Seksjoner</TabsTrigger>
+          <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
         </TabsList>
 
         <TabsContent value="hero">
@@ -230,8 +282,16 @@ export default function CMSPage() {
           <TestimonialsEditor testimonials={content?.testimonials || []} />
         </TabsContent>
 
+        <TabsContent value="partners">
+          <PartnersEditor partners={content?.partners || []} />
+        </TabsContent>
+
         <TabsContent value="sections">
           <SectionsEditor sections={content?.sections || null} />
+        </TabsContent>
+
+        <TabsContent value="activity">
+          <ActivityLogViewer />
         </TabsContent>
       </Tabs>
     </div>
@@ -924,5 +984,252 @@ function SectionsEditor({ sections }: { sections: LandingSections | null }) {
         Lagre alle seksjoner
       </Button>
     </form>
+  );
+}
+
+function PartnersEditor({ partners }: { partners: LandingPartner[] }) {
+  const { toast } = useToast();
+  const [editingPartner, setEditingPartner] = useState<LandingPartner | null>(null);
+  const [newPartner, setNewPartner] = useState({ name: "", logo_url: "", website_url: "", display_order: partners.length });
+
+  const createMutation = useMutation({
+    mutationFn: async (data: typeof newPartner) => {
+      return authenticatedApiRequest('/api/cms/partners', { method: 'POST', body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      setNewPartner({ name: "", logo_url: "", website_url: "", display_order: partners.length + 1 });
+      toast({ title: "Lagt til", description: "Ny partner er opprettet." });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: LandingPartner) => {
+      return authenticatedApiRequest(`/api/cms/partners/${data.id}`, { method: 'PUT', body: JSON.stringify(data) });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      setEditingPartner(null);
+      toast({ title: "Lagret", description: "Partneren er oppdatert." });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/partners/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      toast({ title: "Slettet", description: "Partneren er fjernet." });
+    },
+  });
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>Legg til ny partner</CardTitle>
+          <CardDescription>Legg til bedriftslogoer som vises på landingssiden</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Bedriftsnavn</Label>
+                <Input
+                  value={newPartner.name}
+                  onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })}
+                  placeholder="Bedriftsnavn AS"
+                  data-testid="input-new-partner-name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Nettside URL (valgfritt)</Label>
+                <Input
+                  value={newPartner.website_url}
+                  onChange={(e) => setNewPartner({ ...newPartner, website_url: e.target.value })}
+                  placeholder="https://bedrift.no"
+                  data-testid="input-new-partner-website"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label>Logo URL</Label>
+              <Input
+                value={newPartner.logo_url}
+                onChange={(e) => setNewPartner({ ...newPartner, logo_url: e.target.value })}
+                placeholder="https://eksempel.no/logo.png"
+                data-testid="input-new-partner-logo"
+              />
+              {newPartner.logo_url && (
+                <div className="mt-2 p-4 border rounded-lg bg-muted/50">
+                  <p className="text-sm text-muted-foreground mb-2">Forhåndsvisning:</p>
+                  <img src={newPartner.logo_url} alt="Logo forhåndsvisning" className="h-12 object-contain" />
+                </div>
+              )}
+            </div>
+            <Button
+              onClick={() => createMutation.mutate(newPartner)}
+              disabled={!newPartner.name || !newPartner.logo_url || createMutation.isPending}
+              data-testid="button-add-partner"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Legg til partner
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Eksisterende partnere</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {partners.map((partner, index) => (
+              <div key={partner.id} className="p-4 border rounded-lg" data-testid={`partner-item-${index}`}>
+                {editingPartner?.id === partner.id ? (
+                  <div className="space-y-3">
+                    <Input
+                      value={editingPartner.name}
+                      onChange={(e) => setEditingPartner({ ...editingPartner, name: e.target.value })}
+                      placeholder="Bedriftsnavn"
+                    />
+                    <Input
+                      value={editingPartner.logo_url}
+                      onChange={(e) => setEditingPartner({ ...editingPartner, logo_url: e.target.value })}
+                      placeholder="Logo URL"
+                    />
+                    <Input
+                      value={editingPartner.website_url || ""}
+                      onChange={(e) => setEditingPartner({ ...editingPartner, website_url: e.target.value })}
+                      placeholder="Nettside URL"
+                    />
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => updateMutation.mutate(editingPartner)}>
+                        Lagre
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={() => setEditingPartner(null)}>
+                        Avbryt
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="h-16 flex items-center justify-center bg-muted/50 rounded-lg">
+                      <img src={partner.logo_url} alt={partner.name} className="h-10 object-contain" />
+                    </div>
+                    <div>
+                      <p className="font-medium">{partner.name}</p>
+                      {partner.website_url && (
+                        <a href={partner.website_url} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline">
+                          {partner.website_url}
+                        </a>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" variant="outline" onClick={() => setEditingPartner(partner)} data-testid={`button-edit-partner-${index}`}>
+                        Rediger
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => deleteMutation.mutate(partner.id)}
+                        data-testid={`button-delete-partner-${index}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+            {partners.length === 0 && (
+              <p className="text-center text-muted-foreground py-8 col-span-full">Ingen partnere lagt til ennå.</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function ActivityLogViewer() {
+  const { data: activityLog, isLoading } = useQuery<ActivityLogEntry[]>({
+    queryKey: ['/api/cms/activity-log'],
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleString('nb-NO', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const getActionLabel = (action: string) => {
+    const labels: Record<string, string> = {
+      create: 'Opprettet',
+      update: 'Oppdatert',
+      delete: 'Slettet',
+    };
+    return labels[action] || action;
+  };
+
+  const getEntityLabel = (entityType: string) => {
+    const labels: Record<string, string> = {
+      hero: 'Hero-seksjon',
+      feature: 'Funksjon',
+      testimonial: 'Referanse',
+      partner: 'Partner',
+      section: 'Seksjon',
+    };
+    return labels[entityType] || entityType;
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Aktivitetslogg</CardTitle>
+        <CardDescription>Se hvem som har gjort endringer i CMS</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {activityLog && activityLog.length > 0 ? (
+          <div className="space-y-3">
+            {activityLog.map((entry) => (
+              <div key={entry.id} className="flex items-start gap-4 p-3 border rounded-lg" data-testid={`activity-entry-${entry.id}`}>
+                <div className="flex-1">
+                  <p className="font-medium">
+                    <span className="text-primary">{entry.admin_username || 'Ukjent'}</span>
+                    {' '}{getActionLabel(entry.action)}{' '}
+                    {getEntityLabel(entry.entity_type)}
+                    {entry.entity_id && ` #${entry.entity_id}`}
+                  </p>
+                  {entry.details && (
+                    <p className="text-sm text-muted-foreground mt-1">{entry.details}</p>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground whitespace-nowrap">
+                  {formatDate(entry.created_at)}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-center text-muted-foreground py-8">Ingen aktivitet registrert ennå.</p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

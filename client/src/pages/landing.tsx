@@ -80,6 +80,16 @@ interface LandingSections {
   contact_phone: string | null;
   contact_address: string | null;
   footer_copyright: string | null;
+  partners_title: string | null;
+  partners_subtitle: string | null;
+}
+
+interface LandingPartner {
+  id: number;
+  name: string;
+  logo_url: string;
+  website_url: string | null;
+  display_order: number;
 }
 
 interface LandingContent {
@@ -87,6 +97,7 @@ interface LandingContent {
   features: LandingFeature[];
   testimonials: LandingTestimonial[];
   sections: LandingSections | null;
+  partners: LandingPartner[];
 }
 
 const iconMap: Record<string, LucideIcon> = {
@@ -181,6 +192,8 @@ export default function LandingPage() {
   const features = content?.features?.length ? content.features : defaultFeatures;
   const testimonials = content?.testimonials || [];
   const hasTestimonials = testimonials.length > 0;
+  const partners = content?.partners || [];
+  const hasPartners = partners.length > 0;
   const sections = content?.sections || defaultSections;
 
   const newUserForm = useForm<NewUserFormData>({
@@ -722,8 +735,36 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {hasPartners && (
+        <section id="partners" className="py-16 bg-muted/30">
+          <div className="container mx-auto px-4">
+            <div className="text-center mb-12">
+              <h2 className="text-2xl md:text-3xl font-bold mb-3" data-testid="partners-title">
+                {sections.partners_title || "Våre partnere"}
+              </h2>
+              <p className="text-muted-foreground max-w-xl mx-auto">
+                {sections.partners_subtitle || "Stolt samarbeid med ledende norske bedrifter"}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
+              {partners.map((partner, index) => (
+                <div key={partner.id} className="grayscale hover:grayscale-0 transition-all duration-300" data-testid={`partner-logo-${index}`}>
+                  {partner.website_url ? (
+                    <a href={partner.website_url} target="_blank" rel="noopener noreferrer" title={partner.name}>
+                      <img src={partner.logo_url} alt={partner.name} className="h-10 md:h-12 object-contain" />
+                    </a>
+                  ) : (
+                    <img src={partner.logo_url} alt={partner.name} className="h-10 md:h-12 object-contain" title={partner.name} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
+
       {hasTestimonials && (
-        <section id="testimonials" className="py-20 bg-muted/30">
+        <section id="testimonials" className="py-20 bg-background">
           <div className="container mx-auto px-4">
             <div className="text-center mb-16">
               <h2 className="text-3xl md:text-4xl font-bold mb-4" data-testid="testimonials-title">
