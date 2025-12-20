@@ -456,6 +456,121 @@ export const insertDesignPresetSchema = createInsertSchema(designPresets).omit({
 // Content Versions Insert schema
 export const insertContentVersionSchema = createInsertSchema(contentVersions).omit({ id: true, createdAt: true });
 
+// GA4 Analytics Settings
+export const analyticsSettings = pgTable("analytics_settings", {
+  id: serial("id").primaryKey(),
+  ga4MeasurementId: text("ga4_measurement_id"),
+  ga4StreamId: text("ga4_stream_id"),
+  enableTracking: boolean("enable_tracking").default(false),
+  enablePageViews: boolean("enable_page_views").default(true),
+  enableEvents: boolean("enable_events").default(true),
+  enableConsentMode: boolean("enable_consent_mode").default(true),
+  cookieConsent: text("cookie_consent").default("required"),
+  excludedPaths: text("excluded_paths").array(),
+  customEvents: jsonb("custom_events"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAnalyticsSettingsSchema = createInsertSchema(analyticsSettings).omit({ id: true, updatedAt: true });
+
+// SEO Page Settings
+export const seoPages = pgTable("seo_pages", {
+  id: serial("id").primaryKey(),
+  pagePath: text("page_path").notNull().unique(),
+  title: text("title"),
+  metaDescription: text("meta_description"),
+  metaKeywords: text("meta_keywords"),
+  canonicalUrl: text("canonical_url"),
+  ogTitle: text("og_title"),
+  ogDescription: text("og_description"),
+  ogImage: text("og_image"),
+  ogType: text("og_type").default("website"),
+  twitterCard: text("twitter_card").default("summary_large_image"),
+  twitterTitle: text("twitter_title"),
+  twitterDescription: text("twitter_description"),
+  twitterImage: text("twitter_image"),
+  robotsIndex: boolean("robots_index").default(true),
+  robotsFollow: boolean("robots_follow").default(true),
+  structuredData: jsonb("structured_data"),
+  priority: real("priority").default(0.5),
+  changeFrequency: text("change_frequency").default("weekly"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSeoPageSchema = createInsertSchema(seoPages).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Global SEO Settings
+export const seoGlobalSettings = pgTable("seo_global_settings", {
+  id: serial("id").primaryKey(),
+  siteName: text("site_name"),
+  siteDescription: text("site_description"),
+  defaultOgImage: text("default_og_image"),
+  faviconUrl: text("favicon_url"),
+  googleVerification: text("google_verification"),
+  bingVerification: text("bing_verification"),
+  robotsTxt: text("robots_txt"),
+  sitemapEnabled: boolean("sitemap_enabled").default(true),
+  sitemapAutoGenerate: boolean("sitemap_auto_generate").default(true),
+  lastSitemapGenerated: timestamp("last_sitemap_generated"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSeoGlobalSettingsSchema = createInsertSchema(seoGlobalSettings).omit({ id: true, updatedAt: true });
+
+// Email Templates
+export const emailTemplates = pgTable("email_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  subject: text("subject").notNull(),
+  htmlContent: text("html_content").notNull(),
+  textContent: text("text_content"),
+  variables: text("variables").array(),
+  category: text("category").default("general"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Email Send History
+export const emailSendHistory = pgTable("email_send_history", {
+  id: serial("id").primaryKey(),
+  templateId: integer("template_id").references(() => emailTemplates.id),
+  recipientEmail: text("recipient_email").notNull(),
+  recipientName: text("recipient_name"),
+  subject: text("subject").notNull(),
+  status: text("status").default("pending"),
+  sentAt: timestamp("sent_at"),
+  errorMessage: text("error_message"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertEmailSendHistorySchema = createInsertSchema(emailSendHistory).omit({ id: true, createdAt: true });
+
+// Email Settings (SMTP config)
+export const emailSettings = pgTable("email_settings", {
+  id: serial("id").primaryKey(),
+  provider: text("provider").default("smtp"),
+  smtpHost: text("smtp_host"),
+  smtpPort: integer("smtp_port").default(587),
+  smtpSecure: boolean("smtp_secure").default(false),
+  smtpUser: text("smtp_user"),
+  fromEmail: text("from_email"),
+  fromName: text("from_name"),
+  replyToEmail: text("reply_to_email"),
+  isActive: boolean("is_active").default(true),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertEmailSettingsSchema = createInsertSchema(emailSettings).omit({ id: true, updatedAt: true });
+
 // Types
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
@@ -499,6 +614,24 @@ export type InsertDesignPreset = z.infer<typeof insertDesignPresetSchema>;
 // Content Versions Types
 export type ContentVersion = typeof contentVersions.$inferSelect;
 export type InsertContentVersion = z.infer<typeof insertContentVersionSchema>;
+
+// Analytics Types
+export type AnalyticsSettings = typeof analyticsSettings.$inferSelect;
+export type InsertAnalyticsSettings = z.infer<typeof insertAnalyticsSettingsSchema>;
+
+// SEO Types
+export type SeoPage = typeof seoPages.$inferSelect;
+export type InsertSeoPage = z.infer<typeof insertSeoPageSchema>;
+export type SeoGlobalSettings = typeof seoGlobalSettings.$inferSelect;
+export type InsertSeoGlobalSettings = z.infer<typeof insertSeoGlobalSettingsSchema>;
+
+// Email Types
+export type EmailTemplate = typeof emailTemplates.$inferSelect;
+export type InsertEmailTemplate = z.infer<typeof insertEmailTemplateSchema>;
+export type EmailSendHistory = typeof emailSendHistory.$inferSelect;
+export type InsertEmailSendHistory = z.infer<typeof insertEmailSendHistorySchema>;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 
 // Legacy types for compatibility with current frontend
 export type User = {
