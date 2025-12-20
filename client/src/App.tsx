@@ -14,6 +14,9 @@ import Users from "@/pages/users";
 import Profile from "@/pages/profile";
 import CMS from "@/pages/cms";
 import Vendors from "@/pages/vendors";
+import Contact from "@/pages/contact";
+import Privacy from "@/pages/privacy";
+import Terms from "@/pages/terms";
 
 function Router() {
   return (
@@ -30,6 +33,9 @@ function Router() {
       <Route path="/settings" component={Profile} />
       <Route path="/vendors" component={Vendors} />
       <Route path="/cms" component={CMS} />
+      <Route path="/kontakt" component={Contact} />
+      <Route path="/personvern" component={Privacy} />
+      <Route path="/vilkar" component={Terms} />
       <Route component={NotFound} />
     </Switch>
   );

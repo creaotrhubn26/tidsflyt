@@ -1326,10 +1326,10 @@ export default function LandingPage() {
               <a href="#contact" className="hover:text-foreground transition-colors" data-testid="link-footer-contact">
                 Kontakt
               </a>
-              <a href="#" className="hover:text-foreground transition-colors" data-testid="link-footer-privacy">
+              <a href="/personvern" className="hover:text-foreground transition-colors" data-testid="link-footer-privacy">
                 Personvern
               </a>
-              <a href="#" className="hover:text-foreground transition-colors" data-testid="link-footer-terms">
+              <a href="/vilkar" className="hover:text-foreground transition-colors" data-testid="link-footer-terms">
                 Vilkår
               </a>
             </div>
