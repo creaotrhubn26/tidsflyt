@@ -53,24 +53,76 @@ export async function registerRoutes(
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
 
-  // Helper to get vendor ID from session - requires authentication
-  const getVendorIdFromSession = (req: any): number | null => {
-    // Strictly require authenticated session with vendorId
-    // No fallbacks - security first approach
-    return req.session?.vendorId || null;
-  };
-
-  // Middleware to require vendor authentication
-  const requireVendorAuth = (req: any, res: any, next: any) => {
-    const vendorId = getVendorIdFromSession(req);
-    if (vendorId === null) {
+  // Middleware to require vendor authentication via OAuth
+  const requireVendorAuth = async (req: any, res: any, next: any) => {
+    // Check if user is authenticated via Replit Auth
+    if (!req.isAuthenticated || !req.isAuthenticated()) {
       return res.status(401).json({ 
         error: "Unauthorized", 
-        message: "Vendor session required. Please log in as a vendor admin." 
+        message: "Please log in to access this resource." 
       });
     }
-    req.vendorId = vendorId;
+
+    const userId = req.user?.claims?.sub;
+    if (!userId) {
+      return res.status(401).json({ 
+        error: "Unauthorized", 
+        message: "Invalid session." 
+      });
+    }
+
+    // Get user from database to check role and vendorId
+    const { authStorage } = await import("./replit_integrations/auth");
+    const user = await authStorage.getUser(userId);
+    
+    if (!user) {
+      return res.status(401).json({ 
+        error: "Unauthorized", 
+        message: "User not found." 
+      });
+    }
+
+    // Check if user has vendor admin or super admin role
+    const validRoles = ['vendor_admin', 'super_admin'];
+    if (!user.role || !validRoles.includes(user.role)) {
+      return res.status(403).json({ 
+        error: "Forbidden", 
+        message: "You do not have admin access. Contact your administrator." 
+      });
+    }
+
+    // Super admin can access all vendors (vendorId will be from query/param)
+    // Vendor admin can only access their own vendor
+    if (user.role === 'super_admin') {
+      req.vendorId = null; // Super admin flag
+      req.isSuperAdmin = true;
+    } else {
+      if (!user.vendorId) {
+        return res.status(403).json({ 
+          error: "Forbidden", 
+          message: "Vendor admin must be assigned to a vendor." 
+        });
+      }
+      req.vendorId = user.vendorId;
+      req.isSuperAdmin = false;
+    }
+    
+    req.userId = userId;
+    req.userRole = user.role;
     next();
+  };
+
+  // Middleware to require super admin role
+  const requireSuperAdmin = async (req: any, res: any, next: any) => {
+    await requireVendorAuth(req, res, () => {
+      if (!req.isSuperAdmin) {
+        return res.status(403).json({ 
+          error: "Forbidden", 
+          message: "Super admin access required." 
+        });
+      }
+      next();
+    });
   };
 
   // Vendor API management routes (for admin UI)
