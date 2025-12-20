@@ -59,6 +59,26 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
 
 export function registerSmartTimingRoutes(app: Express) {
   
+  // Helper function to create a content version (for versioning system)
+  async function createContentVersion(contentType: string, contentId: number | null, data: any, changedBy?: string, changeDescription?: string) {
+    try {
+      const versionResult = await pool.query(
+        `SELECT COALESCE(MAX(version_number), 0) as max_version FROM content_versions 
+         WHERE content_type = $1 AND (content_id = $2 OR ($2 IS NULL AND content_id IS NULL))`,
+        [contentType, contentId]
+      );
+      const nextVersion = (versionResult.rows[0]?.max_version || 0) + 1;
+      
+      await pool.query(
+        `INSERT INTO content_versions (content_type, content_id, version_number, data, changed_by, change_description)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [contentType, contentId, nextVersion, JSON.stringify(data), changedBy, changeDescription]
+      );
+    } catch (err) {
+      console.error('Failed to create content version:', err);
+    }
+  }
+  
   // Serve uploaded files statically
   app.use('/uploads', (req, res, next) => {
     const express = require('express');
@@ -768,6 +788,12 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3 } = req.body;
       const existing = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
+      
+      // Save version before update
+      if (existing.rows.length > 0) {
+        await createContentVersion('hero', existing.rows[0].id, existing.rows[0], req.admin?.username, 'Hero updated');
+      }
+      
       if (existing.rows.length > 0) {
         const result = await pool.query(
           `UPDATE landing_hero SET 
@@ -1005,6 +1031,12 @@ export function registerSmartTimingRoutes(app: Express) {
       } = req.body;
       
       const existing = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
+      
+      // Save version before update
+      if (existing.rows.length > 0) {
+        await createContentVersion('sections', existing.rows[0].id, existing.rows[0], req.admin?.username, 'Sections updated');
+      }
+      
       if (existing.rows.length > 0) {
         const result = await pool.query(
           `UPDATE landing_cta SET 
@@ -1073,6 +1105,11 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const data = req.body;
       const existing = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
+      
+      // Save version before update
+      if (existing.rows.length > 0) {
+        await createContentVersion('design_tokens', existing.rows[0].id, existing.rows[0], req.admin?.username, 'Design tokens updated');
+      }
       
       const columns = [
         'primary_color', 'primary_color_light', 'primary_color_dark', 'secondary_color', 'accent_color',
@@ -1984,6 +2021,233 @@ export function registerSmartTimingRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ========== CONTENT VERSIONING ==========
+
+  // Get all content versions (with optional filtering)
+  app.get("/api/cms/versions", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { content_type, content_id, limit = 50 } = req.query;
+      
+      let query = `
+        SELECT id, content_type, content_id, version_number, change_description, changed_by, created_at
+        FROM content_versions
+      `;
+      const conditions: string[] = [];
+      const params: any[] = [];
+      
+      if (content_type) {
+        params.push(content_type);
+        conditions.push(`content_type = $${params.length}`);
+      }
+      if (content_id) {
+        params.push(content_id);
+        conditions.push(`content_id = $${params.length}`);
+      }
+      
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+      
+      query += ' ORDER BY created_at DESC';
+      params.push(limit);
+      query += ` LIMIT $${params.length}`;
+      
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get a specific version with full data
+  app.get("/api/cms/versions/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM content_versions WHERE id = $1',
+        [req.params.id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Version not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Restore a version
+  app.post("/api/cms/versions/:id/restore", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Get the version to restore
+      const versionResult = await pool.query(
+        'SELECT * FROM content_versions WHERE id = $1',
+        [req.params.id]
+      );
+      
+      if (versionResult.rows.length === 0) {
+        return res.status(404).json({ error: 'Version not found' });
+      }
+      
+      const version = versionResult.rows[0];
+      const { content_type, content_id, data } = version;
+      const versionData = typeof data === 'string' ? JSON.parse(data) : data;
+      
+      // Restore based on content type
+      let restored = false;
+      
+      switch (content_type) {
+        case 'hero':
+          await pool.query(
+            `UPDATE landing_hero SET title = $1, title_highlight = $2, subtitle = $3, 
+             cta_primary_text = $4, cta_secondary_text = $5, badge1 = $6, badge2 = $7, badge3 = $8, 
+             updated_at = NOW() WHERE id = $9`,
+            [versionData.title, versionData.title_highlight, versionData.subtitle,
+             versionData.cta_primary_text, versionData.cta_secondary_text, 
+             versionData.badge1, versionData.badge2, versionData.badge3, content_id || 1]
+          );
+          restored = true;
+          break;
+          
+        case 'sections':
+          await pool.query(
+            `UPDATE landing_cta SET features_title = $1, features_subtitle = $2, 
+             testimonials_title = $3, testimonials_subtitle = $4, cta_title = $5, 
+             cta_subtitle = $6, cta_button_text = $7, contact_title = $8, 
+             contact_subtitle = $9, contact_email = $10, contact_phone = $11, 
+             contact_address = $12, footer_copyright = $13, updated_at = NOW() WHERE id = $14`,
+            [versionData.features_title, versionData.features_subtitle,
+             versionData.testimonials_title, versionData.testimonials_subtitle,
+             versionData.cta_title, versionData.cta_subtitle, versionData.cta_button_text,
+             versionData.contact_title, versionData.contact_subtitle, versionData.contact_email,
+             versionData.contact_phone, versionData.contact_address, versionData.footer_copyright,
+             content_id || 1]
+          );
+          restored = true;
+          break;
+          
+        case 'feature':
+          await pool.query(
+            `UPDATE landing_features SET icon = $1, title = $2, description = $3, 
+             display_order = $4, is_active = $5, updated_at = NOW() WHERE id = $6`,
+            [versionData.icon, versionData.title, versionData.description,
+             versionData.display_order, versionData.is_active, content_id]
+          );
+          restored = true;
+          break;
+          
+        case 'testimonial':
+          await pool.query(
+            `UPDATE landing_testimonials SET name = $1, role = $2, company = $3, 
+             content = $4, avatar = $5, rating = $6, is_active = $7, updated_at = NOW() WHERE id = $8`,
+            [versionData.name, versionData.role, versionData.company,
+             versionData.content, versionData.avatar, versionData.rating, versionData.is_active, content_id]
+          );
+          restored = true;
+          break;
+          
+        case 'design_tokens':
+          // Restore design tokens - update all fields
+          const tokenFields = Object.keys(versionData).filter(k => k !== 'id' && k !== 'updated_at');
+          if (tokenFields.length > 0) {
+            const setClause = tokenFields.map((f, i) => `${f.replace(/([A-Z])/g, '_$1').toLowerCase()} = $${i + 1}`).join(', ');
+            const values = tokenFields.map(f => versionData[f]);
+            values.push(content_id || 1);
+            await pool.query(
+              `UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${values.length}`,
+              values
+            );
+          }
+          restored = true;
+          break;
+          
+        case 'seo':
+          await pool.query(
+            `UPDATE cms_seo SET meta_title = $1, meta_description = $2, meta_keywords = $3,
+             og_title = $4, og_description = $5, og_image = $6, robots = $7,
+             canonical_url = $8, structured_data = $9, updated_at = NOW() WHERE id = $10`,
+            [versionData.meta_title, versionData.meta_description, versionData.meta_keywords,
+             versionData.og_title, versionData.og_description, versionData.og_image,
+             versionData.robots, versionData.canonical_url, versionData.structured_data, content_id]
+          );
+          restored = true;
+          break;
+          
+        case 'blog_post':
+          await pool.query(
+            `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4,
+             featured_image = $5, author = $6, category_id = $7, tags = $8, 
+             status = $9, updated_at = NOW() WHERE id = $10`,
+            [versionData.title, versionData.slug, versionData.excerpt, versionData.content,
+             versionData.featured_image, versionData.author, versionData.category_id,
+             versionData.tags, versionData.status, content_id]
+          );
+          restored = true;
+          break;
+          
+        case 'navigation':
+          await pool.query(
+            `UPDATE cms_navigation SET name = $1, location = $2, items = $3, 
+             updated_at = NOW() WHERE id = $4`,
+            [versionData.name, versionData.location, JSON.stringify(versionData.items), content_id]
+          );
+          restored = true;
+          break;
+          
+        case 'form':
+          await pool.query(
+            `UPDATE cms_forms SET name = $1, fields = $2, submit_button_text = $3,
+             success_message = $4, notification_email = $5, updated_at = NOW() WHERE id = $6`,
+            [versionData.name, JSON.stringify(versionData.fields), versionData.submit_button_text,
+             versionData.success_message, versionData.notification_email, content_id]
+          );
+          restored = true;
+          break;
+      }
+      
+      if (restored) {
+        // Create a new version entry for the restore action
+        await createContentVersion(
+          content_type, 
+          content_id, 
+          versionData, 
+          req.admin?.username || 'admin',
+          `Restored from version ${version.version_number}`
+        );
+        
+        res.json({ success: true, message: `Restored ${content_type} to version ${version.version_number}` });
+      } else {
+        res.status(400).json({ error: `Cannot restore content type: ${content_type}` });
+      }
+    } catch (err: any) {
+      console.error('Restore error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get version comparison (two versions side by side)
+  app.get("/api/cms/versions/compare/:id1/:id2", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const result = await pool.query(
+        'SELECT * FROM content_versions WHERE id IN ($1, $2) ORDER BY version_number',
+        [req.params.id1, req.params.id2]
+      );
+      
+      if (result.rows.length !== 2) {
+        return res.status(404).json({ error: 'One or both versions not found' });
+      }
+      
+      res.json({
+        older: result.rows[0],
+        newer: result.rows[1]
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Export the createContentVersion function for use in other routes
+  (app as any).createContentVersion = createContentVersion;
 
   console.log("Smart Timing API routes registered");
 }

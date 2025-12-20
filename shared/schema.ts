@@ -418,6 +418,18 @@ export const companyAuditLog = pgTable("company_audit_log", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// CMS Content Versions (for version history and restore)
+export const contentVersions = pgTable("content_versions", {
+  id: serial("id").primaryKey(),
+  contentType: text("content_type").notNull(), // hero, features, testimonials, cta, blog_post, navigation, form, seo, design_tokens
+  contentId: integer("content_id"), // ID of the specific item (null for global settings)
+  versionNumber: integer("version_number").notNull().default(1),
+  data: jsonb("data").notNull(), // Snapshot of the content
+  changeDescription: text("change_description"), // Optional description of what changed
+  changedBy: text("changed_by"), // Username or email of who made the change
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
 // Insert schemas
 export const insertCompanySchema = createInsertSchema(companies).omit({ id: true, createdAt: true, updatedAt: true });
 export const insertCompanyUserSchema = createInsertSchema(companyUsers).omit({ id: true, createdAt: true, updatedAt: true });
@@ -440,6 +452,9 @@ export const insertCaseReportSchema = createInsertSchema(caseReports).omit({ id:
 export const insertDesignTokensSchema = createInsertSchema(designTokens).omit({ id: true, updatedAt: true });
 export const insertSectionDesignSettingsSchema = createInsertSchema(sectionDesignSettings).omit({ id: true, updatedAt: true });
 export const insertDesignPresetSchema = createInsertSchema(designPresets).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Content Versions Insert schema
+export const insertContentVersionSchema = createInsertSchema(contentVersions).omit({ id: true, createdAt: true });
 
 // Types
 export type Company = typeof companies.$inferSelect;
@@ -480,6 +495,10 @@ export type SectionDesignSettings = typeof sectionDesignSettings.$inferSelect;
 export type InsertSectionDesignSettings = z.infer<typeof insertSectionDesignSettingsSchema>;
 export type DesignPreset = typeof designPresets.$inferSelect;
 export type InsertDesignPreset = z.infer<typeof insertDesignPresetSchema>;
+
+// Content Versions Types
+export type ContentVersion = typeof contentVersions.$inferSelect;
+export type InsertContentVersion = z.infer<typeof insertContentVersionSchema>;
 
 // Legacy types for compatibility with current frontend
 export type User = {

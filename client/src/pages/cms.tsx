@@ -498,6 +498,9 @@ export default function CMSPage() {
             <Newspaper className="h-4 w-4 mr-1" />Blogg
           </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
+          <TabsTrigger value="versions" data-testid="tab-versions">
+            <RefreshCw className="h-4 w-4 mr-1" />Versjoner
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="hero">
@@ -546,6 +549,10 @@ export default function CMSPage() {
 
         <TabsContent value="activity">
           <ActivityLogViewer />
+        </TabsContent>
+
+        <TabsContent value="versions">
+          <VersionHistory />
         </TabsContent>
       </Tabs>
     </div>
@@ -4054,6 +4061,268 @@ function BlogEditor() {
               </Button>
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Content Version interface
+interface ContentVersion {
+  id: number;
+  content_type: string;
+  content_id: number | null;
+  version_number: number;
+  data: any;
+  change_description: string | null;
+  changed_by: string | null;
+  created_at: string;
+}
+
+function VersionHistory() {
+  const { toast } = useToast();
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [selectedVersion, setSelectedVersion] = useState<ContentVersion | null>(null);
+  const [showDetailDialog, setShowDetailDialog] = useState(false);
+
+  const { data: versions = [], isLoading } = useQuery<ContentVersion[]>({
+    queryKey: ['/api/cms/versions', selectedType],
+    queryFn: async () => {
+      const url = selectedType === 'all' 
+        ? '/api/cms/versions?limit=100'
+        : `/api/cms/versions?content_type=${selectedType}&limit=100`;
+      return authenticatedApiRequest(url);
+    },
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (versionId: number) => {
+      return authenticatedApiRequest(`/api/cms/versions/${versionId}/restore`, { method: 'POST' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Suksess', description: 'Versjonen ble gjenopprettet' });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/versions'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/landing'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/design-tokens'] });
+      setShowDetailDialog(false);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const contentTypeLabels: Record<string, string> = {
+    hero: 'Hero-seksjon',
+    sections: 'Seksjoner',
+    feature: 'Funksjon',
+    testimonial: 'Referanse',
+    design_tokens: 'Design-tokens',
+    seo: 'SEO-innstillinger',
+    blog_post: 'Blogginnlegg',
+    navigation: 'Navigasjon',
+    form: 'Skjema',
+  };
+
+  const contentTypeIcons: Record<string, LucideIcon> = {
+    hero: Rocket,
+    sections: Layers,
+    feature: Star,
+    testimonial: MessageCircle,
+    design_tokens: Palette,
+    seo: Search,
+    blog_post: Newspaper,
+    navigation: Menu,
+    form: FormInput,
+  };
+
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('nb-NO', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const viewVersionDetails = async (version: ContentVersion) => {
+    try {
+      const fullVersion = await authenticatedApiRequest(`/api/cms/versions/${version.id}`);
+      setSelectedVersion(fullVersion);
+      setShowDetailDialog(true);
+    } catch (error: any) {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <RefreshCw className="h-5 w-5" />
+            Versjonshistorikk
+          </CardTitle>
+          <CardDescription>
+            Se tidligere versjoner av innholdet og gjenopprett ved behov
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4">
+            <Label htmlFor="content-type-filter">Filtrer etter innholdstype</Label>
+            <select
+              id="content-type-filter"
+              value={selectedType}
+              onChange={(e) => setSelectedType(e.target.value)}
+              className="w-full max-w-xs h-9 rounded-md border border-input bg-background px-3 text-sm mt-1"
+              data-testid="select-version-filter"
+            >
+              <option value="all">Alle typer</option>
+              <option value="hero">Hero-seksjon</option>
+              <option value="sections">Seksjoner</option>
+              <option value="feature">Funksjoner</option>
+              <option value="testimonial">Referanser</option>
+              <option value="design_tokens">Design-tokens</option>
+              <option value="seo">SEO</option>
+              <option value="blog_post">Blogginnlegg</option>
+              <option value="navigation">Navigasjon</option>
+              <option value="form">Skjemaer</option>
+            </select>
+          </div>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin" />
+            </div>
+          ) : !Array.isArray(versions) || versions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <RefreshCw className="h-12 w-12 mx-auto mb-4 opacity-50" />
+              <p>Ingen versjoner funnet</p>
+              <p className="text-sm mt-2">Versjoner lagres automatisk når du gjor endringer i CMS</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {versions.map((version) => {
+                const IconComponent = contentTypeIcons[version.content_type] || FileText;
+                return (
+                  <div
+                    key={version.id}
+                    className="flex items-center justify-between p-3 rounded-md border hover-elevate cursor-pointer"
+                    onClick={() => viewVersionDetails(version)}
+                    data-testid={`version-item-${version.id}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2 rounded-md bg-muted">
+                        <IconComponent className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">
+                            {contentTypeLabels[version.content_type] || version.content_type}
+                          </span>
+                          <span className="text-xs bg-secondary px-1.5 py-0.5 rounded">
+                            v{version.version_number}
+                          </span>
+                        </div>
+                        <div className="text-sm text-muted-foreground flex items-center gap-2">
+                          <Clock className="h-3 w-3" />
+                          {formatDate(version.created_at)}
+                          {version.changed_by && (
+                            <>
+                              <span className="mx-1">av</span>
+                              <span>{version.changed_by}</span>
+                            </>
+                          )}
+                        </div>
+                        {version.change_description && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {version.change_description}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <Button variant="ghost" size="icon" data-testid={`button-view-version-${version.id}`}>
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              Versjonsdetaljer
+              {selectedVersion && (
+                <span className="text-xs bg-secondary px-2 py-1 rounded">
+                  v{selectedVersion.version_number}
+                </span>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+          {selectedVersion && (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-muted-foreground">Type:</span>
+                  <span className="ml-2 font-medium">
+                    {contentTypeLabels[selectedVersion.content_type] || selectedVersion.content_type}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Dato:</span>
+                  <span className="ml-2">{formatDate(selectedVersion.created_at)}</span>
+                </div>
+                {selectedVersion.changed_by && (
+                  <div>
+                    <span className="text-muted-foreground">Endret av:</span>
+                    <span className="ml-2">{selectedVersion.changed_by}</span>
+                  </div>
+                )}
+                {selectedVersion.change_description && (
+                  <div className="col-span-2">
+                    <span className="text-muted-foreground">Beskrivelse:</span>
+                    <span className="ml-2">{selectedVersion.change_description}</span>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <Label className="mb-2 block">Lagret data</Label>
+                <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto max-h-64 overflow-y-auto">
+                  {JSON.stringify(
+                    typeof selectedVersion.data === 'string' 
+                      ? JSON.parse(selectedVersion.data) 
+                      : selectedVersion.data, 
+                    null, 
+                    2
+                  )}
+                </pre>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <Button variant="outline" onClick={() => setShowDetailDialog(false)}>
+                  Lukk
+                </Button>
+                <Button
+                  onClick={() => restoreMutation.mutate(selectedVersion.id)}
+                  disabled={restoreMutation.isPending}
+                  data-testid="button-restore-version"
+                >
+                  {restoreMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  ) : (
+                    <RefreshCw className="h-4 w-4 mr-2" />
+                  )}
+                  Gjenopprett denne versjonen
+                </Button>
+              </div>
+            </div>
+          )}
         </DialogContent>
       </Dialog>
     </div>
