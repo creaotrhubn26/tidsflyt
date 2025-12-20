@@ -7,8 +7,8 @@ import { registerSmartTimingRoutes } from "./smartTimingRoutes";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db } from "./db";
-import { apiKeys, vendors } from "@shared/schema";
-import { eq, and, isNull } from "drizzle-orm";
+import { apiKeys, vendors, accessRequests, insertAccessRequestSchema } from "@shared/schema";
+import { eq, and, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 
@@ -266,6 +266,113 @@ export async function registerRoutes(
         .where(eq(vendors.id, vendorId));
       
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Access request routes (public - for new user registration)
+  app.post("/api/access-requests", async (req, res) => {
+    try {
+      const parsed = insertAccessRequestSchema.safeParse({
+        fullName: req.body.full_name,
+        email: req.body.email,
+        orgNumber: req.body.org_number,
+        company: req.body.company,
+        phone: req.body.phone,
+        message: req.body.message,
+        brregVerified: req.body.brreg_verified,
+      });
+
+      if (!parsed.success) {
+        return res.status(400).json({ 
+          error: "Validation failed", 
+          details: parsed.error.flatten().fieldErrors 
+        });
+      }
+
+      const [existing] = await db
+        .select()
+        .from(accessRequests)
+        .where(and(
+          eq(accessRequests.email, parsed.data.email),
+          eq(accessRequests.status, "pending")
+        ))
+        .limit(1);
+
+      if (existing) {
+        return res.status(400).json({ 
+          error: "Du har allerede en aktiv foresporsel. Vent pa godkjenning." 
+        });
+      }
+
+      const [request] = await db
+        .insert(accessRequests)
+        .values(parsed.data)
+        .returning();
+
+      res.status(201).json({ success: true, id: request.id });
+    } catch (error: any) {
+      console.error("Access request error:", error);
+      res.status(500).json({ error: "Kunne ikke sende foresporsel" });
+    }
+  });
+
+  // Access request management (super admin only)
+  app.get("/api/access-requests", requireSuperAdmin, async (req: any, res) => {
+    try {
+      const status = req.query.status || "pending";
+      
+      const requests = await db
+        .select()
+        .from(accessRequests)
+        .where(eq(accessRequests.status, status as string))
+        .orderBy(desc(accessRequests.createdAt));
+
+      res.json(requests);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/access-requests/:id", requireSuperAdmin, async (req: any, res) => {
+    try {
+      const { id } = req.params;
+      const { status, vendorId } = req.body;
+      const userId = req.user?.claims?.sub;
+
+      if (!["approved", "rejected"].includes(status)) {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      const [request] = await db
+        .select()
+        .from(accessRequests)
+        .where(eq(accessRequests.id, parseInt(id)))
+        .limit(1);
+
+      if (!request) {
+        return res.status(404).json({ error: "Request not found" });
+      }
+
+      const updateData: any = {
+        status,
+        reviewedBy: userId,
+        reviewedAt: new Date(),
+        updatedAt: new Date(),
+      };
+
+      if (status === "approved" && vendorId) {
+        updateData.vendorId = vendorId;
+      }
+
+      const [updated] = await db
+        .update(accessRequests)
+        .set(updateData)
+        .where(eq(accessRequests.id, parseInt(id)))
+        .returning();
+
+      res.json(updated);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

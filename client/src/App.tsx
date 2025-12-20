@@ -20,6 +20,7 @@ import Terms from "@/pages/terms";
 import AdminCaseReviews from "@/pages/admin-case-reviews";
 import ApiDocs from "@/pages/api-docs";
 import VendorApiAdmin from "@/pages/vendor-api-admin";
+import AccessRequests from "@/pages/access-requests";
 
 function Router() {
   return (
@@ -42,6 +43,7 @@ function Router() {
       <Route path="/vilkar" component={Terms} />
       <Route path="/api-docs" component={ApiDocs} />
       <Route path="/vendor/api" component={VendorApiAdmin} />
+      <Route path="/admin/access-requests" component={AccessRequests} />
       <Route component={NotFound} />
     </Switch>
   );

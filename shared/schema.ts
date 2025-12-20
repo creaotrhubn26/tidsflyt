@@ -33,6 +33,37 @@ export const companyUsers = pgTable("company_users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Access requests table (pending user registrations)
+export const accessRequests = pgTable("access_requests", {
+  id: serial("id").primaryKey(),
+  fullName: text("full_name").notNull(),
+  email: text("email").notNull(),
+  orgNumber: text("org_number"),
+  company: text("company"),
+  phone: text("phone"),
+  message: text("message"),
+  brregVerified: boolean("brreg_verified").default(false),
+  status: text("status").default("pending"), // pending, approved, rejected
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  vendorId: integer("vendor_id"), // assigned when approved
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAccessRequestSchema = createInsertSchema(accessRequests).omit({
+  id: true,
+  status: true,
+  reviewedBy: true,
+  reviewedAt: true,
+  vendorId: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
+export type AccessRequest = typeof accessRequests.$inferSelect;
+
 // Project info table
 export const projectInfo = pgTable("project_info", {
   id: serial("id").primaryKey(),
