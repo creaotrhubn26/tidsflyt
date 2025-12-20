@@ -320,7 +320,7 @@ export default function Contact() {
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 text-primary">
                         <CheckCircle2 className="h-5 w-5" />
-                        <span className="font-medium">Bedrift verifisert fra Brreg</span>
+                        <span className="font-medium">Bedrift verifisert fra Brønnøysundregistrene</span>
                       </div>
                       <Button
                         type="button"
