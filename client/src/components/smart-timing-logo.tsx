@@ -1,5 +1,5 @@
-import { Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
+import logoUrl from "@assets/Logo-ST_1766202609878.png";
 
 interface SmartTimingLogoProps {
   collapsed?: boolean;
@@ -15,21 +15,20 @@ export function SmartTimingLogo({
   size = "md" 
 }: SmartTimingLogoProps) {
   const sizes = {
-    sm: { icon: "h-4 w-4", container: "w-6 h-6", text: "text-sm" },
-    md: { icon: "h-5 w-5", container: "w-8 h-8", text: "text-lg" },
-    lg: { icon: "h-6 w-6", container: "w-10 h-10", text: "text-xl" },
+    sm: { img: "h-6 w-6", text: "text-sm" },
+    md: { img: "h-8 w-8", text: "text-lg" },
+    lg: { img: "h-10 w-10", text: "text-xl" },
   };
 
   const s = sizes[size];
 
   return (
     <div className={cn("flex items-center gap-3", className)}>
-      <div className={cn(
-        "flex items-center justify-center rounded-lg bg-gradient-to-br from-blue-600 to-blue-700",
-        s.container
-      )}>
-        <Clock className={cn(s.icon, "text-white")} />
-      </div>
+      <img 
+        src={logoUrl} 
+        alt="Smart Timing" 
+        className={cn(s.img, "object-contain")}
+      />
       {showText && !collapsed && (
         <div className="flex flex-col">
           <span className={cn("font-bold text-foreground", s.text)}>Smart Timing</span>
