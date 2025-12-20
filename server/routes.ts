@@ -10,7 +10,7 @@ import { db } from "./db";
 import { apiKeys, vendors, accessRequests, insertAccessRequestSchema } from "@shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
-import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { setupCustomAuth, isAuthenticated, requireVendorAuth as customRequireVendorAuth, requireSuperAdmin } from "./custom-auth";
 
 // Zod schema for bulk time entry validation
 const bulkTimeEntrySchema = z.object({
@@ -31,9 +31,8 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
-  // Setup Replit Auth (MUST be before other routes)
-  await setupAuth(app);
-  registerAuthRoutes(app);
+  // Setup Custom OAuth Auth (MUST be before other routes)
+  await setupCustomAuth(app);
   
   // Skip seeding when using external database
   if (!process.env.EXTERNAL_DATABASE_URL) {
@@ -55,7 +54,7 @@ export async function registerRoutes(
 
   // Middleware to require vendor authentication via OAuth
   const requireVendorAuth = async (req: any, res: any, next: any) => {
-    // Check if user is authenticated via Replit Auth
+    // Check if user is authenticated
     if (!req.isAuthenticated || !req.isAuthenticated()) {
       return res.status(401).json({ 
         error: "Unauthorized", 
@@ -63,22 +62,11 @@ export async function registerRoutes(
       });
     }
 
-    const userId = req.user?.claims?.sub;
-    if (!userId) {
+    const user = req.user;
+    if (!user || !user.id) {
       return res.status(401).json({ 
         error: "Unauthorized", 
         message: "Invalid session." 
-      });
-    }
-
-    // Get user from database to check role and vendorId
-    const { authStorage } = await import("./replit_integrations/auth");
-    const user = await authStorage.getUser(userId);
-    
-    if (!user) {
-      return res.status(401).json({ 
-        error: "Unauthorized", 
-        message: "User not found." 
       });
     }
 
@@ -114,7 +102,7 @@ export async function registerRoutes(
       req.isSuperAdmin = false;
     }
     
-    req.userId = userId;
+    req.userId = user.id;
     req.userRole = user.role;
     next();
   };
