@@ -12,12 +12,12 @@ import {
   Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink,
   ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
   Heart, Home, Phone, Mail, Calendar, Download, Upload, Settings, Search, Menu,
-  X, ChevronRight, ChevronDown, Bell, Gift, Award, Target, Briefcase, Building, Building2,
+  X, ChevronRight, ChevronDown, ChevronUp, Bell, Gift, Award, Target, Briefcase, Building, Building2,
   Globe, MapPin, Send, MessageCircle, ThumbsUp, Bookmark, Tag, FileText, BarChart3,
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
-  Layout, LayoutDashboard,
+  Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2,
   type LucideIcon
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -6489,13 +6489,16 @@ const defaultLayout: PortalDesignSettings['layout'] = {
   compactMode: false,
 };
 
+type PreviewMode = 'desktop' | 'tablet' | 'mobile';
+
 function PortalDesigner() {
   const { toast } = useToast();
   const [selectedRegion, setSelectedRegion] = useState<RegionType>(null);
   const [selectedNavIndex, setSelectedNavIndex] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'visual' | 'tokens' | 'code'>('visual');
+  const [previewMode, setPreviewMode] = useState<PreviewMode>('desktop');
   
-  const [settings, setSettings] = useState<PortalDesignSettings>({
+  const initialSettings: PortalDesignSettings = {
     id: 0,
     vendor_id: null,
     logo_url: null,
@@ -6512,8 +6515,40 @@ function PortalDesigner() {
     show_branding: true,
     tokens: portalDefaultTokens,
     layout: defaultLayout,
-  });
+  };
 
+  const [settings, setSettings] = useState<PortalDesignSettings>(initialSettings);
+  const [settingsHistory, setSettingsHistory] = useState<PortalDesignSettings[]>([initialSettings]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  
+  const canUndo = historyIndex > 0;
+  const canRedo = historyIndex < settingsHistory.length - 1;
+  
+  const updateSettingsWithHistory = (newSettings: PortalDesignSettings) => {
+    const newHistory = settingsHistory.slice(0, historyIndex + 1);
+    newHistory.push(newSettings);
+    if (newHistory.length > 50) newHistory.shift();
+    setSettingsHistory(newHistory);
+    setHistoryIndex(newHistory.length - 1);
+    setSettings(newSettings);
+  };
+  
+  const undo = () => {
+    if (canUndo) {
+      const newIndex = historyIndex - 1;
+      setHistoryIndex(newIndex);
+      setSettings(settingsHistory[newIndex]);
+    }
+  };
+  
+  const redo = () => {
+    if (canRedo) {
+      const newIndex = historyIndex + 1;
+      setHistoryIndex(newIndex);
+      setSettings(settingsHistory[newIndex]);
+    }
+  };
+  
   const { data: portalSettings, isLoading } = useQuery<PortalDesignSettings>({
     queryKey: ['/api/portal/settings'],
     queryFn: () => authenticatedApiRequest('/api/portal/settings'),
@@ -6521,11 +6556,14 @@ function PortalDesigner() {
 
   useEffect(() => {
     if (portalSettings) {
-      setSettings({
+      const loadedSettings = {
         ...portalSettings,
         tokens: portalSettings.tokens || portalDefaultTokens,
         layout: portalSettings.layout || defaultLayout,
-      });
+      };
+      setSettings(loadedSettings);
+      setSettingsHistory([loadedSettings]);
+      setHistoryIndex(0);
     }
   }, [portalSettings]);
 
@@ -6569,12 +6607,12 @@ function PortalDesigner() {
       const oldIndex = navItems.findIndex((_, i) => `nav-${i}` === active.id);
       const newIndex = navItems.findIndex((_, i) => `nav-${i}` === over.id);
       const reordered = arrayMove(navItems, oldIndex, newIndex).map((item, i) => ({ ...item, order: i }));
-      setSettings({ ...settings, nav_items: reordered });
+      updateSettingsWithHistory({ ...settings, nav_items: reordered });
     }
   };
 
   const updateToken = (category: keyof PortalDesignSettings['tokens'], key: string, value: string) => {
-    setSettings({
+    updateSettingsWithHistory({
       ...settings,
       tokens: {
         ...settings.tokens,
@@ -6587,13 +6625,17 @@ function PortalDesigner() {
   };
 
   const updateLayout = (key: keyof PortalDesignSettings['layout'], value: any) => {
-    setSettings({
+    updateSettingsWithHistory({
       ...settings,
       layout: {
         ...settings.layout,
         [key]: value,
       },
     });
+  };
+  
+  const updateSettings = (newSettings: PortalDesignSettings) => {
+    updateSettingsWithHistory(newSettings);
   };
 
   if (isLoading) {
@@ -6678,6 +6720,28 @@ function PortalDesigner() {
               <PenTool className="h-4 w-4 inline mr-1" />CSS
             </button>
           </div>
+          <div className="flex gap-1">
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={undo}
+              disabled={!canUndo}
+              aria-label="Angre"
+              data-testid="button-undo"
+            >
+              <Undo2 className="h-4 w-4" />
+            </Button>
+            <Button
+              size="icon"
+              variant="outline"
+              onClick={redo}
+              disabled={!canRedo}
+              aria-label="Gjenta"
+              data-testid="button-redo"
+            >
+              <Redo2 className="h-4 w-4" />
+            </Button>
+          </div>
           <Button
             onClick={() => saveMutation.mutate(settings)}
             disabled={saveMutation.isPending}
@@ -6695,12 +6759,47 @@ function PortalDesigner() {
           <div className="flex-1">
             <Card>
               <CardContent className="p-4">
+                <div className="flex items-center justify-center gap-2 mb-4" role="group" aria-label="Forhåndsvisning-enheter">
+                  <Button
+                    size="sm"
+                    variant={previewMode === 'desktop' ? 'default' : 'outline'}
+                    onClick={() => setPreviewMode('desktop')}
+                    aria-pressed={previewMode === 'desktop'}
+                    data-testid="preview-desktop"
+                  >
+                    <Monitor className="h-4 w-4 mr-1" />
+                    Desktop
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={previewMode === 'tablet' ? 'default' : 'outline'}
+                    onClick={() => setPreviewMode('tablet')}
+                    aria-pressed={previewMode === 'tablet'}
+                    data-testid="preview-tablet"
+                  >
+                    <Tablet className="h-4 w-4 mr-1" />
+                    Nettbrett
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant={previewMode === 'mobile' ? 'default' : 'outline'}
+                    onClick={() => setPreviewMode('mobile')}
+                    aria-pressed={previewMode === 'mobile'}
+                    data-testid="preview-mobile"
+                  >
+                    <Smartphone className="h-4 w-4 mr-1" />
+                    Mobil
+                  </Button>
+                </div>
                 <div 
-                  className="border-2 rounded-lg overflow-hidden transition-all"
+                  className="border-2 rounded-lg overflow-hidden transition-all mx-auto"
                   style={{ 
                     fontFamily: settings.tokens.typography.fontFamily,
                     fontSize: settings.tokens.typography.baseFontSize,
+                    maxWidth: previewMode === 'desktop' ? '100%' : previewMode === 'tablet' ? '768px' : '375px',
                   }}
+                  role="region"
+                  aria-label={`Forhåndsvisning av portal (${previewMode})`}
                 >
                   {/* Header Region */}
                   <div 
@@ -6732,8 +6831,8 @@ function PortalDesigner() {
                     </div>
                   </div>
 
-                  <div className="flex" style={{ minHeight: '400px' }}>
-                    {/* Sidebar Region */}
+                  <div className={`flex ${previewMode === 'mobile' ? 'flex-col' : ''}`} style={{ minHeight: '400px' }}>
+                    {/* Sidebar Region - responsive based on previewMode */}
                     <div 
                       onClick={(e) => { 
                         if ((e.target as HTMLElement).closest('[data-nav-item]')) return;
@@ -6744,9 +6843,13 @@ function PortalDesigner() {
                         selectedRegion === 'sidebar' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
                       }`}
                       style={{ 
-                        width: settings.tokens.spacing.sidebarWidth,
+                        width: previewMode === 'mobile' ? '100%' : previewMode === 'tablet' ? '200px' : settings.tokens.spacing.sidebarWidth,
                         backgroundColor: settings.sidebar_bg || '#1f2937',
-                        order: settings.layout.sidebarPosition === 'right' ? 1 : 0,
+                        order: settings.layout.sidebarPosition === 'right' && previewMode !== 'mobile' ? 1 : 0,
+                        ...(previewMode === 'mobile' && { 
+                          height: 'auto',
+                          borderBottom: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
+                        }),
                       }}
                     >
                       <RegionLabel region="sidebar" label="Sidebar" />
@@ -6890,7 +6993,7 @@ function PortalDesigner() {
                         <Label className="text-xs">Logo-tekst</Label>
                         <Input
                           value={settings.logo_text}
-                          onChange={(e) => setSettings({ ...settings, logo_text: e.target.value })}
+                          onChange={(e) => updateSettings({ ...settings, logo_text: e.target.value })}
                           className="h-8"
                           data-testid="input-header-logo-text"
                         />
@@ -6899,7 +7002,7 @@ function PortalDesigner() {
                         <Label className="text-xs">Logo URL</Label>
                         <Input
                           value={settings.logo_url || ''}
-                          onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
+                          onChange={(e) => updateSettings({ ...settings, logo_url: e.target.value })}
                           className="h-8"
                           placeholder="/uploads/logo.png"
                           data-testid="input-header-logo-url"
@@ -6908,7 +7011,7 @@ function PortalDesigner() {
                       <ColorInput 
                         label="Bakgrunnsfarge" 
                         value={settings.header_bg || '#ffffff'} 
-                        onChange={(v) => setSettings({ ...settings, header_bg: v })}
+                        onChange={(v) => updateSettings({ ...settings, header_bg: v })}
                         testId="input-header-bg"
                       />
                       <SizeInput
@@ -6934,7 +7037,7 @@ function PortalDesigner() {
                     <ColorInput 
                       label="Bakgrunnsfarge" 
                       value={settings.sidebar_bg || '#1f2937'} 
-                      onChange={(v) => setSettings({ ...settings, sidebar_bg: v })}
+                      onChange={(v) => updateSettings({ ...settings, sidebar_bg: v })}
                       testId="input-sidebar-bg"
                     />
                     <SizeInput
@@ -6965,19 +7068,59 @@ function PortalDesigner() {
                     </div>
                     <div className="border-t pt-3">
                       <Label className="text-xs font-medium">Meny-elementer</Label>
-                      <p className="text-xs text-muted-foreground mb-2">Dra for å endre rekkefølge</p>
-                      <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground mb-2">Bruk opp/ned-knapper eller dra for å endre rekkefølge</p>
+                      <div className="space-y-1" role="list" aria-label="Navigasjonselementer">
                         {navItems.map((item, index) => (
-                          <div key={item.path} className="flex items-center gap-2 p-2 rounded border text-xs">
+                          <div 
+                            key={item.path} 
+                            className="flex items-center gap-2 p-2 rounded border text-xs"
+                            role="listitem"
+                            aria-label={`${item.label}, posisjon ${index + 1} av ${navItems.length}`}
+                          >
+                            <div className="flex flex-col gap-0.5">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-4 w-4 p-0"
+                                onClick={() => {
+                                  if (index > 0) {
+                                    const reordered = arrayMove(navItems, index, index - 1).map((i, idx) => ({ ...i, order: idx }));
+                                    updateSettings({ ...settings, nav_items: reordered });
+                                  }
+                                }}
+                                disabled={index === 0}
+                                aria-label={`Flytt ${item.label} opp`}
+                                data-testid={`button-move-up-${index}`}
+                              >
+                                <ChevronUp className="h-3 w-3" />
+                              </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="h-4 w-4 p-0"
+                                onClick={() => {
+                                  if (index < navItems.length - 1) {
+                                    const reordered = arrayMove(navItems, index, index + 1).map((i, idx) => ({ ...i, order: idx }));
+                                    updateSettings({ ...settings, nav_items: reordered });
+                                  }
+                                }}
+                                disabled={index === navItems.length - 1}
+                                aria-label={`Flytt ${item.label} ned`}
+                                data-testid={`button-move-down-${index}`}
+                              >
+                                <ChevronDown className="h-3 w-3" />
+                              </Button>
+                            </div>
                             <input
                               type="checkbox"
                               checked={item.enabled}
                               onChange={() => {
                                 const updated = [...navItems];
                                 updated[index] = { ...updated[index], enabled: !updated[index].enabled };
-                                setSettings({ ...settings, nav_items: updated });
+                                updateSettings({ ...settings, nav_items: updated });
                               }}
                               className="h-3 w-3"
+                              aria-label={`Aktiver ${item.label}`}
                             />
                             <span className="flex-1 truncate">{item.label}</span>
                           </div>
@@ -6992,7 +7135,7 @@ function PortalDesigner() {
                     <ColorInput 
                       label="Bakgrunnsfarge" 
                       value={settings.content_bg || '#f9fafb'} 
-                      onChange={(v) => setSettings({ ...settings, content_bg: v })}
+                      onChange={(v) => updateSettings({ ...settings, content_bg: v })}
                       testId="input-content-bg"
                     />
                     <SizeInput
@@ -7022,14 +7165,14 @@ function PortalDesigner() {
                     <ColorInput 
                       label="Bakgrunnsfarge" 
                       value={settings.footer_bg || '#ffffff'} 
-                      onChange={(v) => setSettings({ ...settings, footer_bg: v })}
+                      onChange={(v) => updateSettings({ ...settings, footer_bg: v })}
                       testId="input-footer-bg"
                     />
                     <div className="space-y-1">
                       <Label className="text-xs">Footer-tekst</Label>
                       <Input
                         value={settings.footer_text || ''}
-                        onChange={(e) => setSettings({ ...settings, footer_text: e.target.value })}
+                        onChange={(e) => updateSettings({ ...settings, footer_text: e.target.value })}
                         className="h-8"
                         placeholder="© 2025 Bedriftsnavn"
                         data-testid="input-footer-text"
@@ -7048,7 +7191,7 @@ function PortalDesigner() {
                       <input
                         type="checkbox"
                         checked={settings.show_branding}
-                        onChange={(e) => setSettings({ ...settings, show_branding: e.target.checked })}
+                        onChange={(e) => updateSettings({ ...settings, show_branding: e.target.checked })}
                         className="h-4 w-4"
                       />
                       <Label className="text-xs">Vis "Powered by"</Label>
@@ -7065,7 +7208,7 @@ function PortalDesigner() {
                         onChange={(e) => {
                           const updated = [...navItems];
                           updated[selectedNavIndex] = { ...updated[selectedNavIndex], label: e.target.value };
-                          setSettings({ ...settings, nav_items: updated });
+                          updateSettings({ ...settings, nav_items: updated });
                         }}
                         className="h-8"
                         data-testid="input-nav-item-label"
@@ -7086,7 +7229,7 @@ function PortalDesigner() {
                         onChange={(e) => {
                           const updated = [...navItems];
                           updated[selectedNavIndex] = { ...updated[selectedNavIndex], icon: e.target.value };
-                          setSettings({ ...settings, nav_items: updated });
+                          updateSettings({ ...settings, nav_items: updated });
                         }}
                         className="h-8"
                         placeholder="LayoutDashboard"
@@ -7099,7 +7242,7 @@ function PortalDesigner() {
                         onChange={() => {
                           const updated = [...navItems];
                           updated[selectedNavIndex] = { ...updated[selectedNavIndex], enabled: !updated[selectedNavIndex].enabled };
-                          setSettings({ ...settings, nav_items: updated });
+                          updateSettings({ ...settings, nav_items: updated });
                         }}
                         className="h-4 w-4"
                       />
@@ -7116,13 +7259,13 @@ function PortalDesigner() {
                       <ColorInput 
                         label="Primærfarge" 
                         value={settings.primary_color} 
-                        onChange={(v) => setSettings({ ...settings, primary_color: v })}
+                        onChange={(v) => updateSettings({ ...settings, primary_color: v })}
                         testId="input-global-primary"
                       />
                       <ColorInput 
                         label="Aksentfarge" 
                         value={settings.accent_color} 
-                        onChange={(v) => setSettings({ ...settings, accent_color: v })}
+                        onChange={(v) => updateSettings({ ...settings, accent_color: v })}
                         testId="input-global-accent"
                       />
                     </div>
@@ -7284,32 +7427,219 @@ function PortalDesigner() {
       )}
 
       {activeTab === 'code' && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-sm">Egendefinert CSS</CardTitle>
-            <CardDescription>Avanserte stilendringer med CSS</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Textarea
-              value={settings.custom_css || ''}
-              onChange={(e) => setSettings({ ...settings, custom_css: e.target.value })}
-              placeholder={`:root {
+        <div className="grid grid-cols-2 gap-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Genererte CSS-variabler</CardTitle>
+              <CardDescription>Basert på dine design tokens (kun lesbar)</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre className="p-4 bg-muted rounded-lg text-xs font-mono overflow-auto max-h-[400px]">
+                <code>{`:root {
+  /* Farger */
   --portal-primary: ${settings.primary_color};
   --portal-accent: ${settings.accent_color};
-}
-
-.sidebar {
+  --portal-sidebar-bg: ${settings.sidebar_bg};
+  --portal-header-bg: ${settings.header_bg};
+  --portal-content-bg: ${settings.content_bg};
+  --portal-footer-bg: ${settings.footer_bg};
+  
+  /* Tekstfarger */
+  --portal-text: ${settings.tokens.colors.text};
+  --portal-text-secondary: ${settings.tokens.colors.textSecondary};
+  --portal-text-muted: ${settings.tokens.colors.textMuted};
+  
+  /* Statusfarger */
+  --portal-success: ${settings.tokens.colors.success};
+  --portal-warning: ${settings.tokens.colors.warning};
+  --portal-error: ${settings.tokens.colors.error};
+  --portal-info: ${settings.tokens.colors.info};
+  
+  /* Typografi */
+  --portal-font-family: ${settings.tokens.typography.fontFamily};
+  --portal-heading-font: ${settings.tokens.typography.headingFont};
+  --portal-base-font-size: ${settings.tokens.typography.baseFontSize};
+  --portal-heading-weight: ${settings.tokens.typography.headingWeight};
+  --portal-line-height: ${settings.tokens.typography.lineHeight};
+  
+  /* Spacing */
+  --portal-sidebar-width: ${settings.tokens.spacing.sidebarWidth};
+  --portal-header-height: ${settings.tokens.spacing.headerHeight};
+  --portal-content-padding: ${settings.tokens.spacing.contentPadding};
+  --portal-card-padding: ${settings.tokens.spacing.cardPadding};
+  --portal-gap: ${settings.tokens.spacing.gap};
+  
+  /* Borders */
+  --portal-radius: ${settings.tokens.borders.radius};
+  --portal-card-radius: ${settings.tokens.borders.cardRadius};
+  --portal-button-radius: ${settings.tokens.borders.buttonRadius};
+  --portal-border-width: ${settings.tokens.borders.borderWidth};
+  --portal-border-color: ${settings.tokens.borders.borderColor};
+  
+  /* Shadows */
+  --portal-card-shadow: ${settings.tokens.shadows.cardShadow};
+  --portal-dropdown-shadow: ${settings.tokens.shadows.dropdownShadow};
+  --portal-button-shadow: ${settings.tokens.shadows.buttonShadow};
+}`}</code>
+              </pre>
+            </CardContent>
+          </Card>
+          
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-sm">Egendefinert CSS</CardTitle>
+              <CardDescription>Legg til egne stiler</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Textarea
+                value={settings.custom_css || ''}
+                onChange={(e) => updateSettings({ ...settings, custom_css: e.target.value })}
+                placeholder={`.sidebar {
   /* Egendefinerte stiler */
 }
 
 .header {
   /* Egendefinerte stiler */
+}
+
+.content {
+  /* Egendefinerte stiler */
 }`}
-              className="font-mono text-sm min-h-[400px]"
-              data-testid="textarea-custom-css"
-            />
-          </CardContent>
-        </Card>
+                className="font-mono text-sm min-h-[300px]"
+                data-testid="textarea-custom-css"
+              />
+            </CardContent>
+          </Card>
+          
+          <Card className="col-span-2">
+            <CardHeader>
+              <CardTitle className="text-sm flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                W3C Design Tokens (DTCG-format)
+              </CardTitle>
+              <CardDescription>Eksporter tokens i W3C-standard format for bruk med Style Dictionary</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <pre className="p-4 bg-muted rounded-lg text-xs font-mono overflow-auto max-h-[300px]">
+                <code>{JSON.stringify({
+                  color: {
+                    primary: { $value: settings.primary_color, $type: "color" },
+                    accent: { $value: settings.accent_color, $type: "color" },
+                    text: { 
+                      primary: { $value: settings.tokens.colors.text, $type: "color" },
+                      secondary: { $value: settings.tokens.colors.textSecondary, $type: "color" },
+                      muted: { $value: settings.tokens.colors.textMuted, $type: "color" },
+                    },
+                    semantic: {
+                      success: { $value: settings.tokens.colors.success, $type: "color" },
+                      warning: { $value: settings.tokens.colors.warning, $type: "color" },
+                      error: { $value: settings.tokens.colors.error, $type: "color" },
+                      info: { $value: settings.tokens.colors.info, $type: "color" },
+                    },
+                    surface: {
+                      sidebar: { $value: settings.sidebar_bg, $type: "color" },
+                      header: { $value: settings.header_bg, $type: "color" },
+                      content: { $value: settings.content_bg, $type: "color" },
+                      footer: { $value: settings.footer_bg, $type: "color" },
+                    },
+                  },
+                  typography: {
+                    fontFamily: {
+                      base: { $value: settings.tokens.typography.fontFamily, $type: "fontFamily" },
+                      heading: { $value: settings.tokens.typography.headingFont, $type: "fontFamily" },
+                    },
+                    fontSize: {
+                      base: { $value: settings.tokens.typography.baseFontSize, $type: "dimension" },
+                    },
+                    fontWeight: {
+                      heading: { $value: parseInt(settings.tokens.typography.headingWeight), $type: "fontWeight" },
+                    },
+                    lineHeight: {
+                      base: { $value: parseFloat(settings.tokens.typography.lineHeight), $type: "number" },
+                    },
+                  },
+                  spacing: {
+                    sidebarWidth: { $value: settings.tokens.spacing.sidebarWidth, $type: "dimension" },
+                    headerHeight: { $value: settings.tokens.spacing.headerHeight, $type: "dimension" },
+                    contentPadding: { $value: settings.tokens.spacing.contentPadding, $type: "dimension" },
+                    cardPadding: { $value: settings.tokens.spacing.cardPadding, $type: "dimension" },
+                    gap: { $value: settings.tokens.spacing.gap, $type: "dimension" },
+                  },
+                  borderRadius: {
+                    default: { $value: settings.tokens.borders.radius, $type: "dimension" },
+                    card: { $value: settings.tokens.borders.cardRadius, $type: "dimension" },
+                    button: { $value: settings.tokens.borders.buttonRadius, $type: "dimension" },
+                  },
+                  borderWidth: {
+                    default: { $value: settings.tokens.borders.borderWidth, $type: "dimension" },
+                  },
+                  shadow: {
+                    card: { $value: settings.tokens.shadows.cardShadow, $type: "shadow" },
+                    dropdown: { $value: settings.tokens.shadows.dropdownShadow, $type: "shadow" },
+                    button: { $value: settings.tokens.shadows.buttonShadow, $type: "shadow" },
+                  },
+                }, null, 2)}</code>
+              </pre>
+              <Button
+                variant="outline"
+                size="sm"
+                className="mt-4"
+                onClick={() => {
+                  const dtcgTokens = JSON.stringify({
+                    color: {
+                      primary: { $value: settings.primary_color, $type: "color" },
+                      accent: { $value: settings.accent_color, $type: "color" },
+                      text: { 
+                        primary: { $value: settings.tokens.colors.text, $type: "color" },
+                        secondary: { $value: settings.tokens.colors.textSecondary, $type: "color" },
+                        muted: { $value: settings.tokens.colors.textMuted, $type: "color" },
+                      },
+                      semantic: {
+                        success: { $value: settings.tokens.colors.success, $type: "color" },
+                        warning: { $value: settings.tokens.colors.warning, $type: "color" },
+                        error: { $value: settings.tokens.colors.error, $type: "color" },
+                        info: { $value: settings.tokens.colors.info, $type: "color" },
+                      },
+                      surface: {
+                        sidebar: { $value: settings.sidebar_bg, $type: "color" },
+                        header: { $value: settings.header_bg, $type: "color" },
+                        content: { $value: settings.content_bg, $type: "color" },
+                        footer: { $value: settings.footer_bg, $type: "color" },
+                      },
+                    },
+                    typography: {
+                      fontFamily: {
+                        base: { $value: settings.tokens.typography.fontFamily, $type: "fontFamily" },
+                        heading: { $value: settings.tokens.typography.headingFont, $type: "fontFamily" },
+                      },
+                      fontSize: {
+                        base: { $value: settings.tokens.typography.baseFontSize, $type: "dimension" },
+                      },
+                    },
+                    spacing: {
+                      sidebarWidth: { $value: settings.tokens.spacing.sidebarWidth, $type: "dimension" },
+                      headerHeight: { $value: settings.tokens.spacing.headerHeight, $type: "dimension" },
+                      contentPadding: { $value: settings.tokens.spacing.contentPadding, $type: "dimension" },
+                      cardPadding: { $value: settings.tokens.spacing.cardPadding, $type: "dimension" },
+                      gap: { $value: settings.tokens.spacing.gap, $type: "dimension" },
+                    },
+                    borderRadius: {
+                      default: { $value: settings.tokens.borders.radius, $type: "dimension" },
+                      card: { $value: settings.tokens.borders.cardRadius, $type: "dimension" },
+                      button: { $value: settings.tokens.borders.buttonRadius, $type: "dimension" },
+                    },
+                  }, null, 2);
+                  navigator.clipboard.writeText(dtcgTokens);
+                  toast({ title: 'Kopiert', description: 'Tokens er kopiert til utklippstavlen' });
+                }}
+                data-testid="button-copy-tokens"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Kopier tokens
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
       )}
     </div>
   );
@@ -7347,14 +7677,24 @@ function SortableNavItem({
       {...attributes}
       {...listeners}
       data-nav-item
+      role="button"
+      tabIndex={0}
+      aria-label={`${item.label} navigasjonselement. Bruk piltaster for å flytte.`}
+      aria-grabbed={isDragging}
       onClick={(e) => { e.stopPropagation(); onClick(); }}
-      className={`flex items-center gap-2 px-3 py-2 rounded text-sm cursor-pointer transition-all ${
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      className={`flex items-center gap-2 px-3 py-2 rounded text-sm cursor-pointer transition-all focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1 ${
         isSelected ? 'ring-2 ring-primary' : ''
       }`}
       data-testid={`nav-item-${index}`}
     >
-      <GripVertical className="h-3 w-3 text-white/50" />
-      <LayoutDashboard className="h-4 w-4" style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.7)' }} />
+      <GripVertical className="h-3 w-3 text-white/50" aria-hidden="true" />
+      <LayoutDashboard className="h-4 w-4" style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.7)' }} aria-hidden="true" />
       <span style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.9)' }}>{item.label}</span>
     </div>
   );
