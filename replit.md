@@ -34,9 +34,20 @@ Preferred communication style: Simple, everyday language.
 - **Validation**: Zod schemas generated from Drizzle schemas via drizzle-zod
 
 ### Key Data Models
-- **Users**: id, username, password, name, email, role, department, status, hoursThisWeek, pendingApprovals
+- **Users**: id, username, password, name, email, role, department, status, hoursThisWeek, pendingApprovals, vendorId
+  - role: 'user' (default), 'vendor_admin', 'super_admin'
+  - vendorId: Links user to specific vendor (null for super_admin)
 - **TimeEntries**: id, userId, caseNumber, description, hours, date, status, createdAt
 - **Activities**: id, userId, action, description, timestamp
+
+### OAuth 2.0 Authentication
+- **Provider**: Replit Auth (Google, GitHub, Apple, X, email/password)
+- **Routes**: /api/login (start), /api/logout, /api/auth/user (current user)
+- **Role-based Access**:
+  - super_admin: Can access all vendors (must specify vendorId in query/body)
+  - vendor_admin: Locked to assigned vendor
+  - user: Default role for end users
+- **Auto-assignment**: New users auto-assigned to vendor if email domain matches vendor.settings.allowedEmailDomains
 
 ### Project Structure
 ```
