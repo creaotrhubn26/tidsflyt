@@ -6380,7 +6380,7 @@ function VendorManagement() {
   );
 }
 
-interface PortalSettings {
+interface PortalDesignSettings {
   id: number;
   vendor_id: number | null;
   logo_url: string | null;
@@ -6389,49 +6389,155 @@ interface PortalSettings {
   accent_color: string;
   sidebar_bg: string | null;
   header_bg: string | null;
+  content_bg: string | null;
+  footer_bg: string | null;
   custom_css: string | null;
-  nav_items: Array<{ path: string; label: string; icon: string; enabled: boolean }>;
+  nav_items: Array<{ path: string; label: string; icon: string; enabled: boolean; order: number }>;
   footer_text: string | null;
   show_branding: boolean;
+  // Design Tokens
+  tokens: {
+    typography: {
+      fontFamily: string;
+      headingFont: string;
+      baseFontSize: string;
+      headingWeight: string;
+      lineHeight: string;
+    };
+    spacing: {
+      sidebarWidth: string;
+      headerHeight: string;
+      contentPadding: string;
+      cardPadding: string;
+      gap: string;
+    };
+    borders: {
+      radius: string;
+      cardRadius: string;
+      buttonRadius: string;
+      borderWidth: string;
+      borderColor: string;
+    };
+    shadows: {
+      cardShadow: string;
+      dropdownShadow: string;
+      buttonShadow: string;
+    };
+    colors: {
+      text: string;
+      textSecondary: string;
+      textMuted: string;
+      success: string;
+      warning: string;
+      error: string;
+      info: string;
+    };
+  };
+  // Layout settings
+  layout: {
+    sidebarPosition: 'left' | 'right';
+    headerStyle: 'fixed' | 'static';
+    footerEnabled: boolean;
+    compactMode: boolean;
+  };
 }
+
+type RegionType = 'header' | 'sidebar' | 'content' | 'footer' | 'nav-item' | null;
+
+const portalDefaultTokens: PortalDesignSettings['tokens'] = {
+  typography: {
+    fontFamily: 'Inter, system-ui, sans-serif',
+    headingFont: 'Inter, system-ui, sans-serif',
+    baseFontSize: '14px',
+    headingWeight: '600',
+    lineHeight: '1.5',
+  },
+  spacing: {
+    sidebarWidth: '256px',
+    headerHeight: '56px',
+    contentPadding: '24px',
+    cardPadding: '16px',
+    gap: '16px',
+  },
+  borders: {
+    radius: '6px',
+    cardRadius: '8px',
+    buttonRadius: '6px',
+    borderWidth: '1px',
+    borderColor: '#e5e7eb',
+  },
+  shadows: {
+    cardShadow: '0 1px 3px rgba(0,0,0,0.1)',
+    dropdownShadow: '0 4px 12px rgba(0,0,0,0.15)',
+    buttonShadow: 'none',
+  },
+  colors: {
+    text: '#111827',
+    textSecondary: '#6b7280',
+    textMuted: '#9ca3af',
+    success: '#10b981',
+    warning: '#f59e0b',
+    error: '#ef4444',
+    info: '#3b82f6',
+  },
+};
+
+const defaultLayout: PortalDesignSettings['layout'] = {
+  sidebarPosition: 'left',
+  headerStyle: 'fixed',
+  footerEnabled: true,
+  compactMode: false,
+};
 
 function PortalDesigner() {
   const { toast } = useToast();
-  const [settings, setSettings] = useState<PortalSettings>({
+  const [selectedRegion, setSelectedRegion] = useState<RegionType>(null);
+  const [selectedNavIndex, setSelectedNavIndex] = useState<number | null>(null);
+  const [activeTab, setActiveTab] = useState<'visual' | 'tokens' | 'code'>('visual');
+  
+  const [settings, setSettings] = useState<PortalDesignSettings>({
     id: 0,
     vendor_id: null,
     logo_url: null,
     logo_text: 'Smart Timing',
     primary_color: '#3b82f6',
     accent_color: '#8b5cf6',
-    sidebar_bg: null,
-    header_bg: null,
+    sidebar_bg: '#1f2937',
+    header_bg: '#ffffff',
+    content_bg: '#f9fafb',
+    footer_bg: '#ffffff',
     custom_css: null,
     nav_items: [],
     footer_text: null,
     show_branding: true,
+    tokens: portalDefaultTokens,
+    layout: defaultLayout,
   });
 
-  const { data: portalSettings, isLoading } = useQuery<PortalSettings>({
+  const { data: portalSettings, isLoading } = useQuery<PortalDesignSettings>({
     queryKey: ['/api/portal/settings'],
     queryFn: () => authenticatedApiRequest('/api/portal/settings'),
   });
 
   useEffect(() => {
     if (portalSettings) {
-      setSettings(portalSettings);
+      setSettings({
+        ...portalSettings,
+        tokens: portalSettings.tokens || portalDefaultTokens,
+        layout: portalSettings.layout || defaultLayout,
+      });
     }
   }, [portalSettings]);
 
   const saveMutation = useMutation({
-    mutationFn: async (data: Partial<PortalSettings>) => {
+    mutationFn: async (data: Partial<PortalDesignSettings>) => {
       return authenticatedApiRequest('/api/portal/settings', {
         method: 'PUT',
         body: JSON.stringify(data),
       });
     },
     onSuccess: () => {
-      toast({ title: 'Lagret', description: 'Portal-innstillinger er oppdatert' });
+      toast({ title: 'Lagret', description: 'Portal-design er oppdatert' });
       queryClient.invalidateQueries({ queryKey: ['/api/portal/settings'] });
     },
     onError: (error: any) => {
@@ -6440,28 +6546,54 @@ function PortalDesigner() {
   });
 
   const defaultNavItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', enabled: true },
-    { path: '/time', label: 'Timeføring', icon: 'Clock', enabled: true },
-    { path: '/users', label: 'Brukere', icon: 'Users', enabled: true },
-    { path: '/invites', label: 'Invitasjoner', icon: 'UserPlus', enabled: true },
-    { path: '/cases', label: 'Saker', icon: 'FolderKanban', enabled: true },
-    { path: '/case-reports', label: 'Saksrapporter', icon: 'ClipboardList', enabled: true },
-    { path: '/reports', label: 'Rapporter', icon: 'FileText', enabled: true },
-    { path: '/settings', label: 'Innstillinger', icon: 'Settings', enabled: true },
+    { path: '/dashboard', label: 'Dashboard', icon: 'LayoutDashboard', enabled: true, order: 0 },
+    { path: '/time', label: 'Timeføring', icon: 'Clock', enabled: true, order: 1 },
+    { path: '/users', label: 'Brukere', icon: 'Users', enabled: true, order: 2 },
+    { path: '/invites', label: 'Invitasjoner', icon: 'UserPlus', enabled: true, order: 3 },
+    { path: '/cases', label: 'Saker', icon: 'FolderKanban', enabled: true, order: 4 },
+    { path: '/case-reports', label: 'Saksrapporter', icon: 'ClipboardList', enabled: true, order: 5 },
+    { path: '/reports', label: 'Rapporter', icon: 'FileText', enabled: true, order: 6 },
+    { path: '/settings', label: 'Innstillinger', icon: 'Settings', enabled: true, order: 7 },
   ];
 
   const navItems = settings.nav_items?.length > 0 ? settings.nav_items : defaultNavItems;
 
-  const toggleNavItem = (index: number) => {
-    const updated = [...navItems];
-    updated[index] = { ...updated[index], enabled: !updated[index].enabled };
-    setSettings({ ...settings, nav_items: updated });
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  );
+
+  const handleNavDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+      const oldIndex = navItems.findIndex((_, i) => `nav-${i}` === active.id);
+      const newIndex = navItems.findIndex((_, i) => `nav-${i}` === over.id);
+      const reordered = arrayMove(navItems, oldIndex, newIndex).map((item, i) => ({ ...item, order: i }));
+      setSettings({ ...settings, nav_items: reordered });
+    }
   };
 
-  const updateNavLabel = (index: number, label: string) => {
-    const updated = [...navItems];
-    updated[index] = { ...updated[index], label };
-    setSettings({ ...settings, nav_items: updated });
+  const updateToken = (category: keyof PortalDesignSettings['tokens'], key: string, value: string) => {
+    setSettings({
+      ...settings,
+      tokens: {
+        ...settings.tokens,
+        [category]: {
+          ...settings.tokens[category],
+          [key]: value,
+        },
+      },
+    });
+  };
+
+  const updateLayout = (key: keyof PortalDesignSettings['layout'], value: any) => {
+    setSettings({
+      ...settings,
+      layout: {
+        ...settings.layout,
+        [key]: value,
+      },
+    });
   };
 
   if (isLoading) {
@@ -6472,16 +6604,79 @@ function PortalDesigner() {
     );
   }
 
+  const RegionLabel = ({ region, label }: { region: RegionType; label: string }) => (
+    <div className={`absolute top-1 left-1 px-2 py-0.5 text-xs font-medium rounded ${
+      selectedRegion === region ? 'bg-primary text-primary-foreground' : 'bg-black/50 text-white'
+    }`}>
+      {label}
+    </div>
+  );
+
+  const ColorInput = ({ label, value, onChange, testId }: { label: string; value: string; onChange: (v: string) => void; testId: string }) => (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <div className="flex gap-2">
+        <input
+          type="color"
+          value={value || '#ffffff'}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-8 w-10 rounded border cursor-pointer"
+          data-testid={testId}
+        />
+        <Input
+          value={value || ''}
+          onChange={(e) => onChange(e.target.value)}
+          className="flex-1 h-8 text-xs font-mono"
+        />
+      </div>
+    </div>
+  );
+
+  const SizeInput = ({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) => (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      <Input
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-8 text-xs font-mono"
+        placeholder="16px"
+      />
+    </div>
+  );
+
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between gap-4">
-          <div>
-            <CardTitle className="flex items-center gap-2">
-              <Layout className="h-5 w-5" />
-              Portal Design
-            </CardTitle>
-            <CardDescription>Tilpass utseendet på brukerportalen</CardDescription>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <Layout className="h-5 w-5" />
+            Visuell Portal Editor
+          </h2>
+          <p className="text-sm text-muted-foreground">Klikk på en region for å redigere</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex border rounded-lg overflow-hidden">
+            <button
+              onClick={() => setActiveTab('visual')}
+              className={`px-3 py-1.5 text-sm ${activeTab === 'visual' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
+              data-testid="tab-visual-editor"
+            >
+              <Eye className="h-4 w-4 inline mr-1" />Visuell
+            </button>
+            <button
+              onClick={() => setActiveTab('tokens')}
+              className={`px-3 py-1.5 text-sm ${activeTab === 'tokens' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
+              data-testid="tab-tokens"
+            >
+              <Layers className="h-4 w-4 inline mr-1" />Tokens
+            </button>
+            <button
+              onClick={() => setActiveTab('code')}
+              className={`px-3 py-1.5 text-sm ${activeTab === 'code' ? 'bg-primary text-primary-foreground' : 'hover-elevate'}`}
+              data-testid="tab-code"
+            >
+              <PenTool className="h-4 w-4 inline mr-1" />CSS
+            </button>
           </div>
           <Button
             onClick={() => saveMutation.mutate(settings)}
@@ -6489,237 +6684,678 @@ function PortalDesigner() {
             data-testid="button-save-portal"
           >
             {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-            Lagre endringer
+            Lagre
           </Button>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            <div className="space-y-4">
-              <h3 className="font-medium flex items-center gap-2">
-                <Type className="h-4 w-4" />
-                Logo og Branding
-              </h3>
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="logo-text">Logo-tekst</Label>
-                  <Input
-                    id="logo-text"
-                    value={settings.logo_text}
-                    onChange={(e) => setSettings({ ...settings, logo_text: e.target.value })}
-                    placeholder="Bedriftsnavn"
-                    data-testid="input-portal-logo-text"
-                  />
+        </div>
+      </div>
+
+      {activeTab === 'visual' && (
+        <div className="flex gap-4">
+          {/* Visual Canvas */}
+          <div className="flex-1">
+            <Card>
+              <CardContent className="p-4">
+                <div 
+                  className="border-2 rounded-lg overflow-hidden transition-all"
+                  style={{ 
+                    fontFamily: settings.tokens.typography.fontFamily,
+                    fontSize: settings.tokens.typography.baseFontSize,
+                  }}
+                >
+                  {/* Header Region */}
+                  <div 
+                    onClick={() => { setSelectedRegion('header'); setSelectedNavIndex(null); }}
+                    className={`relative cursor-pointer transition-all ${
+                      selectedRegion === 'header' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
+                    }`}
+                    style={{ 
+                      backgroundColor: settings.header_bg || '#ffffff',
+                      height: settings.tokens.spacing.headerHeight,
+                      borderBottom: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
+                    }}
+                  >
+                    <RegionLabel region="header" label="Header" />
+                    <div className="flex items-center justify-between h-full px-4">
+                      <div className="flex items-center gap-3">
+                        {settings.logo_url ? (
+                          <img src={settings.logo_url} alt="Logo" className="h-8" />
+                        ) : (
+                          <span className="font-bold" style={{ color: settings.primary_color, fontFamily: settings.tokens.typography.headingFont }}>
+                            {settings.logo_text}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Bell className="h-5 w-5" style={{ color: settings.tokens.colors.textSecondary }} />
+                        <div className="h-8 w-8 rounded-full bg-muted" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex" style={{ minHeight: '400px' }}>
+                    {/* Sidebar Region */}
+                    <div 
+                      onClick={(e) => { 
+                        if ((e.target as HTMLElement).closest('[data-nav-item]')) return;
+                        setSelectedRegion('sidebar'); 
+                        setSelectedNavIndex(null); 
+                      }}
+                      className={`relative cursor-pointer transition-all ${
+                        selectedRegion === 'sidebar' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
+                      }`}
+                      style={{ 
+                        width: settings.tokens.spacing.sidebarWidth,
+                        backgroundColor: settings.sidebar_bg || '#1f2937',
+                        order: settings.layout.sidebarPosition === 'right' ? 1 : 0,
+                      }}
+                    >
+                      <RegionLabel region="sidebar" label="Sidebar" />
+                      <div className="p-3 pt-8 space-y-1">
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleNavDragEnd}>
+                          <SortableContext items={navItems.map((_, i) => `nav-${i}`)} strategy={verticalListSortingStrategy}>
+                            {navItems.filter(i => i.enabled).map((item, index) => (
+                              <SortableNavItem
+                                key={item.path}
+                                id={`nav-${index}`}
+                                item={item}
+                                index={index}
+                                isSelected={selectedNavIndex === index}
+                                primaryColor={settings.primary_color}
+                                textColor={settings.tokens.colors.text}
+                                onClick={() => {
+                                  setSelectedRegion('nav-item');
+                                  setSelectedNavIndex(index);
+                                }}
+                              />
+                            ))}
+                          </SortableContext>
+                        </DndContext>
+                      </div>
+                    </div>
+
+                    {/* Content Region */}
+                    <div 
+                      onClick={() => { setSelectedRegion('content'); setSelectedNavIndex(null); }}
+                      className={`flex-1 relative cursor-pointer transition-all ${
+                        selectedRegion === 'content' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
+                      }`}
+                      style={{ 
+                        backgroundColor: settings.content_bg || '#f9fafb',
+                        padding: settings.tokens.spacing.contentPadding,
+                      }}
+                    >
+                      <RegionLabel region="content" label="Innhold" />
+                      <div className="pt-6 space-y-4">
+                        <div 
+                          className="p-4 bg-white dark:bg-gray-800 border"
+                          style={{ 
+                            borderRadius: settings.tokens.borders.cardRadius,
+                            boxShadow: settings.tokens.shadows.cardShadow,
+                            padding: settings.tokens.spacing.cardPadding,
+                          }}
+                        >
+                          <h3 className="font-semibold mb-2" style={{ fontWeight: settings.tokens.typography.headingWeight }}>
+                            Eksempel på kort
+                          </h3>
+                          <p style={{ color: settings.tokens.colors.textSecondary, lineHeight: settings.tokens.typography.lineHeight }}>
+                            Dette er innholdsområdet hvor hovedinnholdet vises.
+                          </p>
+                          <div className="flex gap-2 mt-3">
+                            <button 
+                              className="px-3 py-1.5 text-sm text-white"
+                              style={{ 
+                                backgroundColor: settings.primary_color,
+                                borderRadius: settings.tokens.borders.buttonRadius,
+                              }}
+                            >
+                              Primær
+                            </button>
+                            <button 
+                              className="px-3 py-1.5 text-sm border"
+                              style={{ 
+                                borderRadius: settings.tokens.borders.buttonRadius,
+                                color: settings.tokens.colors.text,
+                              }}
+                            >
+                              Sekundær
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {[settings.tokens.colors.success, settings.tokens.colors.warning, settings.tokens.colors.error].map((color, i) => (
+                            <div 
+                              key={i}
+                              className="p-3 text-white text-center text-sm"
+                              style={{ backgroundColor: color, borderRadius: settings.tokens.borders.radius }}
+                            >
+                              {['Suksess', 'Advarsel', 'Feil'][i]}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer Region */}
+                  {settings.layout.footerEnabled && (
+                    <div 
+                      onClick={() => { setSelectedRegion('footer'); setSelectedNavIndex(null); }}
+                      className={`relative cursor-pointer transition-all ${
+                        selectedRegion === 'footer' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
+                      }`}
+                      style={{ 
+                        backgroundColor: settings.footer_bg || '#ffffff',
+                        borderTop: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
+                      }}
+                    >
+                      <RegionLabel region="footer" label="Footer" />
+                      <div className="py-3 px-4 text-center" style={{ color: settings.tokens.colors.textMuted }}>
+                        <p className="text-sm">{settings.footer_text || '© 2025 Bedriftsnavn'}</p>
+                        {settings.show_branding && (
+                          <p className="text-xs mt-1">Powered by Smart Timing</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="logo-url">Logo URL (valgfritt)</Label>
-                  <Input
-                    id="logo-url"
-                    value={settings.logo_url || ''}
-                    onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
-                    placeholder="/uploads/logo.png"
-                    data-testid="input-portal-logo-url"
-                  />
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Properties Panel */}
+          <div className="w-80">
+            <Card className="sticky top-4">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
+                  {selectedRegion === 'header' && 'Header-innstillinger'}
+                  {selectedRegion === 'sidebar' && 'Sidebar-innstillinger'}
+                  {selectedRegion === 'content' && 'Innholds-innstillinger'}
+                  {selectedRegion === 'footer' && 'Footer-innstillinger'}
+                  {selectedRegion === 'nav-item' && 'Meny-element'}
+                  {!selectedRegion && 'Velg en region'}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4 max-h-[600px] overflow-y-auto">
+                {!selectedRegion && (
+                  <p className="text-sm text-muted-foreground">
+                    Klikk på en region i forhåndsvisningen for å redigere den.
+                  </p>
+                )}
+
+                {selectedRegion === 'header' && (
+                  <>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs">Logo-tekst</Label>
+                        <Input
+                          value={settings.logo_text}
+                          onChange={(e) => setSettings({ ...settings, logo_text: e.target.value })}
+                          className="h-8"
+                          data-testid="input-header-logo-text"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Logo URL</Label>
+                        <Input
+                          value={settings.logo_url || ''}
+                          onChange={(e) => setSettings({ ...settings, logo_url: e.target.value })}
+                          className="h-8"
+                          placeholder="/uploads/logo.png"
+                          data-testid="input-header-logo-url"
+                        />
+                      </div>
+                      <ColorInput 
+                        label="Bakgrunnsfarge" 
+                        value={settings.header_bg || '#ffffff'} 
+                        onChange={(v) => setSettings({ ...settings, header_bg: v })}
+                        testId="input-header-bg"
+                      />
+                      <SizeInput
+                        label="Høyde"
+                        value={settings.tokens.spacing.headerHeight}
+                        onChange={(v) => updateToken('spacing', 'headerHeight', v)}
+                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={settings.layout.headerStyle === 'fixed'}
+                          onChange={(e) => updateLayout('headerStyle', e.target.checked ? 'fixed' : 'static')}
+                          className="h-4 w-4"
+                        />
+                        <Label className="text-xs">Sticky header</Label>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {selectedRegion === 'sidebar' && (
+                  <>
+                    <ColorInput 
+                      label="Bakgrunnsfarge" 
+                      value={settings.sidebar_bg || '#1f2937'} 
+                      onChange={(v) => setSettings({ ...settings, sidebar_bg: v })}
+                      testId="input-sidebar-bg"
+                    />
+                    <SizeInput
+                      label="Bredde"
+                      value={settings.tokens.spacing.sidebarWidth}
+                      onChange={(v) => updateToken('spacing', 'sidebarWidth', v)}
+                    />
+                    <div className="space-y-1">
+                      <Label className="text-xs">Posisjon</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant={settings.layout.sidebarPosition === 'left' ? 'default' : 'outline'}
+                          onClick={() => updateLayout('sidebarPosition', 'left')}
+                          className="flex-1"
+                        >
+                          Venstre
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={settings.layout.sidebarPosition === 'right' ? 'default' : 'outline'}
+                          onClick={() => updateLayout('sidebarPosition', 'right')}
+                          className="flex-1"
+                        >
+                          Høyre
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="border-t pt-3">
+                      <Label className="text-xs font-medium">Meny-elementer</Label>
+                      <p className="text-xs text-muted-foreground mb-2">Dra for å endre rekkefølge</p>
+                      <div className="space-y-1">
+                        {navItems.map((item, index) => (
+                          <div key={item.path} className="flex items-center gap-2 p-2 rounded border text-xs">
+                            <input
+                              type="checkbox"
+                              checked={item.enabled}
+                              onChange={() => {
+                                const updated = [...navItems];
+                                updated[index] = { ...updated[index], enabled: !updated[index].enabled };
+                                setSettings({ ...settings, nav_items: updated });
+                              }}
+                              className="h-3 w-3"
+                            />
+                            <span className="flex-1 truncate">{item.label}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {selectedRegion === 'content' && (
+                  <>
+                    <ColorInput 
+                      label="Bakgrunnsfarge" 
+                      value={settings.content_bg || '#f9fafb'} 
+                      onChange={(v) => setSettings({ ...settings, content_bg: v })}
+                      testId="input-content-bg"
+                    />
+                    <SizeInput
+                      label="Padding"
+                      value={settings.tokens.spacing.contentPadding}
+                      onChange={(v) => updateToken('spacing', 'contentPadding', v)}
+                    />
+                    <SizeInput
+                      label="Gap mellom elementer"
+                      value={settings.tokens.spacing.gap}
+                      onChange={(v) => updateToken('spacing', 'gap', v)}
+                    />
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={settings.layout.compactMode}
+                        onChange={(e) => updateLayout('compactMode', e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <Label className="text-xs">Kompakt modus</Label>
+                    </div>
+                  </>
+                )}
+
+                {selectedRegion === 'footer' && (
+                  <>
+                    <ColorInput 
+                      label="Bakgrunnsfarge" 
+                      value={settings.footer_bg || '#ffffff'} 
+                      onChange={(v) => setSettings({ ...settings, footer_bg: v })}
+                      testId="input-footer-bg"
+                    />
+                    <div className="space-y-1">
+                      <Label className="text-xs">Footer-tekst</Label>
+                      <Input
+                        value={settings.footer_text || ''}
+                        onChange={(e) => setSettings({ ...settings, footer_text: e.target.value })}
+                        className="h-8"
+                        placeholder="© 2025 Bedriftsnavn"
+                        data-testid="input-footer-text"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={settings.layout.footerEnabled}
+                        onChange={(e) => updateLayout('footerEnabled', e.target.checked)}
+                        className="h-4 w-4"
+                      />
+                      <Label className="text-xs">Vis footer</Label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={settings.show_branding}
+                        onChange={(e) => setSettings({ ...settings, show_branding: e.target.checked })}
+                        className="h-4 w-4"
+                      />
+                      <Label className="text-xs">Vis "Powered by"</Label>
+                    </div>
+                  </>
+                )}
+
+                {selectedRegion === 'nav-item' && selectedNavIndex !== null && navItems[selectedNavIndex] && (
+                  <>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Etikett</Label>
+                      <Input
+                        value={navItems[selectedNavIndex].label}
+                        onChange={(e) => {
+                          const updated = [...navItems];
+                          updated[selectedNavIndex] = { ...updated[selectedNavIndex], label: e.target.value };
+                          setSettings({ ...settings, nav_items: updated });
+                        }}
+                        className="h-8"
+                        data-testid="input-nav-item-label"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Sti</Label>
+                      <Input
+                        value={navItems[selectedNavIndex].path}
+                        className="h-8 font-mono text-xs"
+                        disabled
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Ikon</Label>
+                      <Input
+                        value={navItems[selectedNavIndex].icon}
+                        onChange={(e) => {
+                          const updated = [...navItems];
+                          updated[selectedNavIndex] = { ...updated[selectedNavIndex], icon: e.target.value };
+                          setSettings({ ...settings, nav_items: updated });
+                        }}
+                        className="h-8"
+                        placeholder="LayoutDashboard"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={navItems[selectedNavIndex].enabled}
+                        onChange={() => {
+                          const updated = [...navItems];
+                          updated[selectedNavIndex] = { ...updated[selectedNavIndex], enabled: !updated[selectedNavIndex].enabled };
+                          setSettings({ ...settings, nav_items: updated });
+                        }}
+                        className="h-4 w-4"
+                      />
+                      <Label className="text-xs">Synlig</Label>
+                    </div>
+                  </>
+                )}
+
+                {/* Global Colors */}
+                {selectedRegion && (
+                  <div className="border-t pt-3 mt-3">
+                    <Label className="text-xs font-medium">Globale farger</Label>
+                    <div className="space-y-2 mt-2">
+                      <ColorInput 
+                        label="Primærfarge" 
+                        value={settings.primary_color} 
+                        onChange={(v) => setSettings({ ...settings, primary_color: v })}
+                        testId="input-global-primary"
+                      />
+                      <ColorInput 
+                        label="Aksentfarge" 
+                        value={settings.accent_color} 
+                        onChange={(v) => setSettings({ ...settings, accent_color: v })}
+                        testId="input-global-accent"
+                      />
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'tokens' && (
+        <Card>
+          <CardContent className="p-6">
+            <div className="grid gap-6 md:grid-cols-3">
+              {/* Typography */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Type className="h-4 w-4" />
+                  Typografi
+                </h3>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Font-familie</Label>
+                    <Input
+                      value={settings.tokens.typography.fontFamily}
+                      onChange={(e) => updateToken('typography', 'fontFamily', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Overskrift-font</Label>
+                    <Input
+                      value={settings.tokens.typography.headingFont}
+                      onChange={(e) => updateToken('typography', 'headingFont', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Basis font-størrelse</Label>
+                    <Input
+                      value={settings.tokens.typography.baseFontSize}
+                      onChange={(e) => updateToken('typography', 'baseFontSize', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Overskrift-vekt</Label>
+                    <Input
+                      value={settings.tokens.typography.headingWeight}
+                      onChange={(e) => updateToken('typography', 'headingWeight', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Linjehøyde</Label>
+                    <Input
+                      value={settings.tokens.typography.lineHeight}
+                      onChange={(e) => updateToken('typography', 'lineHeight', e.target.value)}
+                      className="h-8 text-xs"
+                    />
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    id="show-branding"
-                    checked={settings.show_branding}
-                    onChange={(e) => setSettings({ ...settings, show_branding: e.target.checked })}
-                    className="h-4 w-4"
-                    data-testid="checkbox-show-branding"
-                  />
-                  <Label htmlFor="show-branding">Vis "Powered by Smart Timing"</Label>
+              </div>
+
+              {/* Spacing */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Box className="h-4 w-4" />
+                  Avstander
+                </h3>
+                <div className="space-y-3">
+                  <SizeInput label="Sidebar bredde" value={settings.tokens.spacing.sidebarWidth} onChange={(v) => updateToken('spacing', 'sidebarWidth', v)} />
+                  <SizeInput label="Header høyde" value={settings.tokens.spacing.headerHeight} onChange={(v) => updateToken('spacing', 'headerHeight', v)} />
+                  <SizeInput label="Innholds-padding" value={settings.tokens.spacing.contentPadding} onChange={(v) => updateToken('spacing', 'contentPadding', v)} />
+                  <SizeInput label="Kort-padding" value={settings.tokens.spacing.cardPadding} onChange={(v) => updateToken('spacing', 'cardPadding', v)} />
+                  <SizeInput label="Gap" value={settings.tokens.spacing.gap} onChange={(v) => updateToken('spacing', 'gap', v)} />
+                </div>
+              </div>
+
+              {/* Borders */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  Kanter og skygger
+                </h3>
+                <div className="space-y-3">
+                  <SizeInput label="Border radius" value={settings.tokens.borders.radius} onChange={(v) => updateToken('borders', 'radius', v)} />
+                  <SizeInput label="Kort radius" value={settings.tokens.borders.cardRadius} onChange={(v) => updateToken('borders', 'cardRadius', v)} />
+                  <SizeInput label="Knapp radius" value={settings.tokens.borders.buttonRadius} onChange={(v) => updateToken('borders', 'buttonRadius', v)} />
+                  <SizeInput label="Border tykkelse" value={settings.tokens.borders.borderWidth} onChange={(v) => updateToken('borders', 'borderWidth', v)} />
+                  <ColorInput label="Border farge" value={settings.tokens.borders.borderColor} onChange={(v) => updateToken('borders', 'borderColor', v)} testId="input-border-color" />
+                </div>
+              </div>
+
+              {/* Status Colors */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Palette className="h-4 w-4" />
+                  Statusfarger
+                </h3>
+                <div className="space-y-3">
+                  <ColorInput label="Suksess" value={settings.tokens.colors.success} onChange={(v) => updateToken('colors', 'success', v)} testId="input-color-success" />
+                  <ColorInput label="Advarsel" value={settings.tokens.colors.warning} onChange={(v) => updateToken('colors', 'warning', v)} testId="input-color-warning" />
+                  <ColorInput label="Feil" value={settings.tokens.colors.error} onChange={(v) => updateToken('colors', 'error', v)} testId="input-color-error" />
+                  <ColorInput label="Info" value={settings.tokens.colors.info} onChange={(v) => updateToken('colors', 'info', v)} testId="input-color-info" />
+                </div>
+              </div>
+
+              {/* Text Colors */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Type className="h-4 w-4" />
+                  Tekstfarger
+                </h3>
+                <div className="space-y-3">
+                  <ColorInput label="Primær tekst" value={settings.tokens.colors.text} onChange={(v) => updateToken('colors', 'text', v)} testId="input-text-primary" />
+                  <ColorInput label="Sekundær tekst" value={settings.tokens.colors.textSecondary} onChange={(v) => updateToken('colors', 'textSecondary', v)} testId="input-text-secondary" />
+                  <ColorInput label="Dempet tekst" value={settings.tokens.colors.textMuted} onChange={(v) => updateToken('colors', 'textMuted', v)} testId="input-text-muted" />
+                </div>
+              </div>
+
+              {/* Shadows */}
+              <div className="space-y-4">
+                <h3 className="font-medium flex items-center gap-2">
+                  <Layers className="h-4 w-4" />
+                  Skygger
+                </h3>
+                <div className="space-y-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Kort-skygge</Label>
+                    <Input
+                      value={settings.tokens.shadows.cardShadow}
+                      onChange={(e) => updateToken('shadows', 'cardShadow', e.target.value)}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Dropdown-skygge</Label>
+                    <Input
+                      value={settings.tokens.shadows.dropdownShadow}
+                      onChange={(e) => updateToken('shadows', 'dropdownShadow', e.target.value)}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Knapp-skygge</Label>
+                    <Input
+                      value={settings.tokens.shadows.buttonShadow}
+                      onChange={(e) => updateToken('shadows', 'buttonShadow', e.target.value)}
+                      className="h-8 text-xs font-mono"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
 
-            <div className="space-y-4">
-              <h3 className="font-medium flex items-center gap-2">
-                <Palette className="h-4 w-4" />
-                Farger
-              </h3>
-              <div className="space-y-3">
-                <div className="space-y-2">
-                  <Label htmlFor="primary-color">Primærfarge</Label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      id="primary-color"
-                      value={settings.primary_color}
-                      onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
-                      className="h-9 w-12 rounded border cursor-pointer"
-                      data-testid="input-primary-color"
-                    />
-                    <Input
-                      value={settings.primary_color}
-                      onChange={(e) => setSettings({ ...settings, primary_color: e.target.value })}
-                      placeholder="#3b82f6"
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="accent-color">Aksentfarge</Label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      id="accent-color"
-                      value={settings.accent_color}
-                      onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
-                      className="h-9 w-12 rounded border cursor-pointer"
-                      data-testid="input-accent-color"
-                    />
-                    <Input
-                      value={settings.accent_color}
-                      onChange={(e) => setSettings({ ...settings, accent_color: e.target.value })}
-                      placeholder="#8b5cf6"
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sidebar-bg">Sidebar bakgrunn (valgfritt)</Label>
-                  <div className="flex gap-2">
-                    <input
-                      type="color"
-                      id="sidebar-bg"
-                      value={settings.sidebar_bg || '#1f2937'}
-                      onChange={(e) => setSettings({ ...settings, sidebar_bg: e.target.value })}
-                      className="h-9 w-12 rounded border cursor-pointer"
-                      data-testid="input-sidebar-bg"
-                    />
-                    <Input
-                      value={settings.sidebar_bg || ''}
-                      onChange={(e) => setSettings({ ...settings, sidebar_bg: e.target.value })}
-                      placeholder="Standard"
-                      className="flex-1"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="font-medium mb-4 flex items-center gap-2">
-              <Menu className="h-4 w-4" />
-              Navigasjonsmeny
-            </h3>
-            <div className="space-y-2">
-              {navItems.map((item, index) => (
-                <div key={item.path} className="flex items-center gap-3 p-3 rounded-lg border">
-                  <input
-                    type="checkbox"
-                    checked={item.enabled}
-                    onChange={() => toggleNavItem(index)}
-                    className="h-4 w-4"
-                    data-testid={`checkbox-nav-${item.path.replace('/', '')}`}
-                  />
-                  <div className="flex-1">
-                    <Input
-                      value={item.label}
-                      onChange={(e) => updateNavLabel(index, e.target.value)}
-                      className="h-8"
-                      data-testid={`input-nav-label-${index}`}
-                    />
-                  </div>
-                  <span className="text-sm text-muted-foreground font-mono">{item.path}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="font-medium mb-4 flex items-center gap-2">
-              <FileText className="h-4 w-4" />
-              Footer
-            </h3>
-            <div className="space-y-2">
-              <Label htmlFor="footer-text">Footer-tekst</Label>
-              <Input
-                id="footer-text"
-                value={settings.footer_text || ''}
-                onChange={(e) => setSettings({ ...settings, footer_text: e.target.value })}
-                placeholder="© 2025 Bedriftsnavn. Alle rettigheter reservert."
-                data-testid="input-footer-text"
-              />
-            </div>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="font-medium mb-4 flex items-center gap-2">
-              <PenTool className="h-4 w-4" />
-              Egendefinert CSS (avansert)
-            </h3>
+      {activeTab === 'code' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-sm">Egendefinert CSS</CardTitle>
+            <CardDescription>Avanserte stilendringer med CSS</CardDescription>
+          </CardHeader>
+          <CardContent>
             <Textarea
               value={settings.custom_css || ''}
               onChange={(e) => setSettings({ ...settings, custom_css: e.target.value })}
-              placeholder=".sidebar { background: #1a1a2e; }&#10;.header { border-bottom: 2px solid var(--primary); }"
-              className="font-mono text-sm min-h-[120px]"
+              placeholder={`:root {
+  --portal-primary: ${settings.primary_color};
+  --portal-accent: ${settings.accent_color};
+}
+
+.sidebar {
+  /* Egendefinerte stiler */
+}
+
+.header {
+  /* Egendefinerte stiler */
+}`}
+              className="font-mono text-sm min-h-[400px]"
               data-testid="textarea-custom-css"
             />
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Eye className="h-5 w-5" />
-            Forhåndsvisning
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-lg overflow-hidden">
-            <div 
-              className="flex h-12 items-center px-4 border-b"
-              style={{ backgroundColor: settings.header_bg || undefined }}
-            >
-              <div className="flex items-center gap-2">
-                {settings.logo_url ? (
-                  <img src={settings.logo_url} alt="Logo" className="h-6" />
-                ) : (
-                  <div 
-                    className="font-bold text-lg"
-                    style={{ color: settings.primary_color }}
-                  >
-                    {settings.logo_text}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="flex">
-              <div 
-                className="w-48 p-3 space-y-1 border-r min-h-[200px]"
-                style={{ backgroundColor: settings.sidebar_bg || undefined }}
-              >
-                {navItems.filter(i => i.enabled).map((item) => (
-                  <div
-                    key={item.path}
-                    className="flex items-center gap-2 px-3 py-2 rounded text-sm"
-                    style={{ 
-                      backgroundColor: item.path === '/dashboard' ? settings.primary_color + '20' : undefined,
-                      color: item.path === '/dashboard' ? settings.primary_color : undefined
-                    }}
-                  >
-                    <LayoutDashboard className="h-4 w-4" />
-                    {item.label}
-                  </div>
-                ))}
-              </div>
-              <div className="flex-1 p-4 bg-muted/30">
-                <div className="text-muted-foreground text-sm">Innholdsområde</div>
-              </div>
-            </div>
-            {settings.footer_text && (
-              <div className="text-center text-sm text-muted-foreground py-2 border-t">
-                {settings.footer_text}
-              </div>
-            )}
-          </div>
-        </CardContent>
-      </Card>
+function SortableNavItem({ 
+  id, 
+  item, 
+  index, 
+  isSelected, 
+  primaryColor, 
+  textColor,
+  onClick 
+}: { 
+  id: string; 
+  item: { path: string; label: string; icon: string; enabled: boolean }; 
+  index: number;
+  isSelected: boolean;
+  primaryColor: string;
+  textColor: string;
+  onClick: () => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      {...attributes}
+      {...listeners}
+      data-nav-item
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`flex items-center gap-2 px-3 py-2 rounded text-sm cursor-pointer transition-all ${
+        isSelected ? 'ring-2 ring-primary' : ''
+      }`}
+      data-testid={`nav-item-${index}`}
+    >
+      <GripVertical className="h-3 w-3 text-white/50" />
+      <LayoutDashboard className="h-4 w-4" style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.7)' }} />
+      <span style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.9)' }}>{item.label}</span>
     </div>
   );
 }

@@ -672,12 +672,14 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const {
         logo_url, logo_text, primary_color, accent_color,
-        sidebar_bg, header_bg, custom_css, nav_items, footer_text, show_branding
+        sidebar_bg, header_bg, content_bg, footer_bg,
+        custom_css, nav_items, footer_text, show_branding,
+        tokens, layout
       } = req.body;
       
       const result = await pool.query(
-        `INSERT INTO portal_settings (vendor_id, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, custom_css, nav_items, footer_text, show_branding, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+        `INSERT INTO portal_settings (vendor_id, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, content_bg, footer_bg, custom_css, nav_items, footer_text, show_branding, tokens, layout, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
          ON CONFLICT (vendor_id) DO UPDATE SET
            logo_url = COALESCE($2, portal_settings.logo_url),
            logo_text = COALESCE($3, portal_settings.logo_text),
@@ -685,13 +687,17 @@ export function registerSmartTimingRoutes(app: Express) {
            accent_color = COALESCE($5, portal_settings.accent_color),
            sidebar_bg = COALESCE($6, portal_settings.sidebar_bg),
            header_bg = COALESCE($7, portal_settings.header_bg),
-           custom_css = COALESCE($8, portal_settings.custom_css),
-           nav_items = COALESCE($9, portal_settings.nav_items),
-           footer_text = COALESCE($10, portal_settings.footer_text),
-           show_branding = COALESCE($11, portal_settings.show_branding),
+           content_bg = COALESCE($8, portal_settings.content_bg),
+           footer_bg = COALESCE($9, portal_settings.footer_bg),
+           custom_css = COALESCE($10, portal_settings.custom_css),
+           nav_items = COALESCE($11, portal_settings.nav_items),
+           footer_text = COALESCE($12, portal_settings.footer_text),
+           show_branding = COALESCE($13, portal_settings.show_branding),
+           tokens = COALESCE($14, portal_settings.tokens),
+           layout = COALESCE($15, portal_settings.layout),
            updated_at = NOW()
          RETURNING *`,
-        [vendorId, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, custom_css, JSON.stringify(nav_items || []), footer_text, show_branding]
+        [vendorId, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, content_bg, footer_bg, custom_css, JSON.stringify(nav_items || []), footer_text, show_branding, JSON.stringify(tokens || {}), JSON.stringify(layout || {})]
       );
       
       await createContentVersion('portal_settings', result.rows[0].id, result.rows[0], req.admin.username, 'Updated portal settings');
