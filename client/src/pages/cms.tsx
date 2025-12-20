@@ -12,7 +12,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink,
+  Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink, ArrowLeft,
   ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
   Heart, Home, Phone, Mail, Calendar, Download, Upload, Settings, Search, Menu,
   X, ChevronRight, ChevronDown, ChevronUp, Bell, Gift, Award, Target, Briefcase, Building, Building2,
@@ -454,9 +454,15 @@ export default function CMSPage() {
   return <VisualBuilder onLogout={handleLogout} />;
 }
 
-function CMSPageLegacy() {
+export function CMSPageLegacy() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("hero");
+  
+  const getInitialTab = () => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('tab') || "hero";
+  };
+  
+  const [activeTab, setActiveTab] = useState(getInitialTab);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -504,6 +510,10 @@ function CMSPageLegacy() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="default" onClick={() => window.location.href = '/cms'} data-testid="button-visual-builder">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Visual Builder
+          </Button>
           <Dialog>
             <DialogTrigger asChild>
               <Button variant="outline" data-testid="button-preview">

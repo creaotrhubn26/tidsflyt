@@ -12,7 +12,7 @@ import Reports from "@/pages/reports";
 import CaseReports from "@/pages/case-reports";
 import Users from "@/pages/users";
 import Profile from "@/pages/profile";
-import CMS from "@/pages/cms";
+import CMS, { CMSPageLegacy } from "@/pages/cms";
 import Vendors from "@/pages/vendors";
 import Contact from "@/pages/contact";
 import Privacy from "@/pages/privacy";
@@ -39,6 +39,7 @@ function Router() {
       <Route path="/settings" component={Profile} />
       <Route path="/vendors" component={Vendors} />
       <Route path="/cms" component={CMS} />
+      <Route path="/cms-legacy" component={CMSPageLegacy} />
       <Route path="/kontakt" component={Contact} />
       <Route path="/personvern" component={Privacy} />
       <Route path="/vilkar" component={Terms} />

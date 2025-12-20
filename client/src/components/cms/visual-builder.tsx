@@ -247,9 +247,22 @@ function LayerItem({ label, icon: Icon, type, id, isVisible = true, children, de
   );
 }
 
+const cmsTools = [
+  { id: 'design', name: 'Design System', icon: Palette, description: 'Farger og typografi' },
+  { id: 'media', name: 'Mediebibliotek', icon: ImageIcon, description: 'Bilder og filer' },
+  { id: 'navigation', name: 'Navigasjon', icon: Layers, description: 'Menystruktur' },
+  { id: 'forms', name: 'Skjemaer', icon: FileText, description: 'Kontaktskjemaer' },
+  { id: 'blog', name: 'Blogg', icon: FileText, description: 'Blogginnlegg' },
+  { id: 'email', name: 'E-postmaler', icon: Mail, description: 'Automatiske e-poster' },
+  { id: 'reports', name: 'Rapporter', icon: FileText, description: 'Rapportdesign' },
+  { id: 'portal', name: 'Portaldesign', icon: Settings, description: 'Brukerportal' },
+  { id: 'analytics', name: 'Analyse', icon: TrendingUp, description: 'Statistikk' },
+  { id: 'versions', name: 'Versjonshistorikk', icon: Clock, description: 'Tidligere versjoner' },
+];
+
 function LayerPanel() {
   const { content } = useBuilder();
-  const [activeTab, setActiveTab] = useState<'layers' | 'templates'>('layers');
+  const [activeTab, setActiveTab] = useState<'layers' | 'templates' | 'tools'>('layers');
   const { toast } = useToast();
 
   const handleAddTemplate = (template: typeof sectionTemplates[0]) => {
@@ -259,15 +272,22 @@ function LayerPanel() {
     });
   };
 
+  const handleOpenTool = (tool: typeof cmsTools[0]) => {
+    window.location.href = `/cms-legacy?tab=${tool.id}`;
+  };
+
   return (
     <div className="h-full flex flex-col bg-sidebar border-r">
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'layers' | 'templates')} className="flex-1 flex flex-col">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'layers' | 'templates' | 'tools')} className="flex-1 flex flex-col">
         <TabsList className="w-full rounded-none border-b bg-transparent h-10 p-0">
+          <TabsTrigger value="layers" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+            Lag
+          </TabsTrigger>
           <TabsTrigger value="templates" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
             Maler
           </TabsTrigger>
-          <TabsTrigger value="layers" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
-            Lag
+          <TabsTrigger value="tools" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
+            Verktøy
           </TabsTrigger>
         </TabsList>
         
@@ -364,6 +384,29 @@ function LayerPanel() {
                   <LayerItem label="Kontakt" icon={Phone} type="contact" />
                 </CollapsibleContent>
               </Collapsible>
+            </div>
+          </ScrollArea>
+        </TabsContent>
+
+        <TabsContent value="tools" className="flex-1 m-0 overflow-hidden">
+          <ScrollArea className="h-full">
+            <div className="p-3 space-y-2">
+              <p className="text-xs text-muted-foreground mb-3">Flere CMS-verktøy</p>
+              {cmsTools.map((tool) => (
+                <div
+                  key={tool.id}
+                  className="flex items-center gap-3 p-2.5 border rounded-md hover-elevate cursor-pointer"
+                  onClick={() => handleOpenTool(tool)}
+                  data-testid={`tool-${tool.id}`}
+                >
+                  <tool.icon className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{tool.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{tool.description}</p>
+                  </div>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground" />
+                </div>
+              ))}
             </div>
           </ScrollArea>
         </TabsContent>
