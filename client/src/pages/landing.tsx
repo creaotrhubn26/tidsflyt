@@ -139,9 +139,24 @@ const defaultSections: LandingSections = {
   footer_copyright: "© 2025 Smart Timing. Alle rettigheter reservert.",
 };
 
+interface BrregCompany {
+  organisasjonsnummer: string;
+  navn: string;
+  organisasjonsform?: {
+    kode: string;
+    beskrivelse: string;
+  };
+  forretningsadresse?: {
+    adresse?: string[];
+    postnummer?: string;
+    poststed?: string;
+  };
+}
+
 interface NewUserFormData {
   fullName: string;
   email: string;
+  orgNumber: string;
   company: string;
   phone: string;
   message: string;
@@ -157,6 +172,10 @@ export default function LandingPage() {
   const { toast } = useToast();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'choice' | 'new-user' | 'existing-user'>('choice');
+  const [brregSearchResults, setBrregSearchResults] = useState<BrregCompany[]>([]);
+  const [brregLoading, setBrregLoading] = useState(false);
+  const [brregVerified, setBrregVerified] = useState(false);
+  const [showBrregDropdown, setShowBrregDropdown] = useState(false);
 
   const { data: content, isLoading } = useQuery<LandingContent>({
     queryKey: ['/api/cms/landing'],
@@ -171,11 +190,65 @@ export default function LandingPage() {
     defaultValues: {
       fullName: '',
       email: '',
+      orgNumber: '',
       company: '',
       phone: '',
       message: '',
     },
   });
+
+  const searchBrreg = async (query: string) => {
+    if (query.length < 2) {
+      setBrregSearchResults([]);
+      setShowBrregDropdown(false);
+      return;
+    }
+
+    setBrregLoading(true);
+    try {
+      const isOrgNumber = /^\d{9}$/.test(query.replace(/\s/g, ''));
+      let url: string;
+      
+      if (isOrgNumber) {
+        url = `https://data.brreg.no/enhetsregisteret/api/enheter/${query.replace(/\s/g, '')}`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          setBrregSearchResults([data]);
+          setShowBrregDropdown(true);
+        } else {
+          setBrregSearchResults([]);
+          setShowBrregDropdown(false);
+        }
+      } else {
+        url = `https://data.brreg.no/enhetsregisteret/api/enheter?navn=${encodeURIComponent(query)}&size=5`;
+        const response = await fetch(url);
+        if (response.ok) {
+          const data = await response.json();
+          if (data._embedded?.enheter) {
+            setBrregSearchResults(data._embedded.enheter);
+            setShowBrregDropdown(true);
+          } else {
+            setBrregSearchResults([]);
+            setShowBrregDropdown(false);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Brreg search error:', error);
+      setBrregSearchResults([]);
+    } finally {
+      setBrregLoading(false);
+    }
+  };
+
+  const selectBrregCompany = (company: BrregCompany) => {
+    newUserForm.setValue('orgNumber', company.organisasjonsnummer);
+    newUserForm.setValue('company', company.navn);
+    setBrregVerified(true);
+    setShowBrregDropdown(false);
+    setBrregSearchResults([]);
+  };
 
   const loginForm = useForm<LoginFormData>({
     defaultValues: {
@@ -197,9 +270,11 @@ export default function LandingPage() {
         body: JSON.stringify({
           full_name: data.fullName,
           email: data.email,
+          org_number: data.orgNumber,
           company: data.company,
           phone: data.phone,
           message: data.message,
+          brreg_verified: brregVerified,
         }),
       });
       
@@ -210,6 +285,7 @@ export default function LandingPage() {
         });
         setLoginDialogOpen(false);
         newUserForm.reset();
+        setBrregVerified(false);
       } else {
         const errorData = await response.json();
         toast({
@@ -354,12 +430,70 @@ export default function LandingPage() {
               />
               <FormField
                 control={newUserForm.control}
+                name="orgNumber"
+                render={({ field }) => (
+                  <FormItem className="relative">
+                    <FormLabel className="flex items-center gap-2">
+                      Organisasjonsnummer eller bedriftsnavn
+                      {brregVerified && (
+                        <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                          <CheckCircle className="h-3 w-3" />
+                          Verifisert
+                        </span>
+                      )}
+                      {brregLoading && (
+                        <span className="text-xs text-muted-foreground">Søker...</span>
+                      )}
+                    </FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Søk med org.nr eller bedriftsnavn" 
+                        {...field} 
+                        onChange={(e) => {
+                          field.onChange(e);
+                          setBrregVerified(false);
+                          searchBrreg(e.target.value);
+                        }}
+                        data-testid="input-new-user-orgnumber" 
+                      />
+                    </FormControl>
+                    {showBrregDropdown && brregSearchResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-auto">
+                        {brregSearchResults.map((company) => (
+                          <button
+                            key={company.organisasjonsnummer}
+                            type="button"
+                            className="w-full text-left px-3 py-2 hover-elevate border-b border-border last:border-0"
+                            onClick={() => selectBrregCompany(company)}
+                            data-testid={`brreg-result-${company.organisasjonsnummer}`}
+                          >
+                            <p className="font-medium text-sm">{company.navn}</p>
+                            <p className="text-xs text-muted-foreground">
+                              Org.nr: {company.organisasjonsnummer}
+                              {company.organisasjonsform && ` (${company.organisasjonsform.beskrivelse})`}
+                            </p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              <FormField
+                control={newUserForm.control}
                 name="company"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Bedrift (valgfritt)</FormLabel>
+                    <FormLabel>Bedriftsnavn {brregVerified && "(fra Brreg)"}</FormLabel>
                     <FormControl>
-                      <Input placeholder="Bedriftsnavn AS" {...field} data-testid="input-new-user-company" />
+                      <Input 
+                        placeholder="Fylles ut automatisk ved søk" 
+                        {...field} 
+                        disabled={brregVerified}
+                        className={brregVerified ? "bg-muted" : ""}
+                        data-testid="input-new-user-company" 
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>

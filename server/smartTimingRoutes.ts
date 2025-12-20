@@ -847,14 +847,19 @@ export function registerSmartTimingRoutes(app: Express) {
           id SERIAL PRIMARY KEY,
           full_name TEXT NOT NULL,
           email TEXT NOT NULL,
+          org_number TEXT,
           company TEXT,
           phone TEXT,
           message TEXT,
+          brreg_verified BOOLEAN DEFAULT FALSE,
           status TEXT NOT NULL DEFAULT 'pending',
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         )
       `);
+      // Add columns if they don't exist (for existing tables)
+      await pool.query(`ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS org_number TEXT`);
+      await pool.query(`ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS brreg_verified BOOLEAN DEFAULT FALSE`);
     } catch (err) {
       console.error('Error creating access_requests table:', err);
     }
@@ -864,17 +869,17 @@ export function registerSmartTimingRoutes(app: Express) {
   // Submit access request (public endpoint)
   app.post("/api/access-requests", async (req, res) => {
     try {
-      const { full_name, email, company, phone, message } = req.body;
+      const { full_name, email, org_number, company, phone, message, brreg_verified } = req.body;
       
       if (!full_name || !email) {
         return res.status(400).json({ error: 'Navn og e-post er påkrevd' });
       }
       
       const result = await pool.query(
-        `INSERT INTO access_requests (full_name, email, company, phone, message)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO access_requests (full_name, email, org_number, company, phone, message, brreg_verified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [full_name, email, company || null, phone || null, message || null]
+        [full_name, email, org_number || null, company || null, phone || null, message || null, brreg_verified || false]
       );
       
       res.status(201).json({ success: true, request: result.rows[0] });
