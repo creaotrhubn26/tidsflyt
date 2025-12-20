@@ -1148,15 +1148,17 @@ export default function LandingPage() {
                 Tiltaksbedrifter som bruker Tidsflyt
               </p>
             </div>
-            <div className="flex flex-wrap items-center justify-center gap-6 md:gap-10">
+            <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
               {clients.map((client, index) => (
-                <div key={client.id} className="flex items-center gap-2 px-4 py-2 bg-muted/50 rounded-md" data-testid={`client-item-${index}`}>
+                <div key={client.id} className="grayscale hover:grayscale-0 transition-all duration-300" data-testid={`client-item-${index}`}>
                   {client.logo_url ? (
-                    <img src={client.logo_url} alt={client.name} className="h-8 object-contain" />
+                    <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" title={client.name} />
                   ) : (
-                    <Building className="h-5 w-5 text-muted-foreground" />
+                    <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 rounded-md">
+                      <Building className="h-5 w-5 text-muted-foreground" />
+                      <span className="font-medium">{client.name}</span>
+                    </div>
                   )}
-                  <span className="font-medium">{client.name}</span>
                 </div>
               ))}
             </div>
