@@ -3672,13 +3672,67 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // ============================================
-  // Contact Form Submission
+  // Contact Form Submission (with spam protection)
   // ============================================
+
+  // Rate limiting store for contact form
+  const contactRateLimiter = new Map<string, { count: number; resetTime: number }>();
 
   app.post("/api/contact", async (req, res) => {
     try {
-      const { name, email, company, orgNumber, website, phone, subject, message } = req.body;
+      const { name, email, company, orgNumber, website, phone, subject, message, _honeypot, _timestamp } = req.body;
       
+      // SPAM PROTECTION 1: Honeypot check - bots fill hidden fields
+      if (_honeypot && _honeypot.length > 0) {
+        console.log('Bot detected: honeypot field filled');
+        // Return success to fool the bot, but don't actually send
+        return res.json({ success: true, message: 'Melding sendt' });
+      }
+
+      // SPAM PROTECTION 2: Time-based validation - forms submitted too fast are bots
+      const now = Date.now();
+      const submissionTime = parseInt(_timestamp) || 0;
+      const timeDiff = now - submissionTime;
+      const minTimeMs = 3000; // Minimum 3 seconds to fill form
+
+      if (timeDiff < minTimeMs) {
+        console.log(`Bot detected: form submitted too fast (${timeDiff}ms)`);
+        return res.json({ success: true, message: 'Melding sendt' });
+      }
+
+      // SPAM PROTECTION 3: Rate limiting - max 3 submissions per IP per hour
+      const clientIP = req.ip || req.socket.remoteAddress || 'unknown';
+      const rateLimitWindow = 60 * 60 * 1000; // 1 hour in ms
+      const maxSubmissions = 3;
+
+      const rateLimit = contactRateLimiter.get(clientIP);
+      if (rateLimit) {
+        if (now < rateLimit.resetTime) {
+          if (rateLimit.count >= maxSubmissions) {
+            console.log(`Rate limit exceeded for IP: ${clientIP}`);
+            return res.status(429).json({ error: 'For mange forespørsler. Vennligst vent en time før du prøver igjen.' });
+          }
+          rateLimit.count++;
+        } else {
+          // Reset the window
+          contactRateLimiter.set(clientIP, { count: 1, resetTime: now + rateLimitWindow });
+        }
+      } else {
+        contactRateLimiter.set(clientIP, { count: 1, resetTime: now + rateLimitWindow });
+      }
+
+      // Clean up old rate limit entries periodically
+      if (Math.random() < 0.1) { // 10% chance to clean up
+        const cutoff = now;
+        const entriesToDelete: string[] = [];
+        contactRateLimiter.forEach((data, ip) => {
+          if (data.resetTime < cutoff) {
+            entriesToDelete.push(ip);
+          }
+        });
+        entriesToDelete.forEach(ip => contactRateLimiter.delete(ip));
+      }
+
       if (!name || !email || !subject || !message) {
         return res.status(400).json({ error: 'Alle obligatoriske felt må fylles ut' });
       }

@@ -42,6 +42,8 @@ export default function Contact() {
     message: ""
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const [formLoadTime] = useState(() => Date.now());
   const [brregSearchResults, setBrregSearchResults] = useState<BrregCompany[]>([]);
   const [brregLoading, setBrregLoading] = useState(false);
   const [brregVerified, setBrregVerified] = useState(false);
@@ -144,7 +146,11 @@ export default function Contact() {
       const response = await fetch('/api/contact', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(formData),
+        body: JSON.stringify({
+          ...formData,
+          _honeypot: honeypot,
+          _timestamp: formLoadTime,
+        }),
       });
       
       const result = await response.json();
@@ -234,6 +240,17 @@ export default function Contact() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Honeypot field - hidden from humans, bots will fill it */}
+                <div className="absolute -left-[9999px]" aria-hidden="true">
+                  <input
+                    type="text"
+                    name="website_url"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    value={honeypot}
+                    onChange={(e) => setHoneypot(e.target.value)}
+                  />
+                </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="name">Kontaktperson *</Label>
