@@ -173,7 +173,7 @@ export default function AccessRequestsPage() {
             <UserPlus className="h-6 w-6" />
             Tilgangsforesporsler
           </h1>
-          <p className="text-muted-foreground">Administrer foresporsler om tilgang til Smart Timing</p>
+          <p className="text-muted-foreground">Administrer forespørsler om tilgang til Tidsflyt</p>
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]" data-testid="select-status-filter">

@@ -1,8 +1,8 @@
-# Smart Timing
+# Tidsflyt
 
 ## Overview
 
-Smart Timing is a professional time tracking and workforce management application designed for Norwegian businesses. It provides dashboards for monitoring work hours, managing users, generating reports, and tracking activities. The application features a modern React frontend with a dark/light theme system and an Express.js backend with PostgreSQL database storage.
+Tidsflyt is a professional time tracking and workforce management application designed for Norwegian businesses. Domain: tidsflyt.no It provides dashboards for monitoring work hours, managing users, generating reports, and tracking activities. The application features a modern React frontend with a dark/light theme system and an Express.js backend with PostgreSQL database storage.
 
 ## User Preferences
 

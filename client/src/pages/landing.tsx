@@ -296,18 +296,18 @@ const defaultFeatures: LandingFeature[] = [
 
 const defaultSections: LandingSections = {
   features_title: "Alt du trenger for effektiv timeføring",
-  features_subtitle: "Smart Timing gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.",
+  features_subtitle: "Tidsflyt gir deg verktøyene for å registrere, administrere og rapportere timer enkelt og effektivt.",
   testimonials_title: "Hva kundene sier",
-  testimonials_subtitle: "Hundrevis av norske bedrifter bruker Smart Timing for sin timeregistrering.",
+  testimonials_subtitle: "Hundrevis av norske bedrifter bruker Tidsflyt for sin timeregistrering.",
   cta_title: "Klar til å forenkle timeføringen?",
   cta_subtitle: "Start gratis i dag og opplev forskjellen. Ingen binding, ingen skjulte kostnader.",
   cta_button_text: "Kom i gang gratis",
   contact_title: "Kontakt oss",
-  contact_subtitle: "Har du spørsmål om Smart Timing? Ta kontakt med oss, så hjelper vi deg gjerne.",
-  contact_email: "kontakt@smarttiming.no",
+  contact_subtitle: "Har du spørsmål om Tidsflyt? Ta kontakt med oss, så hjelper vi deg gjerne.",
+  contact_email: "kontakt@tidsflyt.no",
   contact_phone: "+47 22 33 44 55",
   contact_address: "Oslo, Norge",
-  footer_copyright: "© 2025 Smart Timing. Alle rettigheter reservert.",
+  footer_copyright: "© 2025 Tidsflyt. Alle rettigheter reservert.",
   partners_title: "Våre partnere",
   partners_subtitle: "Stolt samarbeid med ledende norske bedrifter",
 };
@@ -643,7 +643,7 @@ export default function LandingPage() {
       return (
         <>
           <DialogHeader>
-            <DialogTitle>Velkommen til Smart Timing</DialogTitle>
+            <DialogTitle>Velkommen til Tidsflyt</DialogTitle>
             <DialogDescription>
               Velg hvordan du vil fortsette
             </DialogDescription>
@@ -688,7 +688,7 @@ export default function LandingPage() {
           <DialogHeader>
             <DialogTitle>Be om tilgang</DialogTitle>
             <DialogDescription>
-              Fyll ut skjemaet for å be om tilgang til Smart Timing
+              Fyll ut skjemaet for å be om tilgang til Tidsflyt
             </DialogDescription>
           </DialogHeader>
           <Form {...newUserForm}>

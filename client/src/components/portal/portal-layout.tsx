@@ -87,7 +87,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
 
   const currentUser = user || {
     name: "Demo Bruker",
-    email: "demo@smarttiming.no",
+    email: "demo@tidsflyt.no",
     role: "admin",
   };
 

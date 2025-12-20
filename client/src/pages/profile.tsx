@@ -27,7 +27,7 @@ import { useTheme } from "@/components/theme-provider";
 
 const mockProfile = {
   name: "Demo Bruker",
-  email: "demo@smarttiming.no",
+  email: "demo@tidsflyt.no",
   phone: "+47 123 45 678",
   role: "admin",
   company: "Demo Selskap AS",

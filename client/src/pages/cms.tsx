@@ -3091,7 +3091,7 @@ function SEOEditor() {
                 <Input
                   value={globalSeo.site_name}
                   onChange={(e) => setGlobalSeo({ ...globalSeo, site_name: e.target.value })}
-                  placeholder="Smart Timing"
+                  placeholder="Tidsflyt"
                   data-testid="input-seo-site-name"
                 />
               </div>
@@ -4232,7 +4232,7 @@ function ContactPageEditor({ content }: { content: any }) {
     title: content?.title || "Kontakt oss",
     subtitle: content?.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
     content: content?.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: content?.email || "kontakt@smarttiming.no",
+    email: content?.email || "kontakt@tidsflyt.no",
     phone: content?.phone || "+47 22 33 44 55",
     address: content?.address || "Oslo, Norge"
   });
@@ -4243,7 +4243,7 @@ function ContactPageEditor({ content }: { content: any }) {
         title: content.title || "Kontakt oss",
         subtitle: content.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
         content: content.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-        email: content.email || "kontakt@smarttiming.no",
+        email: content.email || "kontakt@tidsflyt.no",
         phone: content.phone || "+47 22 33 44 55",
         address: content.address || "Oslo, Norge"
       });
@@ -5282,7 +5282,7 @@ function EmailEditor() {
                     id="from-email"
                     value={settingsForm.from_email || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, from_email: e.target.value })}
-                    placeholder="noreply@smarttiming.no"
+                    placeholder="noreply@tidsflyt.no"
                   />
                 </div>
                 <div className="space-y-2">
@@ -5291,7 +5291,7 @@ function EmailEditor() {
                     id="from-name"
                     value={settingsForm.from_name || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, from_name: e.target.value })}
-                    placeholder="Smart Timing"
+                    placeholder="Tidsflyt"
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -5300,7 +5300,7 @@ function EmailEditor() {
                     id="reply-to"
                     value={settingsForm.reply_to_email || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, reply_to_email: e.target.value })}
-                    placeholder="support@smarttiming.no"
+                    placeholder="support@tidsflyt.no"
                   />
                 </div>
               </div>
@@ -6485,7 +6485,7 @@ function VendorManagement() {
               <Building2 className="h-5 w-5" />
               Leverandøradministrasjon
             </CardTitle>
-            <CardDescription>Administrer leverandører som bruker Smart Timing</CardDescription>
+            <CardDescription>Administrer leverandører som bruker Tidsflyt</CardDescription>
           </div>
           <Button onClick={() => openVendorEditor()} data-testid="button-add-vendor">
             <Plus className="h-4 w-4 mr-2" />
@@ -6912,7 +6912,7 @@ function PortalDesigner() {
     id: 0,
     vendor_id: null,
     logo_url: null,
-    logo_text: 'Smart Timing',
+    logo_text: 'Tidsflyt',
     primary_color: '#3b82f6',
     accent_color: '#8b5cf6',
     sidebar_bg: '#1f2937',
@@ -7381,7 +7381,7 @@ function PortalDesigner() {
                       <div className="py-3 px-4 text-center" style={{ color: settings.tokens.colors.textMuted }}>
                         <p className="text-sm">{settings.footer_text || '© 2025 Bedriftsnavn'}</p>
                         {settings.show_branding && (
-                          <p className="text-xs mt-1">Powered by Smart Timing</p>
+                          <p className="text-xs mt-1">Powered by Tidsflyt</p>
                         )}
                       </div>
                     </div>

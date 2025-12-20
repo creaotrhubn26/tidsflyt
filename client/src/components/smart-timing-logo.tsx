@@ -68,7 +68,7 @@ export function SmartTimingLogo({
       <MiniPocketWatch size={s.icon} />
       {showText && !collapsed && (
         <div className="flex flex-col">
-          <span className={cn("font-bold text-foreground", s.text)}>Smart Timing</span>
+          <span className={cn("font-bold text-foreground", s.text)}>Tidsflyt</span>
           {size === "lg" && (
             <span className="text-xs text-muted-foreground">Timeføring for profesjonelle</span>
           )}

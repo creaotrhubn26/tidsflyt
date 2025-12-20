@@ -201,7 +201,7 @@ export default function VendorsPage() {
   );
 
   return (
-    <PortalLayout user={{ name: "Super Admin", email: "admin@smarttiming.no", role: "super_admin" }}>
+    <PortalLayout user={{ name: "Super Admin", email: "admin@tidsflyt.no", role: "super_admin" }}>
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between gap-4">
           <div>

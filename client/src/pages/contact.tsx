@@ -36,7 +36,7 @@ export default function Contact() {
     title: "Kontakt oss",
     subtitle: "Har du spørsmål? Vi hjelper deg gjerne.",
     content: "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: "kontakt@smarttiming.no",
+    email: "kontakt@tidsflyt.no",
     phone: "+47 22 33 44 55",
     address: "Oslo, Norge"
   };
@@ -66,7 +66,7 @@ export default function Contact() {
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Smart Timing</h1>
+          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
         </div>
       </header>
 
@@ -190,7 +190,7 @@ export default function Contact() {
             <Link href="/personvern" className="hover:text-foreground" data-testid="link-privacy">Personvern</Link>
             <Link href="/vilkar" className="hover:text-foreground" data-testid="link-terms">Vilkår</Link>
           </div>
-          <p data-testid="text-copyright">© 2025 Smart Timing. Alle rettigheter reservert.</p>
+          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
         </div>
       </footer>
     </div>

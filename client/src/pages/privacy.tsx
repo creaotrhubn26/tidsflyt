@@ -21,7 +21,7 @@ export default function Privacy() {
     subtitle: "Slik beskytter vi dine personopplysninger",
     content: `
 ## 1. Innledning
-Smart Timing AS ("vi", "oss", "vår") er opptatt av å beskytte personvernet til våre brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger.
+Tidsflyt AS ("vi", "oss", "vår") er opptatt av å beskytte personvernet til våre brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger.
 
 ## 2. Hvilke opplysninger vi samler inn
 Vi samler inn følgende typer personopplysninger:
@@ -57,7 +57,7 @@ Du har rett til å:
 Vi bruker informasjonskapsler for å forbedre brukeropplevelsen. Du kan administrere dine preferanser i nettleserinnstillingene.
 
 ## 8. Kontakt
-Har du spørsmål om personvern? Kontakt oss på personvern@smarttiming.no
+Har du spørsmål om personvern? Kontakt oss på personvern@tidsflyt.no
     `,
     last_updated: "20. desember 2025"
   };
@@ -72,7 +72,7 @@ Har du spørsmål om personvern? Kontakt oss på personvern@smarttiming.no
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Smart Timing</h1>
+          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
         </div>
       </header>
 
@@ -114,7 +114,7 @@ Har du spørsmål om personvern? Kontakt oss på personvern@smarttiming.no
             <Link href="/kontakt" className="hover:text-foreground" data-testid="link-contact">Kontakt</Link>
             <Link href="/vilkar" className="hover:text-foreground" data-testid="link-terms">Vilkår</Link>
           </div>
-          <p data-testid="text-copyright">© 2025 Smart Timing. Alle rettigheter reservert.</p>
+          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
         </div>
       </footer>
     </div>

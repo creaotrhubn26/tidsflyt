@@ -18,13 +18,13 @@ export default function Terms() {
 
   const content = pageContent || {
     title: "Brukervilkår",
-    subtitle: "Vilkår for bruk av Smart Timing",
+    subtitle: "Vilkår for bruk av Tidsflyt",
     content: `
 ## 1. Aksept av vilkår
-Ved å bruke Smart Timing aksepterer du disse brukervilkårene. Hvis du ikke aksepterer vilkårene, må du ikke bruke tjenesten.
+Ved å bruke Tidsflyt aksepterer du disse brukervilkårene. Hvis du ikke aksepterer vilkårene, må du ikke bruke tjenesten.
 
 ## 2. Beskrivelse av tjenesten
-Smart Timing er en tidsregistrerings- og prosjektstyringsplattform. Tjenesten lar deg:
+Tidsflyt er en tidsregistrerings- og prosjektstyringsplattform. Tjenesten lar deg:
 - Registrere arbeidstimer
 - Administrere prosjekter og saker
 - Generere rapporter
@@ -43,13 +43,13 @@ Du samtykker i å ikke:
 - Laste opp skadelig programvare
 
 ## 5. Immaterielle rettigheter
-Alt innhold og programvare i Smart Timing er eid av Smart Timing AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
+Alt innhold og programvare i Tidsflyt er eid av Tidsflyt AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
 
 ## 6. Databehandling
 Vi behandler data i henhold til vår personvernerklæring. Ved å bruke tjenesten samtykker du til denne behandlingen.
 
 ## 7. Ansvarsbegrensning
-Smart Timing leveres "som den er". Vi garanterer ikke uavbrutt tilgang eller fravær av feil. Vårt maksimale ansvar er begrenset til beløpet du har betalt for tjenesten.
+Tidsflyt leveres "som den er". Vi garanterer ikke uavbrutt tilgang eller fravær av feil. Vårt maksimale ansvar er begrenset til beløpet du har betalt for tjenesten.
 
 ## 8. Abonnement og betaling
 - Abonnementer faktureres forskuddsvis
@@ -66,7 +66,7 @@ Vi kan oppdatere disse vilkårene. Fortsatt bruk etter endringer utgjør aksept 
 Disse vilkårene er underlagt norsk lov. Tvister skal løses ved Oslo tingrett.
 
 ## 12. Kontakt
-Spørsmål om vilkårene kan rettes til juridisk@smarttiming.no
+Spørsmål om vilkårene kan rettes til juridisk@tidsflyt.no
     `,
     last_updated: "20. desember 2025"
   };
@@ -81,7 +81,7 @@ Spørsmål om vilkårene kan rettes til juridisk@smarttiming.no
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Smart Timing</h1>
+          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
         </div>
       </header>
 
@@ -123,7 +123,7 @@ Spørsmål om vilkårene kan rettes til juridisk@smarttiming.no
             <Link href="/kontakt" className="hover:text-foreground" data-testid="link-contact">Kontakt</Link>
             <Link href="/personvern" className="hover:text-foreground" data-testid="link-privacy">Personvern</Link>
           </div>
-          <p data-testid="text-copyright">© 2025 Smart Timing. Alle rettigheter reservert.</p>
+          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
         </div>
       </footer>
     </div>
