@@ -1559,12 +1559,13 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: GET ALL LANDING CONTENT ==========
   app.get("/api/cms/landing", async (req, res) => {
     try {
-      const [heroResult, featuresResult, testimonialsResult, sectionsResult, partnersResult] = await Promise.all([
+      const [heroResult, featuresResult, testimonialsResult, sectionsResult, partnersResult, vendorsResult] = await Promise.all([
         pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1'),
         pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1'),
         pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
+        pool.query("SELECT id, name, logo_url FROM vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
       ]);
       
       res.json({
@@ -1573,6 +1574,7 @@ export function registerSmartTimingRoutes(app: Express) {
         testimonials: testimonialsResult.rows,
         sections: sectionsResult.rows[0] || null,
         partners: partnersResult.rows,
+        clients: vendorsResult.rows,
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
