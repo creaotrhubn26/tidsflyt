@@ -1485,20 +1485,20 @@ export function registerSmartTimingRoutes(app: Express) {
         title: 'Kontakt oss',
         subtitle: 'Har du spørsmål? Vi hjelper deg gjerne.',
         content: 'Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.',
-        email: 'kontakt@smarttiming.no',
-        phone: '+47 22 33 44 55',
+        email: 'kontakt@tidsflyt.no',
+        phone: '+47 97 95 92 94',
         address: 'Oslo, Norge'
       },
       privacy: {
         title: 'Personvernerklæring',
         subtitle: 'Slik beskytter vi dine personopplysninger',
-        content: '## 1. Innledning\nSmart Timing AS er opptatt av å beskytte personvernet til våre brukere.',
+        content: '## 1. Innledning\nTidsflyt er opptatt av å beskytte personvernet til våre brukere.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       },
       terms: {
         title: 'Brukervilkår',
-        subtitle: 'Vilkår for bruk av Smart Timing',
-        content: '## 1. Aksept av vilkår\nVed å bruke Smart Timing aksepterer du disse brukervilkårene.',
+        subtitle: 'Vilkår for bruk av Tidsflyt',
+        content: '## 1. Aksept av vilkår\nVed å bruke Tidsflyt aksepterer du disse brukervilkårene.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       }
     };
