@@ -335,10 +335,6 @@ interface NewUserFormData {
   message: string;
 }
 
-interface LoginFormData {
-  username: string;
-  password: string;
-}
 
 const heroIconMap: Record<string, LucideIcon> = {
   ArrowRight,
@@ -594,12 +590,6 @@ export default function LandingPage() {
     setBrregSearchResults([]);
   };
 
-  const loginForm = useForm<LoginFormData>({
-    defaultValues: {
-      username: '',
-      password: '',
-    },
-  });
 
   const handleLoginClick = () => {
     setDialogMode('choice');
@@ -647,41 +637,6 @@ export default function LandingPage() {
     }
   };
 
-  const handleLoginSubmit = async (data: LoginFormData) => {
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
-      
-      if (response.ok) {
-        const result = await response.json();
-        localStorage.setItem('token', result.token);
-        localStorage.setItem('user', JSON.stringify(result.user));
-        toast({
-          title: "Innlogget",
-          description: `Velkommen tilbake, ${result.user.name}!`,
-        });
-        setLoginDialogOpen(false);
-        loginForm.reset();
-        setLocation('/dashboard');
-      } else {
-        const errorData = await response.json();
-        toast({
-          title: "Innlogging feilet",
-          description: errorData.error || "Feil brukernavn eller passord",
-          variant: "destructive",
-        });
-      }
-    } catch (error) {
-      toast({
-        title: "Feil",
-        description: "Noe gikk galt. Prøv igjen senere.",
-        variant: "destructive",
-      });
-    }
-  };
 
   const renderDialogContent = () => {
     if (dialogMode === 'choice') {
@@ -894,49 +849,35 @@ export default function LandingPage() {
           <DialogHeader>
             <DialogTitle>Logg inn</DialogTitle>
             <DialogDescription>
-              Skriv inn ditt brukernavn og passord
+              Logg inn med din konto via sikker OAuth 2.0 autentisering
             </DialogDescription>
           </DialogHeader>
-          <Form {...loginForm}>
-            <form onSubmit={loginForm.handleSubmit(handleLoginSubmit)} className="space-y-4 py-4">
-              <FormField
-                control={loginForm.control}
-                name="username"
-                rules={{ required: "Brukernavn er påkrevd" }}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Brukernavn</FormLabel>
-                    <FormControl>
-                      <Input placeholder="brukernavn" {...field} data-testid="input-login-username" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={loginForm.control}
-                name="password"
-                rules={{ required: "Passord er påkrevd" }}
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Passord</FormLabel>
-                    <FormControl>
-                      <Input type="password" placeholder="********" {...field} data-testid="input-login-password" />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <div className="flex gap-2 pt-4">
-                <Button type="button" variant="outline" onClick={() => setDialogMode('choice')} data-testid="button-back-login">
-                  Tilbake
-                </Button>
-                <Button type="submit" className="flex-1" data-testid="button-login-submit">
-                  Logg inn
-                </Button>
+          <div className="space-y-4 py-4">
+            <div className="text-center space-y-4">
+              <div className="mx-auto h-16 w-16 rounded-full bg-primary/10 flex items-center justify-center">
+                <Shield className="h-8 w-8 text-primary" />
               </div>
-            </form>
-          </Form>
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">
+                  Smart Timing bruker sikker innlogging via Google, GitHub, Apple eller e-post.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Du ma vaere godkjent av en administrator for a logge inn.
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-col gap-2 pt-4">
+              <a href="/api/login" className="w-full">
+                <Button className="w-full gap-2" data-testid="button-oauth-login">
+                  <LogIn className="h-4 w-4" />
+                  Fortsett til innlogging
+                </Button>
+              </a>
+              <Button type="button" variant="outline" onClick={() => setDialogMode('choice')} data-testid="button-back-login">
+                Tilbake
+              </Button>
+            </div>
+          </div>
         </>
       );
     }
