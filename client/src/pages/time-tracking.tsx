@@ -17,7 +17,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
-import { format, startOfDay, endOfDay } from "date-fns";
+import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -43,6 +43,7 @@ const projectOptions = [
 
 export default function TimeTrackingPage() {
   const { toast } = useToast();
+  const [currentTime, setCurrentTime] = useState(new Date());
   const [isRunning, setIsRunning] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedProject, setSelectedProject] = useState<string>("");
@@ -55,9 +56,22 @@ export default function TimeTrackingPage() {
   
   const timerStartRef = useRef<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   const currentUserId = "default";
   const today = format(new Date(), "yyyy-MM-dd");
+
+  useEffect(() => {
+    clockIntervalRef.current = setInterval(() => {
+      setCurrentTime(new Date());
+    }, 1000);
+
+    return () => {
+      if (clockIntervalRef.current) {
+        clearInterval(clockIntervalRef.current);
+      }
+    };
+  }, []);
 
   const { data: todayEntries = [], isLoading, refetch } = useQuery<TimeEntry[]>({
     queryKey: ["/api/time-entries", { startDate: today, endDate: today }],
@@ -227,15 +241,32 @@ export default function TimeTrackingPage() {
         <Card className="overflow-visible" data-testid="timer-card">
           <CardContent className="p-6 md:p-8">
             <div className="flex flex-col items-center gap-6">
-              <div 
-                className={cn(
-                  "text-6xl md:text-7xl font-mono font-bold tracking-tight transition-colors",
-                  isRunning && "text-success"
-                )} 
-                data-testid="timer-display"
-              >
-                {formatTime(elapsedSeconds)}
+              <div className="text-center">
+                <p className="text-sm text-muted-foreground mb-1" data-testid="current-date">
+                  {format(currentTime, "EEEE d. MMMM yyyy", { locale: nb })}
+                </p>
+                <div 
+                  className="text-5xl md:text-6xl font-mono font-bold tracking-tight text-foreground" 
+                  data-testid="live-clock"
+                >
+                  {format(currentTime, "HH:mm:ss", { locale: nb })}
+                </div>
               </div>
+
+              {(isRunning || elapsedSeconds > 0) && (
+                <div className="text-center">
+                  <p className="text-xs text-muted-foreground mb-1">Arbeidstid</p>
+                  <div 
+                    className={cn(
+                      "text-3xl md:text-4xl font-mono font-bold tracking-tight transition-colors",
+                      isRunning && "text-success"
+                    )} 
+                    data-testid="timer-display"
+                  >
+                    {formatTime(elapsedSeconds)}
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xl">
                 <Select value={selectedProject} onValueChange={setSelectedProject}>
