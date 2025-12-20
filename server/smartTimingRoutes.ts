@@ -3800,35 +3800,18 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
             <div style="max-width: 600px; margin: 0 auto; padding: 24px;">
               <!-- Header -->
               <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px 16px 0 0; padding: 32px; text-align: center;">
-                <div style="display: inline-flex; align-items: center; gap: 12px; background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px;">
-                  <!-- Pocket Watch Logo -->
-                  <div style="width: 36px; height: 36px; position: relative;">
-                    <svg viewBox="0 0 100 110" width="36" height="40" style="display: block;">
-                      <!-- Watch loop/crown -->
-                      <ellipse cx="50" cy="8" rx="8" ry="6" fill="none" stroke="#9ca3af" stroke-width="4"/>
-                      <!-- Watch body -->
-                      <circle cx="50" cy="55" r="42" fill="url(#watchGrad)" stroke="#9ca3af" stroke-width="3"/>
-                      <!-- Hour markers -->
-                      <line x1="50" y1="20" x2="50" y2="28" stroke="rgba(255,255,255,0.8)" stroke-width="3" stroke-linecap="round"/>
-                      <line x1="50" y1="82" x2="50" y2="90" stroke="rgba(255,255,255,0.8)" stroke-width="3" stroke-linecap="round"/>
-                      <line x1="14" y1="55" x2="22" y2="55" stroke="rgba(255,255,255,0.8)" stroke-width="3" stroke-linecap="round"/>
-                      <line x1="78" y1="55" x2="86" y2="55" stroke="rgba(255,255,255,0.8)" stroke-width="3" stroke-linecap="round"/>
-                      <!-- Hour hand -->
-                      <line x1="50" y1="55" x2="50" y2="35" stroke="white" stroke-width="4" stroke-linecap="round"/>
-                      <!-- Minute hand -->
-                      <line x1="50" y1="55" x2="70" y2="45" stroke="white" stroke-width="3" stroke-linecap="round"/>
-                      <!-- Center dot -->
-                      <circle cx="50" cy="55" r="5" fill="white"/>
-                      <defs>
-                        <linearGradient id="watchGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                          <stop offset="0%" style="stop-color:#1e3a5f"/>
-                          <stop offset="50%" style="stop-color:#0f2744"/>
-                          <stop offset="100%" style="stop-color:#1a3350"/>
-                        </linearGradient>
-                      </defs>
-                    </svg>
-                  </div>
-                  <span style="font-size: 24px; font-weight: 700; color: #0f172a;">Tidsflyt</span>
+                <div style="display: inline-block; background: #fff; padding: 12px 24px; border-radius: 8px; margin-bottom: 16px;">
+                  <table cellpadding="0" cellspacing="0" border="0" style="margin: 0 auto;">
+                    <tr>
+                      <td style="vertical-align: middle; padding-right: 10px;">
+                        <!-- Clock icon using table-based circle -->
+                        <div style="width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(135deg, #1e3a5f 0%, #0f2744 100%); border: 2px solid #9ca3af; text-align: center; line-height: 28px; font-size: 16px; color: white;">&#128337;</div>
+                      </td>
+                      <td style="vertical-align: middle;">
+                        <span style="font-size: 24px; font-weight: 700; color: #0f172a;">Tidsflyt</span>
+                      </td>
+                    </tr>
+                  </table>
                 </div>
                 <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 500;">Ny henvendelse mottatt</h1>
               </div>
