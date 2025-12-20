@@ -132,6 +132,8 @@ interface HistoryEntry {
   timestamp: number;
 }
 
+type ToolPanelId = 'design' | 'media' | 'navigation' | 'forms' | 'blog' | 'email' | 'reports' | 'portal' | 'analytics' | 'versions' | null;
+
 interface BuilderContextType {
   selectedElement: SelectedElement | null;
   setSelectedElement: (element: SelectedElement | null) => void;
@@ -150,6 +152,8 @@ interface BuilderContextType {
   pushHistory: (entry: HistoryEntry) => void;
   publishStatus: 'draft' | 'published' | 'modified';
   setPublishStatus: (status: 'draft' | 'published' | 'modified') => void;
+  activeToolPanel: ToolPanelId;
+  setActiveToolPanel: (tool: ToolPanelId) => void;
 }
 
 const BuilderContext = createContext<BuilderContextType | null>(null);
@@ -261,7 +265,7 @@ const cmsTools = [
 ];
 
 function LayerPanel() {
-  const { content } = useBuilder();
+  const { content, setActiveToolPanel } = useBuilder();
   const [activeTab, setActiveTab] = useState<'layers' | 'templates' | 'tools'>('layers');
   const { toast } = useToast();
 
@@ -273,7 +277,7 @@ function LayerPanel() {
   };
 
   const handleOpenTool = (tool: typeof cmsTools[0]) => {
-    window.location.href = `/cms-legacy?tab=${tool.id}`;
+    setActiveToolPanel(tool.id as ToolPanelId);
   };
 
   return (
@@ -1437,6 +1441,514 @@ function Toolbar() {
   );
 }
 
+interface ToolPanelOverlayProps {
+  toolId: ToolPanelId;
+  onClose: () => void;
+}
+
+function ToolPanelOverlay({ toolId, onClose }: ToolPanelOverlayProps) {
+  const { toast } = useToast();
+  const tool = cmsTools.find(t => t.id === toolId);
+  
+  if (!tool) return null;
+
+  const renderToolContent = () => {
+    switch (toolId) {
+      case 'design':
+        return <DesignSystemPanel />;
+      case 'media':
+        return <MediaLibraryPanel />;
+      case 'navigation':
+        return <NavigationPanel />;
+      case 'forms':
+        return <FormsPanel />;
+      case 'blog':
+        return <BlogPanel />;
+      case 'email':
+        return <EmailPanel />;
+      case 'reports':
+        return <ReportsPanel />;
+      case 'portal':
+        return <PortalPanel />;
+      case 'analytics':
+        return <AnalyticsPanel />;
+      case 'versions':
+        return <VersionsPanel />;
+      default:
+        return <div className="p-8 text-center text-muted-foreground">Verktøy kommer snart</div>;
+    }
+  };
+
+  return (
+    <div className="absolute inset-0 z-50 flex">
+      <div className="absolute inset-0 bg-background/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative ml-auto w-[600px] max-w-[90vw] h-full bg-background border-l shadow-xl flex flex-col animate-in slide-in-from-right duration-200">
+        <div className="flex items-center justify-between gap-4 px-4 py-3 border-b bg-sidebar">
+          <div className="flex items-center gap-3">
+            <tool.icon className="h-5 w-5 text-muted-foreground" />
+            <div>
+              <h2 className="font-semibold">{tool.name}</h2>
+              <p className="text-xs text-muted-foreground">{tool.description}</p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} data-testid="button-close-tool-panel">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+        </div>
+        <ScrollArea className="flex-1">
+          {renderToolContent()}
+        </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
+function DesignSystemPanel() {
+  const { toast } = useToast();
+  const [colors, setColors] = useState({
+    primary: '#0ea5e9',
+    secondary: '#64748b',
+    accent: '#f59e0b',
+    background: '#ffffff',
+    foreground: '#0f172a',
+  });
+  const [typography, setTypography] = useState({
+    fontFamily: 'Inter',
+    headingWeight: '700',
+    bodySize: '16',
+  });
+
+  const handleSave = () => {
+    toast({ title: 'Lagret', description: 'Design-innstillinger er oppdatert' });
+  };
+
+  return (
+    <div className="p-4 space-y-6">
+      <div className="space-y-4">
+        <h3 className="text-sm font-medium">Farger</h3>
+        <div className="grid gap-3">
+          {Object.entries(colors).map(([key, value]) => (
+            <div key={key} className="flex items-center gap-3">
+              <div 
+                className="w-10 h-10 rounded-md border cursor-pointer" 
+                style={{ backgroundColor: value }}
+              />
+              <div className="flex-1">
+                <Label className="text-xs capitalize">{key === 'foreground' ? 'Tekst' : key === 'background' ? 'Bakgrunn' : key}</Label>
+                <Input
+                  value={value}
+                  onChange={(e) => setColors(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="h-8 mt-1"
+                  data-testid={`input-color-${key}`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <Separator />
+
+      <div className="space-y-4">
+        <h3 className="text-sm font-medium">Typografi</h3>
+        <div className="space-y-3">
+          <div>
+            <Label className="text-xs">Skrifttype</Label>
+            <Select value={typography.fontFamily} onValueChange={(v) => setTypography(p => ({ ...p, fontFamily: v }))}>
+              <SelectTrigger className="mt-1" data-testid="select-font-family">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="Inter">Inter</SelectItem>
+                <SelectItem value="Roboto">Roboto</SelectItem>
+                <SelectItem value="Open Sans">Open Sans</SelectItem>
+                <SelectItem value="Poppins">Poppins</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Overskriftsvekt</Label>
+            <Select value={typography.headingWeight} onValueChange={(v) => setTypography(p => ({ ...p, headingWeight: v }))}>
+              <SelectTrigger className="mt-1" data-testid="select-heading-weight">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="400">Normal</SelectItem>
+                <SelectItem value="500">Medium</SelectItem>
+                <SelectItem value="600">Semibold</SelectItem>
+                <SelectItem value="700">Bold</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <Label className="text-xs">Brødtekststørrelse (px)</Label>
+            <Input
+              type="number"
+              value={typography.bodySize}
+              onChange={(e) => setTypography(p => ({ ...p, bodySize: e.target.value }))}
+              className="mt-1"
+              data-testid="input-body-size"
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="pt-4">
+        <Button onClick={handleSave} className="w-full" data-testid="button-save-design">
+          <Save className="h-4 w-4 mr-2" />
+          Lagre design
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function MediaLibraryPanel() {
+  const { toast } = useToast();
+  const [files, setFiles] = useState<Array<{ id: number; name: string; type: string; url: string }>>([
+    { id: 1, name: 'hero-background.jpg', type: 'image', url: '/placeholder.jpg' },
+    { id: 2, name: 'logo.svg', type: 'image', url: '/placeholder.svg' },
+    { id: 3, name: 'team-photo.png', type: 'image', url: '/placeholder.png' },
+  ]);
+
+  const handleUpload = () => {
+    toast({ title: 'Last opp', description: 'Velg filer for opplasting' });
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center gap-2">
+        <Button onClick={handleUpload} data-testid="button-upload-media">
+          <Plus className="h-4 w-4 mr-2" />
+          Last opp
+        </Button>
+        <Button variant="outline" data-testid="button-new-folder">
+          <Layers className="h-4 w-4 mr-2" />
+          Ny mappe
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        {files.map((file) => (
+          <div
+            key={file.id}
+            className="aspect-square rounded-lg border bg-muted/50 flex items-center justify-center cursor-pointer hover-elevate"
+            data-testid={`media-item-${file.id}`}
+          >
+            <div className="text-center p-2">
+              <ImageIcon className="h-8 w-8 mx-auto text-muted-foreground mb-1" />
+              <p className="text-xs truncate">{file.name}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center">
+        Klikk på et bilde for å velge det
+      </p>
+    </div>
+  );
+}
+
+function NavigationPanel() {
+  const { toast } = useToast();
+  const [menuItems, setMenuItems] = useState([
+    { id: '1', label: 'Hjem', url: '/' },
+    { id: '2', label: 'Tjenester', url: '/tjenester' },
+    { id: '3', label: 'Om oss', url: '/om-oss' },
+    { id: '4', label: 'Kontakt', url: '/kontakt' },
+  ]);
+
+  const addItem = () => {
+    setMenuItems(prev => [...prev, { id: Date.now().toString(), label: 'Ny lenke', url: '#' }]);
+  };
+
+  const updateItem = (id: string, field: string, value: string) => {
+    setMenuItems(prev => prev.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  const removeItem = (id: string) => {
+    setMenuItems(prev => prev.filter(item => item.id !== id));
+  };
+
+  const handleSave = () => {
+    toast({ title: 'Lagret', description: 'Navigasjon er oppdatert' });
+  };
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-sm font-medium">Hovedmeny</h3>
+        <Button size="sm" variant="outline" onClick={addItem} data-testid="button-add-menu-item">
+          <Plus className="h-4 w-4 mr-1" />
+          Legg til
+        </Button>
+      </div>
+
+      <div className="space-y-2">
+        {menuItems.map((item) => (
+          <div key={item.id} className="flex items-center gap-2 p-2 border rounded-md">
+            <GripVertical className="h-4 w-4 text-muted-foreground cursor-move" />
+            <div className="flex-1 grid grid-cols-2 gap-2">
+              <Input
+                value={item.label}
+                onChange={(e) => updateItem(item.id, 'label', e.target.value)}
+                placeholder="Tekst"
+                className="h-8"
+                data-testid={`input-nav-label-${item.id}`}
+              />
+              <Input
+                value={item.url}
+                onChange={(e) => updateItem(item.id, 'url', e.target.value)}
+                placeholder="URL"
+                className="h-8"
+                data-testid={`input-nav-url-${item.id}`}
+              />
+            </div>
+            <Button size="icon" variant="ghost" onClick={() => removeItem(item.id)} data-testid={`button-remove-nav-${item.id}`}>
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </div>
+        ))}
+      </div>
+
+      <Button onClick={handleSave} className="w-full" data-testid="button-save-navigation">
+        <Save className="h-4 w-4 mr-2" />
+        Lagre navigasjon
+      </Button>
+    </div>
+  );
+}
+
+function FormsPanel() {
+  const forms = [
+    { id: 1, name: 'Kontaktskjema', submissions: 24 },
+    { id: 2, name: 'Nyhetsbrev', submissions: 156 },
+    { id: 3, name: 'Tilbakemelding', submissions: 8 },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <Button className="w-full" data-testid="button-create-form">
+        <Plus className="h-4 w-4 mr-2" />
+        Opprett nytt skjema
+      </Button>
+
+      <div className="space-y-2">
+        {forms.map((form) => (
+          <div key={form.id} className="flex items-center justify-between gap-4 p-3 border rounded-md hover-elevate cursor-pointer" data-testid={`form-item-${form.id}`}>
+            <div>
+              <p className="font-medium">{form.name}</p>
+              <p className="text-xs text-muted-foreground">{form.submissions} innsendinger</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BlogPanel() {
+  const posts = [
+    { id: 1, title: 'Hvordan tidsregistrering øker produktivitet', status: 'published', date: '2024-01-15' },
+    { id: 2, title: 'Ny funksjon: Automatisk rapportering', status: 'draft', date: '2024-01-20' },
+    { id: 3, title: 'Tips for effektiv prosjektstyring', status: 'published', date: '2024-01-10' },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <Button className="w-full" data-testid="button-create-post">
+        <Plus className="h-4 w-4 mr-2" />
+        Nytt blogginnlegg
+      </Button>
+
+      <div className="space-y-2">
+        {posts.map((post) => (
+          <div key={post.id} className="flex items-center justify-between gap-4 p-3 border rounded-md hover-elevate cursor-pointer" data-testid={`post-item-${post.id}`}>
+            <div className="flex-1 min-w-0">
+              <p className="font-medium truncate">{post.title}</p>
+              <p className="text-xs text-muted-foreground">{new Date(post.date).toLocaleDateString('nb-NO')}</p>
+            </div>
+            <Badge variant={post.status === 'published' ? 'default' : 'secondary'}>
+              {post.status === 'published' ? 'Publisert' : 'Utkast'}
+            </Badge>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EmailPanel() {
+  const templates = [
+    { id: 1, name: 'Velkommen', type: 'Onboarding' },
+    { id: 2, name: 'Passord tilbakestilt', type: 'System' },
+    { id: 3, name: 'Ukentlig rapport', type: 'Notifikasjon' },
+    { id: 4, name: 'Faktura', type: 'Transaksjon' },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <Button className="w-full" data-testid="button-create-email-template">
+        <Plus className="h-4 w-4 mr-2" />
+        Ny e-postmal
+      </Button>
+
+      <div className="space-y-2">
+        {templates.map((template) => (
+          <div key={template.id} className="flex items-center justify-between gap-4 p-3 border rounded-md hover-elevate cursor-pointer" data-testid={`email-template-${template.id}`}>
+            <div>
+              <p className="font-medium">{template.name}</p>
+              <p className="text-xs text-muted-foreground">{template.type}</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ReportsPanel() {
+  const reports = [
+    { id: 1, name: 'Timesoversikt', lastRun: '2024-01-20' },
+    { id: 2, name: 'Prosjektrapport', lastRun: '2024-01-19' },
+    { id: 3, name: 'Faktureringsrapport', lastRun: '2024-01-15' },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <Button className="w-full" data-testid="button-create-report">
+        <Plus className="h-4 w-4 mr-2" />
+        Ny rapportmal
+      </Button>
+
+      <div className="space-y-2">
+        {reports.map((report) => (
+          <div key={report.id} className="flex items-center justify-between gap-4 p-3 border rounded-md hover-elevate cursor-pointer" data-testid={`report-item-${report.id}`}>
+            <div>
+              <p className="font-medium">{report.name}</p>
+              <p className="text-xs text-muted-foreground">Sist kjørt: {new Date(report.lastRun).toLocaleDateString('nb-NO')}</p>
+            </div>
+            <ChevronRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PortalPanel() {
+  const { toast } = useToast();
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium">Brukerportal-innstillinger</h3>
+        
+        <div className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Vis tidsregistrering</p>
+              <p className="text-xs text-muted-foreground">La brukere registrere timer</p>
+            </div>
+            <Switch defaultChecked data-testid="switch-show-time-tracking" />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Vis rapporter</p>
+              <p className="text-xs text-muted-foreground">La brukere se egne rapporter</p>
+            </div>
+            <Switch defaultChecked data-testid="switch-show-reports" />
+          </div>
+
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium">Vis prosjekter</p>
+              <p className="text-xs text-muted-foreground">La brukere se prosjektoversikt</p>
+            </div>
+            <Switch data-testid="switch-show-projects" />
+          </div>
+        </div>
+      </div>
+
+      <Button onClick={() => toast({ title: 'Lagret', description: 'Portal-innstillinger er oppdatert' })} className="w-full" data-testid="button-save-portal">
+        <Save className="h-4 w-4 mr-2" />
+        Lagre innstillinger
+      </Button>
+    </div>
+  );
+}
+
+function AnalyticsPanel() {
+  const stats = [
+    { label: 'Sidevisninger', value: '12,847', change: '+12%' },
+    { label: 'Unike besøkende', value: '3,291', change: '+8%' },
+    { label: 'Avvisningsrate', value: '42%', change: '-3%' },
+    { label: 'Gj.snitt tid', value: '2m 34s', change: '+15%' },
+  ];
+
+  return (
+    <div className="p-4 space-y-4">
+      <div className="grid grid-cols-2 gap-3">
+        {stats.map((stat) => (
+          <div key={stat.label} className="p-3 border rounded-md">
+            <p className="text-xs text-muted-foreground">{stat.label}</p>
+            <p className="text-xl font-semibold">{stat.value}</p>
+            <p className={`text-xs ${stat.change.startsWith('+') ? 'text-green-600' : 'text-red-600'}`}>
+              {stat.change} fra forrige uke
+            </p>
+          </div>
+        ))}
+      </div>
+
+      <div className="h-40 border rounded-md flex items-center justify-center bg-muted/50">
+        <div className="text-center text-muted-foreground">
+          <TrendingUp className="h-8 w-8 mx-auto mb-2" />
+          <p className="text-sm">Trafikk-diagram</p>
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground text-center">
+        Data fra siste 7 dager
+      </p>
+    </div>
+  );
+}
+
+function VersionsPanel() {
+  const versions = [
+    { id: 1, type: 'Hero', date: '2024-01-20 14:32', user: 'Admin' },
+    { id: 2, type: 'Funksjoner', date: '2024-01-20 12:15', user: 'Admin' },
+    { id: 3, type: 'Design', date: '2024-01-19 16:45', user: 'Admin' },
+    { id: 4, type: 'Navigasjon', date: '2024-01-18 09:20', user: 'Admin' },
+  ];
+
+  const { toast } = useToast();
+
+  return (
+    <div className="p-4 space-y-4">
+      <p className="text-sm text-muted-foreground">Se og gjenopprett tidligere versjoner av innholdet ditt.</p>
+
+      <div className="space-y-2">
+        {versions.map((version) => (
+          <div key={version.id} className="flex items-center justify-between gap-4 p-3 border rounded-md" data-testid={`version-item-${version.id}`}>
+            <div>
+              <p className="font-medium">{version.type}</p>
+              <p className="text-xs text-muted-foreground">{version.date} av {version.user}</p>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => toast({ title: 'Gjenopprettet', description: `${version.type} er gjenopprettet` })} data-testid={`button-restore-${version.id}`}>
+              Gjenopprett
+            </Button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 interface VisualBuilderProps {
   onLogout: () => void;
 }
@@ -1447,6 +1959,7 @@ export function VisualBuilder({ onLogout }: VisualBuilderProps) {
   const [zoom, setZoom] = useState(100);
   const [hasChanges, setHasChanges] = useState(false);
   const [publishStatus, setPublishStatus] = useState<'draft' | 'published' | 'modified'>('published');
+  const [activeToolPanel, setActiveToolPanel] = useState<ToolPanelId>(null);
   
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historyIndex, setHistoryIndex] = useState(-1);
@@ -1527,9 +2040,11 @@ export function VisualBuilder({ onLogout }: VisualBuilderProps) {
         pushHistory,
         publishStatus,
         setPublishStatus,
+        activeToolPanel,
+        setActiveToolPanel,
       }}
     >
-      <div className="h-screen flex flex-col">
+      <div className="h-screen flex flex-col relative">
         <Toolbar />
         <ResizablePanelGroup direction="horizontal" className="flex-1">
           <ResizablePanel defaultSize={18} minSize={15} maxSize={25}>
@@ -1544,6 +2059,10 @@ export function VisualBuilder({ onLogout }: VisualBuilderProps) {
             <PropertiesPanel />
           </ResizablePanel>
         </ResizablePanelGroup>
+        
+        {activeToolPanel && (
+          <ToolPanelOverlay toolId={activeToolPanel} onClose={() => setActiveToolPanel(null)} />
+        )}
       </div>
     </BuilderContext.Provider>
   );
