@@ -150,20 +150,12 @@ interface LandingPartner {
   display_order: number;
 }
 
-interface LandingClient {
-  id: number;
-  name: string;
-  logo_url: string | null;
-  website_url: string | null;
-}
-
 interface LandingContent {
   hero: LandingHero | null;
   features: LandingFeature[];
   testimonials: LandingTestimonial[];
   sections: LandingSections | null;
   partners: LandingPartner[];
-  clients: LandingClient[];
 }
 
 interface DesignTokens {
@@ -532,8 +524,6 @@ export default function LandingPage() {
   const hasTestimonials = testimonials.length > 0;
   const partners = content?.partners || [];
   const hasPartners = partners.length > 0;
-  const clients = content?.clients || [];
-  const hasClients = clients.length > 0;
   const sections = content?.sections || defaultSections;
 
   const newUserForm = useForm<NewUserFormData>({
@@ -1138,40 +1128,6 @@ export default function LandingPage() {
         </section>
       )}
 
-      {hasClients && (
-        <section id="clients" className="py-16 bg-background">
-          <div className="container mx-auto px-4">
-            <div className="text-center mb-12">
-              <h2 className="text-2xl md:text-3xl font-bold mb-3" data-testid="clients-title">
-                Våre kunder
-              </h2>
-              <p className="text-muted-foreground max-w-xl mx-auto">
-                Tiltaksbedrifter som bruker Tidsflyt
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center justify-center gap-8 md:gap-12">
-              {clients.map((client, index) => (
-                <div key={client.id} className="grayscale hover:grayscale-0 transition-all duration-300" data-testid={`client-item-${index}`}>
-                  {client.logo_url ? (
-                    client.website_url ? (
-                      <a href={client.website_url} target="_blank" rel="noopener noreferrer" title={client.name}>
-                        <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" />
-                      </a>
-                    ) : (
-                      <img src={client.logo_url} alt={client.name} className="h-10 md:h-12 object-contain" title={client.name} />
-                    )
-                  ) : (
-                    <div className="flex items-center gap-2 px-4 py-2 bg-muted/50 rounded-md">
-                      <Building className="h-5 w-5 text-muted-foreground" />
-                      <span className="font-medium">{client.name}</span>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
 
       {hasTestimonials && (
         <section id="testimonials" className="py-20 bg-background">

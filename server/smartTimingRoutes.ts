@@ -5047,6 +5047,20 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER;
         ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       `);
+      
+      // Create landing_partners table if it doesn't exist
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS landing_partners (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          logo_url TEXT NOT NULL,
+          website_url TEXT,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+      `);
     } catch (err) {
       // Ignore errors - table might not exist yet
     }
