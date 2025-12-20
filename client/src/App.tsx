@@ -13,6 +13,7 @@ import CaseReports from "@/pages/case-reports";
 import Users from "@/pages/users";
 import Profile from "@/pages/profile";
 import CMS from "@/pages/cms";
+import Vendors from "@/pages/vendors";
 
 function Router() {
   return (
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/invites" component={Users} />
       <Route path="/cases" component={Dashboard} />
       <Route path="/settings" component={Profile} />
+      <Route path="/vendors" component={Vendors} />
       <Route path="/cms" component={CMS} />
       <Route component={NotFound} />
     </Switch>

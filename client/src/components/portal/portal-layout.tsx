@@ -14,6 +14,7 @@ import {
   ChevronRight,
   LogOut,
   Menu,
+  Building2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -44,7 +45,14 @@ interface NavItem {
   badge?: number;
 }
 
-const baseNavItems: Omit<NavItem, 'badge'>[] = [
+interface NavItemBase {
+  path: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  roles?: string[];
+}
+
+const baseNavItems: NavItemBase[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/users", icon: Users, label: "Brukere" },
@@ -52,6 +60,7 @@ const baseNavItems: Omit<NavItem, 'badge'>[] = [
   { path: "/cases", icon: FolderKanban, label: "Saker" },
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/reports", icon: FileText, label: "Rapporter" },
+  { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
 ];
 
@@ -74,19 +83,25 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
 
   const pendingCount = companyUsers.filter(u => !u.approved).length;
 
-  const navItems: NavItem[] = baseNavItems.map(item => ({
-    ...item,
-    badge: item.path === '/invites' && pendingCount > 0 ? pendingCount : undefined,
-  }));
-
   const currentUser = user || {
     name: "Demo Bruker",
     email: "demo@smarttiming.no",
     role: "admin",
   };
 
+  const navItems: NavItem[] = baseNavItems
+    .filter(item => !item.roles || item.roles.includes(currentUser.role))
+    .map(item => ({
+      ...item,
+      badge: item.path === '/invites' && pendingCount > 0 ? pendingCount : undefined,
+    }));
+
   const getRoleBadge = (role: string) => {
     switch (role) {
+      case "super_admin":
+        return <Badge variant="destructive" className="text-xs">Super Admin</Badge>;
+      case "vendor_admin":
+        return <Badge variant="destructive" className="text-xs">Vendor Admin</Badge>;
       case "admin":
         return <Badge variant="destructive" className="text-xs">Admin</Badge>;
       case "case_manager":
