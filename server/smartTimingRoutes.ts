@@ -2025,6 +2025,194 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== REPORT COMMENTS (Feedback Workflow) ==========
+  
+  // Ensure report_comments table exists
+  async function ensureReportCommentsTable() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS report_comments (
+        id SERIAL PRIMARY KEY,
+        report_id INTEGER NOT NULL,
+        author_id TEXT NOT NULL,
+        author_name TEXT,
+        author_role TEXT DEFAULT 'user',
+        content TEXT NOT NULL,
+        is_internal BOOLEAN DEFAULT false,
+        parent_id INTEGER,
+        read_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+  }
+  ensureReportCommentsTable();
+
+  // Get comments for a report (user must own the report or be admin)
+  app.get("/api/case-reports/:id/comments", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { include_internal, user_id } = req.query;
+      
+      // Verify user owns this report (basic auth check)
+      if (user_id) {
+        const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+        if (reportCheck.rows.length === 0) {
+          return res.status(404).json({ error: 'Report not found' });
+        }
+        if (reportCheck.rows[0].user_id !== user_id) {
+          return res.status(403).json({ error: 'Access denied' });
+        }
+      }
+      
+      let query = `SELECT * FROM report_comments WHERE report_id = $1`;
+      if (!include_internal) {
+        query += ` AND is_internal = false`;
+      }
+      query += ` ORDER BY created_at ASC`;
+      
+      const result = await pool.query(query, [id]);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Add comment to a report (user must own the report)
+  app.post("/api/case-reports/:id/comments", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { author_id, author_name, author_role, content, is_internal, parent_id } = req.body;
+      
+      if (!content || !author_id) {
+        return res.status(400).json({ error: 'Content and author_id are required' });
+      }
+
+      // Validate content length
+      if (content.length > 5000) {
+        return res.status(400).json({ error: 'Comment too long (max 5000 characters)' });
+      }
+      
+      // Verify user owns this report
+      const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+      if (reportCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      if (reportCheck.rows[0].user_id !== author_id) {
+        return res.status(403).json({ error: 'Access denied - you can only comment on your own reports' });
+      }
+
+      // Users cannot add internal notes
+      const finalIsInternal = author_role === 'admin' ? (is_internal || false) : false;
+      
+      const result = await pool.query(
+        `INSERT INTO report_comments (report_id, author_id, author_name, author_role, content, is_internal, parent_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+        [id, author_id, author_name, author_role || 'user', content, finalIsInternal, parent_id]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Mark comments as read (user must own the report)
+  app.post("/api/case-reports/:id/comments/mark-read", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { reader_id } = req.body;
+
+      if (!reader_id) {
+        return res.status(400).json({ error: 'reader_id required' });
+      }
+      
+      // Verify user owns this report
+      const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+      if (reportCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      if (reportCheck.rows[0].user_id !== reader_id) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      
+      await pool.query(
+        `UPDATE report_comments SET read_at = NOW() WHERE report_id = $1 AND author_id != $2 AND read_at IS NULL`,
+        [id, reader_id]
+      );
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get unread comment count for a user
+  app.get("/api/case-reports/unread-count", async (req, res) => {
+    try {
+      const { user_id } = req.query;
+      if (!user_id) {
+        return res.status(400).json({ error: 'user_id required' });
+      }
+      
+      // Get reports owned by user that have unread comments from others
+      const result = await pool.query(`
+        SELECT COUNT(DISTINCT rc.id) as unread_count
+        FROM report_comments rc
+        JOIN case_reports cr ON rc.report_id = cr.id
+        WHERE cr.user_id = $1 AND rc.author_id != $1 AND rc.read_at IS NULL AND rc.is_internal = false
+      `, [user_id]);
+      
+      res.json({ unread_count: parseInt(result.rows[0].unread_count) || 0 });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Submit report for review (change status from draft to pending)
+  app.post("/api/case-reports/:id/submit", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `UPDATE case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected') RETURNING *`,
+        [id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found or cannot be submitted' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: Add feedback comment and optionally request revision
+  app.post("/api/admin/case-reports/:id/feedback", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { content, request_revision, is_internal } = req.body;
+      
+      // Add comment
+      if (content) {
+        await pool.query(
+          `INSERT INTO report_comments (report_id, author_id, author_name, author_role, content, is_internal)
+           VALUES ($1, $2, $3, 'admin', $4, $5)`,
+          [id, req.admin?.username || 'admin', req.admin?.username || 'Administrator', content, is_internal || false]
+        );
+      }
+      
+      // Optionally set status to needs_revision
+      if (request_revision) {
+        await pool.query(
+          `UPDATE case_reports SET status = 'needs_revision', updated_at = NOW() WHERE id = $1`,
+          [id]
+        );
+      }
+      
+      const report = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      res.json(report.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: MEDIA LIBRARY ==========
   app.get("/api/cms/media", async (req, res) => {
     try {

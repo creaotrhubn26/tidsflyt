@@ -472,6 +472,25 @@ export const insertLandingCtaSchema = createInsertSchema(landingCta).omit({ id: 
 // Case Reports Insert schema
 export const insertCaseReportSchema = createInsertSchema(caseReports).omit({ id: true, createdAt: true, updatedAt: true, rejectedAt: true, approvedAt: true });
 
+// Report Comments table - for feedback workflow
+export const reportComments = pgTable("report_comments", {
+  id: serial("id").primaryKey(),
+  reportId: integer("report_id").notNull(),
+  authorId: text("author_id").notNull(),
+  authorName: text("author_name"),
+  authorRole: text("author_role").default("user"), // user, admin, reviewer
+  content: text("content").notNull(),
+  isInternal: boolean("is_internal").default(false), // internal notes not visible to user
+  parentId: integer("parent_id"), // for threaded replies
+  readAt: timestamp("read_at"), // when the recipient read the comment
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertReportCommentSchema = createInsertSchema(reportComments).omit({ id: true, createdAt: true, updatedAt: true, readAt: true });
+export type InsertReportComment = z.infer<typeof insertReportCommentSchema>;
+export type ReportComment = typeof reportComments.$inferSelect;
+
 // Design System Insert schemas
 export const insertDesignTokensSchema = createInsertSchema(designTokens).omit({ id: true, updatedAt: true });
 export const insertSectionDesignSettingsSchema = createInsertSchema(sectionDesignSettings).omit({ id: true, updatedAt: true });

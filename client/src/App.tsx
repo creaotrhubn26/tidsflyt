@@ -17,6 +17,7 @@ import Vendors from "@/pages/vendors";
 import Contact from "@/pages/contact";
 import Privacy from "@/pages/privacy";
 import Terms from "@/pages/terms";
+import AdminCaseReviews from "@/pages/admin-case-reviews";
 
 function Router() {
   return (
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/time" component={TimeTracking} />
       <Route path="/reports" component={Reports} />
       <Route path="/case-reports" component={CaseReports} />
+      <Route path="/admin/case-reviews" component={AdminCaseReviews} />
       <Route path="/users" component={Users} />
       <Route path="/profile" component={Profile} />
       <Route path="/invites" component={Users} />

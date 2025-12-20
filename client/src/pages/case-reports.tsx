@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   FileText, 
@@ -9,6 +9,10 @@ import {
   Info,
   X,
   Check,
+  MessageCircle,
+  Clock,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -46,16 +50,43 @@ type CaseReportResponse = {
 
 const statusColors: Record<string, string> = {
   draft: "bg-muted text-muted-foreground",
+  pending: "bg-warning/10 text-warning border-warning/20",
   submitted: "bg-warning/10 text-warning border-warning/20",
+  needs_revision: "bg-orange-500/10 text-orange-600 border-orange-500/20",
   approved: "bg-success/10 text-success border-success/20",
   rejected: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 const statusLabels: Record<string, string> = {
   draft: "Utkast",
+  pending: "Til behandling",
   submitted: "Sendt inn",
+  needs_revision: "Trenger revisjon",
   approved: "Godkjent",
   rejected: "Avslått",
+};
+
+const statusIcons: Record<string, any> = {
+  draft: Edit,
+  pending: Clock,
+  submitted: Clock,
+  needs_revision: AlertTriangle,
+  approved: CheckCircle2,
+  rejected: XCircle,
+};
+
+type ReportComment = {
+  id: number;
+  report_id: number;
+  author_id: string;
+  author_name: string | null;
+  author_role: string;
+  content: string;
+  is_internal: boolean;
+  parent_id: number | null;
+  read_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
 
 const emptyFormData = {
@@ -78,12 +109,58 @@ export default function CaseReportsPage() {
   const [feedbackDialogOpen, setFeedbackDialogOpen] = useState(false);
   const [selectedFeedbackReport, setSelectedFeedbackReport] = useState<CaseReport | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const currentUserId = "default"; // TODO: Get from auth context
 
   const { data: reportsData, isLoading } = useQuery<CaseReportResponse>({
     queryKey: ["/api/case-reports"],
   });
 
   const reports = reportsData?.reports || [];
+
+  // Fetch comments for selected report
+  const { data: comments, refetch: refetchComments } = useQuery<ReportComment[]>({
+    queryKey: ["/api/case-reports", selectedFeedbackReport?.id, "comments"],
+    queryFn: async () => {
+      if (!selectedFeedbackReport?.id) return [];
+      const res = await fetch(`/api/case-reports/${selectedFeedbackReport.id}/comments`);
+      return res.json();
+    },
+    enabled: !!selectedFeedbackReport?.id && feedbackDialogOpen,
+  });
+
+  // Add comment mutation
+  const addCommentMutation = useMutation({
+    mutationFn: async (content: string) => {
+      if (!selectedFeedbackReport) throw new Error("No report selected");
+      return apiRequest("POST", `/api/case-reports/${selectedFeedbackReport.id}/comments`, {
+        author_id: currentUserId,
+        author_name: "Bruker",
+        author_role: "user",
+        content,
+      });
+    },
+    onSuccess: () => {
+      setNewComment("");
+      refetchComments();
+      queryClient.invalidateQueries({ queryKey: ["/api/case-reports"] });
+      toast({ title: "Sendt", description: "Kommentaren din er sendt." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error?.message || "Kunne ikke sende kommentar.", variant: "destructive" });
+    },
+  });
+
+  // Mark comments as read when dialog opens
+  useEffect(() => {
+    if (feedbackDialogOpen && selectedFeedbackReport?.id) {
+      fetch(`/api/case-reports/${selectedFeedbackReport.id}/comments/mark-read`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reader_id: currentUserId }),
+      });
+    }
+  }, [feedbackDialogOpen, selectedFeedbackReport?.id]);
 
   const saveMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
@@ -114,7 +191,7 @@ export default function CaseReportsPage() {
 
   const submitMutation = useMutation({
     mutationFn: async (reportId: number) => {
-      return apiRequest("PUT", `/api/case-reports/${reportId}`, { status: "submitted" });
+      return apiRequest("POST", `/api/case-reports/${reportId}/submit`, {});
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/case-reports"] });
@@ -404,7 +481,7 @@ export default function CaseReportsPage() {
                   )}
 
                   <div className="flex gap-2 flex-wrap">
-                    {(report.status === "draft" || report.status === "rejected") && (
+                    {(report.status === "draft" || report.status === "rejected" || report.status === "needs_revision") && (
                       <>
                         <Button 
                           size="sm" 
@@ -426,17 +503,15 @@ export default function CaseReportsPage() {
                         </Button>
                       </>
                     )}
-                    {report.rejectionReason && (
-                      <Button 
-                        size="sm" 
-                        variant="ghost" 
-                        onClick={() => openFeedbackDialog(report)}
-                        data-testid={`button-feedback-${index}`}
-                      >
-                        <Info className="h-4 w-4 mr-1" />
-                        Se tilbakemelding
-                      </Button>
-                    )}
+                    <Button 
+                      size="sm" 
+                      variant="ghost" 
+                      onClick={() => openFeedbackDialog(report)}
+                      data-testid={`button-feedback-${index}`}
+                    >
+                      <MessageCircle className="h-4 w-4 mr-1" />
+                      {report.rejectionReason ? "Se tilbakemelding" : "Diskusjon"}
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -454,48 +529,126 @@ export default function CaseReportsPage() {
             </DialogHeader>
 
             {selectedFeedbackReport && (
-              <div className="space-y-4">
-                <Alert variant="destructive">
-                  <AlertTriangle className="h-4 w-4" />
-                  <AlertTitle>Rapporten er avslått</AlertTitle>
-                  <AlertDescription>
-                    Din rapport har blitt gjennomgått og krever endringer før den kan godkjennes.
-                  </AlertDescription>
-                </Alert>
-
-                <div className="bg-destructive/5 border border-destructive/20 rounded-md p-4">
-                  <h4 className="font-medium text-destructive mb-2">Årsak til avslag</h4>
-                  <p className="whitespace-pre-wrap">{selectedFeedbackReport.rejectionReason}</p>
+              <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {/* Status badge */}
+                <div className="flex items-center gap-2">
+                  <Badge className={statusColors[selectedFeedbackReport.status]}>
+                    {statusLabels[selectedFeedbackReport.status]}
+                  </Badge>
+                  {selectedFeedbackReport.approvedAt && (
+                    <span className="text-sm text-muted-foreground">
+                      Godkjent {formatDateTime(selectedFeedbackReport.approvedAt)}
+                    </span>
+                  )}
                 </div>
 
-                <div className="text-sm text-muted-foreground">
-                  <p><strong>Avslått av:</strong> {selectedFeedbackReport.rejectedBy || "Administrator"}</p>
-                  <p><strong>Dato:</strong> {formatDateTime(selectedFeedbackReport.rejectedAt)}</p>
-                </div>
+                {/* Rejection info if rejected */}
+                {(selectedFeedbackReport.status === "rejected" || selectedFeedbackReport.rejectionReason) && (
+                  <>
+                    <Alert variant="destructive">
+                      <AlertTriangle className="h-4 w-4" />
+                      <AlertTitle>Rapporten er avslått</AlertTitle>
+                      <AlertDescription>
+                        Din rapport har blitt gjennomgått og krever endringer før den kan godkjennes.
+                      </AlertDescription>
+                    </Alert>
 
+                    <div className="bg-destructive/5 border border-destructive/20 rounded-md p-4">
+                      <h4 className="font-medium text-destructive mb-2">Årsak til avslag</h4>
+                      <p className="whitespace-pre-wrap">{selectedFeedbackReport.rejectionReason}</p>
+                    </div>
+
+                    <div className="text-sm text-muted-foreground">
+                      <p><strong>Avslått av:</strong> {selectedFeedbackReport.rejectedBy || "Administrator"}</p>
+                      <p><strong>Dato:</strong> {formatDateTime(selectedFeedbackReport.rejectedAt)}</p>
+                    </div>
+                  </>
+                )}
+
+                {/* Comments section */}
                 <div className="border-t pt-4">
-                  <h4 className="font-medium mb-3">Neste steg</h4>
-                  <ol className="space-y-2 text-sm">
-                    <li className="flex gap-3 items-start">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">1</span>
-                      <span>Les tilbakemeldingen nøye og noter hvilke deler som må endres</span>
-                    </li>
-                    <li className="flex gap-3 items-start">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">2</span>
-                      <span>Klikk "Rediger" på rapporten for å gjøre endringer</span>
-                    </li>
-                    <li className="flex gap-3 items-start">
-                      <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">3</span>
-                      <span>Send inn rapporten på nytt når endringene er gjort</span>
-                    </li>
-                  </ol>
+                  <h4 className="font-medium mb-3 flex items-center gap-2">
+                    <MessageCircle className="h-4 w-4" />
+                    Tilbakemeldinger og diskusjon
+                  </h4>
+                  
+                  {comments && comments.length > 0 ? (
+                    <div className="space-y-3 mb-4">
+                      {comments.map((comment) => (
+                        <div 
+                          key={comment.id} 
+                          className={`p-3 rounded-md ${
+                            comment.author_role === "admin" 
+                              ? "bg-primary/5 border-l-2 border-primary" 
+                              : "bg-muted"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2 mb-1">
+                            <span className="text-sm font-medium">
+                              {comment.author_name || comment.author_id}
+                              {comment.author_role === "admin" && (
+                                <Badge variant="outline" className="ml-2 text-xs">Admin</Badge>
+                              )}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {formatDateTime(comment.created_at)}
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground mb-4">Ingen kommentarer ennå.</p>
+                  )}
+
+                  {/* Add comment form */}
+                  <div className="space-y-2">
+                    <Textarea
+                      value={newComment}
+                      onChange={(e) => setNewComment(e.target.value)}
+                      placeholder="Skriv en kommentar eller still et spørsmål..."
+                      rows={2}
+                      data-testid="input-new-comment"
+                    />
+                    <Button 
+                      size="sm" 
+                      onClick={() => addCommentMutation.mutate(newComment)}
+                      disabled={!newComment.trim() || addCommentMutation.isPending}
+                      data-testid="button-send-comment"
+                    >
+                      <Send className="h-4 w-4 mr-1" />
+                      {addCommentMutation.isPending ? "Sender..." : "Send kommentar"}
+                    </Button>
+                  </div>
                 </div>
+
+                {/* Next steps for rejected/needs_revision */}
+                {(selectedFeedbackReport.status === "rejected" || selectedFeedbackReport.status === "needs_revision") && (
+                  <div className="border-t pt-4">
+                    <h4 className="font-medium mb-3">Neste steg</h4>
+                    <ol className="space-y-2 text-sm">
+                      <li className="flex gap-3 items-start">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">1</span>
+                        <span>Les tilbakemeldingen nøye og noter hvilke deler som må endres</span>
+                      </li>
+                      <li className="flex gap-3 items-start">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">2</span>
+                        <span>Klikk "Rediger" på rapporten for å gjøre endringer</span>
+                      </li>
+                      <li className="flex gap-3 items-start">
+                        <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary text-primary-foreground flex items-center justify-center text-xs font-medium">3</span>
+                        <span>Send inn rapporten på nytt når endringene er gjort</span>
+                      </li>
+                    </ol>
+                  </div>
+                )}
 
                 <Alert>
                   <Info className="h-4 w-4" />
                   <AlertTitle>Trenger du hjelp?</AlertTitle>
                   <AlertDescription>
-                    Hvis du er usikker på hva som må endres, ta kontakt med din kontaktperson eller administrator.
+                    Bruk kommentarfeltet over for å stille spørsmål til administrator, eller ta kontakt med din kontaktperson.
                   </AlertDescription>
                 </Alert>
               </div>
