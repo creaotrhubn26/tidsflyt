@@ -915,6 +915,65 @@ export function registerSmartTimingRoutes(app: Express) {
           created_at TIMESTAMP DEFAULT NOW(),
           updated_at TIMESTAMP DEFAULT NOW()
         );
+        
+        CREATE TABLE IF NOT EXISTS why_page_hero (
+          id SERIAL PRIMARY KEY,
+          title TEXT NOT NULL,
+          title_highlight TEXT,
+          subtitle TEXT,
+          cta_primary_text TEXT,
+          cta_primary_url TEXT,
+          cta_secondary_text TEXT,
+          cta_secondary_url TEXT,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS why_page_stats (
+          id SERIAL PRIMARY KEY,
+          value TEXT NOT NULL,
+          label TEXT NOT NULL,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS why_page_benefits (
+          id SERIAL PRIMARY KEY,
+          icon TEXT DEFAULT 'Clock',
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS why_page_features (
+          id SERIAL PRIMARY KEY,
+          icon TEXT DEFAULT 'Smartphone',
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          display_order INTEGER DEFAULT 0,
+          is_active BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
+        
+        CREATE TABLE IF NOT EXISTS why_page_content (
+          id SERIAL PRIMARY KEY,
+          section_id TEXT NOT NULL UNIQUE,
+          title TEXT,
+          subtitle TEXT,
+          bullet_points TEXT[] DEFAULT '{}',
+          cta_title TEXT,
+          cta_subtitle TEXT,
+          cta_button_text TEXT,
+          cta_button_url TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW()
+        );
       `);
       
       // Also create admin_users table if not exists

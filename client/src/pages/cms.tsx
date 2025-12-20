@@ -18,7 +18,7 @@ import {
   PieChart, Activity, Rocket, Sparkles, Crown, Flame, Coffee, Sun, Moon, Smartphone,
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
-  Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle,
+  Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle, Pencil,
   type LucideIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -540,6 +540,9 @@ export default function CMSPage() {
           <TabsTrigger value="pages" data-testid="tab-pages">
             <FileText className="h-4 w-4 mr-1" />Sider
           </TabsTrigger>
+          <TabsTrigger value="why-page" data-testid="tab-why-page">
+            <FileText className="h-4 w-4 mr-1" />Hvorfor
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
           <TabsTrigger value="versions" data-testid="tab-versions">
             <RefreshCw className="h-4 w-4 mr-1" />Versjoner
@@ -614,6 +617,10 @@ export default function CMSPage() {
 
         <TabsContent value="pages">
           <PagesEditor />
+        </TabsContent>
+
+        <TabsContent value="why-page">
+          <WhyPageEditor />
         </TabsContent>
 
         <TabsContent value="activity">
@@ -4132,6 +4139,740 @@ function BlogEditor() {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// Why Page Editor
+function WhyPageEditor() {
+  const { toast } = useToast();
+  const [activeSection, setActiveSection] = useState("hero");
+
+  const { data: whyPageData, isLoading } = useQuery({
+    queryKey: ['/api/cms/why-page'],
+    queryFn: () => authenticatedApiRequest('/api/cms/why-page'),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5" />
+            Rediger "Hvorfor Tidsflyt"-siden
+          </CardTitle>
+          <CardDescription>
+            Administrer innhold på markedsføringssiden
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Tabs value={activeSection} onValueChange={setActiveSection}>
+            <TabsList className="mb-6" data-testid="why-page-tabs">
+              <TabsTrigger value="hero" data-testid="tab-why-hero">Hero</TabsTrigger>
+              <TabsTrigger value="stats" data-testid="tab-why-stats">Statistikk</TabsTrigger>
+              <TabsTrigger value="benefits" data-testid="tab-why-benefits">Fordeler</TabsTrigger>
+              <TabsTrigger value="features" data-testid="tab-why-features">Funksjoner</TabsTrigger>
+              <TabsTrigger value="nordic" data-testid="tab-why-nordic">Norsk</TabsTrigger>
+              <TabsTrigger value="cta" data-testid="tab-why-cta">CTA</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="hero">
+              <WhyHeroEditor hero={whyPageData?.hero} />
+            </TabsContent>
+
+            <TabsContent value="stats">
+              <WhyStatsEditor stats={whyPageData?.stats || []} />
+            </TabsContent>
+
+            <TabsContent value="benefits">
+              <WhyBenefitsEditor benefits={whyPageData?.benefits || []} />
+            </TabsContent>
+
+            <TabsContent value="features">
+              <WhyFeaturesEditor features={whyPageData?.features || []} />
+            </TabsContent>
+
+            <TabsContent value="nordic">
+              <WhyNordicEditor content={whyPageData?.nordic} />
+            </TabsContent>
+
+            <TabsContent value="cta">
+              <WhyCtaEditor content={whyPageData?.cta} />
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+function WhyHeroEditor({ hero }: { hero: any }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    title: hero?.title || "Hvorfor velge",
+    title_highlight: hero?.title_highlight || "Tidsflyt",
+    subtitle: hero?.subtitle || "Tidsflyt er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering - uten kompleksitet.",
+    cta_primary_text: hero?.cta_primary_text || "Prøv gratis",
+    cta_primary_url: hero?.cta_primary_url || "/login",
+    cta_secondary_text: hero?.cta_secondary_text || "Snakk med oss",
+    cta_secondary_url: hero?.cta_secondary_url || "/kontakt"
+  });
+
+  useEffect(() => {
+    if (hero) {
+      setFormData({
+        title: hero.title || "Hvorfor velge",
+        title_highlight: hero.title_highlight || "Tidsflyt",
+        subtitle: hero.subtitle || "",
+        cta_primary_text: hero.cta_primary_text || "Prøv gratis",
+        cta_primary_url: hero.cta_primary_url || "/login",
+        cta_secondary_text: hero.cta_secondary_text || "Snakk med oss",
+        cta_secondary_url: hero.cta_secondary_url || "/kontakt"
+      });
+    }
+  }, [hero]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: typeof formData) => {
+      return authenticatedApiRequest('/api/cms/why-page/hero', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Lagret", description: "Hero-seksjonen er oppdatert." });
+    },
+    onError: () => {
+      toast({ title: "Feil", description: "Kunne ikke lagre.", variant: "destructive" });
+    }
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <Label>Tittel</Label>
+          <Input 
+            value={formData.title}
+            onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+            placeholder="Hvorfor velge"
+            data-testid="input-why-hero-title"
+          />
+        </div>
+        <div>
+          <Label>Tittel uthevet</Label>
+          <Input 
+            value={formData.title_highlight}
+            onChange={(e) => setFormData(prev => ({ ...prev, title_highlight: e.target.value }))}
+            placeholder="Tidsflyt"
+            data-testid="input-why-hero-highlight"
+          />
+        </div>
+      </div>
+      <div>
+        <Label>Undertittel</Label>
+        <Textarea 
+          value={formData.subtitle}
+          onChange={(e) => setFormData(prev => ({ ...prev, subtitle: e.target.value }))}
+          rows={3}
+          data-testid="input-why-hero-subtitle"
+        />
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <Label>Primærknapp tekst</Label>
+          <Input 
+            value={formData.cta_primary_text}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_primary_text: e.target.value }))}
+            data-testid="input-why-hero-cta-primary"
+          />
+        </div>
+        <div>
+          <Label>Primærknapp URL</Label>
+          <Input 
+            value={formData.cta_primary_url}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_primary_url: e.target.value }))}
+            data-testid="input-why-hero-cta-primary-url"
+          />
+        </div>
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <Label>Sekundærknapp tekst</Label>
+          <Input 
+            value={formData.cta_secondary_text}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_secondary_text: e.target.value }))}
+            data-testid="input-why-hero-cta-secondary"
+          />
+        </div>
+        <div>
+          <Label>Sekundærknapp URL</Label>
+          <Input 
+            value={formData.cta_secondary_url}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_secondary_url: e.target.value }))}
+            data-testid="input-why-hero-cta-secondary-url"
+          />
+        </div>
+      </div>
+      <Button 
+        onClick={() => mutation.mutate(formData)} 
+        disabled={mutation.isPending}
+        data-testid="button-save-why-hero"
+      >
+        {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        Lagre endringer
+      </Button>
+    </div>
+  );
+}
+
+function WhyStatsEditor({ stats }: { stats: any[] }) {
+  const { toast } = useToast();
+  const [items, setItems] = useState(stats);
+  const [newItem, setNewItem] = useState({ value: "", label: "" });
+
+  useEffect(() => {
+    setItems(stats);
+  }, [stats]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: { value: string; label: string; display_order: number }) => {
+      return authenticatedApiRequest('/api/cms/why-page/stats', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      setNewItem({ value: "", label: "" });
+      toast({ title: "Opprettet", description: "Statistikk lagt til." });
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/why-page/stats/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Slettet" });
+    }
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-3">
+        {items.map((item: any, index: number) => (
+          <div key={item.id} className="flex items-center gap-2 p-3 border rounded-lg">
+            <span className="font-bold text-primary">{item.value}</span>
+            <span className="text-muted-foreground">{item.label}</span>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="ml-auto"
+              onClick={() => deleteMutation.mutate(item.id)}
+              data-testid={`button-delete-stat-${index}`}
+            >
+              <Trash2 className="h-4 w-4 text-destructive" />
+            </Button>
+          </div>
+        ))}
+      </div>
+      <div className="flex gap-2 items-end">
+        <div className="flex-1">
+          <Label>Verdi</Label>
+          <Input 
+            value={newItem.value}
+            onChange={(e) => setNewItem(prev => ({ ...prev, value: e.target.value }))}
+            placeholder="98%"
+            data-testid="input-new-stat-value"
+          />
+        </div>
+        <div className="flex-1">
+          <Label>Beskrivelse</Label>
+          <Input 
+            value={newItem.label}
+            onChange={(e) => setNewItem(prev => ({ ...prev, label: e.target.value }))}
+            placeholder="Kundetilfredshet"
+            data-testid="input-new-stat-label"
+          />
+        </div>
+        <Button 
+          onClick={() => createMutation.mutate({ ...newItem, display_order: items.length })}
+          disabled={!newItem.value || !newItem.label}
+          data-testid="button-add-stat"
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
+  const { toast } = useToast();
+  const [items, setItems] = useState(benefits);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ icon: "", title: "", description: "" });
+
+  useEffect(() => {
+    setItems(benefits);
+  }, [benefits]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return authenticatedApiRequest('/api/cms/why-page/benefits', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Opprettet" });
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return authenticatedApiRequest(`/api/cms/why-page/benefits/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      setEditingId(null);
+      toast({ title: "Oppdatert" });
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/why-page/benefits/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Slettet" });
+    }
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4">
+        {items.map((item: any, index: number) => (
+          <Card key={item.id}>
+            <CardContent className="p-4">
+              {editingId === item.id ? (
+                <div className="space-y-3">
+                  <Input 
+                    value={editForm.icon}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, icon: e.target.value }))}
+                    placeholder="Icon (Clock, Shield, Users, etc.)"
+                  />
+                  <Input 
+                    value={editForm.title}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Tittel"
+                  />
+                  <Textarea 
+                    value={editForm.description}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Beskrivelse"
+                  />
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm"
+                      onClick={() => updateMutation.mutate({ id: item.id, data: editForm })}
+                    >
+                      Lagre
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
+                      Avbryt
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline">{item.icon}</Badge>
+                      <span className="font-semibold">{item.title}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{item.description}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => {
+                        setEditForm({ icon: item.icon, title: item.title, description: item.description });
+                        setEditingId(item.id);
+                      }}
+                      data-testid={`button-edit-benefit-${index}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => deleteMutation.mutate(item.id)}
+                      data-testid={`button-delete-benefit-${index}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Button 
+        onClick={() => createMutation.mutate({ 
+          icon: "Clock", 
+          title: "Ny fordel", 
+          description: "Beskrivelse her...",
+          display_order: items.length
+        })}
+        data-testid="button-add-benefit"
+      >
+        <Plus className="h-4 w-4 mr-2" />
+        Legg til fordel
+      </Button>
+    </div>
+  );
+}
+
+function WhyFeaturesEditor({ features }: { features: any[] }) {
+  const { toast } = useToast();
+  const [items, setItems] = useState(features);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editForm, setEditForm] = useState({ icon: "", title: "", description: "" });
+
+  useEffect(() => {
+    setItems(features);
+  }, [features]);
+
+  const createMutation = useMutation({
+    mutationFn: async (data: any) => {
+      return authenticatedApiRequest('/api/cms/why-page/features', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Opprettet" });
+    }
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: number; data: any }) => {
+      return authenticatedApiRequest(`/api/cms/why-page/features/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      setEditingId(null);
+      toast({ title: "Oppdatert" });
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/why-page/features/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Slettet" });
+    }
+  });
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4">
+        {items.map((item: any, index: number) => (
+          <Card key={item.id}>
+            <CardContent className="p-4">
+              {editingId === item.id ? (
+                <div className="space-y-3">
+                  <Input 
+                    value={editForm.icon}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, icon: e.target.value }))}
+                    placeholder="Icon (Smartphone, Lock, Globe, etc.)"
+                  />
+                  <Input 
+                    value={editForm.title}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, title: e.target.value }))}
+                    placeholder="Tittel"
+                  />
+                  <Textarea 
+                    value={editForm.description}
+                    onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
+                    placeholder="Beskrivelse"
+                  />
+                  <div className="flex gap-2">
+                    <Button 
+                      size="sm"
+                      onClick={() => updateMutation.mutate({ id: item.id, data: editForm })}
+                    >
+                      Lagre
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditingId(null)}>
+                      Avbryt
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-start justify-between">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="outline">{item.icon}</Badge>
+                      <span className="font-semibold">{item.title}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{item.description}</p>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => {
+                        setEditForm({ icon: item.icon, title: item.title, description: item.description });
+                        setEditingId(item.id);
+                      }}
+                      data-testid={`button-edit-feature-${index}`}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button 
+                      variant="ghost" 
+                      size="icon"
+                      onClick={() => deleteMutation.mutate(item.id)}
+                      data-testid={`button-delete-feature-${index}`}
+                    >
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      <Button 
+        onClick={() => createMutation.mutate({ 
+          icon: "Smartphone", 
+          title: "Ny funksjon", 
+          description: "Beskrivelse her...",
+          display_order: items.length
+        })}
+        data-testid="button-add-feature"
+      >
+        <Plus className="h-4 w-4 mr-2" />
+        Legg til funksjon
+      </Button>
+    </div>
+  );
+}
+
+function WhyNordicEditor({ content }: { content: any }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    title: content?.title || "Bygget for norske forhold",
+    subtitle: content?.subtitle || "",
+    bullet_points: content?.bullet_points || []
+  });
+  const [newPoint, setNewPoint] = useState("");
+
+  useEffect(() => {
+    if (content) {
+      setFormData({
+        title: content.title || "Bygget for norske forhold",
+        subtitle: content.subtitle || "",
+        bullet_points: content.bullet_points || []
+      });
+    }
+  }, [content]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      return authenticatedApiRequest('/api/cms/why-page/content/nordic', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Lagret" });
+    }
+  });
+
+  const addPoint = () => {
+    if (newPoint) {
+      setFormData(prev => ({
+        ...prev,
+        bullet_points: [...prev.bullet_points, newPoint]
+      }));
+      setNewPoint("");
+    }
+  };
+
+  const removePoint = (index: number) => {
+    setFormData(prev => ({
+      ...prev,
+      bullet_points: prev.bullet_points.filter((_: any, i: number) => i !== index)
+    }));
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>Tittel</Label>
+        <Input 
+          value={formData.title}
+          onChange={(e) => setFormData(prev => ({ ...prev, title: e.target.value }))}
+          data-testid="input-why-nordic-title"
+        />
+      </div>
+      <div>
+        <Label>Undertittel</Label>
+        <Textarea 
+          value={formData.subtitle}
+          onChange={(e) => setFormData(prev => ({ ...prev, subtitle: e.target.value }))}
+          rows={3}
+          data-testid="input-why-nordic-subtitle"
+        />
+      </div>
+      <div>
+        <Label>Kulepunkter</Label>
+        <div className="space-y-2 mt-2">
+          {formData.bullet_points.map((point: string, index: number) => (
+            <div key={index} className="flex items-center gap-2">
+              <CheckCircle className="h-4 w-4 text-primary flex-shrink-0" />
+              <span className="flex-1">{point}</span>
+              <Button 
+                variant="ghost" 
+                size="icon"
+                onClick={() => removePoint(index)}
+              >
+                <Trash2 className="h-4 w-4 text-destructive" />
+              </Button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-2">
+          <Input 
+            value={newPoint}
+            onChange={(e) => setNewPoint(e.target.value)}
+            placeholder="Nytt kulepunkt"
+            data-testid="input-new-bullet-point"
+          />
+          <Button onClick={addPoint} disabled={!newPoint}>
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+      <Button 
+        onClick={() => mutation.mutate(formData)}
+        disabled={mutation.isPending}
+        data-testid="button-save-why-nordic"
+      >
+        {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        Lagre endringer
+      </Button>
+    </div>
+  );
+}
+
+function WhyCtaEditor({ content }: { content: any }) {
+  const { toast } = useToast();
+  const [formData, setFormData] = useState({
+    cta_title: content?.cta_title || "Klar til å komme i gang?",
+    cta_subtitle: content?.cta_subtitle || "Start din gratis prøveperiode i dag. Ingen kredittkort nødvendig.",
+    cta_button_text: content?.cta_button_text || "Start gratis prøveperiode",
+    cta_button_url: content?.cta_button_url || "/login"
+  });
+
+  useEffect(() => {
+    if (content) {
+      setFormData({
+        cta_title: content.cta_title || "Klar til å komme i gang?",
+        cta_subtitle: content.cta_subtitle || "",
+        cta_button_text: content.cta_button_text || "Start gratis prøveperiode",
+        cta_button_url: content.cta_button_url || "/login"
+      });
+    }
+  }, [content]);
+
+  const mutation = useMutation({
+    mutationFn: async (data: any) => {
+      return authenticatedApiRequest('/api/cms/why-page/content/cta', {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
+      toast({ title: "Lagret" });
+    }
+  });
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <Label>CTA Tittel</Label>
+        <Input 
+          value={formData.cta_title}
+          onChange={(e) => setFormData(prev => ({ ...prev, cta_title: e.target.value }))}
+          data-testid="input-why-cta-title"
+        />
+      </div>
+      <div>
+        <Label>CTA Undertittel</Label>
+        <Textarea 
+          value={formData.cta_subtitle}
+          onChange={(e) => setFormData(prev => ({ ...prev, cta_subtitle: e.target.value }))}
+          rows={2}
+          data-testid="input-why-cta-subtitle"
+        />
+      </div>
+      <div className="grid md:grid-cols-2 gap-4">
+        <div>
+          <Label>Knapp tekst</Label>
+          <Input 
+            value={formData.cta_button_text}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_button_text: e.target.value }))}
+            data-testid="input-why-cta-button-text"
+          />
+        </div>
+        <div>
+          <Label>Knapp URL</Label>
+          <Input 
+            value={formData.cta_button_url}
+            onChange={(e) => setFormData(prev => ({ ...prev, cta_button_url: e.target.value }))}
+            data-testid="input-why-cta-button-url"
+          />
+        </div>
+      </div>
+      <Button 
+        onClick={() => mutation.mutate(formData)}
+        disabled={mutation.isPending}
+        data-testid="button-save-why-cta"
+      >
+        {mutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+        Lagre endringer
+      </Button>
     </div>
   );
 }
