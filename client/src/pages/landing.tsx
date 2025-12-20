@@ -62,6 +62,7 @@ import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Skeleton } from "@/components/ui/skeleton";
+import logoUrl from "@assets/Logo-ST_1766202609878.png";
 import {
   Dialog,
   DialogContent,
@@ -892,9 +893,11 @@ export default function LandingPage() {
             hero.layout === 'left' ? 'justify-start' : 
             hero.layout === 'right' ? 'justify-end' : 'justify-center'
           }`}>
-            <div className="flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-blue-700 shadow-lg">
-              <Clock className="h-8 w-8 text-white" />
-            </div>
+            <img 
+              src={logoUrl} 
+              alt="Smart Timing" 
+              className="w-20 h-20 object-contain"
+            />
           </div>
           
           {isLoading ? (
