@@ -10,7 +10,7 @@ import { db } from "./db";
 import { apiKeys, vendors, accessRequests, insertAccessRequestSchema } from "@shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
 import { z } from "zod";
-import { setupCustomAuth, isAuthenticated, requireVendorAuth as customRequireVendorAuth, requireSuperAdmin } from "./custom-auth";
+import { setupCustomAuth, isAuthenticated } from "./custom-auth";
 
 // Zod schema for bulk time entry validation
 const bulkTimeEntrySchema = z.object({
@@ -327,7 +327,7 @@ export async function registerRoutes(
     try {
       const { id } = req.params;
       const { status, vendorId } = req.body;
-      const userId = req.user?.claims?.sub;
+      const userId = req.user?.id;
 
       if (!["approved", "rejected"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
