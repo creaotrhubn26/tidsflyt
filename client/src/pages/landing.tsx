@@ -60,6 +60,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { useTheme } from "@/components/theme-provider";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Skeleton } from "@/components/ui/skeleton";
 import logoUrl from "@assets/Logo-ST_1766202609878.png";
@@ -451,6 +452,7 @@ function HeroBadgeIcon({ icon }: { icon: string | null }) {
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+  const { resolvedTheme } = useTheme();
   const [loginDialogOpen, setLoginDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'choice' | 'new-user' | 'existing-user'>('choice');
   const [brregSearchResults, setBrregSearchResults] = useState<BrregCompany[]>([]);
@@ -467,9 +469,15 @@ export default function LandingPage() {
   });
 
   useEffect(() => {
-    if (designTokens) {
-      const root = document.documentElement;
-      
+    const root = document.documentElement;
+    const colorProperties = [
+      '--primary', '--accent', '--secondary', '--muted', '--muted-foreground',
+      '--border', '--background', '--card', '--foreground', '--card-foreground'
+    ];
+    
+    if (resolvedTheme === 'dark') {
+      colorProperties.forEach(prop => root.style.removeProperty(prop));
+    } else if (designTokens) {
       if (designTokens.primary_color) {
         root.style.setProperty('--primary', hexToHSL(designTokens.primary_color));
       }
@@ -496,6 +504,9 @@ export default function LandingPage() {
         root.style.setProperty('--foreground', hexToHSL(designTokens.text_color));
         root.style.setProperty('--card-foreground', hexToHSL(designTokens.text_color));
       }
+    }
+    
+    if (designTokens) {
       if (designTokens.font_family) {
         root.style.setProperty('--font-sans', designTokens.font_family + ', system-ui, sans-serif');
       }
@@ -509,7 +520,7 @@ export default function LandingPage() {
         root.style.setProperty('--shadow-lg', designTokens.shadow_lg);
       }
     }
-  }, [designTokens]);
+  }, [designTokens, resolvedTheme]);
 
   const hero = content?.hero || defaultHero;
   const features = content?.features?.length ? content.features : defaultFeatures;
