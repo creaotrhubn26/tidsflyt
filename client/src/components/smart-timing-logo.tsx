@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import tidumWordmark from "@assets/tidum-wordmark.png";
+import tidumLogo from "@assets/tidum-logo.png";
 
 interface SmartTimingLogoProps {
   collapsed?: boolean;
@@ -27,15 +27,15 @@ export function SmartTimingLogo({
     <div className={cn("flex items-center gap-3", size === "lg" && "flex-col gap-2", className)}>
       {showWordmark ? (
         <img
-          src={tidumWordmark}
-          alt="Tidum"
+          src={tidumLogo}
+          alt="Tidum logo"
           className={cn("w-auto object-contain", s.wordmark, size === "lg" && "h-16")}
         />
       ) : (
         <img
-          src="/favicon-32x32.png"
+          src={tidumLogo}
           alt="Tidum logo"
-          className={cn("rounded-full object-contain", s.icon)}
+          className={cn("object-contain", s.icon)}
         />
       )}
       {size === "lg" && showWordmark && (

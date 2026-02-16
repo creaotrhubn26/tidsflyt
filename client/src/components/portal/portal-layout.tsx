@@ -306,6 +306,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                 <SidebarContent mobile />
               </SheetContent>
             </Sheet>
+
+            <div className="md:hidden" data-testid="mobile-header-logo">
+              <SmartTimingLogo size="sm" showText={false} />
+            </div>
             
             <h1 className="text-lg font-semibold hidden md:block text-[#183a44]">
               {activePageLabel}

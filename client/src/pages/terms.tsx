@@ -2,6 +2,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, FileText } from "lucide-react";
 import { Link } from "wouter";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { useQuery } from "@tanstack/react-query";
 
 interface PageContent {
@@ -81,7 +82,10 @@ Spørsmål om vilkårene kan rettes til juridisk@tidum.no
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidum</h1>
+          <div className="flex items-center gap-2" data-testid="header-logo">
+            <SmartTimingLogo size="sm" showText={false} />
+            <h1 className="text-xl font-bold" data-testid="text-page-title">Tidum</h1>
+          </div>
         </div>
       </header>
 

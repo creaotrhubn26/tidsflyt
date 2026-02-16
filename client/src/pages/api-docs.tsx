@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Code, Key, Clock, Users, FileText, Settings, Shield, Zap } from "lucide-react";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 
 const API_VERSION = "1.0.0";
 const BASE_URL = "/api/v1/vendor";
@@ -71,6 +72,7 @@ export default function ApiDocsPage() {
     <div className="rt-container py-8 max-w-5xl">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-4">
+          <SmartTimingLogo size="sm" showText={false} />
           <Code className="h-8 w-8 text-primary" />
           <h1 className="text-3xl font-bold" data-testid="text-api-docs-title">Tidum API</h1>
           <Badge variant="outline">v{API_VERSION}</Badge>

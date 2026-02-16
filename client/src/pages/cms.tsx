@@ -1,10 +1,10 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -502,9 +502,15 @@ export function CMSPageLegacy() {
 
   return (
     <div className="container mx-auto p-6 max-w-5xl">
+      <div className="flex justify-center mb-4" data-testid="cms-legacy-logo">
+        <SmartTimingLogo size="sm" showText={false} />
+      </div>
       <div className="mb-8 flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold" data-testid="cms-title">Innholdsstyring</h1>
+          <div className="flex items-center gap-3">
+            <SmartTimingLogo size="sm" showText={false} />
+            <h1 className="text-3xl font-bold" data-testid="cms-title">Innholdsstyring</h1>
+          </div>
           <p className="text-muted-foreground mt-2">
             Rediger innholdet på landingssiden og andre sider i applikasjonen.
           </p>

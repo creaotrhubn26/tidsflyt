@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -106,6 +107,7 @@ export default function AccessRequestsPage() {
       <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
+            <SmartTimingLogo size="sm" showText={false} className="mx-auto mb-3" />
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
               <LogIn className="h-6 w-6 text-muted-foreground" />
             </div>
@@ -132,6 +134,7 @@ export default function AccessRequestsPage() {
       <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
+            <SmartTimingLogo size="sm" showText={false} className="mx-auto mb-3" />
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
               <Lock className="h-6 w-6 text-muted-foreground" />
             </div>
@@ -170,6 +173,7 @@ export default function AccessRequestsPage() {
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-access-requests-title">
+            <SmartTimingLogo size="sm" showText={false} />
             <UserPlus className="h-6 w-6" />
             Tilgangsforesporsler
           </h1>

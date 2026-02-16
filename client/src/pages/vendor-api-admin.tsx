@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { Key, Plus, Trash2, Copy, CheckCircle, XCircle, Clock, Shield, RefreshCw, ExternalLink, LogIn, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -142,6 +143,7 @@ export default function VendorApiAdminPage() {
       <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
+            <SmartTimingLogo size="sm" showText={false} className="mx-auto mb-3" />
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
               <LogIn className="h-6 w-6 text-muted-foreground" />
             </div>
@@ -168,6 +170,7 @@ export default function VendorApiAdminPage() {
       <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
+            <SmartTimingLogo size="sm" showText={false} className="mx-auto mb-3" />
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
               <Lock className="h-6 w-6 text-muted-foreground" />
             </div>
@@ -197,6 +200,7 @@ export default function VendorApiAdminPage() {
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-api-admin-title">
+            <SmartTimingLogo size="sm" showText={false} />
             <Key className="h-6 w-6" />
             API-administrasjon
           </h1>
