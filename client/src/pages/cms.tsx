@@ -3145,7 +3145,7 @@ function SEOEditor() {
                 <Input
                   value={globalSeo.site_name}
                   onChange={(e) => setGlobalSeo({ ...globalSeo, site_name: e.target.value })}
-                  placeholder="Tidsflyt"
+                  placeholder="Tidum"
                   data-testid="input-seo-site-name"
                 />
               </div>
@@ -4214,7 +4214,7 @@ function WhyPageEditor() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <FileText className="h-5 w-5" />
-            Rediger "Hvorfor Tidsflyt"-siden
+            Rediger "Hvorfor Tidum"-siden
           </CardTitle>
           <CardDescription>
             Administrer innhold på markedsføringssiden
@@ -4265,8 +4265,8 @@ function WhyHeroEditor({ hero }: { hero: any }) {
   const { toast } = useToast();
   const [formData, setFormData] = useState({
     title: hero?.title || "Hvorfor velge",
-    title_highlight: hero?.title_highlight || "Tidsflyt",
-    subtitle: hero?.subtitle || "Tidsflyt er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering - uten kompleksitet.",
+    title_highlight: hero?.title_highlight || "Tidum",
+    subtitle: hero?.subtitle || "Tidum er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering - uten kompleksitet.",
     cta_primary_text: hero?.cta_primary_text || "Prøv gratis",
     cta_primary_url: hero?.cta_primary_url || "/login",
     cta_secondary_text: hero?.cta_secondary_text || "Snakk med oss",
@@ -4277,7 +4277,7 @@ function WhyHeroEditor({ hero }: { hero: any }) {
     if (hero) {
       setFormData({
         title: hero.title || "Hvorfor velge",
-        title_highlight: hero.title_highlight || "Tidsflyt",
+        title_highlight: hero.title_highlight || "Tidum",
         subtitle: hero.subtitle || "",
         cta_primary_text: hero.cta_primary_text || "Prøv gratis",
         cta_primary_url: hero.cta_primary_url || "/login",
@@ -4320,7 +4320,7 @@ function WhyHeroEditor({ hero }: { hero: any }) {
           <Input 
             value={formData.title_highlight}
             onChange={(e) => setFormData(prev => ({ ...prev, title_highlight: e.target.value }))}
-            placeholder="Tidsflyt"
+            placeholder="Tidum"
             data-testid="input-why-hero-highlight"
           />
         </div>
@@ -5020,7 +5020,7 @@ function ContactPageEditor({ content }: { content: any }) {
     title: content?.title || "Kontakt oss",
     subtitle: content?.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
     content: content?.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: content?.email || "kontakt@tidsflyt.no",
+    email: content?.email || "kontakt@tidum.no",
     phone: content?.phone || "+47 22 33 44 55",
     address: content?.address || "Oslo, Norge"
   });
@@ -5031,7 +5031,7 @@ function ContactPageEditor({ content }: { content: any }) {
         title: content.title || "Kontakt oss",
         subtitle: content.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
         content: content.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-        email: content.email || "kontakt@tidsflyt.no",
+        email: content.email || "kontakt@tidum.no",
         phone: content.phone || "+47 22 33 44 55",
         address: content.address || "Oslo, Norge"
       });
@@ -6070,7 +6070,7 @@ function EmailEditor() {
                     id="from-email"
                     value={settingsForm.from_email || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, from_email: e.target.value })}
-                    placeholder="noreply@tidsflyt.no"
+                    placeholder="noreply@tidum.no"
                   />
                 </div>
                 <div className="space-y-2">
@@ -6079,7 +6079,7 @@ function EmailEditor() {
                     id="from-name"
                     value={settingsForm.from_name || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, from_name: e.target.value })}
-                    placeholder="Tidsflyt"
+                    placeholder="Tidum"
                   />
                 </div>
                 <div className="space-y-2 md:col-span-2">
@@ -6088,7 +6088,7 @@ function EmailEditor() {
                     id="reply-to"
                     value={settingsForm.reply_to_email || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, reply_to_email: e.target.value })}
-                    placeholder="support@tidsflyt.no"
+                    placeholder="support@tidum.no"
                   />
                 </div>
               </div>
@@ -7273,7 +7273,7 @@ function VendorManagement() {
               <Building2 className="h-5 w-5" />
               Leverandøradministrasjon
             </CardTitle>
-            <CardDescription>Administrer leverandører som bruker Tidsflyt</CardDescription>
+            <CardDescription>Administrer leverandører som bruker Tidum</CardDescription>
           </div>
           <Button onClick={() => openVendorEditor()} data-testid="button-add-vendor">
             <Plus className="h-4 w-4 mr-2" />
@@ -7702,7 +7702,7 @@ function PortalDesigner() {
     id: 0,
     vendor_id: null,
     logo_url: null,
-    logo_text: 'Tidsflyt',
+    logo_text: 'Tidum',
     primary_color: '#3b82f6',
     accent_color: '#8b5cf6',
     sidebar_bg: '#1f2937',
@@ -8171,7 +8171,7 @@ function PortalDesigner() {
                       <div className="py-3 px-4 text-center" style={{ color: settings.tokens.colors.textMuted }}>
                         <p className="text-sm">{settings.footer_text || '© 2025 Bedriftsnavn'}</p>
                         {settings.show_branding && (
-                          <p className="text-xs mt-1">Powered by Tidsflyt</p>
+                          <p className="text-xs mt-1">Powered by Tidum</p>
                         )}
                       </div>
                     </div>

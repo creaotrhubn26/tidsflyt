@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Users, 
@@ -74,12 +75,18 @@ interface CompanyUser {
 }
 
 export default function UsersPage() {
+  const [location] = useLocation();
+  const isInvitesRoute = location === "/invites";
   const [searchQuery, setSearchQuery] = useState("");
-  const [tab, setTab] = useState("all");
+  const [tab, setTab] = useState(isInvitesRoute ? "pending" : "all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("member");
   const { toast } = useToast();
+
+  useEffect(() => {
+    setTab(isInvitesRoute ? "pending" : "all");
+  }, [isInvitesRoute]);
 
   const { data: companyUsers = [], isLoading, refetch } = useQuery<CompanyUser[]>({
     queryKey: ['/api/company/users', 1],
@@ -157,8 +164,14 @@ export default function UsersPage() {
       <div className="space-y-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold" data-testid="users-title">Brukere</h1>
-            <p className="text-muted-foreground mt-1">Administrer brukere og tilganger</p>
+            <h1 className="text-2xl md:text-3xl font-bold" data-testid="users-title">
+              {isInvitesRoute ? "Invitasjoner" : "Brukere"}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              {isInvitesRoute
+                ? "Administrer utsendte og ventende invitasjoner"
+                : "Administrer brukere og tilganger"}
+            </p>
           </div>
           
           <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>

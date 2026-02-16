@@ -1,5 +1,13 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+function normalizeRequestUrl(url: string): string {
+  if (!url) return "/";
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return url;
+  }
+  return url.startsWith("/") ? url : `/${url}`;
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -12,7 +20,7 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(url, {
+  const res = await fetch(normalizeRequestUrl(url), {
     method,
     headers: data ? { "Content-Type": "application/json" } : {},
     body: data ? JSON.stringify(data) : undefined,
@@ -45,6 +53,8 @@ export const getQueryFn: <T>(options: {
     } else if (queryKey.length > 1) {
       url = queryKey.filter(k => typeof k === "string").join("/");
     }
+
+    url = normalizeRequestUrl(url);
     
     const res = await fetch(url, {
       credentials: "include",

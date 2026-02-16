@@ -99,6 +99,7 @@ const projectOptions = [
 ];
 
 const WEEKDAY_NAMES = ["Man", "Tir", "Ons", "Tor", "Fre"];
+const NO_PROJECT_VALUE = "no_project";
 
 export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntryModalProps) {
   const { toast } = useToast();
@@ -106,7 +107,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [defaultHours, setDefaultHours] = useState("7.5");
   const [description, setDescription] = useState("Arbeid");
-  const [selectedProject, setSelectedProject] = useState("");
+  const [selectedProject, setSelectedProject] = useState(NO_PROJECT_VALUE);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
 
@@ -202,6 +203,9 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     setStep(1);
     setDayEntries([]);
     setOverwriteExisting(false);
+    setSelectedProject(NO_PROJECT_VALUE);
+    setDescription("Arbeid");
+    setDefaultHours("7.5");
   };
 
   const handleClose = () => {
@@ -243,7 +247,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
       date: e.date,
       hours: e.hours,
       description,
-      caseNumber: selectedProject || null,
+      caseNumber: selectedProject === NO_PROJECT_VALUE ? null : selectedProject,
     }));
 
     bulkMutation.mutate({
@@ -404,7 +408,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                   <SelectValue placeholder="Velg prosjekt" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Ingen</SelectItem>
+                  <SelectItem value={NO_PROJECT_VALUE}>Ingen</SelectItem>
                   {projectOptions.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}

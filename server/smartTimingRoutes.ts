@@ -92,7 +92,7 @@ export function registerSmartTimingRoutes(app: Express) {
     express.static(path.join(process.cwd(), 'attached_assets'))(req, res, next);
   });
 
-  // Serve Tidsflyt logo for emails (SVG format for best quality)
+  // Serve Tidum logo for emails (SVG format for best quality)
   app.get("/api/logo", (req, res) => {
     const logoSvg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" width="200" height="50">
@@ -115,7 +115,7 @@ export function registerSmartTimingRoutes(app: Express) {
           <circle cx="22" cy="25" r="2.5" fill="white"/>
         </g>
         <!-- Text -->
-        <text x="52" y="33" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Tidsflyt</text>
+        <text x="52" y="33" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="700" fill="#0f172a">Tidum</text>
         <defs>
           <linearGradient id="watchGradient" x1="0%" y1="0%" x2="100%" y2="100%">
             <stop offset="0%" style="stop-color:#1e3a5f"/>
@@ -1559,20 +1559,20 @@ export function registerSmartTimingRoutes(app: Express) {
         title: 'Kontakt oss',
         subtitle: 'Har du spørsmål? Vi hjelper deg gjerne.',
         content: 'Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.',
-        email: 'kontakt@tidsflyt.no',
+        email: 'kontakt@tidum.no',
         phone: '+47 97 95 92 94',
         address: 'Oslo, Norge'
       },
       privacy: {
         title: 'Personvernerklæring',
         subtitle: 'Slik beskytter vi dine personopplysninger',
-        content: '## 1. Innledning\nTidsflyt er opptatt av å beskytte personvernet til våre brukere.',
+        content: '## 1. Innledning\nTidum er opptatt av å beskytte personvernet til våre brukere.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       },
       terms: {
         title: 'Brukervilkår',
-        subtitle: 'Vilkår for bruk av Tidsflyt',
-        content: '## 1. Aksept av vilkår\nVed å bruke Tidsflyt aksepterer du disse brukervilkårene.',
+        subtitle: 'Vilkår for bruk av Tidum',
+        content: '## 1. Aksept av vilkår\nVed å bruke Tidum aksepterer du disse brukervilkårene.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       }
     };
@@ -3817,7 +3817,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
         port: 587,
         secure: false,
         auth: {
-          user: process.env.GMAIL_USER || 'noreply@tidsflyt.no',
+          user: process.env.GMAIL_USER || 'noreply@tidum.no',
           pass: process.env.GMAIL_APP_PASSWORD,
         },
       });
@@ -3859,7 +3859,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       ` : '';
 
       await transporter.sendMail({
-        from: `"Tidsflyt Kontaktskjema" <${process.env.GMAIL_USER || 'noreply@tidsflyt.no'}>`,
+        from: `"Tidum Kontaktskjema" <${process.env.GMAIL_USER || 'noreply@tidum.no'}>`,
         to: recipientEmail,
         replyTo: email,
         subject: `${company ? `[${company}] ` : ''}Henvendelse: ${subject}`,
@@ -3875,7 +3875,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
               <!-- Header -->
               <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border-radius: 16px 16px 0 0; padding: 32px; text-align: center;">
                 <div style="display: inline-block; background: #fff; padding: 16px 28px; border-radius: 8px; margin-bottom: 16px;">
-                  <img src="https://tidsflyt.no/api/logo" alt="Tidsflyt" width="180" height="50" style="display: block; max-width: 180px; height: auto;" />
+                  <img src="https://tidum.no/api/logo" alt="Tidum" width="180" height="50" style="display: block; max-width: 180px; height: auto;" />
                 </div>
                 <h1 style="color: #fff; margin: 0; font-size: 20px; font-weight: 500;">Ny henvendelse mottatt</h1>
               </div>
@@ -3919,8 +3919,8 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
 
               <!-- Footer -->
               <div style="text-align: center; padding: 24px; color: #64748b; font-size: 12px;">
-                <p style="margin: 0 0 8px 0;">Denne meldingen ble sendt via kontaktskjemaet på <a href="https://tidsflyt.no" style="color: #0ea5e9; text-decoration: none;">tidsflyt.no</a></p>
-                <p style="margin: 0;">Tidsflyt AS | Timeregistrering for norske bedrifter</p>
+                <p style="margin: 0 0 8px 0;">Denne meldingen ble sendt via kontaktskjemaet på <a href="https://tidum.no" style="color: #0ea5e9; text-decoration: none;">tidum.no</a></p>
+                <p style="margin: 0;">Tidum AS | Timeregistrering for norske bedrifter</p>
               </div>
             </div>
           </body>

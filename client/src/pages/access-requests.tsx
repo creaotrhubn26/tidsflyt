@@ -103,7 +103,7 @@ export default function AccessRequestsPage() {
 
   if (!isAuthenticated) {
     return (
-      <div className="container mx-auto py-16 px-4 max-w-md">
+      <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
@@ -129,7 +129,7 @@ export default function AccessRequestsPage() {
 
   if (!isSuperAdmin) {
     return (
-      <div className="container mx-auto py-16 px-4 max-w-md">
+      <div className="rt-container py-16 max-w-md">
         <Card>
           <CardHeader className="text-center">
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
@@ -166,14 +166,14 @@ export default function AccessRequestsPage() {
   };
 
   return (
-    <div className="container mx-auto py-8 px-4 max-w-4xl">
+    <div className="rt-container py-8 max-w-4xl">
       <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-access-requests-title">
             <UserPlus className="h-6 w-6" />
             Tilgangsforesporsler
           </h1>
-          <p className="text-muted-foreground">Administrer forespørsler om tilgang til Tidsflyt</p>
+          <p className="text-muted-foreground">Administrer forespørsler om tilgang til Tidum</p>
         </div>
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-[180px]" data-testid="select-status-filter">

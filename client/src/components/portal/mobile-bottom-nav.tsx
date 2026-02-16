@@ -3,7 +3,7 @@ import { LayoutDashboard, Clock, FileText, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const navItems = [
-  { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timer" },
   { path: "/reports", icon: FileText, label: "Rapporter" },
   { path: "/profile", icon: User, label: "Profil" },

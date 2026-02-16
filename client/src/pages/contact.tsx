@@ -3,11 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2 } from "lucide-react";
+import { Mail, Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2 } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
   title: string;
@@ -133,7 +134,7 @@ export default function Contact() {
     title: "Kontakt oss",
     subtitle: "Har du spørsmål? Vi hjelper deg gjerne.",
     content: "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: "kontakt@tidsflyt.no",
+    email: "kontakt@tidum.no",
     phone: "+47 97 95 92 94",
     address: "Oslo, Norge"
   };
@@ -181,284 +182,398 @@ export default function Contact() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center gap-4">
-          <Link href="/">
-            <Button variant="ghost" size="sm" data-testid="button-back">
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Tilbake
-            </Button>
-          </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
-        </div>
-      </header>
+    <main className="tidum-page">
+      <style>{`
+        .tidum-page {
+          --color-primary: #1F6B73;
+          --color-primary-hover: #18585F;
+          --color-secondary: #4E9A6F;
+          --color-bg-main: #FAFAF8;
+          --color-bg-section: #F1F1ED;
+          --color-text-main: #1E2A2C;
+          --color-text-muted: #5F6B6D;
+          --color-border: #E1E4E3;
+          --background: 60 20% 98%;
+          --foreground: 194 19% 14%;
+          --card: 0 0% 100%;
+          --card-foreground: 194 19% 14%;
+          --card-border: 164 10% 88%;
+          --popover: 0 0% 100%;
+          --popover-foreground: 194 19% 14%;
+          --popover-border: 164 10% 88%;
+          --muted: 165 10% 94%;
+          --muted-foreground: 188 9% 44%;
+          background:
+            radial-gradient(circle at 8% 3%, rgba(78, 154, 111, 0.10), transparent 38%),
+            radial-gradient(circle at 88% 6%, rgba(31, 107, 115, 0.12), transparent 42%),
+            var(--color-bg-main);
+          color: var(--color-text-main);
+          font-family: Inter, "Avenir Next", "Segoe UI", sans-serif;
+          min-height: 100vh;
+        }
 
-      <main className="container mx-auto px-4 py-12 max-w-4xl">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-bold mb-4" data-testid="text-contact-title">{content.title}</h1>
-          <p className="text-lg text-muted-foreground" data-testid="text-contact-subtitle">{content.subtitle}</p>
-        </div>
+        .tidum-panel {
+          border: 1px solid var(--color-border);
+          background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 251, 248, 0.95));
+          box-shadow: 0 18px 60px rgba(24, 37, 41, 0.09);
+        }
 
-        <div className="grid md:grid-cols-2 gap-8">
-          <Card data-testid="card-contact-info">
-            <CardHeader>
-              <CardTitle>Kontaktinformasjon</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="flex items-start gap-4">
-                <div className="p-3 rounded-lg bg-primary/10">
-                  <Phone className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-medium">Telefon</p>
-                  <a href={`tel:${content.phone}`} className="text-muted-foreground hover:text-primary" data-testid="link-phone">
-                    {content.phone}
-                  </a>
-                </div>
+        .tidum-contact-card {
+          border: 1px solid var(--color-border);
+          background: rgba(255, 255, 255, 0.95);
+          box-shadow: 0 8px 28px rgba(22, 43, 49, 0.06);
+        }
+
+        .tidum-btn-primary {
+          background: var(--color-primary);
+          color: #fff;
+          border: 1px solid rgba(20, 77, 84, 0.6);
+          border-radius: 12px;
+          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+        }
+
+        .tidum-btn-primary:hover {
+          background: var(--color-primary-hover);
+        }
+
+        .tidum-btn-secondary {
+          background: #fff;
+          color: #223136;
+          border: 1px solid var(--color-border);
+          border-radius: 12px;
+        }
+
+        .tidum-btn-secondary:hover {
+          background: #f6f7f4;
+        }
+
+        .tidum-input {
+          border-color: var(--color-border);
+          background: rgba(255, 255, 255, 0.92);
+          color: var(--color-text-main);
+        }
+
+        .tidum-input::placeholder {
+          color: #6f7a7d;
+        }
+
+        .tidum-page :is(button, a, input, textarea):focus-visible {
+          outline: 3px solid #1F6B73;
+          outline-offset: 2px;
+        }
+      `}</style>
+
+      <div className="rt-container pb-16 pt-8">
+        <section className="tidum-panel relative overflow-hidden rounded-[28px]">
+          <div className="pointer-events-none absolute -left-16 top-[34%] h-36 w-96 rotate-[-14deg] rounded-[999px] bg-[rgba(131,171,145,0.2)]" />
+          <div className="pointer-events-none absolute right-[-140px] top-14 h-80 w-[520px] rounded-[999px] bg-[rgba(194,205,195,0.24)]" />
+
+          <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
+            <div className="flex items-center gap-3">
+              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11" />
+              <span className="sr-only" data-testid="text-page-title">Tidum</span>
+            </div>
+
+            <Link href="/">
+              <Button variant="outline" className="tidum-btn-secondary h-auto px-5 py-2.5 text-base font-medium" data-testid="button-back">
+                <ArrowLeft className="mr-2 h-4 w-4" />
+                Tilbake
+              </Button>
+            </Link>
+          </header>
+
+          <div className="relative z-10 grid gap-6 px-6 py-8 sm:px-8 sm:py-10 lg:grid-cols-[0.95fr,1.3fr]">
+            <div className="space-y-5">
+              <div>
+                <h1 className="text-[clamp(2rem,3.7vw,3.1rem)] font-semibold tracking-tight text-[#0E4852]" data-testid="text-contact-title">
+                  {content.title}
+                </h1>
+                <p className="mt-3 max-w-xl text-[clamp(1.05rem,1.45vw,1.3rem)] leading-relaxed text-[#2D3D43]" data-testid="text-contact-subtitle">
+                  {content.subtitle}
+                </p>
               </div>
 
-              <div className="flex items-start gap-4">
-                <div className="p-3 rounded-lg bg-primary/10">
-                  <MapPin className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <p className="font-medium">Adresse</p>
-                  <p className="text-muted-foreground" data-testid="text-address">{content.address}</p>
-                </div>
-              </div>
-
-              <p className="text-sm text-muted-foreground pt-4 border-t" data-testid="text-contact-content">
-                {content.content}
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card data-testid="card-contact-form">
-            <CardHeader>
-              <CardTitle>Send oss en melding</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                {/* Honeypot field - hidden from humans, bots will fill it */}
-                <div className="absolute -left-[9999px]" aria-hidden="true">
-                  <input
-                    type="text"
-                    name="website_url"
-                    tabIndex={-1}
-                    autoComplete="off"
-                    value={honeypot}
-                    onChange={(e) => setHoneypot(e.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Kontaktperson *</Label>
-                    <Input
-                      id="name"
-                      placeholder="Ditt navn"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      required
-                      data-testid="input-contact-name"
-                    />
+              <Card data-testid="card-contact-info" className="tidum-contact-card rounded-2xl">
+                <CardHeader className="pb-4">
+                  <CardTitle className="text-2xl font-semibold tracking-tight text-[#15343D]">Kontaktinformasjon</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-5">
+                  <div className="flex items-start gap-3.5">
+                    <div className="rounded-lg bg-[#E7F3EE] p-2.5">
+                      <Mail className="h-5 w-5 text-[#1F6B73]" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-[#203138]">E-post</p>
+                      <a href={`mailto:${content.email}`} className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]">
+                        {content.email}
+                      </a>
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="email">E-post *</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      placeholder="din@bedrift.no"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      required
-                      data-testid="input-contact-email"
-                    />
-                  </div>
-                </div>
 
-                {/* Brreg Search Section */}
-                <div className="space-y-2" ref={brregDropdownRef}>
-                  <Label htmlFor="orgSearch" className="flex items-center gap-2">
-                    <Building2 className="h-4 w-4" />
-                    Søk etter bedrift (org.nr eller navn)
-                  </Label>
-                  <div className="relative">
-                    <Input
-                      id="orgSearch"
-                      ref={brregInputRef}
-                      placeholder="Skriv org.nummer eller bedriftsnavn..."
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        if (!brregVerified) {
-                          searchBrreg(value);
-                        }
-                      }}
-                      disabled={brregVerified}
-                      className={brregVerified ? "bg-muted" : ""}
-                      data-testid="input-contact-brreg-search"
-                    />
-                    {brregLoading && (
-                      <div className="absolute right-3 top-1/2 -translate-y-1/2">
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      </div>
-                    )}
-                    {showBrregDropdown && brregSearchResults.length > 0 && (
-                      <div className="absolute z-50 w-full mt-1 bg-popover border border-border rounded-md shadow-lg max-h-60 overflow-auto">
-                        {brregSearchResults.map((company) => (
-                          <button
-                            key={company.organisasjonsnummer}
-                            type="button"
-                            onClick={() => selectBrregCompany(company)}
-                            className="w-full px-4 py-3 text-left hover-elevate active-elevate-2 flex items-start gap-3 border-b border-border last:border-0"
-                            data-testid={`button-brreg-select-${company.organisasjonsnummer}`}
-                          >
-                            <Building2 className="h-5 w-5 mt-0.5 text-primary flex-shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <div className="font-medium text-foreground truncate">{company.navn}</div>
-                              <div className="text-sm text-muted-foreground">
-                                Org.nr: {company.organisasjonsnummer}
-                                {company.forretningsadresse?.poststed && ` • ${company.forretningsadresse.poststed}`}
-                              </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  <div className="flex items-start gap-3.5">
+                    <div className="rounded-lg bg-[#E7F3EE] p-2.5">
+                      <Phone className="h-5 w-5 text-[#1F6B73]" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-[#203138]">Telefon</p>
+                      <a href={`tel:${content.phone}`} className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]" data-testid="link-phone">
+                        {content.phone}
+                      </a>
+                    </div>
                   </div>
-                  <p className="text-xs text-muted-foreground">
-                    Søk henter informasjon fra Brønnøysundregistrene
+
+                  <div className="flex items-start gap-3.5">
+                    <div className="rounded-lg bg-[#E7F3EE] p-2.5">
+                      <MapPin className="h-5 w-5 text-[#1F6B73]" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-[#203138]">Adresse</p>
+                      <p className="text-[#4B5A5E]" data-testid="text-address">{content.address}</p>
+                    </div>
+                  </div>
+
+                  <p className="border-t border-[var(--color-border)] pt-4 text-sm leading-relaxed text-[#5B686B]" data-testid="text-contact-content">
+                    {content.content}
                   </p>
-                </div>
+                </CardContent>
+              </Card>
+            </div>
 
-                {/* Verified Company Info */}
-                {brregVerified && (
-                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-primary">
-                        <CheckCircle2 className="h-5 w-5" />
-                        <span className="font-medium">Bedrift verifisert fra Brønnøysundregistrene</span>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={resetBrregVerification}
-                        data-testid="button-reset-brreg"
-                      >
-                        Endre
-                      </Button>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-                      <div>
-                        <span className="text-muted-foreground">Bedriftsnavn:</span>
-                        <p className="font-medium" data-testid="text-verified-company">{formData.company}</p>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground">Org.nummer:</span>
-                        <p className="font-medium" data-testid="text-verified-orgnumber">{formData.orgNumber}</p>
-                      </div>
-                    </div>
+            <Card data-testid="card-contact-form" className="tidum-contact-card rounded-2xl">
+              <CardHeader className="pb-4">
+                <CardTitle className="text-2xl font-semibold tracking-tight text-[#15343D]">Send oss en melding</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  <div className="absolute -left-[9999px]" aria-hidden="true">
+                    <input
+                      type="text"
+                      name="website_url"
+                      tabIndex={-1}
+                      autoComplete="off"
+                      value={honeypot}
+                      onChange={(e) => setHoneypot(e.target.value)}
+                    />
                   </div>
-                )}
 
-                {/* Manual entry if not verified */}
-                {!brregVerified && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="company">Bedriftsnavn (manuelt)</Label>
+                      <Label htmlFor="name" className="text-[#223238]">Kontaktperson *</Label>
                       <Input
-                        id="company"
-                        placeholder="Eller skriv inn manuelt"
-                        value={formData.company}
-                        onChange={(e) => setFormData({ ...formData, company: e.target.value })}
-                        data-testid="input-contact-company"
+                        id="name"
+                        placeholder="Ditt navn"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        required
+                        className="tidum-input"
+                        data-testid="input-contact-name"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="orgNumber">Org.nummer (manuelt)</Label>
+                      <Label htmlFor="email" className="text-[#223238]">E-post *</Label>
                       <Input
-                        id="orgNumber"
-                        placeholder="123 456 789"
-                        value={formData.orgNumber}
-                        onChange={(e) => setFormData({ ...formData, orgNumber: e.target.value })}
-                        data-testid="input-contact-orgnumber"
+                        id="email"
+                        type="email"
+                        placeholder="din@bedrift.no"
+                        value={formData.email}
+                        onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                        required
+                        className="tidum-input"
+                        data-testid="input-contact-email"
                       />
                     </div>
                   </div>
-                )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="website">Nettside</Label>
-                    <Input
-                      id="website"
-                      type="url"
-                      placeholder="https://www.bedrift.no"
-                      value={formData.website}
-                      onChange={(e) => setFormData({ ...formData, website: e.target.value })}
-                      data-testid="input-contact-website"
-                    />
+                  <div className="space-y-2" ref={brregDropdownRef}>
+                    <Label htmlFor="orgSearch" className="flex items-center gap-2 text-[#223238]">
+                      <Building2 className="h-4 w-4" />
+                      Søk etter bedrift (org.nr eller navn)
+                    </Label>
+                    <div className="relative">
+                      <Input
+                        id="orgSearch"
+                        ref={brregInputRef}
+                        placeholder="Skriv org.nummer eller bedriftsnavn..."
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          if (!brregVerified) {
+                            searchBrreg(value);
+                          }
+                        }}
+                        disabled={brregVerified}
+                        className={`tidum-input ${brregVerified ? "bg-[#eef2ef]" : ""}`}
+                        data-testid="input-contact-brreg-search"
+                      />
+                      {brregLoading && (
+                        <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                          <Loader2 className="h-4 w-4 animate-spin text-[#607073]" />
+                        </div>
+                      )}
+                      {showBrregDropdown && brregSearchResults.length > 0 && (
+                        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-auto rounded-md border border-[var(--color-border)] bg-white shadow-lg">
+                          {brregSearchResults.map((company) => (
+                            <button
+                              key={company.organisasjonsnummer}
+                              type="button"
+                              onClick={() => selectBrregCompany(company)}
+                              className="flex w-full items-start gap-3 border-b border-[var(--color-border)] px-4 py-3 text-left transition-colors hover:bg-[#f2f5f4] last:border-0"
+                              data-testid={`button-brreg-select-${company.organisasjonsnummer}`}
+                            >
+                              <Building2 className="mt-0.5 h-5 w-5 flex-shrink-0 text-[#1F6B73]" />
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate font-medium text-[#203138]">{company.navn}</div>
+                                <div className="text-sm text-[#5B686B]">
+                                  Org.nr: {company.organisasjonsnummer}
+                                  {company.forretningsadresse?.poststed && ` • ${company.forretningsadresse.poststed}`}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <p className="text-xs text-[#5B686B]">
+                      Søk henter informasjon fra Brønnøysundregistrene
+                    </p>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Telefon</Label>
-                    <Input
-                      id="phone"
-                      type="tel"
-                      placeholder="+47 XXX XX XXX"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      data-testid="input-contact-phone"
-                    />
-                  </div>
-                </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="subject">Emne *</Label>
-                  <Input
-                    id="subject"
-                    placeholder="Hva gjelder henvendelsen?"
-                    value={formData.subject}
-                    onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
-                    required
-                    data-testid="input-contact-subject"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="message">Melding *</Label>
-                  <Textarea
-                    id="message"
-                    placeholder="Beskriv hva du ønsker å vite mer om..."
-                    value={formData.message}
-                    onChange={(e) => setFormData({ ...formData, message: e.target.value })}
-                    rows={5}
-                    required
-                    data-testid="textarea-contact-message"
-                  />
-                </div>
-                <Button type="submit" className="w-full" disabled={isSubmitting} data-testid="button-submit-contact">
-                  {isSubmitting ? "Sender..." : (
-                    <>
-                      <Send className="h-4 w-4 mr-2" />
-                      Send henvendelse
-                    </>
+                  {brregVerified && (
+                    <div className="space-y-3 rounded-lg border border-[#BFD7CC] bg-[#ECF6F1] p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-2 text-[#1F6B73]">
+                          <CheckCircle2 className="h-5 w-5" />
+                          <span className="font-medium">Bedrift verifisert fra Brønnøysundregistrene</span>
+                        </div>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={resetBrregVerification}
+                          className="tidum-btn-secondary px-3 py-1.5 text-sm"
+                          data-testid="button-reset-brreg"
+                        >
+                          Endre
+                        </Button>
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+                        <div>
+                          <span className="text-[#5B686B]">Bedriftsnavn:</span>
+                          <p className="font-medium text-[#203138]" data-testid="text-verified-company">{formData.company}</p>
+                        </div>
+                        <div>
+                          <span className="text-[#5B686B]">Org.nummer:</span>
+                          <p className="font-medium text-[#203138]" data-testid="text-verified-orgnumber">{formData.orgNumber}</p>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-        </div>
-      </main>
 
-      <footer className="border-t py-8 mt-12">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
-          <div className="flex justify-center gap-6 mb-4">
-            <Link href="/personvern" className="hover:text-foreground" data-testid="link-privacy">Personvern</Link>
-            <Link href="/vilkar" className="hover:text-foreground" data-testid="link-terms">Vilkår</Link>
+                  {!brregVerified && (
+                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="company" className="text-[#223238]">Bedriftsnavn (manuelt)</Label>
+                        <Input
+                          id="company"
+                          placeholder="Eller skriv inn manuelt"
+                          value={formData.company}
+                          onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                          className="tidum-input"
+                          data-testid="input-contact-company"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="orgNumber" className="text-[#223238]">Org.nummer (manuelt)</Label>
+                        <Input
+                          id="orgNumber"
+                          placeholder="123 456 789"
+                          value={formData.orgNumber}
+                          onChange={(e) => setFormData({ ...formData, orgNumber: e.target.value })}
+                          className="tidum-input"
+                          data-testid="input-contact-orgnumber"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="website" className="text-[#223238]">Nettside</Label>
+                      <Input
+                        id="website"
+                        type="url"
+                        placeholder="https://www.bedrift.no"
+                        value={formData.website}
+                        onChange={(e) => setFormData({ ...formData, website: e.target.value })}
+                        className="tidum-input"
+                        data-testid="input-contact-website"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone" className="text-[#223238]">Telefon</Label>
+                      <Input
+                        id="phone"
+                        type="tel"
+                        placeholder="+47 XXX XX XXX"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        className="tidum-input"
+                        data-testid="input-contact-phone"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="subject" className="text-[#223238]">Emne *</Label>
+                    <Input
+                      id="subject"
+                      placeholder="Hva gjelder henvendelsen?"
+                      value={formData.subject}
+                      onChange={(e) => setFormData({ ...formData, subject: e.target.value })}
+                      required
+                      className="tidum-input"
+                      data-testid="input-contact-subject"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="message" className="text-[#223238]">Melding *</Label>
+                    <Textarea
+                      id="message"
+                      placeholder="Beskriv hva du ønsker å vite mer om..."
+                      value={formData.message}
+                      onChange={(e) => setFormData({ ...formData, message: e.target.value })}
+                      rows={5}
+                      required
+                      className="tidum-input resize-y"
+                      data-testid="textarea-contact-message"
+                    />
+                  </div>
+                  <Button type="submit" className="tidum-btn-primary h-auto w-full py-3 text-base font-semibold" disabled={isSubmitting} data-testid="button-submit-contact">
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Sender...
+                      </>
+                    ) : (
+                      <>
+                        <Send className="mr-2 h-4 w-4" />
+                        Send henvendelse
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
           </div>
-          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
-        </div>
-      </footer>
-    </div>
+        </section>
+
+        <footer className="mt-8 border-t border-[var(--color-border)] pt-6 text-sm text-[#5B686B]">
+          <div className="flex flex-wrap items-center justify-center gap-6">
+            <Link href="/personvern" className="transition-colors hover:text-[#1F6B73]" data-testid="link-privacy">Personvern</Link>
+            <Link href="/vilkar" className="transition-colors hover:text-[#1F6B73]" data-testid="link-terms">Vilkår</Link>
+          </div>
+          <p className="mt-4 text-center" data-testid="text-copyright">© 2025 Tidum. Alle rettigheter reservert.</p>
+        </footer>
+      </div>
+    </main>
   );
 }

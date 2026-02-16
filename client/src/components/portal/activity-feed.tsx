@@ -1,5 +1,5 @@
+import { memo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDistanceToNow } from "date-fns";
@@ -17,6 +17,7 @@ interface Activity {
 interface ActivityFeedProps {
   activities: Activity[];
   loading?: boolean;
+  title?: string;
 }
 
 const activityIcons = {
@@ -35,12 +36,12 @@ const activityColors = {
   alert: "bg-warning/10 text-warning",
 };
 
-export function ActivityFeed({ activities, loading }: ActivityFeedProps) {
+function ActivityFeedComponent({ activities, loading, title = "Aktivitet" }: ActivityFeedProps) {
   if (loading) {
     return (
-      <Card data-testid="activity-feed-skeleton">
+      <Card className="rounded-2xl border-[#d8e4e0] bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] shadow-[0_12px_30px_rgba(20,58,65,0.07)]" data-testid="activity-feed-skeleton">
         <CardHeader className="pb-3">
-          <CardTitle className="text-lg font-semibold">Aktivitet</CardTitle>
+          <CardTitle className="text-2xl font-semibold tracking-tight text-[#153c46]">{title}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
@@ -60,16 +61,16 @@ export function ActivityFeed({ activities, loading }: ActivityFeedProps) {
   }
 
   return (
-    <Card data-testid="activity-feed">
+    <Card className="rounded-2xl border-[#d8e4e0] bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] shadow-[0_12px_30px_rgba(20,58,65,0.07)]" data-testid="activity-feed">
       <CardHeader className="pb-3">
-        <CardTitle className="text-lg font-semibold">Aktivitet</CardTitle>
+        <CardTitle className="text-2xl font-semibold tracking-tight text-[#153c46]">{title}</CardTitle>
       </CardHeader>
       <CardContent className="p-0">
-        <ScrollArea className="h-[400px]">
+        <ScrollArea className="h-[420px]">
           <div className="px-6 pb-6 space-y-1">
             {activities.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground">
-                <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <div className="py-10 text-center text-[#5f6f74]">
+                <Clock className="h-8 w-8 mx-auto mb-2 opacity-60" />
                 <p className="text-sm">Ingen aktivitet ennå</p>
               </div>
             ) : (
@@ -80,20 +81,20 @@ export function ActivityFeed({ activities, loading }: ActivityFeedProps) {
                 return (
                   <div
                     key={activity.id}
-                    className="flex items-start gap-3 py-3 hover-elevate rounded-lg px-2 -mx-2"
+                    className="flex items-start gap-3 rounded-xl border border-transparent px-3 py-3 transition-colors hover:border-[#dbe6e2] hover:bg-white/80"
                     data-testid={`activity-item-${activity.id}`}
                   >
                     <div className={`p-2 rounded-full ${colorClass}`}>
                       <Icon className="h-4 w-4" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm leading-relaxed">
+                      <p className="text-sm leading-relaxed text-[#24383e]">
                         {activity.user && (
                           <span className="font-medium">{activity.user} </span>
                         )}
                         {activity.message}
                       </p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-[#5d6d72] mt-1">
                         {formatDistanceToNow(new Date(activity.timestamp), {
                           addSuffix: true,
                           locale: nb,
@@ -110,3 +111,5 @@ export function ActivityFeed({ activities, loading }: ActivityFeedProps) {
     </Card>
   );
 }
+
+export const ActivityFeed = memo(ActivityFeedComponent);

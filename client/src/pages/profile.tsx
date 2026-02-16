@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { 
   User, 
   Mail, 
@@ -27,7 +28,7 @@ import { useTheme } from "@/components/theme-provider";
 
 const mockProfile = {
   name: "Demo Bruker",
-  email: "demo@tidsflyt.no",
+  email: "demo@tidum.no",
   phone: "+47 123 45 678",
   role: "admin",
   company: "Demo Selskap AS",
@@ -37,6 +38,8 @@ const mockProfile = {
 };
 
 export default function ProfilePage() {
+  const [location] = useLocation();
+  const isSettingsRoute = location === "/settings";
   const { theme, setTheme, resolvedTheme } = useTheme();
   const [notifications, setNotifications] = useState({
     email: true,
@@ -49,8 +52,14 @@ export default function ProfilePage() {
     <PortalLayout>
       <div className="space-y-6 max-w-4xl">
         <div>
-          <h1 className="text-2xl md:text-3xl font-bold" data-testid="profile-title">Profil</h1>
-          <p className="text-muted-foreground mt-1">Administrer kontoinformasjon og preferanser</p>
+          <h1 className="text-2xl md:text-3xl font-bold" data-testid="profile-title">
+            {isSettingsRoute ? "Innstillinger" : "Profil"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {isSettingsRoute
+              ? "Administrer kontoinnstillinger og preferanser"
+              : "Administrer kontoinformasjon og preferanser"}
+          </p>
         </div>
 
         <Card data-testid="profile-card">

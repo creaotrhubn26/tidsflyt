@@ -729,7 +729,7 @@ function StylePanel() {
 
 function SEOPanel() {
   const [seoData, setSeoData] = useState({
-    title: 'Tidsflyt - Enkel Timeføring for Norske Bedrifter',
+    title: 'Tidum - Enkel Timeføring for Norske Bedrifter',
     description: 'Effektiv og brukervennlig timeregistrering for konsulenter, prosjektteam og bedrifter.',
     keywords: 'timeføring, timeregistrering, prosjektstyring, norge',
     ogTitle: '',

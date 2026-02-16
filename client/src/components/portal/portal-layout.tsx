@@ -1,6 +1,7 @@
-import { ReactNode, useState, useEffect } from "react";
+import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
 import {
@@ -82,17 +83,21 @@ interface PortalLayoutProps {
 export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ['/api/company/users', 1],
   });
 
-  const pendingCount = companyUsers.filter(u => !u.approved).length;
+  const pendingCount = useMemo(
+    () => companyUsers.filter((companyUser) => !companyUser.approved).length,
+    [companyUsers],
+  );
 
   const currentUser = user || {
     id: "demo",
     name: "Demo Bruker",
-    email: "demo@tidsflyt.no",
+    email: "demo@tidum.no",
     role: "admin",
     vendorId: undefined,
   };
@@ -109,19 +114,44 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
       return null;
     },
   });
+  const { mutate: checkMilestone } = checkMilestoneMutation;
 
   useEffect(() => {
     if (currentUser.id && currentUser.id !== "demo") {
-      checkMilestoneMutation.mutate();
+      checkMilestone();
     }
-  }, [currentUser.id]);
+  }, [checkMilestone, currentUser.id]);
 
-  const navItems: NavItem[] = baseNavItems
-    .filter(item => !item.roles || item.roles.includes(currentUser.role))
-    .map(item => ({
-      ...item,
-      badge: item.path === '/invites' && pendingCount > 0 ? pendingCount : undefined,
-    }));
+  const navItems: NavItem[] = useMemo(
+    () =>
+      baseNavItems
+        .filter((item) => !item.roles || item.roles.includes(currentUser.role))
+        .map((item) => ({
+          ...item,
+          badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
+        })),
+    [currentUser.role, pendingCount],
+  );
+
+  const activePageLabel = useMemo(
+    () => navItems.find((item) => item.path === location)?.label || "Dashboard",
+    [location, navItems],
+  );
+
+  const toggleSidebar = useCallback(() => {
+    setCollapsed((previous) => !previous);
+  }, []);
+
+  const pageTransition = useMemo(
+    () =>
+      reduceMotion
+        ? { duration: 0 }
+        : {
+            duration: 0.18,
+            ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
+          },
+    [reduceMotion],
+  );
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -141,7 +171,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const SidebarContent = ({ mobile = false }: { mobile?: boolean }) => (
     <>
       <div className={cn(
-        "flex items-center gap-3 px-4 h-16 border-b border-sidebar-border",
+        "flex items-center gap-3 px-4 h-16 border-b border-white/15",
         collapsed && !mobile && "justify-center px-2"
       )}>
         <SmartTimingLogo collapsed={collapsed && !mobile} />
@@ -161,8 +191,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
                   collapsed && !mobile && "justify-center px-2",
                   isActive
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-sidebar-foreground/70 hover-elevate"
+                    ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
+                    : "text-[#d2e4e8] hover:bg-white/10 hover:text-white"
                 )}
                 data-testid={`sidebar-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
@@ -171,7 +201,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   <>
                     <span className="flex-1 text-sm font-medium">{item.label}</span>
                     {item.badge && (
-                      <Badge variant="secondary" className="h-5 px-1.5 text-xs">
+                      <Badge className="h-5 px-1.5 text-xs bg-white/20 text-white border border-white/30">
                         {item.badge}
                       </Badge>
                     )}
@@ -184,29 +214,29 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
       </ScrollArea>
 
       <div className={cn(
-        "border-t border-sidebar-border p-3",
+        "border-t border-white/15 p-3",
         collapsed && !mobile && "p-2"
       )}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
               className={cn(
-                "flex items-center gap-3 w-full p-2 rounded-lg hover-elevate text-left",
+                "flex items-center gap-3 w-full p-2 rounded-lg hover:bg-white/10 transition-colors text-left",
                 collapsed && !mobile && "justify-center"
               )}
               data-testid="user-menu-trigger"
             >
               <Avatar className="h-8 w-8">
-                <AvatarFallback className="bg-primary text-primary-foreground text-sm">
+                <AvatarFallback className="bg-[#1F6B73] text-white text-sm">
                   {currentUser.name.charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               {(!collapsed || mobile) && (
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-sidebar-foreground truncate">
+                  <p className="text-sm font-medium text-white truncate">
                     {currentUser.name}
                   </p>
-                  <p className="text-xs text-sidebar-foreground/60 truncate">
+                  <p className="text-xs text-[#bad0d5] truncate">
                     {currentUser.email}
                   </p>
                 </div>
@@ -235,10 +265,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   );
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_5%_2%,rgba(78,154,111,0.09),transparent_34%),radial-gradient(circle_at_96%_2%,rgba(31,107,115,0.11),transparent_36%),#eef3f1]">
       <aside
         className={cn(
-          "fixed inset-y-0 left-0 z-40 bg-sidebar border-r border-sidebar-border flex-col hidden md:flex transition-all duration-300",
+          "fixed inset-y-0 left-0 z-40 bg-[linear-gradient(180deg,#123C45_0%,#0D2C34_58%,#0A242B_100%)] border-r border-[#1c4d57] shadow-[10px_0_38px_rgba(10,35,41,0.24)] flex-col hidden md:flex transition-all duration-300",
           collapsed ? "w-16" : "w-64"
         )}
         data-testid="desktop-sidebar"
@@ -248,8 +278,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-border bg-background shadow-sm"
-          onClick={() => setCollapsed(!collapsed)}
+          className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-[#cbd9d6] bg-white text-[#335159] shadow-sm"
+          onClick={toggleSidebar}
           data-testid="sidebar-toggle"
         >
           {collapsed ? (
@@ -264,7 +294,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         "flex flex-col min-h-screen transition-all duration-300",
         collapsed ? "md:pl-16" : "md:pl-64"
       )}>
-        <header className="sticky top-0 z-30 h-16 bg-card border-b border-border flex items-center justify-between px-4 md:px-6">
+        <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur border-b border-[#d6e2de] flex items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-4">
             <Sheet>
               <SheetTrigger asChild>
@@ -272,13 +302,13 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   <Menu className="h-5 w-5" />
                 </Button>
               </SheetTrigger>
-              <SheetContent side="left" className="w-64 p-0 bg-sidebar">
+              <SheetContent side="left" className="w-64 p-0 bg-[linear-gradient(180deg,#123C45_0%,#0D2C34_58%,#0A242B_100%)] border-r-[#1c4d57]">
                 <SidebarContent mobile />
               </SheetContent>
             </Sheet>
             
-            <h1 className="text-lg font-semibold hidden md:block">
-              {navItems.find(item => item.path === location)?.label || "Dashboard"}
+            <h1 className="text-lg font-semibold hidden md:block text-[#183a44]">
+              {activePageLabel}
             </h1>
           </div>
 
@@ -287,8 +317,19 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           </div>
         </header>
 
-        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6">
-          {children}
+        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-x-hidden">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={location}
+              className="transform-gpu"
+              initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6 }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
+              transition={pageTransition}
+            >
+              {children}
+            </motion.div>
+          </AnimatePresence>
         </main>
       </div>
 

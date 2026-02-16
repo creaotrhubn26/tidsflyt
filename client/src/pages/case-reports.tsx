@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { 
   FileText, 
   Plus, 
@@ -104,6 +105,8 @@ const emptyFormData = {
 };
 
 export default function CaseReportsPage() {
+  const [location] = useLocation();
+  const isCasesRoute = location === "/cases";
   const { toast } = useToast();
   const [editingReport, setEditingReport] = useState<CaseReport | null>(null);
   const [formData, setFormData] = useState(emptyFormData);
@@ -271,8 +274,14 @@ export default function CaseReportsPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-semibold" data-testid="text-page-title">Mine saksrapporter</h1>
-            <p className="text-muted-foreground">Skriv og administrer månedlige saksrapporter</p>
+            <h1 className="text-2xl font-semibold" data-testid="text-page-title">
+              {isCasesRoute ? "Saker" : "Mine saksrapporter"}
+            </h1>
+            <p className="text-muted-foreground">
+              {isCasesRoute
+                ? "Oversikt over saker og tilhørende rapportering"
+                : "Skriv og administrer månedlige saksrapporter"}
+            </p>
           </div>
           {!showForm && (
             <Button onClick={() => setShowForm(true)} data-testid="button-new-report">

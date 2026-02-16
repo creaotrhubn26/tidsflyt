@@ -21,7 +21,7 @@ export default function Privacy() {
     subtitle: "Slik beskytter vi dine personopplysninger",
     content: `
 ## 1. Innledning
-Tidsflyt AS ("vi", "oss", "vår") er opptatt av å beskytte personvernet til våre brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger.
+Tidum AS ("vi", "oss", "vår") er opptatt av å beskytte personvernet til våre brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger.
 
 ## 2. Hvilke opplysninger vi samler inn
 Vi samler inn følgende typer personopplysninger:
@@ -57,7 +57,7 @@ Du har rett til å:
 Vi bruker informasjonskapsler for å forbedre brukeropplevelsen. Du kan administrere dine preferanser i nettleserinnstillingene.
 
 ## 8. Kontakt
-Har du spørsmål om personvern? Kontakt oss på personvern@tidsflyt.no
+Har du spørsmål om personvern? Kontakt oss på personvern@tidum.no
     `,
     last_updated: "20. desember 2025"
   };
@@ -65,18 +65,18 @@ Har du spørsmål om personvern? Kontakt oss på personvern@tidsflyt.no
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center gap-4">
+        <div className="rt-container py-4 flex items-center gap-4">
           <Link href="/">
             <Button variant="ghost" size="sm" data-testid="button-back">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
+          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidum</h1>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-12 max-w-3xl">
+      <main className="rt-container py-12 max-w-3xl">
         <div className="text-center mb-12">
           <div className="flex justify-center mb-4">
             <div className="p-4 rounded-full bg-primary/10">
@@ -109,12 +109,12 @@ Har du spørsmål om personvern? Kontakt oss på personvern@tidsflyt.no
       </main>
 
       <footer className="border-t py-8 mt-12">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
+        <div className="rt-container text-center text-sm text-muted-foreground">
           <div className="flex justify-center gap-6 mb-4">
             <Link href="/kontakt" className="hover:text-foreground" data-testid="link-contact">Kontakt</Link>
             <Link href="/vilkar" className="hover:text-foreground" data-testid="link-terms">Vilkår</Link>
           </div>
-          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
+          <p data-testid="text-copyright">© 2025 Tidum. Alle rettigheter reservert.</p>
         </div>
       </footer>
     </div>

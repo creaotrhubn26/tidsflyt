@@ -77,7 +77,7 @@ const defaultFeatures = [
   {
     icon: "Smartphone",
     title: "Fungerer overalt",
-    description: "Bruk Tidsflyt på mobil, nettbrett eller PC. Synkronisert i sanntid."
+    description: "Bruk Tidum på mobil, nettbrett eller PC. Synkronisert i sanntid."
   },
   {
     icon: "Lock",
@@ -92,7 +92,7 @@ const defaultFeatures = [
   {
     icon: "TrendingUp",
     title: "Vokser med bedriften",
-    description: "Fra 2 til 2000 ansatte - Tidsflyt skalerer med dine behov."
+    description: "Fra 2 til 2000 ansatte - Tidum skalerer med dine behov."
   }
 ];
 
@@ -105,8 +105,8 @@ const defaultStats = [
 
 const defaultHero = {
   title: "Hvorfor velge",
-  title_highlight: "Tidsflyt",
-  subtitle: "Tidsflyt er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering - uten kompleksitet.",
+  title_highlight: "Tidum",
+  subtitle: "Tidum er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering - uten kompleksitet.",
   cta_primary_text: "Prøv gratis",
   cta_primary_url: "/login",
   cta_secondary_text: "Snakk med oss",
@@ -115,7 +115,7 @@ const defaultHero = {
 
 const defaultNordicContent = {
   title: "Bygget for norske forhold",
-  subtitle: "Tidsflyt er utviklet spesielt for norske bedrifter - med full forståelse for norsk arbeidsliv, lovverk og kultur.",
+  subtitle: "Tidum er utviklet spesielt for norske bedrifter - med full forståelse for norsk arbeidsliv, lovverk og kultur.",
   bullet_points: [
     "Norske helligdager og røde dager innebygd",
     "Støtte for norsk ferielov og avspasering",
@@ -127,7 +127,7 @@ const defaultNordicContent = {
 
 const defaultTrustContent = {
   title: "Anbefalt av norske tiltaksbedrifter",
-  subtitle: "Norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning."
+  subtitle: "Norske tiltaksbedrifter bruker Tidum til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning."
 };
 
 const defaultCtaContent = {
@@ -157,7 +157,7 @@ interface FeedbackStats {
   uniqueRespondingUsers: number;
 }
 
-export default function WhyTidsflyt() {
+export default function WhyTidum() {
   const { data, isLoading } = useQuery<WhyPageData>({
     queryKey: ["/api/cms/why-page"]
   });
@@ -206,7 +206,7 @@ export default function WhyTidsflyt() {
   // Dynamic trust subtitle based on real vendor count
   const getDynamicTrustSubtitle = () => {
     if (hasRealFeedbackData && feedbackStats.vendorCount > 0) {
-      return `Over ${feedbackStats.vendorCount} norske tiltaksbedrifter bruker Tidsflyt til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning.`;
+      return `Over ${feedbackStats.vendorCount} norske tiltaksbedrifter bruker Tidum til å effektivisere sin tidsregistrering. Fra barnevern og miljøarbeid til familietiltak - alle finner verdi i vår løsning.`;
     }
     return trust.subtitle;
   };
@@ -215,7 +215,7 @@ export default function WhyTidsflyt() {
     return (
       <div className="min-h-screen bg-background">
         <header className="border-b sticky top-0 bg-background/95 backdrop-blur z-50">
-          <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
+          <div className="rt-container py-4 flex items-center justify-between gap-4">
             <div className="flex items-center gap-4">
               <Link href="/">
                 <Button variant="ghost" size="sm">
@@ -228,7 +228,7 @@ export default function WhyTidsflyt() {
             <ThemeToggle />
           </div>
         </header>
-        <div className="container mx-auto px-4 py-16 space-y-8">
+        <div className="rt-container py-16 space-y-8">
           <Skeleton className="h-12 w-64 mx-auto" />
           <Skeleton className="h-6 w-96 mx-auto" />
           <div className="grid md:grid-cols-3 gap-6">
@@ -244,7 +244,7 @@ export default function WhyTidsflyt() {
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b sticky top-0 bg-background/95 backdrop-blur z-50">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
+        <div className="rt-container py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <Link href="/">
               <Button variant="ghost" size="sm" data-testid="button-back">
@@ -260,7 +260,7 @@ export default function WhyTidsflyt() {
 
       <main>
         <section className="py-16 md:py-24 bg-gradient-to-b from-primary/5 to-background">
-          <div className="container mx-auto px-4 text-center max-w-4xl">
+          <div className="rt-container text-center max-w-4xl">
             <h1 className="text-4xl md:text-5xl font-bold mb-6" data-testid="text-why-title">
               {hero.title} <span className="text-primary">{hero.title_highlight}?</span>
             </h1>
@@ -285,7 +285,7 @@ export default function WhyTidsflyt() {
 
         {stats && (
           <section className="py-16 border-b">
-            <div className="container mx-auto px-4">
+            <div className="rt-container">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-8 max-w-4xl mx-auto">
                 {stats.map((stat: any, index: number) => (
                   <div key={index} className="text-center" data-testid={`stat-${index}`}>
@@ -299,13 +299,13 @@ export default function WhyTidsflyt() {
         )}
 
         <section className="py-16 md:py-24">
-          <div className="container mx-auto px-4">
+          <div className="rt-container">
             <div className="text-center mb-12">
               <h2 className="text-3xl font-bold mb-4" data-testid="text-benefits-title">
-                Fordeler med Tidsflyt
+                Fordeler med Tidum
               </h2>
               <p className="text-muted-foreground max-w-2xl mx-auto">
-                Vi har bygget Tidsflyt fra bunnen av for å løse de vanligste utfordringene norske bedrifter har med tidsregistrering.
+                Vi har bygget Tidum fra bunnen av for å løse de vanligste utfordringene norske bedrifter har med tidsregistrering.
               </p>
             </div>
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
@@ -328,7 +328,7 @@ export default function WhyTidsflyt() {
         </section>
 
         <section className="py-16 md:py-24 bg-muted/50">
-          <div className="container mx-auto px-4">
+          <div className="rt-container">
             <div className="grid md:grid-cols-2 gap-12 items-center max-w-6xl mx-auto">
               <div>
                 <h2 className="text-3xl font-bold mb-6" data-testid="text-nordic-title">
@@ -365,7 +365,7 @@ export default function WhyTidsflyt() {
         </section>
 
         <section className="py-16 md:py-24">
-          <div className="container mx-auto px-4 text-center max-w-3xl">
+          <div className="rt-container text-center max-w-3xl">
             <Award className="h-12 w-12 text-primary mx-auto mb-6" />
             <h2 className="text-3xl font-bold mb-4" data-testid="text-trust-title">
               {trust.title}
@@ -381,7 +381,7 @@ export default function WhyTidsflyt() {
         </section>
 
         <section className="py-16 md:py-24 bg-primary text-primary-foreground">
-          <div className="container mx-auto px-4 text-center max-w-3xl">
+          <div className="rt-container text-center max-w-3xl">
             <h2 className="text-3xl font-bold mb-4">
               {cta.cta_title}
             </h2>
@@ -406,7 +406,7 @@ export default function WhyTidsflyt() {
       </main>
 
       <footer className="border-t py-8">
-        <div className="container mx-auto px-4">
+        <div className="rt-container">
           <div className="flex flex-col md:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-6">
               <Link href="/personvern" className="text-sm text-muted-foreground hover:text-foreground">
@@ -420,7 +420,7 @@ export default function WhyTidsflyt() {
               </Link>
             </div>
             <p className="text-sm text-muted-foreground">
-              © 2025 Tidsflyt. Alle rettigheter reservert.
+              © 2025 Tidum. Alle rettigheter reservert.
             </p>
           </div>
         </div>

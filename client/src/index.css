@@ -177,6 +177,100 @@
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 }
 
+:root {
+  /* Shared 7-tier responsive system (base + xs + sm + md + lg + xl + 2xl + 3xl) */
+  --rt-gutter: 1rem;
+  --rt-max-width: 1200px;
+  --rt-section-y: 2.5rem;
+  --rt-panel-pad: 1rem;
+  --rt-h1: 2rem;
+  --rt-h2: 1.625rem;
+  --rt-body: 1rem;
+}
+
+@media (min-width: 375px) {
+  :root {
+    --rt-gutter: 1.125rem;
+    --rt-section-y: 2.75rem;
+    --rt-panel-pad: 1.125rem;
+    --rt-h1: 2.15rem;
+    --rt-h2: 1.75rem;
+    --rt-body: 1rem;
+  }
+}
+
+@media (min-width: 640px) {
+  :root {
+    --rt-gutter: 1.5rem;
+    --rt-max-width: 1240px;
+    --rt-section-y: 3.25rem;
+    --rt-panel-pad: 1.25rem;
+    --rt-h1: 2.4rem;
+    --rt-h2: 1.95rem;
+    --rt-body: 1.02rem;
+  }
+}
+
+@media (min-width: 768px) {
+  :root {
+    --rt-gutter: 1.75rem;
+    --rt-max-width: 1280px;
+    --rt-section-y: 3.75rem;
+    --rt-panel-pad: 1.5rem;
+    --rt-h1: 2.7rem;
+    --rt-h2: 2.15rem;
+    --rt-body: 1.03rem;
+  }
+}
+
+@media (min-width: 1024px) {
+  :root {
+    --rt-gutter: 2rem;
+    --rt-max-width: 1320px;
+    --rt-section-y: 4.25rem;
+    --rt-panel-pad: 1.75rem;
+    --rt-h1: 3rem;
+    --rt-h2: 2.35rem;
+    --rt-body: 1.05rem;
+  }
+}
+
+@media (min-width: 1280px) {
+  :root {
+    --rt-gutter: 2.5rem;
+    --rt-max-width: 1360px;
+    --rt-section-y: 4.75rem;
+    --rt-panel-pad: 2rem;
+    --rt-h1: 3.3rem;
+    --rt-h2: 2.55rem;
+    --rt-body: 1.08rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  :root {
+    --rt-gutter: 3rem;
+    --rt-max-width: 1460px;
+    --rt-section-y: 5.25rem;
+    --rt-panel-pad: 2.25rem;
+    --rt-h1: 3.6rem;
+    --rt-h2: 2.75rem;
+    --rt-body: 1.1rem;
+  }
+}
+
+@media (min-width: 1920px) {
+  :root {
+    --rt-gutter: 3.5rem;
+    --rt-max-width: 1600px;
+    --rt-section-y: 5.75rem;
+    --rt-panel-pad: 2.5rem;
+    --rt-h1: 3.9rem;
+    --rt-h2: 3rem;
+    --rt-body: 1.14rem;
+  }
+}
+
 @layer base {
   * {
     @apply border-border;
@@ -184,6 +278,36 @@
 
   body {
     @apply font-sans antialiased bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .rt-container {
+    width: min(calc(100% - (var(--rt-gutter) * 2)), var(--rt-max-width));
+    margin-inline: auto;
+  }
+
+  .rt-section {
+    padding-block: var(--rt-section-y);
+  }
+
+  .rt-panel {
+    padding: var(--rt-panel-pad);
+  }
+
+  .rt-h1 {
+    font-size: var(--rt-h1);
+    line-height: 1.06;
+  }
+
+  .rt-h2 {
+    font-size: var(--rt-h2);
+    line-height: 1.12;
+  }
+
+  .rt-body {
+    font-size: var(--rt-body);
+    line-height: 1.6;
   }
 }
 

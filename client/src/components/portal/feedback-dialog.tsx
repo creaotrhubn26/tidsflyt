@@ -123,7 +123,7 @@ export function FeedbackDialog({ userId, vendorId }: FeedbackDialogProps) {
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl">Hvordan trives du med Tidsflyt?</DialogTitle>
+          <DialogTitle className="text-xl">Hvordan trives du med Tidum?</DialogTitle>
           <DialogDescription>
             Din tilbakemelding hjelper oss å gjøre tjenesten bedre for alle.
           </DialogDescription>

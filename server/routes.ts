@@ -582,8 +582,25 @@ export async function registerRoutes(
 
   app.get("/api/activities", async (req, res) => {
     try {
-      const limit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
-      const activities = await storage.getActivities(limit);
+      const startDate = req.query.startDate as string | undefined;
+      const endDate = req.query.endDate as string | undefined;
+      const requestedLimit = req.query.limit ? parseInt(req.query.limit as string) : undefined;
+      const effectiveLimit = requestedLimit ?? (startDate || endDate ? 1000 : 50);
+
+      let activities = await storage.getActivities(effectiveLimit);
+
+      if (startDate || endDate) {
+        activities = activities.filter((activity) => {
+          const parsed = new Date(activity.timestamp);
+          if (Number.isNaN(parsed.getTime())) return false;
+          const activityDate = parsed.toISOString().split("T")[0];
+
+          if (startDate && activityDate < startDate) return false;
+          if (endDate && activityDate > endDate) return false;
+          return true;
+        });
+      }
+
       const users = await storage.getAllUsers();
       const userMap = new Map(users.map(u => [u.id, u]));
       

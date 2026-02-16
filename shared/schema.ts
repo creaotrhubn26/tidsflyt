@@ -307,12 +307,12 @@ export const landingCta = pgTable("landing_cta", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// CMS: Why Tidsflyt Page - Hero Section
+// CMS: Why Tidum Page - Hero Section
 export const whyPageHero = pgTable("why_page_hero", {
   id: serial("id").primaryKey(),
-  title: text("title").notNull().default("Hvorfor velge Tidsflyt?"),
-  titleHighlight: text("title_highlight").default("Tidsflyt"),
-  subtitle: text("subtitle").default("Tidsflyt er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering."),
+  title: text("title").notNull().default("Hvorfor velge Tidum?"),
+  titleHighlight: text("title_highlight").default("Tidum"),
+  subtitle: text("subtitle").default("Tidum er bygget for norske bedrifter som ønsker enkel, sikker og effektiv tidsregistrering."),
   ctaPrimaryText: text("cta_primary_text").default("Prøv gratis"),
   ctaPrimaryUrl: text("cta_primary_url").default("/login"),
   ctaSecondaryText: text("cta_secondary_text").default("Snakk med oss"),
@@ -321,7 +321,7 @@ export const whyPageHero = pgTable("why_page_hero", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-// CMS: Why Tidsflyt Page - Stats
+// CMS: Why Tidum Page - Stats
 export const whyPageStats = pgTable("why_page_stats", {
   id: serial("id").primaryKey(),
   value: text("value").notNull(),
@@ -330,7 +330,7 @@ export const whyPageStats = pgTable("why_page_stats", {
   isActive: boolean("is_active").default(true),
 });
 
-// CMS: Why Tidsflyt Page - Benefits
+// CMS: Why Tidum Page - Benefits
 export const whyPageBenefits = pgTable("why_page_benefits", {
   id: serial("id").primaryKey(),
   icon: text("icon").notNull().default("Clock"),
@@ -340,7 +340,7 @@ export const whyPageBenefits = pgTable("why_page_benefits", {
   isActive: boolean("is_active").default(true),
 });
 
-// CMS: Why Tidsflyt Page - Features
+// CMS: Why Tidum Page - Features
 export const whyPageFeatures = pgTable("why_page_features", {
   id: serial("id").primaryKey(),
   icon: text("icon").notNull().default("Smartphone"),
@@ -350,7 +350,7 @@ export const whyPageFeatures = pgTable("why_page_features", {
   isActive: boolean("is_active").default(true),
 });
 
-// CMS: Why Tidsflyt Page - Content Sections
+// CMS: Why Tidum Page - Content Sections
 export const whyPageContent = pgTable("why_page_content", {
   id: serial("id").primaryKey(),
   sectionId: text("section_id").notNull().unique(), // e.g., "nordic", "trust", "cta"

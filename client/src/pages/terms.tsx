@@ -18,13 +18,13 @@ export default function Terms() {
 
   const content = pageContent || {
     title: "Brukervilkår",
-    subtitle: "Vilkår for bruk av Tidsflyt",
+    subtitle: "Vilkår for bruk av Tidum",
     content: `
 ## 1. Aksept av vilkår
-Ved å bruke Tidsflyt aksepterer du disse brukervilkårene. Hvis du ikke aksepterer vilkårene, må du ikke bruke tjenesten.
+Ved å bruke Tidum aksepterer du disse brukervilkårene. Hvis du ikke aksepterer vilkårene, må du ikke bruke tjenesten.
 
 ## 2. Beskrivelse av tjenesten
-Tidsflyt er en tidsregistrerings- og prosjektstyringsplattform. Tjenesten lar deg:
+Tidum er en tidsregistrerings- og prosjektstyringsplattform. Tjenesten lar deg:
 - Registrere arbeidstimer
 - Administrere prosjekter og saker
 - Generere rapporter
@@ -43,13 +43,13 @@ Du samtykker i å ikke:
 - Laste opp skadelig programvare
 
 ## 5. Immaterielle rettigheter
-Alt innhold og programvare i Tidsflyt er eid av Tidsflyt AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
+Alt innhold og programvare i Tidum er eid av Tidum AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
 
 ## 6. Databehandling
 Vi behandler data i henhold til vår personvernerklæring. Ved å bruke tjenesten samtykker du til denne behandlingen.
 
 ## 7. Ansvarsbegrensning
-Tidsflyt leveres "som den er". Vi garanterer ikke uavbrutt tilgang eller fravær av feil. Vårt maksimale ansvar er begrenset til beløpet du har betalt for tjenesten.
+Tidum leveres "som den er". Vi garanterer ikke uavbrutt tilgang eller fravær av feil. Vårt maksimale ansvar er begrenset til beløpet du har betalt for tjenesten.
 
 ## 8. Abonnement og betaling
 - Abonnementer faktureres forskuddsvis
@@ -66,7 +66,7 @@ Vi kan oppdatere disse vilkårene. Fortsatt bruk etter endringer utgjør aksept 
 Disse vilkårene er underlagt norsk lov. Tvister skal løses ved Oslo tingrett.
 
 ## 12. Kontakt
-Spørsmål om vilkårene kan rettes til juridisk@tidsflyt.no
+Spørsmål om vilkårene kan rettes til juridisk@tidum.no
     `,
     last_updated: "20. desember 2025"
   };
@@ -74,18 +74,18 @@ Spørsmål om vilkårene kan rettes til juridisk@tidsflyt.no
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center gap-4">
+        <div className="rt-container py-4 flex items-center gap-4">
           <Link href="/">
             <Button variant="ghost" size="sm" data-testid="button-back">
               <ArrowLeft className="h-4 w-4 mr-2" />
               Tilbake
             </Button>
           </Link>
-          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidsflyt</h1>
+          <h1 className="text-xl font-bold" data-testid="text-page-title">Tidum</h1>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-12 max-w-3xl">
+      <main className="rt-container py-12 max-w-3xl">
         <div className="text-center mb-12">
           <div className="flex justify-center mb-4">
             <div className="p-4 rounded-full bg-primary/10">
@@ -118,12 +118,12 @@ Spørsmål om vilkårene kan rettes til juridisk@tidsflyt.no
       </main>
 
       <footer className="border-t py-8 mt-12">
-        <div className="container mx-auto px-4 text-center text-sm text-muted-foreground">
+        <div className="rt-container text-center text-sm text-muted-foreground">
           <div className="flex justify-center gap-6 mb-4">
             <Link href="/kontakt" className="hover:text-foreground" data-testid="link-contact">Kontakt</Link>
             <Link href="/personvern" className="hover:text-foreground" data-testid="link-privacy">Personvern</Link>
           </div>
-          <p data-testid="text-copyright">© 2025 Tidsflyt. Alle rettigheter reservert.</p>
+          <p data-testid="text-copyright">© 2025 Tidum. Alle rettigheter reservert.</p>
         </div>
       </footer>
     </div>
