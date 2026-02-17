@@ -4,6 +4,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
+import { GlobalSearch } from "@/components/global-search";
 import {
   LayoutDashboard,
   Users,
@@ -316,7 +317,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 md:gap-3">
+            <GlobalSearch />
             <ThemeToggle />
           </div>
         </header>

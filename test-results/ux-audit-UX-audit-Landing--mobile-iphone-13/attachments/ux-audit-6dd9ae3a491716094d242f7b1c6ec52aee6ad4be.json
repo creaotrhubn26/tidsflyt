@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/",
+    "label": "Landing"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/",
+  "loadMs": 706,
+  "navMetrics": {
+    "domContentLoaded": 113,
+    "loadEventEnd": 116
+  },
+  "logoMetrics": {
+    "total": 4,
+    "visible": 2,
+    "maxArea": 4373.125
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 70,
+    "avgFrameMs": 17.2,
+    "maxFrameMs": 59,
+    "jankFrames": 2,
+    "jankRatio": 0.029,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

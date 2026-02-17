@@ -1,0 +1,58 @@
+{
+  "route": {
+    "path": "/admin/case-reviews",
+    "label": "Admin case reviews"
+  },
+  "project": "desktop-chromium",
+  "url": "http://127.0.0.1:5173/admin/case-reviews",
+  "loadMs": 745,
+  "navMetrics": {
+    "domContentLoaded": 115,
+    "loadEventEnd": 117
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 1,
+    "maxArea": 1536
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 145,
+    "avgFrameMs": 8.3,
+    "maxFrameMs": 9.3,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [
+    {
+      "tabId": "tab-reports",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 110,
+        "avgFrameMs": 8.2,
+        "maxFrameMs": 9.3,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    },
+    {
+      "tabId": "tab-analytics",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 110,
+        "avgFrameMs": 8.2,
+        "maxFrameMs": 9.3,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

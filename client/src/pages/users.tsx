@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -14,6 +14,10 @@ import {
   User,
   Clock,
   Loader2,
+  Activity,
+  TrendingUp,
+  AlertCircle,
+  BarChart3,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -82,6 +86,8 @@ export default function UsersPage() {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("member");
+  const [filterRole, setFilterRole] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
 
   useEffect(() => {
@@ -144,10 +150,39 @@ export default function UsersPage() {
     const matchesTab = tab === "all" || 
                        (tab === "pending" && !user.approved) ||
                        (tab === "active" && user.approved);
-    return matchesSearch && matchesTab;
+    const matchesRole = filterRole === "all" || user.role === filterRole;
+    return matchesSearch && matchesTab && matchesRole;
+  }).sort((a, b) => {
+    if (sortBy === "name") return a.name.localeCompare(b.name);
+    if (sortBy === "recent") return new Date(b.lastActive).getTime() - new Date(a.lastActive).getTime();
+    if (sortBy === "hours") return (b.hoursThisWeek || 0) - (a.hoursThisWeek || 0);
+    return 0;
   });
 
   const pendingCount = users.filter(u => !u.approved).length;
+
+  // Team statistics
+  const teamStats = useMemo(() => {
+    const stats = {
+      totalUsers: users.length,
+      activeUsers: users.filter(u => u.approved).length,
+      pendingApprovals: users.filter(u => !u.approved).length,
+      totalHours: users.reduce((sum, u) => sum + (u.hoursThisWeek || 0), 0),
+      daysSinceLastActivity: 3, // Mock data
+      averageHoursPerUser: users.length > 0 ? Math.round(users.reduce((sum, u) => sum + (u.hoursThisWeek || 0), 0) / users.length * 10) / 10 : 0,
+    };
+    return stats;
+  }, [users]);
+
+  // Role distribution
+  const roleStats = useMemo(() => {
+    const stats = {
+      admin: users.filter(u => u.role === 'admin').length,
+      case_manager: users.filter(u => u.role === 'case_manager').length,
+      member: users.filter(u => u.role === 'member').length,
+    };
+    return stats;
+  }, [users]);
 
   if (isLoading) {
     return (
@@ -235,6 +270,67 @@ export default function UsersPage() {
           </Dialog>
         </div>
 
+        {/* Team Statistics Cards */}
+        {!isInvitesRoute && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Totalt brukere</p>
+                    <p className="text-3xl font-bold mt-1">{teamStats.totalUsers}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-blue-500/10">
+                    <Users className="h-6 w-6 text-blue-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-green-50 to-green-100/30 border-green-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Aktive bruker</p>
+                    <p className="text-3xl font-bold mt-1">{teamStats.activeUsers}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-green-500/10">
+                    <CheckCircle className="h-6 w-6 text-green-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Ventende</p>
+                    <p className="text-3xl font-bold mt-1">{teamStats.pendingApprovals}</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-orange-500/10">
+                    <AlertCircle className="h-6 w-6 text-orange-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Snitt timer/uke</p>
+                    <p className="text-3xl font-bold mt-1">{teamStats.averageHoursPerUser}t</p>
+                  </div>
+                  <div className="p-3 rounded-lg bg-purple-500/10">
+                    <Clock className="h-6 w-6 text-purple-600" />
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
         <Card>
           <CardHeader className="pb-3">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
@@ -257,15 +353,40 @@ export default function UsersPage() {
                 </TabsList>
               </Tabs>
 
-              <div className="relative w-full md:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  placeholder="Søk etter bruker..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9"
-                  data-testid="search-users"
-                />
+              <div className="flex flex-wrap gap-2">
+                <Select value={filterRole} onValueChange={setFilterRole}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Rolle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle roller</SelectItem>
+                    <SelectItem value="admin">Administrator</SelectItem>
+                    <SelectItem value="case_manager">Saksbehandler</SelectItem>
+                    <SelectItem value="member">Medlem</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <Select value={sortBy} onValueChange={(v) => setSortBy(v as any)}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue placeholder="Sortering" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="recent">Sist aktiv</SelectItem>
+                    <SelectItem value="name">Navn</SelectItem>
+                    <SelectItem value="hours">Timer denne uken</SelectItem>
+                  </SelectContent>
+                </Select>
+
+                <div className="relative w-full md:w-64">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Søk etter bruker..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="pl-9"
+                    data-testid="search-users"
+                  />
+                </div>
               </div>
             </div>
           </CardHeader>

@@ -1,0 +1,70 @@
+{
+  "route": {
+    "path": "/cms-legacy",
+    "label": "CMS legacy"
+  },
+  "project": "desktop-chromium",
+  "url": "http://127.0.0.1:5173/cms-legacy",
+  "loadMs": 737,
+  "navMetrics": {
+    "domContentLoaded": 118,
+    "loadEventEnd": 120
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 2,
+    "maxArea": 576
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 146,
+    "avgFrameMs": 8.2,
+    "maxFrameMs": 9.3,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [
+    {
+      "tabId": "tab-hero",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 109,
+        "avgFrameMs": 8.3,
+        "maxFrameMs": 9.2,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    },
+    {
+      "tabId": "tab-features",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 109,
+        "avgFrameMs": 8.3,
+        "maxFrameMs": 9,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    },
+    {
+      "tabId": "tab-testimonials",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 109,
+        "avgFrameMs": 8.3,
+        "maxFrameMs": 9.3,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

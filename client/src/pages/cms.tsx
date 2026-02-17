@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
+import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -558,6 +559,9 @@ export function CMSPageLegacy() {
           <TabsTrigger value="partners" data-testid="tab-partners">Partnere</TabsTrigger>
           <TabsTrigger value="sections" data-testid="tab-sections">Seksjoner</TabsTrigger>
           <TabsTrigger value="design" data-testid="tab-design">Design</TabsTrigger>
+          <TabsTrigger value="visual-editor" data-testid="tab-visual-editor">
+            <Sparkles className="h-4 w-4 mr-1" />Visual Editor
+          </TabsTrigger>
           <TabsTrigger value="media" data-testid="tab-media">
             <Image className="h-4 w-4 mr-1" />Media
           </TabsTrigger>
@@ -624,6 +628,10 @@ export function CMSPageLegacy() {
 
         <TabsContent value="design">
           <DesignEditor />
+        </TabsContent>
+
+        <TabsContent value="visual-editor">
+          <PowerVisualEditor />
         </TabsContent>
 
         <TabsContent value="media">

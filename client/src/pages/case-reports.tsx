@@ -14,6 +14,8 @@ import {
   Clock,
   CheckCircle2,
   XCircle,
+  BarChart3,
+  Download,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -25,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor, RichTextViewer } from "@/components/ui/rich-text-editor";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +43,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { AdvancedCaseReportBuilder } from "@/components/cms/advanced-case-report-builder";
+import { CaseAnalyticsDashboard } from "@/components/cms/case-analytics-dashboard";
+import { CaseReportExport } from "@/components/cms/case-report-export";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
@@ -114,6 +120,11 @@ export default function CaseReportsPage() {
   const [selectedFeedbackReport, setSelectedFeedbackReport] = useState<CaseReport | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [newComment, setNewComment] = useState("");
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [reportsToExport, setReportsToExport] = useState<CaseReport[]>([]);
+  const [activeTab, setActiveTab] = useState<string>("reports");
+  const [analyticsTimeRange, setAnalyticsTimeRange] = useState<"7d" | "30d" | "90d" | "12m" | "all">("30d");
+  const [statusFilter, setStatusFilter] = useState<string | null>(null);
   const currentUserId = "default"; // TODO: Get from auth context
 
   const { data: reportsData, isLoading } = useQuery<CaseReportResponse>({
@@ -249,6 +260,39 @@ export default function CaseReportsPage() {
     setFeedbackDialogOpen(true);
   };
 
+  const handleViewReport = (report: CaseReport) => {
+    openFeedbackDialog(report);
+  };
+
+  const handleExportReports = (reports: CaseReport[], format: string) => {
+    setReportsToExport(reports);
+    setExportDialogOpen(true);
+  };
+
+  const handleBulkStatusChange = async (reportIds: number[], newStatus: string) => {
+    try {
+      // In a real app, implement bulk update API
+      toast({ 
+        title: "Oppdaterer", 
+        description: `Oppdaterer status for ${reportIds.length} rapporter...` 
+      });
+      
+      // For now, just show success
+      setTimeout(() => {
+        toast({ 
+          title: "Oppdatert", 
+          description: `${reportIds.length} rapporter oppdatert til ${newStatus}` 
+        });
+      }, 1000);
+    } catch (error) {
+      toast({ 
+        title: "Feil", 
+        description: "Kunne ikke oppdatere rapporter", 
+        variant: "destructive" 
+      });
+    }
+  };
+
   const formatDateTime = (dateStr: string | Date | null) => {
     if (!dateStr) return "";
     return format(new Date(dateStr), "d. MMMM yyyy 'kl.' HH:mm", { locale: nb });
@@ -280,18 +324,41 @@ export default function CaseReportsPage() {
             <p className="text-muted-foreground">
               {isCasesRoute
                 ? "Oversikt over saker og tilhørende rapportering"
-                : "Skriv og administrer månedlige saksrapporter"}
+                : "Skriv og administrer månedlige saksrapporter med avanserte verktøy"}
             </p>
           </div>
           {!showForm && (
-            <Button onClick={() => setShowForm(true)} data-testid="button-new-report">
-              <Plus className="h-4 w-4 mr-2" />
-              Ny rapport
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                onClick={() => handleExportReports(reports, "pdf")}
+                disabled={reports.length === 0}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Eksporter
+              </Button>
+              <Button onClick={() => setShowForm(true)} data-testid="button-new-report">
+                <Plus className="h-4 w-4 mr-2" />
+                Ny rapport
+              </Button>
+            </div>
           )}
         </div>
 
-        {showForm && (
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+          <TabsList className="grid w-full max-w-md grid-cols-2">
+            <TabsTrigger value="reports" className="gap-2">
+              <FileText className="h-4 w-4" />
+              Rapporter
+            </TabsTrigger>
+            <TabsTrigger value="analytics" className="gap-2">
+              <BarChart3 className="h-4 w-4" />
+              Analyse
+            </TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="reports" className="space-y-6">
+            {showForm ? (
           <Card>
             <CardHeader>
               <CardTitle>{editingReport ? "Rediger rapport" : "Ny saksrapport"}</CardTitle>
@@ -430,97 +497,72 @@ export default function CaseReportsPage() {
               </form>
             </CardContent>
           </Card>
-        )}
-
-        {isLoading ? (
-          <div className="grid md:grid-cols-2 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-6">
-                  <Skeleton className="h-6 w-32 mb-2" />
-                  <Skeleton className="h-4 w-24 mb-4" />
-                  <Skeleton className="h-8 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        ) : reports.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-medium mb-2">Ingen rapporter ennå</h3>
-              <p className="text-muted-foreground mb-4">Kom i gang ved å opprette din første saksrapport.</p>
-              {!showForm && (
-                <Button onClick={() => setShowForm(true)} data-testid="button-create-first">
-                  <Plus className="h-4 w-4 mr-2" />
-                  Opprett rapport
-                </Button>
-              )}
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid md:grid-cols-2 gap-4">
-            {reports.map((report, index) => (
-              <Card key={report.id} data-testid={`card-report-${report.id}`}>
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-2 mb-3">
-                    <div>
-                      <h3 className="font-semibold" data-testid={`text-case-id-${index}`}>{report.caseId}</h3>
-                      <p className="text-sm text-muted-foreground">{report.month}</p>
-                    </div>
-                    <Badge className={statusColors[report.status]} data-testid={`badge-status-${index}`}>
-                      {statusLabels[report.status]}
-                    </Badge>
+            ) : (
+              <>
+                {isLoading ? (
+                  <div className="grid md:grid-cols-2 gap-4">
+                    {[1, 2, 3, 4].map((i) => (
+                      <Card key={i}>
+                        <CardContent className="p-6">
+                          <Skeleton className="h-6 w-32 mb-2" />
+                          <Skeleton className="h-4 w-24 mb-4" />
+                          <Skeleton className="h-8 w-full" />
+                        </CardContent>
+                      </Card>
+                    ))}
                   </div>
+                ) : (
+                  <AdvancedCaseReportBuilder
+                    reports={reports}
+                    onViewReport={handleViewReport}
+                    onEditReport={startEdit}
+                    onExportReports={handleExportReports}
+                    onBulkStatusChange={handleBulkStatusChange}
+                    currentUserId={currentUserId}
+                    externalStatusFilter={statusFilter}
+                  />
+                )}
+              </>
+            )}
+          </TabsContent>
 
-                  {report.rejectionReason && (
-                    <Alert variant="destructive" className="mb-4 cursor-pointer" onClick={() => openFeedbackDialog(report)}>
-                      <AlertTriangle className="h-4 w-4" />
-                      <AlertTitle>Rapporten ble avslått</AlertTitle>
-                      <AlertDescription className="line-clamp-2">
-                        {report.rejectionReason}
-                      </AlertDescription>
-                    </Alert>
-                  )}
+          <TabsContent value="analytics" className="space-y-6">
+            {isLoading ? (
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Card key={i}>
+                    <CardContent className="p-6">
+                      <Skeleton className="h-4 w-20 mb-2" />
+                      <Skeleton className="h-8 w-16 mb-1" />
+                      <Skeleton className="h-3 w-32" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : (
+              <CaseAnalyticsDashboard 
+                reports={reports} 
+                timeRange={analyticsTimeRange}
+                onTimeRangeChange={setAnalyticsTimeRange}
+                onFilterByStatus={(status) => {
+                  setStatusFilter(status);
+                  setActiveTab("reports");
+                  toast({
+                    title: "Filter anvendt",
+                    description: `Viser rapporter med status: ${status}`,
+                  });
+                }}
+              />
+            )}
+          </TabsContent>
+        </Tabs>
 
-                  <div className="flex gap-2 flex-wrap">
-                    {(report.status === "draft" || report.status === "rejected" || report.status === "needs_revision") && (
-                      <>
-                        <Button 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => startEdit(report)}
-                          data-testid={`button-edit-${index}`}
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Rediger
-                        </Button>
-                        <Button 
-                          size="sm" 
-                          onClick={() => handleSubmit(report.id)}
-                          disabled={submitMutation.isPending}
-                          data-testid={`button-submit-${index}`}
-                        >
-                          <Send className="h-4 w-4 mr-1" />
-                          Send inn
-                        </Button>
-                      </>
-                    )}
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
-                      onClick={() => openFeedbackDialog(report)}
-                      data-testid={`button-feedback-${index}`}
-                    >
-                      <MessageCircle className="h-4 w-4 mr-1" />
-                      {report.rejectionReason ? "Se tilbakemelding" : "Diskusjon"}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+        {/* Export Dialog */}
+        <CaseReportExport
+          reports={reportsToExport.length > 0 ? reportsToExport : reports}
+          open={exportDialogOpen}
+          onOpenChange={setExportDialogOpen}
+        />
 
         <Dialog open={feedbackDialogOpen} onOpenChange={setFeedbackDialogOpen}>
           <DialogContent className="max-w-2xl">

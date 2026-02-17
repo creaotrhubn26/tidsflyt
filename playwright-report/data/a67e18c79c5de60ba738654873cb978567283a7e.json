@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/dashboard",
+    "label": "Dashboard"
+  },
+  "project": "desktop-chromium",
+  "url": "http://127.0.0.1:5173/dashboard",
+  "loadMs": 794,
+  "navMetrics": {
+    "domContentLoaded": 102,
+    "loadEventEnd": 104
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 1,
+    "maxArea": 1536
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 145,
+    "avgFrameMs": 8.3,
+    "maxFrameMs": 9.2,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

@@ -1,0 +1,70 @@
+{
+  "route": {
+    "path": "/api-docs",
+    "label": "API docs"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/api-docs",
+  "loadMs": 667,
+  "navMetrics": {
+    "domContentLoaded": 82,
+    "loadEventEnd": 99
+  },
+  "logoMetrics": {
+    "total": 1,
+    "visible": 1,
+    "maxArea": 576
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 74,
+    "avgFrameMs": 16.4,
+    "maxFrameMs": 22,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [
+    {
+      "tabId": "tab-overview",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 55,
+        "avgFrameMs": 16.5,
+        "maxFrameMs": 22,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    },
+    {
+      "tabId": "tab-auth",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 55,
+        "avgFrameMs": 16.4,
+        "maxFrameMs": 21,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    },
+    {
+      "tabId": "tab-endpoints",
+      "metrics": {
+        "durationMs": 900,
+        "frameCount": 56,
+        "avgFrameMs": 16.3,
+        "maxFrameMs": 21,
+        "jankFrames": 0,
+        "jankRatio": 0,
+        "longTaskCount": 0
+      }
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

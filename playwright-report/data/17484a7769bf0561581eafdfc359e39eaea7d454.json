@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/personvern",
+    "label": "Privacy"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/personvern",
+  "loadMs": 651,
+  "navMetrics": {
+    "domContentLoaded": 85,
+    "loadEventEnd": 100
+  },
+  "logoMetrics": {
+    "total": 1,
+    "visible": 1,
+    "maxArea": 576
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 74,
+    "avgFrameMs": 16.4,
+    "maxFrameMs": 21,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

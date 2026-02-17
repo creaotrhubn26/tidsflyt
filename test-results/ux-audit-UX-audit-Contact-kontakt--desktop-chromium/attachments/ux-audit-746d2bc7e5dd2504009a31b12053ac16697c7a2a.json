@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/kontakt",
+    "label": "Contact"
+  },
+  "project": "desktop-chromium",
+  "url": "http://127.0.0.1:5173/kontakt",
+  "loadMs": 720,
+  "navMetrics": {
+    "domContentLoaded": 107,
+    "loadEventEnd": 109
+  },
+  "logoMetrics": {
+    "total": 1,
+    "visible": 1,
+    "maxArea": 5291.6875
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 147,
+    "avgFrameMs": 8.2,
+    "maxFrameMs": 9.3,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

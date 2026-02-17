@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/kontakt",
+    "label": "Contact"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/kontakt",
+  "loadMs": 643,
+  "navMetrics": {
+    "domContentLoaded": 80,
+    "loadEventEnd": 137
+  },
+  "logoMetrics": {
+    "total": 1,
+    "visible": 1,
+    "maxArea": 4373.125
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 73,
+    "avgFrameMs": 16.6,
+    "maxFrameMs": 21,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

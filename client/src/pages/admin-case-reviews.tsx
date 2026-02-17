@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   FileText, 
@@ -12,6 +12,10 @@ import {
   XCircle,
   Eye,
   Filter,
+  BarChart3,
+  TrendingUp,
+  AlertCircle,
+  Search,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -19,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -89,10 +94,12 @@ export default function AdminCaseReviewsPage() {
   const { toast } = useToast();
   const [selectedReport, setSelectedReport] = useState<CaseReport | null>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("pending");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
   const [feedbackText, setFeedbackText] = useState("");
   const [rejectionReason, setRejectionReason] = useState("");
   const [isInternalNote, setIsInternalNote] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
   const adminUsername = "admin";
 
   const { data: reportsData, isLoading, refetch } = useQuery<AdminCaseReportResponse>({
@@ -107,6 +114,18 @@ export default function AdminCaseReviewsPage() {
   });
 
   const reports = reportsData?.reports || [];
+
+  // Analytics calculations
+  const analytics = useMemo(() => {
+    if (!reports) return { total: 0, pending: 0, approved: 0, rejected: 0, needs_revision: 0, approvalRate: 0 };
+    const total = reports.length;
+    const pending = reports.filter(r => r.status === "pending" || r.status === "submitted").length;
+    const approved = reports.filter(r => r.status === "approved").length;
+    const rejected = reports.filter(r => r.status === "rejected").length;
+    const needs_revision = reports.filter(r => r.status === "needs_revision").length;
+    const approvalRate = total > 0 ? ((approved / total) * 100).toFixed(1) : "0";
+    return { total, pending, approved, rejected, needs_revision, approvalRate: parseFloat(approvalRate) };
+  }, [reports]);
 
   const { data: comments, refetch: refetchComments } = useQuery<ReportComment[]>({
     queryKey: ["/api/case-reports", selectedReport?.id, "comments", "admin"],
@@ -195,6 +214,16 @@ export default function AdminCaseReviewsPage() {
   };
 
   const pendingCount = reports.filter(r => r.status === "pending" || r.status === "submitted").length;
+  
+  // Filter reports based on search query
+  const filteredReports = reports.filter(report => {
+    const searchLower = searchQuery.toLowerCase();
+    return (
+      report.caseId.toLowerCase().includes(searchLower) ||
+      report.userId.toLowerCase().includes(searchLower) ||
+      report.month.toLowerCase().includes(searchLower)
+    );
+  });
 
   return (
     <PortalLayout>
@@ -211,83 +240,208 @@ export default function AdminCaseReviewsPage() {
           )}
         </div>
 
-        <Tabs value={statusFilter} onValueChange={setStatusFilter}>
+        <Tabs value={viewMode} onValueChange={(val) => setViewMode(val as "all" | "analytics")}>
           <TabsList>
-            <TabsTrigger value="pending" data-testid="tab-pending">
-              <Clock className="h-4 w-4 mr-1" />
-              Til behandling
+            <TabsTrigger value="all" data-testid="tab-reports">
+              <FileText className="h-4 w-4 mr-1" />
+              Rapporter
             </TabsTrigger>
-            <TabsTrigger value="needs_revision" data-testid="tab-needs-revision">
-              <AlertTriangle className="h-4 w-4 mr-1" />
-              Trenger revisjon
-            </TabsTrigger>
-            <TabsTrigger value="approved" data-testid="tab-approved">
-              <CheckCircle2 className="h-4 w-4 mr-1" />
-              Godkjente
-            </TabsTrigger>
-            <TabsTrigger value="rejected" data-testid="tab-rejected">
-              <XCircle className="h-4 w-4 mr-1" />
-              Avslåtte
-            </TabsTrigger>
-            <TabsTrigger value="all" data-testid="tab-all">
-              Alle
+            <TabsTrigger value="analytics" data-testid="tab-analytics">
+              <BarChart3 className="h-4 w-4 mr-1" />
+              Statistikk
             </TabsTrigger>
           </TabsList>
-        </Tabs>
 
-        {isLoading ? (
-          <div className="grid md:grid-cols-2 gap-4">
-            {[1, 2, 3, 4].map((i) => (
-              <Card key={i}>
-                <CardContent className="p-6">
-                  <Skeleton className="h-6 w-32 mb-2" />
-                  <Skeleton className="h-4 w-24 mb-4" />
-                  <Skeleton className="h-8 w-full" />
+          {/* Rapporter Tab */}
+          <TabsContent value="all" className="space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full md:w-48">
+                  <SelectValue placeholder="Filtrer etter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle statuser</SelectItem>
+                  <SelectItem value="pending">Til behandling</SelectItem>
+                  <SelectItem value="submitted">Sendt inn</SelectItem>
+                  <SelectItem value="needs_revision">Trenger revisjon</SelectItem>
+                  <SelectItem value="approved">Godkjente</SelectItem>
+                  <SelectItem value="rejected">Avslåtte</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Søk etter sak-ID, bruker..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search"
+                />
+              </div>
+            </div>
+
+            {isLoading ? (
+              <div className="grid md:grid-cols-2 gap-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <Card key={i}>
+                    <CardContent className="p-6">
+                      <Skeleton className="h-6 w-32 mb-2" />
+                      <Skeleton className="h-4 w-24 mb-4" />
+                      <Skeleton className="h-8 w-full" />
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            ) : filteredReports.length === 0 ? (
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="font-medium mb-2">Ingen rapporter</h3>
+                  <p className="text-muted-foreground">Det er ingen rapporter som matcher filteret ditt.</p>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        ) : reports.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center">
-              <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <h3 className="font-medium mb-2">Ingen rapporter</h3>
-              <p className="text-muted-foreground">Det er ingen rapporter som matcher filteret ditt.</p>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid md:grid-cols-2 gap-4">
-            {reports.map((report, index) => (
-              <Card key={report.id} className="hover-elevate cursor-pointer" onClick={() => openReviewDialog(report)} data-testid={`card-report-${report.id}`}>
+            ) : (
+              <div className="grid md:grid-cols-2 gap-4">
+                {filteredReports.map((report, index) => (
+                  <Card key={report.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 hover:shadow-md hover:shadow-slate-200/50 cursor-pointer transition-all hover:-translate-y-0.5 duration-300" onClick={() => openReviewDialog(report)} data-testid={`card-report-${report.id}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div>
+                          <h3 className="font-semibold" data-testid={`text-case-id-${index}`}>{report.caseId}</h3>
+                          <p className="text-sm text-muted-foreground">{report.month}</p>
+                          <p className="text-xs text-muted-foreground mt-1">Bruker: {report.userId}</p>
+                        </div>
+                        <Badge className={statusColors[report.status]} data-testid={`badge-status-${index}`}>
+                          {statusLabels[report.status]}
+                        </Badge>
+                      </div>
+
+                      {report.background && (
+                        <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
+                          {report.background}
+                        </p>
+                      )}
+
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openReviewDialog(report); }} data-testid={`button-review-${index}`}>
+                          <Eye className="h-4 w-4 mr-1" />
+                          Gjennomgå
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          {/* Statistikk Tab */}
+          <TabsContent value="analytics" className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              {/* Total Reports Card */}
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
                 <CardContent className="p-6">
-                  <div className="flex items-start justify-between gap-2 mb-3">
+                  <div className="flex items-center justify-between">
                     <div>
-                      <h3 className="font-semibold" data-testid={`text-case-id-${index}`}>{report.caseId}</h3>
-                      <p className="text-sm text-muted-foreground">{report.month}</p>
-                      <p className="text-xs text-muted-foreground mt-1">Bruker: {report.userId}</p>
+                      <p className="text-sm text-muted-foreground">Totalt rapporter</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.total}</p>
                     </div>
-                    <Badge className={statusColors[report.status]} data-testid={`badge-status-${index}`}>
-                      {statusLabels[report.status]}
-                    </Badge>
-                  </div>
-
-                  {report.background && (
-                    <p className="text-sm text-muted-foreground line-clamp-2 mb-3">
-                      {report.background}
-                    </p>
-                  )}
-
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openReviewDialog(report); }} data-testid={`button-review-${index}`}>
-                      <Eye className="h-4 w-4 mr-1" />
-                      Gjennomgå
-                    </Button>
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-3 rounded-full">
+                      <FileText className="h-6 w-6" />
+                    </div>
                   </div>
                 </CardContent>
               </Card>
-            ))}
-          </div>
-        )}
+
+              {/* Pending Reports Card */}
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Til behandling</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.pending}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-3 rounded-full">
+                      <Clock className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Approved Reports Card */}
+              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Godkjente</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.approved}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-3 rounded-full">
+                      <CheckCircle2 className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Approval Rate Card */}
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Godkjenningsrate</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.approvalRate}%</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-3 rounded-full">
+                      <TrendingUp className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Status Overview */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  Statusoversikt
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                      <span className="text-sm font-medium">Til behandling</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.pending}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                      <span className="text-sm font-medium">Trenger revisjon</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.needs_revision}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                      <span className="text-sm font-medium">Godkjente</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.approved}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-600"></div>
+                      <span className="text-sm font-medium">Avslåtte</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.rejected}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         <Dialog open={reviewDialogOpen} onOpenChange={setReviewDialogOpen}>
           <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">

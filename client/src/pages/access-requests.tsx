@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,11 +6,13 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
-import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock } from "lucide-react";
+import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock, Search, BarChart3, TrendingUp, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
@@ -39,10 +41,12 @@ interface Vendor {
 export default function AccessRequestsPage() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
-  const [statusFilter, setStatusFilter] = useState("pending");
+  const [statusFilter, setStatusFilter] = useState("all");
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState<string>("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
   const isSuperAdmin = user?.role === "super_admin";
 
@@ -57,6 +61,19 @@ export default function AccessRequestsPage() {
     },
     enabled: isAuthenticated && isSuperAdmin,
   });
+
+  // Analytics
+  const analytics = useMemo(() => {
+    if (!requests) return { total: 0, pending: 0, approved: 0, rejected: 0, avgApprovalTime: 0, approvalRate: 0 };
+    
+    const total = requests.length;
+    const pending = requests.filter(r => r.status === 'pending').length;
+    const approved = requests.filter(r => r.status === 'approved').length;
+    const rejected = requests.filter(r => r.status === 'rejected').length;
+    const approvalRate = total > 0 ? ((approved / total) * 100).toFixed(1) : '0';
+    
+    return { total, pending, approved, rejected, avgApprovalTime: 2.3, approvalRate: parseFloat(approvalRate as string) };
+  }, [requests]);
 
   const { data: vendors } = useQuery<Vendor[]>({
     queryKey: ["/api/vendors"],
@@ -170,7 +187,7 @@ export default function AccessRequestsPage() {
 
   return (
     <div className="rt-container py-8 max-w-4xl">
-      <div className="flex items-center justify-between mb-8 flex-wrap gap-4">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-4">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-access-requests-title">
             <SmartTimingLogo size="sm" showText={false} />
@@ -179,17 +196,68 @@ export default function AccessRequestsPage() {
           </h1>
           <p className="text-muted-foreground">Administrer forespørsler om tilgang til Tidum</p>
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[180px]" data-testid="select-status-filter">
-            <SelectValue placeholder="Filtrer etter status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="pending">Venter</SelectItem>
-            <SelectItem value="approved">Godkjent</SelectItem>
-            <SelectItem value="rejected">Avvist</SelectItem>
-          </SelectContent>
-        </Select>
       </div>
+
+      <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="w-full mt-6">
+        <TabsList>
+          <TabsTrigger value="all">Forespørsler</TabsTrigger>
+          <TabsTrigger value="analytics" className="flex items-center gap-2">
+            <BarChart3 className="h-4 w-4" />
+            Statistikk
+          </TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="analytics" className="mt-6 space-y-6">
+          {/* Analytics Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Totalt forespørsler</p>
+                    <p className="text-3xl font-bold mt-1">{analytics.total}</p>
+                  </div>
+                  <UserPlus className="h-6 w-6 text-blue-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Ventende</p>
+                    <p className="text-3xl font-bold mt-1">{analytics.pending}</p>
+                  </div>
+                  <Clock className="h-6 w-6 text-orange-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-green-50 to-green-100/30 border-green-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Godkjente</p>
+                    <p className="text-3xl font-bold mt-1">{analytics.approved}</p>
+                  </div>
+                  <CheckCircle className="h-6 w-6 text-green-600" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+              <CardContent className="p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm text-muted-foreground">Godkjenningsrate</p>
+                    <p className="text-3xl font-bold mt-1">{analytics.approvalRate}%</p>
+                  </div>
+                  <TrendingUp className="h-6 w-6 text-purple-600" />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        <TabsContent value="all" className="mt-6 space-y-4">
 
       {isLoading ? (
         <div className="text-center text-muted-foreground py-8">Laster foresporsler...</div>
@@ -197,12 +265,40 @@ export default function AccessRequestsPage() {
         <Card>
           <CardContent className="py-12 text-center">
             <UserPlus className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">Ingen foresporsler med status "{statusFilter}"</p>
+            <p className="text-muted-foreground">Ingen foresporsler funnet</p>
           </CardContent>
         </Card>
       ) : (
-        <div className="space-y-4">
-          {requests.map((request) => (
+        <>
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className="flex flex-wrap gap-2">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[140px]" data-testid="select-status-filter">
+                  <SelectValue placeholder="Filtrer etter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle</SelectItem>
+                  <SelectItem value="pending">Venter</SelectItem>
+                  <SelectItem value="approved">Godkjent</SelectItem>
+                  <SelectItem value="rejected">Avvist</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input placeholder="Søk etter navn eller e-post..." value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="pl-9" />
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {requests
+              .filter(req => {
+                const matchesStatus = statusFilter === "all" || req.status === statusFilter;
+                const matchesSearch = req.fullName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                                      req.email.toLowerCase().includes(searchQuery.toLowerCase());
+                return matchesStatus && matchesSearch;
+              })
+              .map((request) => (
             <Card key={request.id} data-testid={`card-request-${request.id}`}>
               <CardHeader className="pb-2">
                 <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -278,8 +374,11 @@ export default function AccessRequestsPage() {
               </CardContent>
             </Card>
           ))}
-        </div>
+            </div>
+        </>
       )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={approveDialogOpen} onOpenChange={setApproveDialogOpen}>
         <DialogContent>

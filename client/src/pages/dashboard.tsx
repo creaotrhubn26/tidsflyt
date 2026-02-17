@@ -1,6 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useIsFetching, useQuery } from "@tanstack/react-query";
-import { Users, Clock, FileText, Calendar, CalendarDays, CalendarRange, AlertCircle } from "lucide-react";
+import { 
+  Users, 
+  Clock, 
+  FileText, 
+  Calendar, 
+  CalendarDays, 
+  CalendarRange, 
+  AlertCircle,
+  Plus,
+  CheckCircle,
+  TrendingUp,
+  Target,
+  Bell,
+  Briefcase,
+  DollarSign,
+  History,
+  ArrowRight,
+  ExternalLink,
+  Zap,
+  AlertTriangle,
+  Info,
+  ChevronRight,
+} from "lucide-react";
 import { endOfMonth, format, getDate, getDaysInMonth, isSameMonth, isValid, parseISO, setDate, startOfMonth } from "date-fns";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { PortalLayout } from "@/components/portal/portal-layout";
@@ -8,9 +30,14 @@ import { StatCard } from "@/components/portal/stat-card";
 import { ActivityFeed } from "@/components/portal/activity-feed";
 import { HoursChart } from "@/components/portal/hours-chart";
 import { CalendarHeatmap } from "@/components/portal/calendar-heatmap";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { useLocation } from "wouter";
 import type { Activity, TimeEntry } from "@shared/schema";
 
 type TimeRange = "today" | "week" | "month";
@@ -27,12 +54,14 @@ const DEFAULT_HOURS_DATA = [
 
 export default function DashboardPage() {
   const reduceMotion = useReducedMotion();
+  const [, navigate] = useLocation();
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
   const [isRangeTransitioning, setIsRangeTransitioning] = useState(false);
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
   const [monthDirection, setMonthDirection] = useState<number>(0);
   const [isMonthTransitioning, setIsMonthTransitioning] = useState(false);
+  const [activityFilter, setActivityFilter] = useState<"all" | "mine" | "team">("all");
 
   const monthRange = useMemo(
     () => ({
@@ -89,6 +118,91 @@ export default function DashboardPage() {
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
+
+  // Mock data for new features (TODO: Replace with real API endpoints)
+  const myTasks = useMemo(() => ({
+    pendingApprovals: stats?.pendingApprovals || 0,
+    myDrafts: 3,
+    assignedCases: 5,
+    overdueItems: 2,
+  }), [stats]);
+
+  const alerts = useMemo(() => {
+    const items = [];
+    if (stats && stats.pendingApprovals > 10) {
+      items.push({
+        id: 1,
+        type: "warning" as const,
+        title: `${stats.pendingApprovals} ventende godkjenninger`,
+        description: "Høy arbeidsmengde oppdaget",
+        action: () => navigate("/time-tracking"),
+      });
+    }
+    if (stats && stats.totalHours < 20 && timeRange === "week") {
+      items.push({
+        id: 2,
+        type: "info" as const,
+        title: "Lav timeregistrering denne uken",
+        description: `Kun ${stats.totalHours.toFixed(1)} timer registrert`,
+        action: () => navigate("/time-tracking"),
+      });
+    }
+    return items;
+  }, [stats, timeRange, navigate]);
+
+  const goals = useMemo(() => [
+    {
+      id: 1,
+      title: "Månedlige timer",
+      current: stats?.totalHours || 0,
+      target: 160,
+      unit: "timer",
+      icon: Clock,
+      color: "blue",
+    },
+    {
+      id: 2,
+      title: "Godkjenningsrate",
+      current: stats?.pendingApprovals ? 100 - (stats.pendingApprovals / (stats.totalHours / 8) * 100) : 95,
+      target: 100,
+      unit: "%",
+      icon: CheckCircle,
+      color: "green",
+    },
+    {
+      id: 3,
+      title: "Aktive saker",
+      current: stats?.casesThisWeek || 0,
+      target: 15,
+      unit: "saker",
+      icon: Briefcase,
+      color: "purple",
+    },
+  ], [stats]);
+
+  const recentItems = useMemo(() => [
+    {
+      id: 1,
+      title: "Tidsregistrering Prosjekt A",
+      type: "time" as const,
+      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      status: "draft" as const,
+    },
+    {
+      id: 2,
+      title: "Månedsrapport November",
+      type: "report" as const,
+      timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
+      status: "pending" as const,
+    },
+    {
+      id: 3,
+      title: "Klientmøte referat",
+      type: "case" as const,
+      timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
+      status: "approved" as const,
+    },
+  ], []);
 
   const activityItems = useMemo(() => {
     const actionTypeMap: Record<string, "stamp" | "approval" | "report_submitted" | "user_added"> = {
@@ -219,6 +333,38 @@ export default function DashboardPage() {
                 <p className="mt-1 text-[#4e646b]">Oversikt over selskapets aktivitet</p>
               </div>
 
+              <div className="flex flex-wrap gap-2">
+                {/* Quick Actions */}
+                <Button 
+                  onClick={() => navigate("/time-tracking")}
+                  className="gap-2 bg-gradient-to-r from-[#1F6B73] to-[#195c63] hover:from-[#195c63] hover:to-[#14494f] shadow-lg"
+                >
+                  <Plus className="h-4 w-4" />
+                  <span className="hidden sm:inline">Ny tidsregistrering</span>
+                </Button>
+                {stats && stats.pendingApprovals > 0 && (
+                  <Button 
+                    onClick={() => navigate("/time-tracking")}
+                    variant="outline"
+                    className="gap-2 border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                  >
+                    <CheckCircle className="h-4 w-4" />
+                    Godkjenn ({stats.pendingApprovals})
+                  </Button>
+                )}
+                <Button 
+                  onClick={() => navigate("/cases")}
+                  variant="outline"
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  <span className="hidden sm:inline">Rapporter</span>
+                </Button>
+              </div>
+            </div>
+
+            {/* Time Range Selector */}
+            <div className="flex justify-end">
               <div
                 className="relative inline-flex w-fit gap-1 rounded-xl border border-[#d8e4e0] bg-[#edf3f1] p-1"
                 data-testid="time-range-selector"
@@ -276,6 +422,40 @@ export default function DashboardPage() {
               ) : null}
             </AnimatePresence>
 
+            {/* Alerts Section */}
+            {alerts.length > 0 && (
+              <div className="grid gap-3 md:grid-cols-2">
+                {alerts.map((alert) => (
+                  <Card 
+                    key={alert.id}
+                    className={cn(
+                      "border-l-4 cursor-pointer transition-all hover:shadow-lg",
+                      alert.type === "warning" && "border-l-orange-500 bg-orange-50/50",
+                      alert.type === "info" && "border-l-blue-500 bg-blue-50/50"
+                    )}
+                    onClick={alert.action}
+                  >
+                    <CardContent className="p-4">
+                      <div className="flex items-start gap-3">
+                        <div className={cn(
+                          "p-2 rounded-lg",
+                          alert.type === "warning" && "bg-orange-100 text-orange-600",
+                          alert.type === "info" && "bg-blue-100 text-blue-600"
+                        )}>
+                          {alert.type === "warning" ? <AlertTriangle className="h-5 w-5" /> : <Info className="h-5 w-5" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="font-semibold text-sm mb-1">{alert.title}</h4>
+                          <p className="text-xs text-muted-foreground">{alert.description}</p>
+                        </div>
+                        <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-4 md:gap-5 sm:grid-cols-2 xl:grid-cols-4">
               {statsLoading ? (
                 <>
@@ -291,37 +471,165 @@ export default function DashboardPage() {
                 </>
               ) : stats ? (
                 <>
-                  <StatCard
-                    title="Aktive brukere"
-                    value={stats.activeUsers}
-                    icon={<Users className="h-5 w-5" />}
-                    trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
-                    data-testid="stat-active-users"
-                  />
-                  <StatCard
-                    title="Ventende godkjenninger"
-                    value={stats.pendingApprovals}
-                    icon={<AlertCircle className="h-5 w-5" />}
-                    trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
-                    data-testid="stat-pending-approvals"
-                  />
-                  <StatCard
-                    title="Registrerte timer"
-                    value={`${stats.totalHours.toFixed(1)}t`}
-                    icon={<Clock className="h-5 w-5" />}
-                    trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
-                    data-testid="stat-total-hours"
-                  />
-                  <StatCard
-                    title="Saker denne uken"
-                    value={stats.casesThisWeek}
-                    icon={<FileText className="h-5 w-5" />}
-                    trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
-                    data-testid="stat-cases"
-                  />
+                  <div onClick={() => navigate("/users")} className="cursor-pointer transition-transform hover:scale-105">
+                    <StatCard
+                      title="Aktive brukere"
+                      value={stats.activeUsers}
+                      icon={<Users className="h-5 w-5" />}
+                      trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
+                      data-testid="stat-active-users"
+                    />
+                  </div>
+                  <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
+                    <StatCard
+                      title="Ventende godkjenninger"
+                      value={stats.pendingApprovals}
+                      icon={<AlertCircle className="h-5 w-5" />}
+                      trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
+                      data-testid="stat-pending-approvals"
+                    />
+                  </div>
+                  <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
+                    <StatCard
+                      title="Registrerte timer"
+                      value={`${stats.totalHours.toFixed(1)}t`}
+                      icon={<Clock className="h-5 w-5" />}
+                      trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
+                      data-testid="stat-total-hours"
+                    />
+                  </div>
+                  <div onClick={() => navigate("/cases")} className="cursor-pointer transition-transform hover:scale-105">
+                    <StatCard
+                      title="Saker denne uken"
+                      value={stats.casesThisWeek}
+                      icon={<FileText className="h-5 w-5" />}
+                      trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
+                      data-testid="stat-cases"
+                    />
+                  </div>
                 </>
               ) : null}
             </div>
+
+            {/* My Tasks Widget */}
+            <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <CheckCircle className="h-5 w-5 text-[#1F6B73]" />
+                  Mine oppgaver
+                </CardTitle>
+                <CardDescription>Ting som krever din oppmerksomhet</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all"
+                    onClick={() => navigate("/time-tracking")}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-2xl font-bold text-[#1F6B73]">{myTasks.pendingApprovals}</span>
+                      <AlertCircle className="h-5 w-5 text-orange-500" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Godkjenninger</div>
+                      <div className="text-xs text-muted-foreground">Venter på deg</div>
+                    </div>
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all"
+                    onClick={() => navigate("/cases")}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-2xl font-bold text-[#1F6B73]">{myTasks.myDrafts}</span>
+                      <FileText className="h-5 w-5 text-slate-500" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Utkast</div>
+                      <div className="text-xs text-muted-foreground">Uferdige rapporter</div>
+                    </div>
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all"
+                    onClick={() => navigate("/cases")}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-2xl font-bold text-[#1F6B73]">{myTasks.assignedCases}</span>
+                      <Briefcase className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Tildelte saker</div>
+                      <div className="text-xs text-muted-foreground">Aktive</div>
+                    </div>
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all border-red-200 bg-red-50/50"
+                    onClick={() => navigate("/time-tracking")}
+                  >
+                    <div className="flex w-full items-center justify-between">
+                      <span className="text-2xl font-bold text-red-600">{myTasks.overdueItems}</span>
+                      <AlertTriangle className="h-5 w-5 text-red-500" />
+                    </div>
+                    <div className="text-left">
+                      <div className="font-medium text-sm">Forfalt</div>
+                      <div className="text-xs text-muted-foreground">Krever handling</div>
+                    </div>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Goals Tracking */}
+            <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-lg">
+                  <Target className="h-5 w-5 text-[#1F6B73]" />
+                  Mål og fremdrift
+                </CardTitle>
+                <CardDescription>Spor fremdrift mot månedlige mål</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {goals.map((goal) => {
+                    const Icon = goal.icon;
+                    const percentage = Math.min((goal.current / goal.target) * 100, 100);
+                    const colorClasses = {
+                      blue: "text-blue-600 bg-blue-50",
+                      green: "text-green-600 bg-green-50",
+                      purple: "text-purple-600 bg-purple-50",
+                    };
+                    
+                    return (
+                      <div key={goal.id} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-2">
+                            <div className={cn("p-1.5 rounded-lg", colorClasses[goal.color as keyof typeof colorClasses])}>
+                              <Icon className="h-4 w-4" />
+                            </div>
+                            <span className="text-sm font-medium">{goal.title}</span>
+                          </div>
+                          <span className="text-sm text-muted-foreground">
+                            {goal.current.toFixed(goal.unit === "%" ? 0 : 1)} / {goal.target} {goal.unit}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Progress value={percentage} className="flex-1 h-2" />
+                          <span className="text-xs font-medium text-muted-foreground w-12 text-right">
+                            {percentage.toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
           </div>
         </section>
 
@@ -365,7 +673,67 @@ export default function DashboardPage() {
             )}
           </div>
 
-          <div>
+          <div className="space-y-6">
+            {/* Recent Items */}
+            <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <History className="h-5 w-5 text-[#1F6B73]" />
+                    Nylig aktivitet
+                  </CardTitle>
+                  <Button variant="ghost" size="sm" onClick={() => navigate("/time-tracking")}>
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {recentItems.map((item) => {
+                    const statusColors = {
+                      draft: "bg-slate-100 text-slate-700",
+                      pending: "bg-yellow-100 text-yellow-700",
+                      approved: "bg-green-100 text-green-700",
+                    };
+                    const icons = {
+                      time: Clock,
+                      report: FileText,
+                      case: Briefcase,
+                    };
+                    const ItemIcon = icons[item.type];
+                    
+                    return (
+                      <Button
+                        key={item.id}
+                        variant="ghost"
+                        className="w-full justify-start h-auto p-3 hover:bg-accent"
+                        onClick={() => {
+                          if (item.type === "time") navigate("/time-tracking");
+                          else navigate("/cases");
+                        }}
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="p-2 rounded-lg bg-slate-50">
+                            <ItemIcon className="h-4 w-4 text-slate-600" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="text-sm font-medium truncate">{item.title}</div>
+                            <div className="text-xs text-muted-foreground">
+                              {format(item.timestamp, "HH:mm · dd MMM")}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className={cn("text-xs", statusColors[item.status])}>
+                            {item.status === "draft" ? "Utkast" : item.status === "pending" ? "Venter" : "Godkjent"}
+                          </Badge>
+                        </div>
+                      </Button>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Activity Feed with Tabs */}
             {activitiesLoading ? (
               <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
                 <CardHeader className="pb-2">
@@ -386,7 +754,38 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             ) : (
-              <ActivityFeed activities={activityItems} title="Siste aktivitet" />
+              <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-lg flex items-center gap-2">
+                    <Bell className="h-5 w-5 text-[#1F6B73]" />
+                    Aktivitetsfeed
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <Tabs value={activityFilter} onValueChange={(v) => setActivityFilter(v as any)} className="w-full">
+                    <TabsList className="grid w-full grid-cols-3 mb-4">
+                      <TabsTrigger value="all">Alle</TabsTrigger>
+                      <TabsTrigger value="mine">Mine</TabsTrigger>
+                      <TabsTrigger value="team">Team</TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="all" className="mt-0">
+                      <ActivityFeed activities={activityItems} title="" />
+                    </TabsContent>
+                    <TabsContent value="mine" className="mt-0">
+                      <ActivityFeed 
+                        activities={activityItems.filter(a => a.user.includes("deg") || a.user.includes("Du"))} 
+                        title="" 
+                      />
+                    </TabsContent>
+                    <TabsContent value="team" className="mt-0">
+                      <ActivityFeed 
+                        activities={activityItems.filter(a => !a.user.includes("deg") && !a.user.includes("Du"))} 
+                        title="" 
+                      />
+                    </TabsContent>
+                  </Tabs>
+                </CardContent>
+              </Card>
             )}
           </div>
         </section>

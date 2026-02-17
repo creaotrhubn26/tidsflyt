@@ -27,6 +27,7 @@ const ApiDocs = lazy(() => import("@/pages/api-docs"));
 const VendorApiAdmin = lazy(() => import("@/pages/vendor-api-admin"));
 const AccessRequests = lazy(() => import("@/pages/access-requests"));
 const WhyTidum = lazy(() => import("@/pages/why-tidum"));
+const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 
 function RouteLoadingFallback() {
   return (
@@ -66,6 +67,7 @@ function Router() {
         <Route path="/vendor/api" component={VendorApiAdmin} />
         <Route path="/admin/access-requests" component={AccessRequests} />
         <Route path="/hvorfor" component={WhyTidum} />
+        <Route path="/guide" component={InteractiveGuide} />
         <Route component={NotFound} />
       </Switch>
     </Suspense>

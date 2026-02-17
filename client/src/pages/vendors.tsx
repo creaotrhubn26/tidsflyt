@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,6 +9,19 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient } from "@/lib/queryClient";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { 
   Building2, 
   Plus, 
@@ -20,7 +33,10 @@ import {
   Loader2,
   Save,
   Search,
-  Shield
+  Shield,
+  BarChart3,
+  TrendingUp,
+  AlertCircle,
 } from "lucide-react";
 
 interface VendorData {
@@ -73,6 +89,8 @@ export default function VendorsPage() {
   const [showAdminDialog, setShowAdminDialog] = useState(false);
   const [selectedVendor, setSelectedVendor] = useState<VendorData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
   const [vendorForm, setVendorForm] = useState({
     name: '',
     slug: '',
@@ -93,6 +111,43 @@ export default function VendorsPage() {
     queryKey: ['/api/vendors'],
     queryFn: () => authenticatedApiRequest('/api/vendors'),
   });
+
+  // Analytics calculations
+  const analytics = useMemo(() => {
+    if (!vendors) return { 
+      total: 0, 
+      active: 0, 
+      suspended: 0, 
+      inactive: 0,
+      totalUsers: 0,
+      avgUsersPerVendor: 0,
+      basicCount: 0,
+      standardCount: 0,
+      premiumCount: 0,
+    };
+    
+    const total = vendors.length;
+    const active = vendors.filter(v => v.status === 'active').length;
+    const suspended = vendors.filter(v => v.status === 'suspended').length;
+    const inactive = vendors.filter(v => v.status === 'inactive').length;
+    const totalUsers = vendors.reduce((sum, v) => sum + v.max_users, 0);
+    const avgUsersPerVendor = total > 0 ? (totalUsers / total).toFixed(1) : '0';
+    const basicCount = vendors.filter(v => v.subscription_plan === 'basic').length;
+    const standardCount = vendors.filter(v => v.subscription_plan === 'standard').length;
+    const premiumCount = vendors.filter(v => v.subscription_plan === 'premium').length;
+    
+    return { 
+      total, 
+      active, 
+      suspended, 
+      inactive,
+      totalUsers,
+      avgUsersPerVendor: parseFloat(avgUsersPerVendor as string),
+      basicCount,
+      standardCount,
+      premiumCount,
+    };
+  }, [vendors]);
 
   const { data: vendorAdmins = [], refetch: refetchAdmins } = useQuery<VendorAdmin[]>({
     queryKey: ['/api/vendors', selectedVendor?.id, 'admins'],
@@ -195,17 +250,19 @@ export default function VendorsPage() {
     premium: 'Premium',
   };
 
-  const filteredVendors = vendors.filter(v => 
-    v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    v.slug.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredVendors = vendors.filter(v => {
+    const matchesSearch = v.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                          v.slug.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesStatus = statusFilter === 'all' || v.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   return (
-    <PortalLayout user={{ name: "Super Admin", email: "admin@tidum.no", role: "super_admin" }}>
-      <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between gap-4">
+    <PortalLayout>
+      <div className="space-y-6">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <h1 className="text-2xl font-bold flex items-center gap-2">
+            <h1 className="text-2xl font-semibold flex items-center gap-2" data-testid="text-page-title">
               <Shield className="h-6 w-6" />
               Leverandøradministrasjon
             </h1>
@@ -217,118 +274,271 @@ export default function VendorsPage() {
           </Button>
         </div>
 
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <Building2 className="h-5 w-5" />
-                  Leverandører ({filteredVendors.length})
-                </CardTitle>
-                <CardDescription>Alle registrerte leverandører i systemet</CardDescription>
-              </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Tabs value={viewMode} onValueChange={(val) => setViewMode(val as "all" | "analytics")}>
+          <TabsList>
+            <TabsTrigger value="all" data-testid="tab-vendors">
+              <Building2 className="h-4 w-4 mr-1" />
+              Leverandører
+            </TabsTrigger>
+            <TabsTrigger value="analytics" data-testid="tab-analytics">
+              <BarChart3 className="h-4 w-4 mr-1" />
+              Statistikk
+            </TabsTrigger>
+          </TabsList>
+
+          {/* Leverandører Tab */}
+          <TabsContent value="all" className="space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-full md:w-48">
+                  <SelectValue placeholder="Filtrer etter status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Alle statuser</SelectItem>
+                  <SelectItem value="active">Aktiv</SelectItem>
+                  <SelectItem value="suspended">Suspendert</SelectItem>
+                  <SelectItem value="inactive">Inaktiv</SelectItem>
+                </SelectContent>
+              </Select>
+              <div className="relative w-full md:w-64">
+                <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Søk leverandører..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-9 w-64"
+                  className="pl-9"
                   data-testid="input-search-vendors"
                 />
               </div>
             </div>
-          </CardHeader>
-          <CardContent>
             {isLoading ? (
               <div className="flex items-center justify-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : filteredVendors.length === 0 ? (
-              <div className="text-center py-12 text-muted-foreground">
-                <Building2 className="h-16 w-16 mx-auto mb-4 opacity-30" />
-                <p className="text-lg font-medium mb-2">
-                  {searchQuery ? 'Ingen leverandører funnet' : 'Ingen leverandører registrert'}
-                </p>
-                <p className="mb-4">
-                  {searchQuery ? 'Prøv et annet søkeord' : 'Legg til den første leverandøren for å komme i gang'}
-                </p>
-                {!searchQuery && (
-                  <Button onClick={() => openVendorEditor()}>
-                    <Plus className="h-4 w-4 mr-2" />
-                    Legg til leverandør
-                  </Button>
-                )}
-              </div>
+              <Card>
+                <CardContent className="py-12 text-center">
+                  <Building2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <h3 className="font-medium mb-2">
+                    {searchQuery ? 'Ingen leverandører funnet' : 'Ingen leverandører registrert'}
+                  </h3>
+                  <p className="text-muted-foreground">
+                    {searchQuery ? 'Prøv et annet søkeord' : 'Legg til den første leverandøren for å komme i gang'}
+                  </p>
+                </CardContent>
+              </Card>
             ) : (
-              <div className="space-y-3">
+              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {filteredVendors.map((vendor) => (
-                  <div
-                    key={vendor.id}
-                    className="flex items-center justify-between p-4 rounded-lg border hover-elevate"
-                    data-testid={`vendor-row-${vendor.id}`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className="p-3 rounded-lg bg-muted">
-                        <Building2 className="h-6 w-6" />
+                  <Card key={vendor.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 hover:shadow-md hover:shadow-slate-200/50 cursor-pointer transition-all hover:-translate-y-0.5 duration-300" data-testid={`vendor-card-${vendor.id}`}>
+                    <CardContent className="p-6">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white">
+                          <Building2 className="h-5 w-5" />
+                        </div>
+                        <Badge 
+                          variant={vendor.status === 'active' ? 'default' : 'secondary'}
+                          className={vendor.status === 'active' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300' : ''}
+                        >
+                          {statusLabels[vendor.status] || vendor.status}
+                        </Badge>
                       </div>
-                      <div>
-                        <div className="font-semibold text-lg">{vendor.name}</div>
-                        <div className="text-sm text-muted-foreground flex items-center gap-3 flex-wrap">
-                          <span className="font-mono">{vendor.slug}</span>
-                          <Badge 
-                            variant={vendor.status === 'active' ? 'default' : 'secondary'}
-                            className={vendor.status === 'active' ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300' : ''}
-                          >
-                            {statusLabels[vendor.status] || vendor.status}
-                          </Badge>
-                          <Badge variant="outline">
+                      
+                      <h3 className="font-semibold text-lg mb-1">{vendor.name}</h3>
+                      <p className="text-xs text-muted-foreground mb-3 font-mono">{vendor.slug}</p>
+                      
+                      <div className="space-y-2 mb-4 pb-4 border-b">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Abonnement:</span>
+                          <Badge variant="outline" className="text-xs">
                             {planLabels[vendor.subscription_plan] || vendor.subscription_plan}
                           </Badge>
-                          <span className="text-xs">Maks {vendor.max_users} brukere</span>
+                        </div>
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Maks brukere:</span>
+                          <span className="font-medium">{vendor.max_users}</span>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setSelectedVendor(vendor);
-                          setShowAdminDialog(true);
-                        }}
-                        data-testid={`button-manage-admins-${vendor.id}`}
-                      >
-                        <Users className="h-4 w-4 mr-2" />
-                        Admins
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => openVendorEditor(vendor)}
-                        data-testid={`button-edit-vendor-${vendor.id}`}
-                      >
-                        <Edit className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          if (confirm(`Er du sikker på at du vil slette ${vendor.name}?`)) {
-                            deleteVendorMutation.mutate(vendor.id);
-                          }
-                        }}
-                        data-testid={`button-delete-vendor-${vendor.id}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </div>
-                  </div>
+                      
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setSelectedVendor(vendor);
+                            setShowAdminDialog(true);
+                          }}
+                          data-testid={`button-manage-admins-${vendor.id}`}
+                          className="flex-1 text-xs"
+                        >
+                          <Users className="h-3 w-3 mr-1" />
+                          Admins
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => openVendorEditor(vendor)}
+                          data-testid={`button-edit-vendor-${vendor.id}`}
+                          className="h-8 w-8"
+                        >
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            if (confirm(`Er du sikker på at du vil slette ${vendor.name}?`)) {
+                              deleteVendorMutation.mutate(vendor.id);
+                            }
+                          }}
+                          data-testid={`button-delete-vendor-${vendor.id}`}
+                          className="h-8 w-8 text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
             )}
-          </CardContent>
-        </Card>
+          </TabsContent>
+
+          {/* Statistikk Tab */}
+          <TabsContent value="analytics" className="space-y-6">
+            <div className="grid gap-4 md:grid-cols-4">
+              {/* Total Vendors Card */}
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Totalt leverandører</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.total}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 text-white p-3 rounded-full">
+                      <Building2 className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Active Vendors Card */}
+              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Aktive</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.active}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-3 rounded-full">
+                      <TrendingUp className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Total Users Card */}
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Totalt brukere</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.totalUsers}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 text-white p-3 rounded-full">
+                      <Users className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Average Users Card */}
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+                <CardContent className="p-6">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm text-muted-foreground">Gj.snitt per lev.</p>
+                      <p className="text-3xl font-bold mt-1">{analytics.avgUsersPerVendor}</p>
+                    </div>
+                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 text-white p-3 rounded-full">
+                      <BarChart3 className="h-6 w-6" />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Status Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <AlertCircle className="h-5 w-5" />
+                  Statusfordeling
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-emerald-500"></div>
+                      <span className="text-sm font-medium">Aktive</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.active}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-orange-500"></div>
+                      <span className="text-sm font-medium">Suspendert</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.suspended}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-red-500"></div>
+                      <span className="text-sm font-medium">Inaktiv</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.inactive}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Subscription Plans Distribution */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5" />
+                  Abonnementsfordeling
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-blue-500"></div>
+                      <span className="text-sm font-medium">Basis</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.basicCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between pb-3 border-b">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-purple-500"></div>
+                      <span className="text-sm font-medium">Standard</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.standardCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-amber-500"></div>
+                      <span className="text-sm font-medium">Premium</span>
+                    </div>
+                    <span className="text-sm font-bold">{analytics.premiumCount}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
 
         <Dialog open={showVendorDialog} onOpenChange={setShowVendorDialog}>
           <DialogContent className="max-w-lg">

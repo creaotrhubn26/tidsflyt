@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/settings",
+    "label": "Settings"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/settings",
+  "loadMs": 714,
+  "navMetrics": {
+    "domContentLoaded": 84,
+    "loadEventEnd": 101
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 1,
+    "maxArea": 576
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 74,
+    "avgFrameMs": 16.4,
+    "maxFrameMs": 21,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

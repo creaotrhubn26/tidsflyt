@@ -1,11 +1,11 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-type Theme = "dark" | "light" | "system";
+type Theme = "dark" | "light" | "sepia" | "high-contrast" | "system";
 
 type ThemeProviderContextType = {
   theme: Theme;
   setTheme: (theme: Theme) => void;
-  resolvedTheme: "dark" | "light";
+  resolvedTheme: "dark" | "light" | "sepia" | "high-contrast";
 };
 
 const ThemeProviderContext = createContext<ThemeProviderContextType | undefined>(undefined);
@@ -26,25 +26,34 @@ export function ThemeProvider({
     return defaultTheme;
   });
 
-  const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light">("light");
+  const [resolvedTheme, setResolvedTheme] = useState<"dark" | "light" | "sepia" | "high-contrast">("light");
 
   useEffect(() => {
     const root = window.document.documentElement;
 
-    root.classList.remove("light", "dark");
+    root.classList.remove("light", "dark", "sepia", "high-contrast");
 
-    let effectiveTheme: "dark" | "light";
+    let effectiveTheme: "dark" | "light" | "sepia" | "high-contrast";
 
     if (theme === "system") {
       effectiveTheme = window.matchMedia("(prefers-color-scheme: dark)").matches
         ? "dark"
         : "light";
     } else {
-      effectiveTheme = theme;
+      effectiveTheme = theme as "dark" | "light" | "sepia" | "high-contrast";
     }
 
     root.classList.add(effectiveTheme);
     setResolvedTheme(effectiveTheme);
+    
+    // Apply theme-specific CSS variables for advanced themes
+    if (effectiveTheme === "sepia") {
+      root.style.filter = "sepia(0.15)";
+    } else if (effectiveTheme === "high-contrast") {
+      root.style.filter = "contrast(1.1) saturate(1.2)";
+    } else {
+      root.style.filter = "";
+    }
   }, [theme]);
 
   useEffect(() => {

@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/dashboard",
+    "label": "Dashboard"
+  },
+  "project": "mobile-iphone-13",
+  "url": "http://127.0.0.1:5173/dashboard",
+  "loadMs": 807,
+  "navMetrics": {
+    "domContentLoaded": 99,
+    "loadEventEnd": 101
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 1,
+    "maxArea": 576
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 72,
+    "avgFrameMs": 16.7,
+    "maxFrameMs": 35,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}

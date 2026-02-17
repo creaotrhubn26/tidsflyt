@@ -1,0 +1,33 @@
+{
+  "route": {
+    "path": "/case-reports",
+    "label": "Case reports"
+  },
+  "project": "desktop-chromium",
+  "url": "http://127.0.0.1:5173/case-reports",
+  "loadMs": 758,
+  "navMetrics": {
+    "domContentLoaded": 114,
+    "loadEventEnd": 116
+  },
+  "logoMetrics": {
+    "total": 2,
+    "visible": 1,
+    "maxArea": 1536
+  },
+  "smoothness": {
+    "durationMs": 1200,
+    "frameCount": 146,
+    "avgFrameMs": 8.2,
+    "maxFrameMs": 9.4,
+    "jankFrames": 0,
+    "jankRatio": 0,
+    "longTaskCount": 0
+  },
+  "tabSmoothness": [],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "requestFailures": [],
+  "responseErrors": [],
+  "findings": []
+}
