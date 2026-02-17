@@ -27,8 +27,8 @@ import tidumWordmark from "@assets/tidum-wordmark.png";
 function HeroMockup() {
   return (
     <div className="pointer-events-none relative mx-auto w-full max-w-[820px] select-none pt-2" aria-hidden="true">
-      <div className="absolute left-[7%] top-[14%] h-52 w-[70%] rounded-[999px] bg-[var(--color-secondary)]/12 blur-3xl" />
-      <div className="absolute left-[19%] top-[31%] h-60 w-[63%] rounded-[999px] bg-[var(--color-primary)]/8 blur-3xl" />
+      <div className="absolute left-[7%] top-[14%] hidden h-52 w-[70%] rounded-[999px] bg-[var(--color-secondary)]/12 blur-3xl md:block" />
+      <div className="absolute left-[19%] top-[31%] hidden h-60 w-[63%] rounded-[999px] bg-[var(--color-primary)]/8 blur-3xl md:block" />
 
       <div className="absolute left-[13.5%] top-[26.4%] z-10 hidden h-[41.75%] w-[50.17%] overflow-hidden rounded-[8px] bg-[#fbfcfb] md:block">
         <div className="flex items-center justify-between border-b border-[#e6ece9] px-2.5 py-1.5 text-[8.5px] text-[#5f6b6d]">
@@ -140,7 +140,7 @@ function HeroMockup() {
       <img
         src={tidumMockup}
         alt=""
-        className="relative z-20 h-auto w-full object-contain drop-shadow-[0_24px_44px_rgba(23,41,46,0.28)]"
+        className="relative z-20 h-auto w-full object-contain drop-shadow-[0_12px_24px_rgba(23,41,46,0.2)] md:drop-shadow-[0_24px_44px_rgba(23,41,46,0.28)]"
       />
     </div>
   );

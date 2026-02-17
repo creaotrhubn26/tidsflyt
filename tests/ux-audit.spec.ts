@@ -28,6 +28,7 @@ const auditRoutes = [
 const logoSelectors = [
   "img[alt*='Tidum']",
   "img[alt*='Tidum logo']",
+  "img[src*='tidum-logo']",
   "img[src*='tidum-wordmark']",
   "img[src*='favicon']",
 ];
@@ -68,6 +69,83 @@ async function collectNavigationMetrics(page: any) {
   });
 }
 
+async function collectSmoothnessMetrics(page: any, durationMs = 1200) {
+  return page.evaluate(async (duration) => {
+    const longTasksSupported = "PerformanceObserver" in window;
+    const longTasks: PerformanceEntry[] = [];
+    let observer: PerformanceObserver | undefined;
+
+    if (longTasksSupported) {
+      observer = new PerformanceObserver((list) => {
+        list.getEntries().forEach((entry) => longTasks.push(entry));
+      });
+      try {
+        observer.observe({ entryTypes: ["longtask"] });
+      } catch {
+        observer = undefined;
+      }
+    }
+
+    const start = performance.now();
+    let last = start;
+    const frames: number[] = [];
+
+    await new Promise<void>((resolve) => {
+      const tick = (now: number) => {
+        frames.push(now - last);
+        last = now;
+        if (now - start >= duration) {
+          resolve();
+          return;
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+
+    observer?.disconnect();
+
+    const maxFrameMs = frames.length ? Math.max(...frames) : 0;
+    const avgFrameMs = frames.length
+      ? frames.reduce((sum, value) => sum + value, 0) / frames.length
+      : 0;
+    const jankFrames = frames.filter((value) => value > 50).length;
+    const jankRatio = frames.length ? jankFrames / frames.length : 0;
+
+    return {
+      durationMs: duration,
+      frameCount: frames.length,
+      avgFrameMs: Math.round(avgFrameMs * 10) / 10,
+      maxFrameMs: Math.round(maxFrameMs * 10) / 10,
+      jankFrames,
+      jankRatio: Math.round(jankRatio * 1000) / 1000,
+      longTaskCount: longTasks.length,
+    };
+  }, durationMs);
+}
+
+async function collectTabSmoothness(page: any) {
+  const tabMetrics: Array<{ tabId: string; metrics: any }> = [];
+  const tabTriggers = page.locator("[data-testid^='tab-']");
+  const tabCount = await tabTriggers.count();
+  const maxTabs = Math.min(tabCount, 3);
+
+  for (let i = 0; i < maxTabs; i += 1) {
+    const tab = tabTriggers.nth(i);
+    const isVisible = await tab.isVisible().catch(() => false);
+    if (!isVisible) {
+      continue;
+    }
+    const tabId = (await tab.getAttribute("data-testid")) || `tab-${i}`;
+    await tab.click({ timeout: 5000 }).catch(() => undefined);
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => undefined);
+    const metrics = await collectSmoothnessMetrics(page, 900);
+    tabMetrics.push({ tabId, metrics });
+  }
+
+  return tabMetrics;
+}
+
 test.describe("UX audit", () => {
   for (const route of auditRoutes) {
     test(`${route.label} (${route.path})`, async ({ page, baseURL }, testInfo) => {
@@ -105,6 +183,8 @@ test.describe("UX audit", () => {
 
       const navMetrics = await collectNavigationMetrics(page);
       const logoMetrics = await collectLogoMetrics(page);
+      const smoothness = await collectSmoothnessMetrics(page);
+      const tabSmoothness = await collectTabSmoothness(page);
 
       const findings: string[] = [];
       if (consoleErrors.length > 0) {
@@ -128,6 +208,22 @@ test.describe("UX audit", () => {
       if (loadMs > 4000) {
         findings.push(`Slow navigation load: ${loadMs}ms`);
       }
+      if (smoothness.jankRatio > 0.2 || smoothness.maxFrameMs > 80) {
+        findings.push(
+          `Janky frames: max ${smoothness.maxFrameMs}ms, ratio ${smoothness.jankRatio}`,
+        );
+      }
+      if (smoothness.longTaskCount > 2) {
+        findings.push(`Long tasks during load: ${smoothness.longTaskCount}`);
+      }
+      const tabJank = tabSmoothness.find(
+        (tab) => tab.metrics.jankRatio > 0.2 || tab.metrics.maxFrameMs > 80,
+      );
+      if (tabJank) {
+        findings.push(
+          `Jank after tab switch: ${tabJank.tabId} (max ${tabJank.metrics.maxFrameMs}ms)`,
+        );
+      }
 
       const result = {
         route,
@@ -136,6 +232,8 @@ test.describe("UX audit", () => {
         loadMs,
         navMetrics,
         logoMetrics,
+        smoothness,
+        tabSmoothness,
         consoleErrors,
         pageErrors,
         requestFailures,
