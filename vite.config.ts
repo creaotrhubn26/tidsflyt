@@ -1,9 +1,24 @@
-import { defineConfig } from "vite";
+import { defineConfig, createLogger } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 
+const logger = createLogger();
+const shouldIgnoreWarning = (message: string) =>
+  message.includes("did not pass the `from` option to `postcss.parse`");
+
 export default defineConfig({
+  customLogger: {
+    ...logger,
+    warn: (msg, options) => {
+      if (shouldIgnoreWarning(msg)) return;
+      logger.warn(msg, options);
+    },
+    warnOnce: (msg, options) => {
+      if (shouldIgnoreWarning(msg)) return;
+      logger.warnOnce(msg, options);
+    },
+  },
   plugins: [
     react(),
     runtimeErrorOverlay(),
