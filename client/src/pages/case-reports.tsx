@@ -123,11 +123,14 @@ function formHasContent(data: typeof emptyFormData): boolean {
 function PiiFieldWrapper({ 
   fieldName, 
   label, 
+  hint,
   fieldResults, 
   children 
 }: { 
   fieldName: string; 
   label: string; 
+  /** Soft writing guidance shown below the editor */
+  hint?: string;
   fieldResults: Record<string, import('@/lib/pii-detector').PiiScanResult>; 
   children: React.ReactNode;
 }) {
@@ -156,6 +159,11 @@ function PiiFieldWrapper({
       <div className={ringClass}>
         {children}
       </div>
+      {hint && !hasWarnings && (
+        <p className="text-xs text-muted-foreground/70 italic leading-relaxed pl-0.5">
+          Eksempel: {hint}
+        </p>
+      )}
       {hasWarnings && (
         <div className="space-y-1">
           {result.warnings
@@ -846,90 +854,91 @@ export default function CaseReportsPage() {
                   </div>
                 )}
 
-                <PiiFieldWrapper fieldName="background" label="Bakgrunn for tiltaket" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="background" label="Bakgrunn for tiltaket" hint="Brukeren har hatt behov for tett oppfølging i perioden grunnet endringer i hjemmesituasjonen." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.background}
                     onChange={(value) => updateField('background', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Beskriv bakgrunnen for tiltaket... (ikke bruk personnavn)"
+                    placeholder="Beskriv bakgrunnen for tiltaket..."
                     minHeight="120px"
                     testId="editor-background"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="actions" label="Arbeid og tiltak som er gjennomført" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="actions" label="Arbeid og tiltak som er gjennomført" hint="Det er gjennomført ukentlige samtaler med ungdommen, samt samarbeidsmøte med skolen." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.actions}
                     onChange={(value) => updateField('actions', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Beskriv arbeidet som er gjennomført... (bruk «brukeren», «ungdom» osv.)"
+                    placeholder="Beskriv arbeidet som er gjennomført..."
                     minHeight="150px"
                     testId="editor-actions"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="progress" label="Fremgang og utvikling" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="progress" label="Fremgang og utvikling" hint="Brukeren viser positiv utvikling i sosiale ferdigheter og har økt oppmøte på skolen." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.progress}
                     onChange={(value) => updateField('progress', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Beskriv fremgangen... (ikke bruk personnavn)"
+                    placeholder="Beskriv fremgangen..."
                     minHeight="120px"
                     testId="editor-progress"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="challenges" label="Utfordringer" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="challenges" label="Utfordringer" hint="Ungdommen har vist varierende motivasjon, noe som gjør jevn oppfølging utfordrende." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.challenges}
                     onChange={(value) => updateField('challenges', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Beskriv eventuelle utfordringer... (bruk «gutten», «jenta» osv.)"
+                    placeholder="Beskriv eventuelle utfordringer..."
                     minHeight="120px"
                     testId="editor-challenges"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="factors" label="Faktorer som påvirker" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="factors" label="Faktorer som påvirker" hint="Stabil bosituasjon og godt nettverk rundt brukeren bidrar positivt til utviklingen." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.factors}
                     onChange={(value) => updateField('factors', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Beskriv faktorer som påvirker... (ikke bruk personnavn)"
+                    placeholder="Beskriv faktorer som påvirker..."
                     minHeight="100px"
                     testId="editor-factors"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="assessment" label="Vurdering" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="assessment" label="Vurdering" hint="Tiltaket vurderes som hensiktsmessig og bør videreføres med noen justeringer i neste periode." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.assessment}
                     onChange={(value) => updateField('assessment', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Din vurdering... (bruk «brukeren», «klienten» osv.)"
+                    placeholder="Din vurdering..."
                     minHeight="120px"
                     testId="editor-assessment"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="recommendations" label="Anbefalinger" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="recommendations" label="Anbefalinger" hint="Det anbefales å øke frekvensen av samtaler og involvere foresatte i større grad." fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.recommendations}
                     onChange={(value) => updateField('recommendations', value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Dine anbefalinger... (ikke bruk personnavn)"
+                    placeholder="Dine anbefalinger..."
                     minHeight="120px"
                     testId="editor-recommendations"
                   />
                 </PiiFieldWrapper>
 
-                <PiiFieldWrapper fieldName="notes" label="Notater (valgfritt)" fieldResults={fieldResults}>
+                <PiiFieldWrapper fieldName="notes" label="Notater (valgfritt)" hint="Neste samarbeidsmøte er planlagt til starten av neste måned." fieldResults={fieldResults}>
                   <Textarea
                     id="notes"
+                    className="bg-muted/30 dark:bg-muted/10 focus:bg-background transition-colors"
                     value={formData.notes}
                     onChange={(e) => updateField('notes', e.target.value)}
                     onBlur={handleFieldBlur}
-                    placeholder="Eventulle notater... (ikke inkluder personnavn eller personopplysninger)"
+                    placeholder="Eventulle notater..."
                     rows={2}
                     data-testid="input-notes"
                   />

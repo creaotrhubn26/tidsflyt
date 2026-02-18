@@ -66,7 +66,7 @@ export function RichTextEditor({
   return (
     <div
       className={cn(
-        "rich-text-editor rounded-md border border-input bg-background",
+        "rich-text-editor rounded-md border border-input bg-muted/30 dark:bg-muted/10 focus-within:bg-background transition-colors",
         readOnly && "border-none bg-transparent",
         `[--min-height:${minHeight}]`,
         className
