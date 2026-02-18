@@ -15,8 +15,10 @@ interface UsePiiDetectionResult {
   totalWarnings: number;
   /** Whether any PII was detected */
   hasPii: boolean;
-  /** Trigger a scan of the provided fields */
+  /** Trigger a debounced scan of the provided fields */
   scanFields: (fields: Record<string, string>) => void;
+  /** Trigger an immediate (non-debounced) scan — use on blur / save */
+  scanFieldsNow: (fields: Record<string, string>) => void;
   /** Whether a scan is currently pending (debounced) */
   isPending: boolean;
   /** Clear all results */
@@ -70,6 +72,22 @@ export function usePiiDetection(options: UsePiiDetectionOptions = {}): UsePiiDet
     }, debounceMs);
   }, [enabled, debounceMs]);
 
+  /** Immediate scan — no debounce. Use on blur, section change, or save. */
+  const scanFieldsNow = useCallback((fields: Record<string, string>) => {
+    if (!enabled) return;
+    // Cancel any pending debounced scan
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+    lastFieldsRef.current = fields;
+    const { results, totalWarnings: total, hasPii: detected } = scanMultipleFields(fields);
+    setFieldResults(results);
+    setTotalWarnings(total);
+    setHasPii(detected);
+    setIsPending(false);
+  }, [enabled]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -84,6 +102,7 @@ export function usePiiDetection(options: UsePiiDetectionOptions = {}): UsePiiDet
     totalWarnings,
     hasPii,
     scanFields,
+    scanFieldsNow,
     isPending,
     clearResults,
   };

@@ -965,6 +965,7 @@ export type WhyPageContent = typeof whyPageContent.$inferSelect;
 export type InsertWhyPageContent = z.infer<typeof insertWhyPageContentSchema>;
 
 // Case Reports Types
+export type ReportStatus = "draft" | "submitted" | "needs_revision" | "approved" | "rejected";
 export type CaseReport = typeof caseReports.$inferSelect;
 export type InsertCaseReport = z.infer<typeof insertCaseReportSchema>;
 

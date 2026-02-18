@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   TrendingUp,
   TrendingDown,
@@ -61,7 +61,7 @@ const statusLabels = {
   rejected: "Avslått",
 };
 
-export function CaseAnalyticsDashboard({ 
+export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard({ 
   reports, 
   timeRange = "30d",
   onTimeRangeChange,
@@ -758,4 +758,4 @@ export function CaseAnalyticsDashboard({
       </div>
     </div>
   );
-}
+});

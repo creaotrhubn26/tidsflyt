@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import {
   FileText,
   Calendar,
@@ -49,6 +49,8 @@ interface AdvancedCaseReportBuilderProps {
   onExportReports: (reports: CaseReport[], format: string) => void;
   onBulkStatusChange?: (reportIds: number[], newStatus: string) => void;
   externalStatusFilter?: string | null;
+  /** Called when user clicks "Create new report" from the empty state */
+  onCreateNew?: () => void;
 }
 
 type FilterConfig = {
@@ -100,13 +102,14 @@ const statusConfig = {
   },
 };
 
-export function AdvancedCaseReportBuilder({
+export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportBuilder({
   reports,
   onViewReport,
   onEditReport,
   onExportReports,
   onBulkStatusChange,
   externalStatusFilter,
+  onCreateNew,
 }: AdvancedCaseReportBuilderProps) {
   const [selectedReports, setSelectedReports] = useState<number[]>([]);
   const [filters, setFilters] = useState<FilterConfig>({
@@ -542,10 +545,20 @@ export function AdvancedCaseReportBuilder({
             <Card>
               <CardContent className="py-12 text-center">
                 <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Ingen rapporter funnet</h3>
-                <p className="text-muted-foreground">
-                  Juster filtrene eller opprett en ny rapport for å komme i gang.
+                <h3 className="text-lg font-semibold mb-2">
+                  {reports.length === 0 ? "Ingen rapporter ennå" : "Ingen rapporter funnet"}
+                </h3>
+                <p className="text-muted-foreground mb-4">
+                  {reports.length === 0
+                    ? "Opprett din første saksrapport for å komme i gang med dokumentasjon og oppfølging."
+                    : "Juster filtrene eller opprett en ny rapport for å komme i gang."}
                 </p>
+                {onCreateNew && (
+                  <Button onClick={onCreateNew} className="gap-2">
+                    <FileText className="h-4 w-4" />
+                    Opprett første rapport
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}
@@ -639,4 +652,4 @@ export function AdvancedCaseReportBuilder({
       )}
     </div>
   );
-}
+});

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { 
@@ -12,8 +12,9 @@ import {
   BarChart3,
   Download,
   ShieldAlert,
-  Eye,
-  XCircle,
+  Save,
+  CheckCircle2,
+  Wand2,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -35,34 +36,42 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { RotateCcw, Trash2 } from "lucide-react";
 import { AdvancedCaseReportBuilder } from "@/components/cms/advanced-case-report-builder";
 import { CaseAnalyticsDashboard } from "@/components/cms/case-analytics-dashboard";
 import { CaseReportExport } from "@/components/cms/case-report-export";
 import { useToast } from "@/hooks/use-toast";
 import { usePiiDetection } from "@/hooks/use-pii-detection";
+import { useDraft } from "@/hooks/use-draft";
 import { getPiiTypeLabel, getPiiSeverity, ANONYMOUS_ALTERNATIVES, type PiiWarning } from "@/lib/pii-detector";
+import { PiiSummaryBanner, PiiSummaryDrawer, type PiiIssue } from "@/components/pii-summary-drawer";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { REPORT_TEMPLATES } from "@/lib/report-templates";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
-import type { CaseReport } from "@shared/schema";
+import type { CaseReport, ReportStatus } from "@shared/schema";
 
 type CaseReportResponse = {
   reports: CaseReport[];
 };
 
-const statusColors: Record<string, string> = {
+const statusColors: Record<ReportStatus, string> = {
   draft: "bg-muted text-muted-foreground",
-  pending: "bg-warning/10 text-warning border-warning/20",
   submitted: "bg-warning/10 text-warning border-warning/20",
   needs_revision: "bg-orange-500/10 text-orange-600 border-orange-500/20",
   approved: "bg-success/10 text-success border-success/20",
   rejected: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
-const statusLabels: Record<string, string> = {
+const statusLabels: Record<ReportStatus, string> = {
   draft: "Utkast",
-  pending: "Til behandling",
   submitted: "Sendt inn",
   needs_revision: "Trenger revisjon",
   approved: "Godkjent",
@@ -87,7 +96,7 @@ type ReportComment = {
 
 const emptyFormData = {
   case_id: "",
-  month: "",
+  month: format(new Date(), "yyyy-MM"), // default to current month
   background: "",
   actions: "",
   progress: "",
@@ -98,46 +107,16 @@ const emptyFormData = {
   notes: "",
 };
 
-const DRAFT_STORAGE_KEY = "tidum_case_report_draft";
-
-interface SavedDraft {
-  formData: typeof emptyFormData;
-  editingReportId: number | null;
-  savedAt: string;
-}
-
-function saveDraftToStorage(formData: typeof emptyFormData, editingReportId: number | null) {
-  // Only save if form has meaningful content
-  const hasContent = Object.entries(formData).some(
-    ([key, val]) => key !== 'case_id' && key !== 'month' && val && val.replace(/<[^>]*>/g, '').trim().length > 0
-  ) || formData.case_id || formData.month;
-  if (!hasContent) return;
-  try {
-    const draft: SavedDraft = { formData, editingReportId, savedAt: new Date().toISOString() };
-    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
-  } catch { /* quota exceeded — ignore */ }
-}
-
-function loadDraftFromStorage(): SavedDraft | null {
-  try {
-    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
-    if (!raw) return null;
-    const draft = JSON.parse(raw) as SavedDraft;
-    // Expire drafts older than 7 days
-    const age = Date.now() - new Date(draft.savedAt).getTime();
-    if (age > 7 * 24 * 60 * 60 * 1000) {
-      localStorage.removeItem(DRAFT_STORAGE_KEY);
-      return null;
-    }
-    return draft;
-  } catch {
-    localStorage.removeItem(DRAFT_STORAGE_KEY);
-    return null;
-  }
-}
-
-function clearDraftFromStorage() {
-  localStorage.removeItem(DRAFT_STORAGE_KEY);
+/** Check whether form data has meaningful content worth persisting */
+function formHasContent(data: typeof emptyFormData): boolean {
+  return (
+    Object.entries(data).some(
+      ([key, val]) =>
+        key !== 'case_id' && key !== 'month' && val && val.replace(/<[^>]*>/g, '').trim().length > 0,
+    ) ||
+    !!data.case_id ||
+    !!data.month
+  );
 }
 
 /** Inline PII warning wrapper for individual form fields */
@@ -199,7 +178,7 @@ function PiiFieldWrapper({
                     <span className={`ml-1.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                       isHigh ? 'bg-destructive/10 text-destructive' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
                     }`}>
-                      {w.confidence === 'high' ? 'Høy' : w.confidence === 'medium' ? 'Middels' : 'Lav'}
+                      {w.confidence === 'high' ? 'Kritisk' : w.confidence === 'medium' ? 'Gjennomgå' : 'Til info'}
                     </span>
                     <br />
                     <span className="text-muted-foreground">{w.suggestion}</span>
@@ -209,6 +188,85 @@ function PiiFieldWrapper({
             })}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Section progress indicator ──────────────────────────────────────────────
+
+const FORM_SECTIONS = [
+  { key: "background", label: "Bakgrunn", required: true },
+  { key: "actions", label: "Tiltak", required: true },
+  { key: "progress", label: "Fremgang", required: false },
+  { key: "challenges", label: "Utfordringer", required: false },
+  { key: "factors", label: "Faktorer", required: false },
+  { key: "assessment", label: "Vurdering", required: true },
+  { key: "recommendations", label: "Anbefalinger", required: false },
+] as const;
+
+const REQUIRED_SECTIONS = FORM_SECTIONS.filter((s) => s.required).map((s) => s.key);
+
+function sectionHasContent(html: string): boolean {
+  if (!html) return false;
+  return html.replace(/<[^>]*>/g, "").trim().length > 0;
+}
+
+/** Check whether all required sections are filled */
+function isReadyToSubmit(formData: typeof emptyFormData): boolean {
+  return REQUIRED_SECTIONS.every((key) =>
+    sectionHasContent((formData as any)[key]),
+  );
+}
+
+function SectionProgress({ formData }: { formData: typeof emptyFormData }) {
+  const filled = FORM_SECTIONS.filter((s) =>
+    sectionHasContent((formData as any)[s.key]),
+  ).length;
+  const pct = Math.round((filled / FORM_SECTIONS.length) * 100);
+
+  return (
+    <div className="space-y-2">
+      {/* Progress bar */}
+      <div className="flex items-center gap-3">
+        <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-300 ${
+              pct === 100 ? "bg-green-500" : pct >= 50 ? "bg-primary" : "bg-amber-500"
+            }`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
+          {filled}/{FORM_SECTIONS.length} seksjoner
+        </span>
+      </div>
+
+      {/* Section chips */}
+      <div className="flex items-center gap-1 overflow-x-auto py-1">
+        {FORM_SECTIONS.map((s) => {
+          const done = sectionHasContent((formData as any)[s.key]);
+          return (
+            <span
+              key={s.key}
+              className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
+                done
+                  ? "bg-primary/10 text-primary"
+                  : s.required
+                    ? "bg-destructive/5 text-destructive/70 border border-dashed border-destructive/20"
+                    : "bg-muted text-muted-foreground"
+              }`}
+            >
+              <span
+                className={`inline-block h-1.5 w-1.5 rounded-full ${
+                  done ? "bg-primary" : s.required ? "bg-destructive/40" : "bg-muted-foreground/40"
+                }`}
+              />
+              {s.label}
+              {s.required && !done && <span className="text-[9px]">*</span>}
+            </span>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -227,77 +285,112 @@ export default function CaseReportsPage() {
   const [reportsToExport, setReportsToExport] = useState<CaseReport[]>([]);
   const [activeTab, setActiveTab] = useState<string>("reports");
   const [analyticsTimeRange, setAnalyticsTimeRange] = useState<"7d" | "30d" | "90d" | "12m" | "all">("30d");
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReportStatus | null>(null);
   const [piiDismissed, setPiiDismissed] = useState(false);
-  const [draftDialogOpen, setDraftDialogOpen] = useState(false);
-  const [pendingDraft, setPendingDraft] = useState<SavedDraft | null>(null);
-  const skipNextDraftSave = useRef(false);
+  const [piiDismissReason, setPiiDismissReason] = useState<string | null>(null);
+  const [piiDismissDialogOpen, setPiiDismissDialogOpen] = useState(false);
+  const [piiDrawerOpen, setPiiDrawerOpen] = useState(false);
+  const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
+  const [submitConfirmReportId, setSubmitConfirmReportId] = useState<number | null>(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const currentUserId = "default"; // TODO: Get from auth context
 
-  // PII Detection — real-time scanning of report fields
-  const { fieldResults, totalWarnings, hasPii, scanFields, isPending: piiScanning } = usePiiDetection({ debounceMs: 600 });
+  // PII Detection — scan on blur / save, not every keystroke
+  const { fieldResults, totalWarnings, hasPii, scanFields, scanFieldsNow, isPending: piiScanning } = usePiiDetection({ debounceMs: 1500 });
 
-  // --- Draft persistence: check for saved draft on mount ---
-  useEffect(() => {
-    const draft = loadDraftFromStorage();
-    if (draft) {
-      setPendingDraft(draft);
-      setDraftDialogOpen(true);
-    }
-  }, []);
+  // --- Draft persistence (extracted hook) ---
+  const {
+    draftDialogOpen,
+    pendingDraft,
+    restoreDraft: restoreDraftRaw,
+    discardDraft,
+    clearDraft,
+  } = useDraft<typeof emptyFormData>({
+    storageKey: "tidum_case_report_draft",
+    formData,
+    isFormOpen: showForm,
+    editingId: editingReport?.id ?? null,
+    hasContent: formHasContent,
+  });
 
-  // --- Draft persistence: auto-save form data ---
-  useEffect(() => {
-    if (!showForm) return;
-    if (skipNextDraftSave.current) {
-      skipNextDraftSave.current = false;
-      return;
-    }
-    const timer = setTimeout(() => {
-      saveDraftToStorage(formData, editingReport?.id ?? null);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, [formData, showForm, editingReport]);
+  // Build the fields map once and reuse it
+  const piiFieldsMap = useCallback((data: typeof formData) => ({
+    background: data.background,
+    actions: data.actions,
+    progress: data.progress,
+    challenges: data.challenges,
+    factors: data.factors,
+    assessment: data.assessment,
+    recommendations: data.recommendations,
+    notes: data.notes,
+  }), []);
 
-  // Re-scan fields whenever form data changes
+  // Debounced scan (used during typing — long debounce)
   const triggerPiiScan = useCallback((data: typeof formData) => {
-    scanFields({
-      background: data.background,
-      actions: data.actions,
-      progress: data.progress,
-      challenges: data.challenges,
-      factors: data.factors,
-      assessment: data.assessment,
-      recommendations: data.recommendations,
-      notes: data.notes,
-    });
-  }, [scanFields]);
+    scanFields(piiFieldsMap(data));
+  }, [scanFields, piiFieldsMap]);
+
+  // Immediate scan (used on blur / save)
+  const triggerPiiScanNow = useCallback((data?: typeof formData) => {
+    scanFieldsNow(piiFieldsMap(data ?? formData));
+  }, [scanFieldsNow, piiFieldsMap, formData]);
 
   const restoreDraft = useCallback(() => {
-    if (!pendingDraft) return;
-    skipNextDraftSave.current = true;
-    setFormData(pendingDraft.formData);
+    const draft = restoreDraftRaw();
+    if (!draft) return;
+    setFormData(draft.formData);
     setShowForm(true);
-    triggerPiiScan(pendingDraft.formData);
-    setDraftDialogOpen(false);
+    triggerPiiScan(draft.formData);
     toast({ title: "Utkast gjenopprettet", description: "Du kan fortsette der du slapp." });
-    setPendingDraft(null);
-  }, [pendingDraft, triggerPiiScan, toast]);
+  }, [restoreDraftRaw, triggerPiiScan, toast]);
 
-  const discardDraft = useCallback(() => {
-    clearDraftFromStorage();
-    setDraftDialogOpen(false);
-    setPendingDraft(null);
+  // Wrapper to update form data (PII scan deferred to blur)
+  const updateField = useCallback((field: string, value: string) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
   }, []);
 
-  // Wrapper to update form data and trigger PII scan
-  const updateField = useCallback((field: string, value: string) => {
-    setFormData(prev => {
-      const updated = { ...prev, [field]: value };
-      triggerPiiScan(updated);
-      return updated;
-    });
-  }, [triggerPiiScan]);
+  // Blur handler — triggers immediate PII scan
+  const handleFieldBlur = useCallback(() => {
+    triggerPiiScanNow();
+  }, [triggerPiiScanNow]);
+
+  // ── One-click PII anonymization ──────────────────────────────────────────
+  const handlePiiReplace = useCallback(
+    (field: string, match: string, replacement: string) => {
+      setFormData((prev) => {
+        const current = (prev as any)[field] as string;
+        if (!current) return prev;
+        // Replace in both plain text and HTML (the match may sit inside tags)
+        const escaped = match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const updated = current.replace(new RegExp(escaped, 'gi'), replacement);
+        const next = { ...prev, [field]: updated };
+        triggerPiiScan(next);
+        return next;
+      });
+    },
+    [triggerPiiScan],
+  );
+
+  const handlePiiReplaceAll = useCallback(
+    (issues: PiiIssue[]) => {
+      setFormData((prev) => {
+        let next = { ...prev };
+        for (const issue of issues) {
+          const current = (next as any)[issue.field] as string;
+          if (!current) continue;
+          const escaped = issue.warning.match.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          (next as any)[issue.field] = current.replace(
+            new RegExp(escaped, 'gi'),
+            issue.warning.suggestion,
+          );
+        }
+        triggerPiiScan(next);
+        return next;
+      });
+      toast({ title: "Erstattet", description: `${issues.length} personopplysninger ble anonymisert.` });
+    },
+    [triggerPiiScan, toast],
+  );
 
   const { data: reportsData, isLoading } = useQuery<CaseReportResponse>({
     queryKey: ["/api/case-reports"],
@@ -305,18 +398,26 @@ export default function CaseReportsPage() {
 
   const reports = reportsData?.reports || [];
 
+  // Duplicate detection: warn if a report already exists for this case_id + month
+  const duplicateReport = useMemo(() => {
+    if (editingReport || !formData.case_id || !formData.month) return null;
+    return reports.find(
+      (r) => r.caseId === formData.case_id && r.month === formData.month,
+    ) ?? null;
+  }, [reports, formData.case_id, formData.month, editingReport]);
+
   // Fetch comments for selected report
   const { data: comments, refetch: refetchComments } = useQuery<ReportComment[]>({
     queryKey: ["/api/case-reports", selectedFeedbackReport?.id, "comments"],
     queryFn: async () => {
       if (!selectedFeedbackReport?.id) return [];
-      const res = await fetch(`/api/case-reports/${selectedFeedbackReport.id}/comments`);
+      const res = await apiRequest("GET", `/api/case-reports/${selectedFeedbackReport.id}/comments`);
       return res.json();
     },
     enabled: !!selectedFeedbackReport?.id && feedbackDialogOpen,
   });
 
-  // Add comment mutation
+  // Add comment mutation with optimistic update
   const addCommentMutation = useMutation({
     mutationFn: async (content: string) => {
       if (!selectedFeedbackReport) throw new Error("No report selected");
@@ -327,24 +428,52 @@ export default function CaseReportsPage() {
         content,
       });
     },
-    onSuccess: () => {
+    onMutate: async (content: string) => {
+      // Optimistic: append a temporary comment immediately
+      const queryKey = ["/api/case-reports", selectedFeedbackReport?.id, "comments"];
+      await queryClient.cancelQueries({ queryKey });
+      const previous = queryClient.getQueryData<ReportComment[]>(queryKey);
+      const optimistic: ReportComment = {
+        id: -Date.now(), // temp negative id
+        report_id: selectedFeedbackReport?.id ?? 0,
+        author_id: currentUserId,
+        author_name: "Bruker",
+        author_role: "user",
+        content,
+        is_internal: false,
+        parent_id: null,
+        read_at: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      queryClient.setQueryData<ReportComment[]>(queryKey, (old) => [...(old ?? []), optimistic]);
       setNewComment("");
+      return { previous };
+    },
+    onError: (_error: any, _content: string, context: any) => {
+      // Rollback on error
+      if (context?.previous) {
+        const queryKey = ["/api/case-reports", selectedFeedbackReport?.id, "comments"];
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+      toast({ title: "Feil", description: "Kunne ikke sende kommentar.", variant: "destructive" });
+    },
+    onSettled: () => {
       refetchComments();
       queryClient.invalidateQueries({ queryKey: ["/api/case-reports"] });
-      toast({ title: "Sendt", description: "Kommentaren din er sendt." });
     },
-    onError: (error: any) => {
-      toast({ title: "Feil", description: error?.message || "Kunne ikke sende kommentar.", variant: "destructive" });
+    onSuccess: () => {
+      toast({ title: "Sendt", description: "Kommentaren din er sendt." });
     },
   });
 
   // Mark comments as read when dialog opens
   useEffect(() => {
     if (feedbackDialogOpen && selectedFeedbackReport?.id) {
-      fetch(`/api/case-reports/${selectedFeedbackReport.id}/comments/mark-read`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reader_id: currentUserId }),
+      apiRequest("POST", `/api/case-reports/${selectedFeedbackReport.id}/comments/mark-read`, {
+        reader_id: currentUserId,
+      }).catch(() => {
+        // Silently ignore — non-critical
       });
     }
   }, [feedbackDialogOpen, selectedFeedbackReport?.id]);
@@ -362,7 +491,7 @@ export default function CaseReportsPage() {
       setEditingReport(null);
       setFormData(emptyFormData);
       setShowForm(false);
-      clearDraftFromStorage();
+      clearDraft();
       toast({ 
         title: editingReport ? "Oppdatert" : "Lagret", 
         description: editingReport ? "Rapporten er oppdatert." : "Utkast er lagret." 
@@ -383,7 +512,7 @@ export default function CaseReportsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/case-reports"] });
-      clearDraftFromStorage();
+      clearDraft();
       toast({ title: "Sendt inn", description: "Rapporten er sendt inn for godkjenning." });
     },
     onError: (error: any) => {
@@ -426,15 +555,22 @@ export default function CaseReportsPage() {
   const handleSubmit = (reportId: number) => {
     if (hasPii && !piiDismissed) {
       toast({ 
-        title: "⚠️ Kan ikke sende inn", 
+        title: "Kan ikke sende inn", 
         description: "Rapporten inneholder mulige personopplysninger. Fjern disse før innsending.", 
         variant: "destructive" 
       });
       return;
     }
-    if (confirm("Send inn rapporten for godkjenning?")) {
-      submitMutation.mutate(reportId);
+    if (!isReadyToSubmit(formData)) {
+      toast({
+        title: "Ufullstendig rapport",
+        description: "Du må fylle ut Bakgrunn, Tiltak og Vurdering før innsending.",
+        variant: "destructive",
+      });
+      return;
     }
+    setSubmitConfirmOpen(true);
+    setSubmitConfirmReportId(reportId);
   };
 
   const openFeedbackDialog = (report: CaseReport) => {
@@ -480,18 +616,16 @@ export default function CaseReportsPage() {
     return format(new Date(dateStr), "d. MMMM yyyy 'kl.' HH:mm", { locale: nb });
   };
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSave = (e?: React.FormEvent) => {
+    e?.preventDefault();
     if (!formData.case_id || !formData.month) {
       toast({ title: "Feil", description: "Saksnummer og måned er påkrevd.", variant: "destructive" });
       return;
     }
+    // Run immediate PII scan before save
+    triggerPiiScanNow();
     if (hasPii && !piiDismissed) {
-      toast({ 
-        title: "⚠️ Personopplysninger oppdaget", 
-        description: `Det ble funnet ${totalWarnings} mulige personopplysninger. Vennligst fjern disse før du lagrer, eller bekreft at de er nødvendige.`, 
-        variant: "destructive" 
-      });
+      setPiiDismissDialogOpen(true);
       return;
     }
     saveMutation.mutate(formData);
@@ -501,7 +635,7 @@ export default function CaseReportsPage() {
     setEditingReport(null);
     setFormData(emptyFormData);
     setShowForm(false);
-    clearDraftFromStorage();
+    clearDraft();
   };
 
   return (
@@ -595,114 +729,33 @@ export default function CaseReportsPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSave} className="space-y-4">
-                {/* GDPR / PII Warning Banner */}
-                <Alert className="border-amber-500/50 bg-amber-50 dark:bg-amber-950/30">
-                  <ShieldAlert className="h-4 w-4 text-amber-600" />
-                  <AlertTitle className="text-amber-800 dark:text-amber-300">Personvern – GDPR</AlertTitle>
-                  <AlertDescription className="text-amber-700 dark:text-amber-400">
-                    <p className="mb-2">Rapporter skal <strong>ikke</strong> inneholde personidentifiserbar informasjon.</p>
-                    <div className="grid sm:grid-cols-2 gap-2 text-sm">
-                      <div>
-                        <p className="font-medium text-destructive">❌ Ikke bruk:</p>
-                        <ul className="list-disc list-inside space-y-0.5 ml-1">
-                          <li>Navn på klienter/brukere</li>
-                          <li>Fødselsdato eller eksakt alder</li>
-                          <li>Adresser eller telefonnummer</li>
-                          <li>E-post eller fødselsnummer</li>
-                        </ul>
-                      </div>
-                      <div>
-                        <p className="font-medium text-green-700 dark:text-green-400">✅ Bruk i stedet:</p>
-                        <ul className="list-disc list-inside space-y-0.5 ml-1">
-                          <li>«Gutten» / «Jenta»</li>
-                          <li>«Brukeren» / «Deltakeren» / «Klienten»</li>
-                          <li>«Ungdom» / «Ung person» / «Voksen»</li>
-                          <li>Generelle beskrivelser</li>
-                        </ul>
-                      </div>
-                    </div>
-                  </AlertDescription>
-                </Alert>
+                {/* Compact GDPR reminder */}
+                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                  <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
+                  <span>
+                    Unngå personnavn, fødselsdato, adresser og andre personopplysninger.
+                    Bruk «brukeren», «ungdom», «gutten/jenta» i stedet.
+                  </span>
+                </div>
 
-                {/* PII Detection Results Banner */}
-                {hasPii && !piiDismissed && (() => {
-                  const allWarnings = Object.values(fieldResults).flatMap(r => r.warnings);
-                  const highCount = allWarnings.filter(w => w.confidence === 'high').length;
-                  const mediumCount = allWarnings.filter(w => w.confidence === 'medium').length;
-                  const isCritical = highCount > 0;
-                  
-                  return (
-                    <Alert variant={isCritical ? "destructive" : undefined} className={isCritical ? "border-red-500" : "border-amber-500 bg-amber-50 dark:bg-amber-950/30"}>
-                      <XCircle className={`h-4 w-4 ${isCritical ? '' : 'text-amber-600'}`} />
-                      <AlertTitle className="flex items-center justify-between">
-                        <span className={isCritical ? '' : 'text-amber-800 dark:text-amber-300'}>
-                          {totalWarnings} mulige personopplysninger funnet
-                          {highCount > 0 && <span className="ml-1 text-xs font-normal">({highCount} høy sikkerhet)</span>}
-                        </span>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 text-xs"
-                          onClick={() => setPiiDismissed(true)}
-                        >
-                          Ignorer advarsler
-                        </Button>
-                      </AlertTitle>
-                      <AlertDescription className={isCritical ? '' : 'text-amber-700 dark:text-amber-400'}>
-                        <p className="mb-2">Følgende felt inneholder mulige personopplysninger som bør fjernes:</p>
-                        <div className="space-y-1">
-                          {Object.entries(fieldResults).map(([field, result]) => {
-                            if (!result.hasPii) return null;
-                            const fieldLabels: Record<string, string> = {
-                              background: 'Bakgrunn',
-                              actions: 'Arbeid og tiltak',
-                              progress: 'Fremgang',
-                              challenges: 'Utfordringer',
-                              factors: 'Faktorer',
-                              assessment: 'Vurdering',
-                              recommendations: 'Anbefalinger',
-                              notes: 'Notater',
-                            };
-                            return (
-                              <div key={field} className="text-sm">
-                                <span className="font-medium">{fieldLabels[field] || field}:</span>{' '}
-                                {result.warnings
-                                  .sort((a, b) => {
-                                    const order = { high: 0, medium: 1, low: 2 };
-                                    return order[a.confidence] - order[b.confidence];
-                                  })
-                                  .map((w, i) => (
-                                    <Badge 
-                                      key={i} 
-                                      variant="outline" 
-                                      className={`mr-1 mb-0.5 text-xs ${
-                                        w.confidence === 'high'
-                                          ? 'border-red-300 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-950/30'
-                                          : 'border-amber-300 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30'
-                                      }`}
-                                    >
-                                      {getPiiTypeLabel(w.type)}: {w.match}
-                                    </Badge>
-                                  ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                        {mediumCount > 0 && highCount === 0 && (
-                          <p className="mt-2 text-xs italic">Disse er middels sikkerhet — gjennomgå for å bekrefte.</p>
-                        )}
-                      </AlertDescription>
-                    </Alert>
-                  );
-                })()}
-
-                {piiScanning && (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Eye className="h-4 w-4 animate-pulse" />
-                    <span>Skanner for personopplysninger...</span>
-                  </div>
+                {/* PII Summary Banner — click opens the drawer */}
+                {!piiDismissed && (
+                  <PiiSummaryBanner
+                    totalWarnings={totalWarnings}
+                    highCount={Object.values(fieldResults).flatMap(r => r.warnings).filter(w => w.confidence === 'high').length}
+                    onClick={() => setPiiDrawerOpen(true)}
+                    isPending={piiScanning}
+                  />
                 )}
+
+                {/* PII Summary Drawer (side panel) */}
+                <PiiSummaryDrawer
+                  open={piiDrawerOpen}
+                  onOpenChange={setPiiDrawerOpen}
+                  fieldResults={fieldResults}
+                  onReplace={handlePiiReplace}
+                  onReplaceAll={handlePiiReplaceAll}
+                />
 
                 <div className="grid md:grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -729,10 +782,75 @@ export default function CaseReportsPage() {
                   </div>
                 </div>
 
+                {/* Duplicate report warning */}
+                {duplicateReport && (
+                  <Alert variant="destructive">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle>Duplikat oppdaget</AlertTitle>
+                    <AlertDescription>
+                      Det finnes allerede en rapport for sak <strong>{duplicateReport.caseId}</strong> i{" "}
+                      <strong>{duplicateReport.month}</strong> (status: {statusLabels[duplicateReport.status as ReportStatus] ?? duplicateReport.status}).
+                      Vil du heller redigere den eksisterende rapporten?
+                      <Button
+                        variant="ghost"
+                        className="px-1 h-auto text-primary underline"
+                        onClick={() => startEdit(duplicateReport)}
+                      >
+                        Åpne eksisterende rapport
+                      </Button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Section progress indicator */}
+                <SectionProgress formData={formData} />
+
+                {/* Template selector */}
+                {!editingReport && (
+                  <div className="flex items-center gap-2">
+                    <Label className="text-xs text-muted-foreground whitespace-nowrap">Mal:</Label>
+                    <Select
+                      onValueChange={(templateId) => {
+                        const template = REPORT_TEMPLATES.find((t) => t.id === templateId);
+                        if (!template) return;
+                        setFormData((prev) => {
+                          const next = { ...prev };
+                          for (const [key, value] of Object.entries(template.content)) {
+                            if (value && !sectionHasContent((next as any)[key])) {
+                              (next as any)[key] = value;
+                            }
+                          }
+                          return next;
+                        });
+                        toast({
+                          title: "Mal brukt",
+                          description: `«${template.label}» ble satt inn i tomme seksjoner.`,
+                        });
+                      }}
+                    >
+                      <SelectTrigger className="w-[240px] h-8 text-xs">
+                        <Wand2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
+                        <SelectValue placeholder="Velg en rapportmal..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {REPORT_TEMPLATES.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            <div>
+                              <span className="font-medium">{t.label}</span>
+                              <span className="ml-2 text-xs text-muted-foreground">{t.description}</span>
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+
                 <PiiFieldWrapper fieldName="background" label="Bakgrunn for tiltaket" fieldResults={fieldResults}>
                   <RichTextEditor
                     value={formData.background}
                     onChange={(value) => updateField('background', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Beskriv bakgrunnen for tiltaket... (ikke bruk personnavn)"
                     minHeight="120px"
                     testId="editor-background"
@@ -743,6 +861,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.actions}
                     onChange={(value) => updateField('actions', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Beskriv arbeidet som er gjennomført... (bruk «brukeren», «ungdom» osv.)"
                     minHeight="150px"
                     testId="editor-actions"
@@ -753,6 +872,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.progress}
                     onChange={(value) => updateField('progress', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Beskriv fremgangen... (ikke bruk personnavn)"
                     minHeight="120px"
                     testId="editor-progress"
@@ -763,6 +883,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.challenges}
                     onChange={(value) => updateField('challenges', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Beskriv eventuelle utfordringer... (bruk «gutten», «jenta» osv.)"
                     minHeight="120px"
                     testId="editor-challenges"
@@ -773,6 +894,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.factors}
                     onChange={(value) => updateField('factors', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Beskriv faktorer som påvirker... (ikke bruk personnavn)"
                     minHeight="100px"
                     testId="editor-factors"
@@ -783,6 +905,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.assessment}
                     onChange={(value) => updateField('assessment', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Din vurdering... (bruk «brukeren», «klienten» osv.)"
                     minHeight="120px"
                     testId="editor-assessment"
@@ -793,6 +916,7 @@ export default function CaseReportsPage() {
                   <RichTextEditor
                     value={formData.recommendations}
                     onChange={(value) => updateField('recommendations', value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Dine anbefalinger... (ikke bruk personnavn)"
                     minHeight="120px"
                     testId="editor-recommendations"
@@ -804,31 +928,71 @@ export default function CaseReportsPage() {
                     id="notes"
                     value={formData.notes}
                     onChange={(e) => updateField('notes', e.target.value)}
+                    onBlur={handleFieldBlur}
                     placeholder="Eventulle notater... (ikke inkluder personnavn eller personopplysninger)"
                     rows={2}
                     data-testid="input-notes"
                   />
                 </PiiFieldWrapper>
 
-                <div className="flex gap-2 pt-4 items-center">
-                  <Button 
-                    type="submit" 
+                {/* Spacer so sticky bar doesn't overlap content */}
+                <div className="h-20" />
+              </form>
+
+              {/* Sticky action bar */}
+              <div className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <Button
+                    type="button"
+                    onClick={handleSave}
                     disabled={saveMutation.isPending || (hasPii && !piiDismissed)}
                     data-testid="button-save-report"
+                    className="gap-2"
                   >
+                    <Save className="h-4 w-4" />
                     {saveMutation.isPending ? "Lagrer..." : (editingReport ? "Oppdater" : "Lagre utkast")}
                   </Button>
+                  {editingReport && (
+                    <Button
+                      type="button"
+                      variant="secondary"
+                      className="gap-2"
+                      disabled={submitMutation.isPending || (hasPii && !piiDismissed)}
+                      onClick={() => handleSubmit(editingReport.id)}
+                    >
+                      <Send className="h-4 w-4" />
+                      {submitMutation.isPending ? "Sender..." : "Send inn"}
+                    </Button>
+                  )}
                   <Button type="button" variant="outline" onClick={cancelEdit} data-testid="button-cancel">
                     Avbryt
                   </Button>
-                  {hasPii && !piiDismissed && (
-                    <span className="text-sm text-destructive flex items-center gap-1">
-                      <ShieldAlert className="h-4 w-4" />
-                      Fjern personopplysninger før lagring
-                    </span>
-                  )}
+
+                  {/* PII status chip — accessible live region */}
+                  <div className="ml-auto flex items-center gap-2" aria-live="polite" aria-atomic="true">
+                    {piiScanning && (
+                      <span className="text-xs text-muted-foreground animate-pulse" role="status">Skanner…</span>
+                    )}
+                    {hasPii && !piiDismissed ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive gap-1.5 h-8"
+                        onClick={() => setPiiDrawerOpen(true)}
+                      >
+                        <ShieldAlert className="h-4 w-4" />
+                        {totalWarnings} PII
+                      </Button>
+                    ) : !piiScanning && totalWarnings === 0 && formHasContent(formData) ? (
+                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Ingen PII
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
-              </form>
+              </div>
             </CardContent>
           </Card>
             ) : (
@@ -853,6 +1017,7 @@ export default function CaseReportsPage() {
                     onExportReports={handleExportReports}
                     onBulkStatusChange={handleBulkStatusChange}
                     externalStatusFilter={statusFilter}
+                    onCreateNew={() => setShowForm(true)}
                   />
                 )}
               </>
@@ -878,7 +1043,7 @@ export default function CaseReportsPage() {
                 timeRange={analyticsTimeRange}
                 onTimeRangeChange={setAnalyticsTimeRange}
                 onFilterByStatus={(status) => {
-                  setStatusFilter(status);
+                  setStatusFilter(status as ReportStatus);
                   setActiveTab("reports");
                   toast({
                     title: "Filter anvendt",
@@ -910,8 +1075,8 @@ export default function CaseReportsPage() {
               <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
                 {/* Status badge */}
                 <div className="flex items-center gap-2">
-                  <Badge className={statusColors[selectedFeedbackReport.status]}>
-                    {statusLabels[selectedFeedbackReport.status]}
+                  <Badge className={statusColors[selectedFeedbackReport.status as ReportStatus] ?? ""}>
+                    {statusLabels[selectedFeedbackReport.status as ReportStatus] ?? selectedFeedbackReport.status}
                   </Badge>
                   {selectedFeedbackReport.approvedAt && (
                     <span className="text-sm text-muted-foreground">
@@ -1036,12 +1201,7 @@ export default function CaseReportsPage() {
               {selectedFeedbackReport?.status === "draft" && (
                 <Button
                   variant="destructive"
-                  onClick={() => {
-                    if (selectedFeedbackReport && confirm("Er du sikker på at du vil slette denne rapporten?")) {
-                      deleteMutation.mutate(selectedFeedbackReport.id);
-                      setFeedbackDialogOpen(false);
-                    }
-                  }}
+                  onClick={() => setDeleteConfirmOpen(true)}
                   disabled={deleteMutation.isPending}
                   data-testid="button-delete-report"
                 >
@@ -1072,6 +1232,142 @@ export default function CaseReportsPage() {
               >
                 <Edit className="h-4 w-4 mr-2" />
                 Rediger nå
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Submit confirmation dialog */}
+        <Dialog open={submitConfirmOpen} onOpenChange={setSubmitConfirmOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Send className="h-5 w-5 text-primary" />
+                Send inn for godkjenning
+              </DialogTitle>
+              <DialogDescription>
+                Rapporten sendes til administrator for gjennomgang. Du kan ikke redigere den mens den er under behandling.
+              </DialogDescription>
+            </DialogHeader>
+
+            {/* Report summary */}
+            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+              <p><strong>Sak:</strong> {formData.case_id || selectedFeedbackReport?.caseId}</p>
+              <p><strong>Måned:</strong> {formData.month || selectedFeedbackReport?.month}</p>
+              <p className="flex items-center gap-1.5">
+                <strong>PII-status:</strong>
+                {hasPii ? (
+                  <span className="text-destructive flex items-center gap-1">
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    {totalWarnings} advarsler
+                  </span>
+                ) : (
+                  <span className="text-green-600 dark:text-green-400 flex items-center gap-1">
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    Ingen personopplysninger oppdaget
+                  </span>
+                )}
+              </p>
+            </div>
+
+            <DialogFooter className="flex gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>
+                Avbryt
+              </Button>
+              <Button
+                onClick={() => {
+                  if (submitConfirmReportId) submitMutation.mutate(submitConfirmReportId);
+                  setSubmitConfirmOpen(false);
+                }}
+                disabled={submitMutation.isPending}
+                className="gap-2"
+              >
+                <Send className="h-4 w-4" />
+                {submitMutation.isPending ? "Sender..." : "Bekreft innsending"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete confirmation dialog */}
+        <Dialog open={deleteConfirmOpen} onOpenChange={setDeleteConfirmOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-destructive">
+                <AlertTriangle className="h-5 w-5" />
+                Slett rapport
+              </DialogTitle>
+              <DialogDescription>
+                Er du sikker på at du vil slette denne rapporten? Handlingen kan ikke angres.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter className="flex gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>
+                Avbryt
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (selectedFeedbackReport) {
+                    deleteMutation.mutate(selectedFeedbackReport.id);
+                    setDeleteConfirmOpen(false);
+                    setFeedbackDialogOpen(false);
+                  }
+                }}
+                disabled={deleteMutation.isPending}
+              >
+                {deleteMutation.isPending ? "Sletter..." : "Ja, slett"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* PII dismiss with reason dialog */}
+        <Dialog open={piiDismissDialogOpen} onOpenChange={setPiiDismissDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldAlert className="h-5 w-5 text-amber-500" />
+                Personopplysninger oppdaget
+              </DialogTitle>
+              <DialogDescription>
+                Det ble funnet {totalWarnings} mulige personopplysninger. Velg en grunn for å fortsette uten å fjerne dem.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-3">
+              <Label>Grunn for å overse advarslene</Label>
+              <Select value={piiDismissReason ?? ""} onValueChange={(v) => setPiiDismissReason(v)}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Velg en grunn..." />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="no_pii">Ingen reell personopplysning (falsk positiv)</SelectItem>
+                  <SelectItem value="legally_required">Påkrevd av juridiske grunner</SelectItem>
+                  <SelectItem value="internal_report">Intern rapport — unntak gjelder</SelectItem>
+                  <SelectItem value="already_anonymized">Allerede anonymisert tilstrekkelig</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <DialogFooter className="flex gap-2 sm:gap-0">
+              <Button variant="outline" onClick={() => setPiiDismissDialogOpen(false)}>
+                Gå tilbake og rett opp
+              </Button>
+              <Button
+                disabled={!piiDismissReason}
+                onClick={() => {
+                  setPiiDismissed(true);
+                  setPiiDismissDialogOpen(false);
+                  // Save immediately after dismissal
+                  saveMutation.mutate(formData);
+                  toast({
+                    title: "PII-advarsler oversett",
+                    description: `Grunn: ${piiDismissReason === 'no_pii' ? 'Falsk positiv' : piiDismissReason === 'legally_required' ? 'Juridisk påkrevd' : piiDismissReason === 'internal_report' ? 'Intern rapport' : 'Allerede anonymisert'}`,
+                  });
+                }}
+              >
+                Bekreft og lagre
               </Button>
             </DialogFooter>
           </DialogContent>

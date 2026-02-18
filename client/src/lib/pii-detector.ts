@@ -605,12 +605,12 @@ export function getPiiTypeLabel(type: PiiWarning['type']): string {
   }
 }
 
-/** Get a confidence label in Norwegian */
+/** Get a confidence label in Norwegian — domain-appropriate severity language */
 export function getConfidenceLabel(confidence: PiiWarning['confidence']): string {
   switch (confidence) {
-    case 'high': return 'Høy sikkerhet';
-    case 'medium': return 'Middels sikkerhet';
-    case 'low': return 'Lav sikkerhet';
+    case 'high': return 'Kritisk';
+    case 'medium': return 'Gjennomgå';
+    case 'low': return 'Til info';
     default: return '';
   }
 }

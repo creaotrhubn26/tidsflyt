@@ -1,4 +1,4 @@
-import { useState } from "react";
+import React, { useState } from "react";
 import {
   Download,
   FileText,
@@ -75,7 +75,7 @@ const statusLabels: Record<string, string> = {
   rejected: "Avslått",
 };
 
-export function CaseReportExport({ reports, open, onOpenChange }: CaseReportExportProps) {
+export const CaseReportExport = React.memo(function CaseReportExport({ reports, open, onOpenChange }: CaseReportExportProps) {
   const [exportFormat, setExportFormat] = useState<ExportFormat>("pdf");
   const [fields, setFields] = useState<ExportFields>({
     caseId: true,
@@ -363,16 +363,30 @@ export function CaseReportExport({ reports, open, onOpenChange }: CaseReportExpo
 
       const timestamp = format(new Date(), "yyyyMMdd_HHmmss");
 
+      // Build a descriptive filename based on report contents
+      const buildFilename = (ext: string) => {
+        if (reports.length === 1) {
+          const r = reports[0];
+          const caseSlug = (r.caseId || "rapport").replace(/\s+/g, "-");
+          const monthSlug = r.month || timestamp;
+          return `${caseSlug}_${monthSlug}_Saksrapport.${ext}`;
+        }
+        // Multiple reports — include count and date range
+        const months = reports.map((r) => r.month).filter(Boolean).sort();
+        const range = months.length > 1 ? `${months[0]}_${months[months.length - 1]}` : months[0] || timestamp;
+        return `saksrapporter_${reports.length}_${range}.${ext}`;
+      };
+
       switch (exportFormat) {
         case "csv":
           content = generateCSV(reports);
-          filename = `tidum_rapporter_${timestamp}.csv`;
+          filename = buildFilename("csv");
           mimeType = "text/csv;charset=utf-8;";
           break;
 
         case "json":
           content = generateJSON(reports);
-          filename = `tidum_rapporter_${timestamp}.json`;
+          filename = buildFilename("json");
           mimeType = "application/json;charset=utf-8;";
           break;
 
@@ -386,7 +400,7 @@ export function CaseReportExport({ reports, open, onOpenChange }: CaseReportExpo
           // For Excel, we'll use CSV with .xlsx extension
           // In production, use a library like xlsx or exceljs
           content = generateCSV(reports);
-          filename = `tidum_rapporter_${timestamp}.xlsx`;
+          filename = buildFilename("xlsx");
           mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;charset=utf-8;";
           break;
 
@@ -593,4 +607,4 @@ export function CaseReportExport({ reports, open, onOpenChange }: CaseReportExpo
       </DialogContent>
     </Dialog>
   );
-}
+});

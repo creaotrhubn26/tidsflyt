@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 interface RichTextEditorProps {
   value: string;
   onChange: (value: string) => void;
+  onBlur?: () => void;
   placeholder?: string;
   className?: string;
   readOnly?: boolean;
@@ -17,6 +18,7 @@ interface RichTextEditorProps {
 export function RichTextEditor({
   value,
   onChange,
+  onBlur,
   placeholder = "Skriv her...",
   className,
   readOnly = false,
@@ -75,6 +77,7 @@ export function RichTextEditor({
         theme="snow"
         value={value}
         onChange={handleChange}
+        onBlur={onBlur}
         modules={modules}
         formats={formats}
         placeholder={placeholder}
