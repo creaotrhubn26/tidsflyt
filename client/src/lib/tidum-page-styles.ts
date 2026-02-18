@@ -55,6 +55,76 @@ export const tidumPageStyles = `
     min-height: 100vh;
   }
 
+  /* ── Dark mode overrides ── */
+  .dark .tidum-page {
+    --color-bg-main: #0c1214;
+    --color-bg-section: #111a1d;
+    --color-text-main: #d8e4e6;
+    --color-primary: #3dd4de;
+    --color-primary-hover: #5ae0e8;
+    --color-secondary: #6fcf97;
+    --color-text-muted: #8fa3a8;
+    --color-border: #1e3038;
+    --background: 195 20% 7%;
+    --foreground: 192 22% 88%;
+    --card: 195 18% 10%;
+    --card-foreground: 192 22% 88%;
+    --card-border: 195 20% 16%;
+    --popover: 195 18% 10%;
+    --popover-foreground: 192 22% 88%;
+    --popover-border: 195 20% 16%;
+    --muted: 195 15% 14%;
+    --muted-foreground: 192 12% 58%;
+    background:
+      radial-gradient(circle at 8% 3%, rgba(78, 154, 111, 0.06), transparent 38%),
+      radial-gradient(circle at 88% 6%, rgba(31, 107, 115, 0.08), transparent 42%),
+      var(--color-bg-main);
+    color: var(--color-text-main);
+  }
+
+  .dark .tidum-panel {
+    border-color: var(--color-border);
+    background: linear-gradient(180deg, rgba(17, 26, 29, 0.97), rgba(12, 18, 20, 0.95));
+    box-shadow: 0 18px 60px rgba(0, 0, 0, 0.3);
+  }
+
+  .dark .tidum-title {
+    color: #c8e8ec;
+  }
+
+  .dark .tidum-text {
+    color: var(--color-text-main);
+  }
+
+  .dark .tidum-btn-primary {
+    background: #1d8f98;
+    border-color: rgba(29, 143, 152, 0.5);
+  }
+
+  .dark .tidum-btn-primary:hover {
+    background: #239aa4;
+  }
+
+  .dark .tidum-btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    color: #c8d8dc;
+    border-color: var(--color-border);
+  }
+
+  .dark .tidum-btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .dark .tidum-input {
+    border-color: var(--color-border);
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--color-text-main);
+  }
+
+  .dark .tidum-input::placeholder {
+    color: #6b8085;
+  }
+
   .tidum-panel {
     border: 1px solid var(--color-border);
     background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 251, 248, 0.95));

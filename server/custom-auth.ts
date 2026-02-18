@@ -69,11 +69,34 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
   return null;
 }
 
+const isDev = process.env.NODE_ENV !== "production";
+
+const DEV_USER: AuthUser = {
+  id: "1",
+  email: "dev@tidum.no",
+  name: "Dev Bruker",
+  profileImageUrl: null,
+  provider: "dev",
+  role: "super_admin",
+  vendorId: null,
+};
+
 export async function setupCustomAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+
+  // DEV MODE: inject a mock user so all API routes work without OAuth
+  if (isDev) {
+    app.use((req, _res, next) => {
+      if (!req.user) {
+        req.user = DEV_USER;
+        (req as any).isAuthenticated = () => true;
+      }
+      next();
+    });
+  }
 
   const baseUrl = process.env.REPLIT_DEV_DOMAIN 
     ? `https://${process.env.REPLIT_DEV_DOMAIN}`
@@ -133,6 +156,9 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
+    if (isDev && !req.isAuthenticated?.()) {
+      return res.json(DEV_USER);
+    }
     if (req.isAuthenticated() && req.user) {
       res.json(req.user);
     } else {
@@ -166,6 +192,7 @@ export async function setupCustomAuth(app: Express) {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
+  if (isDev) return next();
   if (req.isAuthenticated() && req.user) {
     return next();
   }
@@ -173,6 +200,7 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
 };
 
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
+  if (isDev) return next();
   if (!req.isAuthenticated() || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
@@ -186,6 +214,7 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
 };
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
+  if (isDev) return next();
   if (!req.isAuthenticated() || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }

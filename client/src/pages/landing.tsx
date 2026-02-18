@@ -1,4 +1,5 @@
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
+import { LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
 import {
   ArrowRight,
@@ -25,6 +26,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import tidumMockup from "@assets/tidum-mockup.png";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import tidumWordmarkWhite from "@assets/tidum-logo_white_text.png";
 
 function HeroMockup() {
   return (
@@ -284,8 +286,8 @@ const featureCards = [
       { icon: Calendar, text: "Enkel føring av arbeidstid" },
       { icon: Smartphone, text: "Mobil- og feltvennlig" },
     ],
-    iconTone: "text-[#3A8B73]",
-    iconBg: "bg-[#E7F3EE]",
+    iconTone: "text-[#3A8B73] dark:text-[#5cc9a7]",
+    iconBg: "bg-[#E7F3EE] dark:bg-[#1a2d2a]",
   },
   {
     icon: FileCheck2,
@@ -295,8 +297,8 @@ const featureCards = [
       { icon: Search, text: "Endringer spores" },
       { icon: ShieldCheck, text: "Klar for revisjon" },
     ],
-    iconTone: "text-[#8F7E52]",
-    iconBg: "bg-[#F5EFE1]",
+    iconTone: "text-[#8F7E52] dark:text-[#c9b87e]",
+    iconBg: "bg-[#F5EFE1] dark:bg-[#2a2518]",
   },
   {
     icon: BarChart3,
@@ -306,8 +308,8 @@ const featureCards = [
       { icon: TrendingUp, text: "Innsikt for ledelse" },
       { icon: Zap, text: "Mindre manuelt arbeid" },
     ],
-    iconTone: "text-[#4C9A6F]",
-    iconBg: "bg-[#E8F5EE]",
+    iconTone: "text-[#4C9A6F] dark:text-[#6fcf97]",
+    iconBg: "bg-[#E8F5EE] dark:bg-[#1a2d2a]",
   },
 ] as const;
 
@@ -561,18 +563,26 @@ export default function LandingPage() {
 
           <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
             <div className="flex items-center gap-3">
-              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11" />
+              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11 dark:hidden" />
+              <img src={tidumWordmarkWhite} alt="Tidum" className="hidden h-10 w-auto sm:h-11 dark:block" />
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
               <button
                 type="button"
                 onClick={scrollToFeatures}
-                className="hidden items-center gap-2 text-base text-[#26373C] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
+                className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
               >
                 <ClipboardList className="h-4 w-4" />
                 Funksjoner
               </button>
+              <Link
+                href="/dashboard"
+                className="inline-flex items-center gap-2 text-base font-medium text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)]"
+              >
+                <LogIn className="h-4 w-4" />
+                <span className="hidden sm:inline">Logg inn</span>
+              </Link>
               <Button
                 onClick={goToContact}
                 className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold"
@@ -612,25 +622,25 @@ export default function LandingPage() {
           </div>
 
           <div id="funksjoner" className="relative z-10 border-t border-[var(--color-border)] px-6 pb-10 pt-8 sm:px-8 sm:pb-12 sm:pt-10">
-            <h2 className="text-center text-[clamp(2rem,4.1vw,3.6rem)] font-semibold tracking-tight text-[#15343D]">
+            <h2 className="text-center text-[clamp(2rem,4.1vw,3.6rem)] font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec]">
               Et system bygget for virkeligheten
             </h2>
 
             <div className="mt-7 grid gap-4 md:grid-cols-3">
               {featureCards.map(({ icon: Icon, title, points, iconBg, iconTone }) => (
-                <Card key={title} className="rounded-2xl border-[var(--color-border)] bg-white/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
+                <Card key={title} className="rounded-2xl border-[var(--color-border)] bg-white/95 dark:bg-[#141e21]/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
                   <CardContent className="p-6 sm:p-7">
                     <div className="mb-4 flex items-center gap-3">
                       <div className={`inline-flex h-11 w-11 items-center justify-center rounded-xl ${iconBg}`}>
                         <Icon className={`h-6 w-6 ${iconTone}`} />
                       </div>
-                      <h3 className="text-[clamp(1.35rem,2.2vw,2.05rem)] font-semibold tracking-tight text-[#1D2C31]">{title}</h3>
+                      <h3 className="text-[clamp(1.35rem,2.2vw,2.05rem)] font-semibold tracking-tight text-[#1D2C31] dark:text-[#d0e0e3]">{title}</h3>
                     </div>
-                    <ul className="space-y-2 text-[clamp(1rem,1.25vw,1.25rem)] text-[#2E3D43]">
+                    <ul className="space-y-2 text-[clamp(1rem,1.25vw,1.25rem)] text-[#2E3D43] dark:text-[#b8ccd1]">
                       {points.map(({ icon: PointIcon, text }) => (
                         <li key={text} className="flex items-start gap-2.5">
-                          <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md bg-[#EAF4EF]">
-                            <PointIcon className="h-3.5 w-3.5 text-[#2A7B62]" />
+                          <span className="mt-0.5 inline-flex h-5 w-5 items-center justify-center rounded-md bg-[#EAF4EF] dark:bg-[#1a2d2a]">
+                            <PointIcon className="h-3.5 w-3.5 text-[#2A7B62] dark:text-[#5cc9a7]" />
                           </span>
                           <span>{text}</span>
                         </li>
@@ -645,10 +655,10 @@ export default function LandingPage() {
 
         <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8">
           <div className="grid gap-6 lg:grid-cols-[1.15fr,0.85fr]">
-            <Card className="relative overflow-hidden rounded-2xl border-[#E7D3CF] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,246,244,0.9))]">
+            <Card className="relative overflow-hidden rounded-2xl border-[#E7D3CF] dark:border-[#3a2520] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(255,246,244,0.9))] dark:bg-[linear-gradient(180deg,rgba(20,14,12,0.98),rgba(30,20,18,0.9))]">
               <div className="pointer-events-none absolute -left-8 top-8 h-36 w-36 rounded-full bg-[#EAC8C1]/35 blur-2xl" />
               <CardContent className="relative p-6 sm:p-7">
-                <div className="relative overflow-hidden rounded-xl border border-[#E6D4D0] bg-[#F0F3F4]">
+                <div className="relative overflow-hidden rounded-xl border border-[#E6D4D0] dark:border-[#3a2520] bg-[#F0F3F4] dark:bg-[#141e21]">
                   <div className="h-48 w-full">
                     <StoryPainIllustration />
                   </div>
@@ -658,12 +668,12 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#E6D4D0] bg-white/85 px-3 py-1 text-xs font-medium text-[#7E534C]">
+                <p className="mt-4 inline-flex items-center gap-2 rounded-full border border-[#E6D4D0] dark:border-[#3a2520] bg-white/85 dark:bg-[#1a2830]/85 px-3 py-1 text-xs font-medium text-[#7E534C] dark:text-[#d4877e]">
                   <Clock3 className="h-3.5 w-3.5" />
                   Et vanlig vaktskifte, før Tidum
                 </p>
 
-                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-[#15343D] sm:text-4xl">
+                <h2 className="mt-4 text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">
                   Mange jobber fortsatt med feil verktøy
                 </h2>
                 <p className="mt-4 max-w-3xl text-[var(--color-text-muted)]">
@@ -673,14 +683,14 @@ export default function LandingPage() {
 
                 <div className="mt-6 grid gap-3">
                   {painStoryPoints.map(({ icon: Icon, title, detail }) => (
-                    <div key={title} className="rounded-xl border border-[#E8D9D5] bg-white/92 px-4 py-3">
+                    <div key={title} className="rounded-xl border border-[#E8D9D5] dark:border-[#3a2520] bg-white/92 dark:bg-[#141e21]/92 px-4 py-3">
                       <div className="flex items-start gap-3">
-                        <div className="mt-0.5 rounded-lg bg-[#F8EDEB] p-2">
-                          <Icon className="h-4 w-4 text-[#9A5B52]" />
+                        <div className="mt-0.5 rounded-lg bg-[#F8EDEB] dark:bg-[#2a1f1d] p-2">
+                          <Icon className="h-4 w-4 text-[#9A5B52] dark:text-[#d4877e]" />
                         </div>
                         <div>
-                          <p className="font-semibold text-[#2A363A]">{title}</p>
-                          <p className="mt-0.5 text-sm text-[#667376]">{detail}</p>
+                          <p className="font-semibold text-[#2A363A] dark:text-[#d0e0e3]">{title}</p>
+                          <p className="mt-0.5 text-sm text-[#667376] dark:text-[#8fa3a8]">{detail}</p>
                         </div>
                       </div>
                     </div>
@@ -689,9 +699,9 @@ export default function LandingPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-2xl border-[var(--color-border)] bg-white/96 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
+            <Card className="rounded-2xl border-[var(--color-border)] bg-white/96 dark:bg-[#141e21]/96 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
               <CardContent className="p-6 sm:p-7">
-                <div className="relative overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#ECF4F1]">
+                <div className="relative overflow-hidden rounded-xl border border-[var(--color-border)] bg-[#ECF4F1] dark:bg-[#142920]">
                   <div className="h-48 w-full">
                     <StoryReliefIllustration />
                   </div>
@@ -701,24 +711,24 @@ export default function LandingPage() {
                   </div>
                 </div>
 
-                <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[#15343D]">Hvordan behovet kjennes</h3>
+                <h3 className="mt-5 text-2xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec]">Hvordan behovet kjennes</h3>
                 <p className="mt-2 text-[var(--color-text-muted)]">Små feil blir fort store konsekvenser i en travel hverdag.</p>
 
                 <div className="mt-5 space-y-3">
                   {painTimeline.map((entry) => (
-                    <div key={entry.time} className="rounded-xl border border-[var(--color-border)] bg-[#F9FBFA] px-4 py-3">
+                    <div key={entry.time} className="rounded-xl border border-[var(--color-border)] bg-[#F9FBFA] dark:bg-[#141e21] px-4 py-3">
                       <div className="flex items-start gap-3">
-                        <div className="mt-0.5 min-w-[50px] rounded-md bg-[#EEF2F1] px-2 py-1 text-center text-xs font-semibold text-[#4E5F63]">
+                        <div className="mt-0.5 min-w-[50px] rounded-md bg-[#EEF2F1] dark:bg-[#1a2830] px-2 py-1 text-center text-xs font-semibold text-[#4E5F63] dark:text-[#8fa3a8]">
                           {entry.time}
                         </div>
-                        <p className="text-sm leading-relaxed text-[#2E3D43]">{entry.text}</p>
+                        <p className="text-sm leading-relaxed text-[#2E3D43] dark:text-[#b8ccd1]">{entry.text}</p>
                       </div>
                     </div>
                   ))}
                 </div>
 
-                <div className="mt-5 rounded-xl border border-[#D6E5DD] bg-[#EEF7F2] px-4 py-3">
-                  <p className="text-sm font-medium text-[#1E5A49]">
+                <div className="mt-5 rounded-xl border border-[#D6E5DD] dark:border-[#1e3830] bg-[#EEF7F2] dark:bg-[#142920] px-4 py-3">
+                  <p className="text-sm font-medium text-[#1E5A49] dark:text-[#5cc9a7]">
                     Tidum er laget for å rydde opp uten å gjøre hverdagen mer komplisert.
                   </p>
                 </div>
@@ -728,10 +738,10 @@ export default function LandingPage() {
         </section>
 
         <section className="tidum-fade-up mt-12 grid gap-5 lg:grid-cols-2 lg:items-stretch">
-          <Card className="h-full rounded-2xl border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(243,247,245,0.9))]">
+          <Card className="h-full rounded-2xl border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(243,247,245,0.9))] dark:bg-[linear-gradient(180deg,rgba(20,30,33,0.98),rgba(17,26,29,0.9))]">
             <CardContent className="flex h-full flex-col p-6 sm:p-7">
               <div className="min-h-[100px]">
-                <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] sm:text-4xl">Trygghet for alle parter</h2>
+                <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">Trygghet for alle parter</h2>
                 <p className="mt-3 text-[var(--color-text-muted)]">
                   Tidum er laget for støtte i hverdagen, ikke ekstra press.
                 </p>
@@ -754,13 +764,13 @@ export default function LandingPage() {
                     description: "Tydelig oppsett uten unødvendige steg.",
                   },
                 ].map(({ icon: Icon, title, description }) => (
-                  <div key={title} className="flex min-h-[102px] rounded-xl border border-[var(--color-border)] bg-white/90 px-4 py-3">
+                  <div key={title} className="flex min-h-[102px] rounded-xl border border-[var(--color-border)] bg-white/90 dark:bg-[#141e21]/90 px-4 py-3">
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-lg bg-[#E7F3EE] p-2">
+                      <div className="mt-0.5 rounded-lg bg-[#E7F3EE] dark:bg-[#1a2d2a] p-2">
                         <Icon className="h-4 w-4 text-[var(--color-primary)]" />
                       </div>
                       <div>
-                        <p className="font-semibold text-[#1D2C31]">{title}</p>
+                        <p className="font-semibold text-[#1D2C31] dark:text-[#d0e0e3]">{title}</p>
                         <p className="mt-0.5 text-sm text-[var(--color-text-muted)]">{description}</p>
                       </div>
                     </div>
@@ -769,10 +779,10 @@ export default function LandingPage() {
               </div>
             </CardContent>
           </Card>
-          <Card className="h-full rounded-2xl border-[var(--color-border)] bg-white/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
+          <Card className="h-full rounded-2xl border-[var(--color-border)] bg-white/95 dark:bg-[#141e21]/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
             <CardContent className="flex h-full flex-col p-6 sm:p-7">
               <div className="min-h-[100px]">
-                <h3 className="text-2xl font-semibold tracking-tight text-[#15343D]">Dette gir trygghet i praksis</h3>
+                <h3 className="text-2xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec]">Dette gir trygghet i praksis</h3>
                 <p className="mt-2 text-[var(--color-text-muted)]">
                   For ansatte, ledere og virksomheten.
                 </p>
@@ -795,13 +805,13 @@ export default function LandingPage() {
                     description: "Sporbar historikk klar for krav og revisjon.",
                   },
                 ].map(({ icon: Icon, title, description }) => (
-                  <div key={title} className="flex min-h-[102px] rounded-xl border border-[var(--color-border)] bg-[#F7FAF9] px-4 py-3">
+                  <div key={title} className="flex min-h-[102px] rounded-xl border border-[var(--color-border)] bg-[#F7FAF9] dark:bg-[#141e21] px-4 py-3">
                     <div className="flex items-start gap-3">
-                      <div className="mt-0.5 rounded-lg bg-[#E7F3EE] p-2">
+                      <div className="mt-0.5 rounded-lg bg-[#E7F3EE] dark:bg-[#1a2d2a] p-2">
                         <Icon className="h-4 w-4 text-[var(--color-primary)]" />
                       </div>
                       <div>
-                        <p className="font-semibold text-[#1D2C31]">{title}</p>
+                        <p className="font-semibold text-[#1D2C31] dark:text-[#d0e0e3]">{title}</p>
                         <p className="mt-0.5 text-sm text-[var(--color-text-muted)]">{description}</p>
                       </div>
                     </div>
@@ -813,7 +823,7 @@ export default function LandingPage() {
         </section>
 
         <section className="tidum-fade-up mt-12">
-          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] sm:text-4xl">Hvem bruker Tidum?</h2>
+          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">Hvem bruker Tidum?</h2>
           <div className="mt-6 grid gap-4 sm:grid-cols-2">
             {[
               { icon: Users, label: "Miljøarbeidere" },
@@ -821,7 +831,7 @@ export default function LandingPage() {
               { icon: ShieldCheck, label: "Private omsorgsaktører" },
               { icon: Users, label: "Kommuner og offentlige virksomheter" },
             ].map(({ icon: Icon, label }) => (
-              <div key={label} className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-white p-4">
+              <div key={label} className="flex items-center gap-3 rounded-xl border border-[var(--color-border)] bg-white dark:bg-[#141e21] p-4">
                 <Icon className="h-5 w-5 text-[var(--color-primary)]" />
                 <p className="font-medium">{label}</p>
               </div>
@@ -832,20 +842,20 @@ export default function LandingPage() {
         <section id="hvordan" className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8">
           <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] sm:text-4xl">Kom i gang på minutter</h2>
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">Kom i gang på minutter</h2>
               <p className="mt-2 max-w-2xl text-[var(--color-text-muted)]">
                 Slik ser arbeidsflyten ut når brukeren faktisk er inne i Tidum.
               </p>
             </div>
-            <p className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#3C5C62]">
+            <p className="inline-flex items-center rounded-full border border-[var(--color-border)] bg-white dark:bg-[#141e21] px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-[#3C5C62] dark:text-[#8fa3a8]">
               4 steg fra oppsett til rapport
             </p>
           </div>
 
           <div className="mt-6 grid gap-4 md:grid-cols-2">
             {howItWorksSteps.map(({ title, description, icon: StepIcon, variant }, index) => (
-              <Card key={title} className="overflow-hidden rounded-2xl border-[var(--color-border)] bg-white/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
-                <div className="border-b border-[var(--color-border)] bg-[#E9F1EE]">
+              <Card key={title} className="overflow-hidden rounded-2xl border-[var(--color-border)] bg-white/95 dark:bg-[#141e21]/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
+                <div className="border-b border-[var(--color-border)] bg-[#E9F1EE] dark:bg-[#142920]">
                   <div className="h-[170px] w-full">
                     <HowStepIllustration variant={variant} />
                   </div>
@@ -855,10 +865,10 @@ export default function LandingPage() {
                     <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--color-primary)]/12 text-sm font-semibold text-[var(--color-primary)]">
                       {index + 1}
                     </span>
-                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF4EF]">
-                      <StepIcon className="h-4 w-4 text-[#2A7B62]" />
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF4EF] dark:bg-[#1a2d2a]">
+                      <StepIcon className="h-4 w-4 text-[#2A7B62] dark:text-[#5cc9a7]" />
                     </span>
-                    <h3 className="text-lg font-semibold text-[#1D2C31]">{title}</h3>
+                    <h3 className="text-lg font-semibold text-[#1D2C31] dark:text-[#d0e0e3]">{title}</h3>
                   </div>
                   <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-muted)]">{description}</p>
                 </CardContent>
@@ -867,10 +877,10 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8">
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white dark:bg-[#141e21] p-6 sm:p-8">
           <div className="grid gap-6 md:grid-cols-2 md:items-center">
             <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] sm:text-4xl">Bygget for norsk arbeidsliv</h2>
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">Bygget for norsk arbeidsliv</h2>
               <p className="mt-4 text-[var(--color-text-muted)]">
                 Løsningen er laget for norsk språk og norsk kontekst, med dokumentasjon og personvern i sentrum.
               </p>
@@ -915,7 +925,7 @@ export default function LandingPage() {
                       item.icon && <item.icon className="mt-0.5 h-4 w-4 text-[var(--color-secondary)]" />
                     )}
                     <div>
-                      <p className="text-sm font-semibold text-[#1F3136]">{item.title}</p>
+                      <p className="text-sm font-semibold text-[#1F3136] dark:text-[#d0e0e3]">{item.title}</p>
                       <p className="mt-0.5 text-xs text-[var(--color-text-muted)]">{item.detail}</p>
                     </div>
                   </div>
@@ -951,10 +961,11 @@ export default function LandingPage() {
           </div>
         </section>
 
-        <footer className="tidum-fade-up mt-10 rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(245,248,246,0.92))] px-6 py-8 sm:px-8">
+        <footer className="tidum-fade-up mt-10 rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(245,248,246,0.92))] dark:bg-[linear-gradient(180deg,rgba(20,30,33,0.96),rgba(17,26,29,0.92))] px-6 py-8 sm:px-8">
           <div className="grid gap-8 md:grid-cols-[1.2fr,0.9fr,1fr]">
             <div>
-              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto" />
+              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto dark:hidden" />
+              <img src={tidumWordmarkWhite} alt="Tidum" className="hidden h-10 w-auto dark:block" />
               <p className="mt-4 max-w-md text-sm leading-relaxed text-[var(--color-text-muted)]">
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
@@ -968,12 +979,12 @@ export default function LandingPage() {
             </div>
 
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Snarveier</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B] dark:text-[#8fa3a8]">Snarveier</p>
               <div className="mt-3 grid gap-2 text-sm">
                 <button
                   type="button"
                   onClick={scrollToFeatures}
-                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
                   Funksjoner
@@ -981,7 +992,7 @@ export default function LandingPage() {
                 <button
                   type="button"
                   onClick={scrollToHow}
-                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
                   Hvordan det fungerer
@@ -989,23 +1000,30 @@ export default function LandingPage() {
                 <button
                   type="button"
                   onClick={goToContact}
-                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
                   Be om demo
                 </button>
+                <Link
+                  href="/dashboard"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
+                >
+                  <LogIn className="h-4 w-4" />
+                  Logg inn
+                </Link>
               </div>
             </div>
 
             <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Trygghet</p>
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B] dark:text-[#8fa3a8]">Trygghet</p>
               <div className="mt-3 grid gap-2">
                 {[
                   "Bygget for norsk arbeidsliv",
                   "Personvern først",
                   "Klar for dokumentasjonskrav",
                 ].map((item) => (
-                  <div key={item} className="inline-flex items-start gap-2 rounded-lg bg-white/75 px-3 py-2 text-sm text-[#2B3C41]">
+                  <div key={item} className="inline-flex items-start gap-2 rounded-lg bg-white/75 dark:bg-[#141e21]/75 px-3 py-2 text-sm text-[#2B3C41] dark:text-[#b8ccd1]">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-secondary)]" />
                     <span>{item}</span>
                   </div>

@@ -46,7 +46,14 @@ interface AuthRequest extends Request {
   companyUser?: any;
 }
 
+const isDevMode = process.env.NODE_ENV !== 'production';
+
 function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  // DEV MODE: bypass auth
+  if (isDevMode) {
+    req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
+    return next();
+  }
   // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
@@ -70,6 +77,11 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
 
 // Middleware: require any authenticated user (session or JWT)
 function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  // DEV MODE: bypass auth
+  if (isDevMode) {
+    req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
+    return next();
+  }
   // Check session auth first
   if (req.isAuthenticated?.() && req.user) {
     return next();
