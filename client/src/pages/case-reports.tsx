@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { 
@@ -78,7 +78,65 @@ const statusLabels: Record<ReportStatus, string> = {
   rejected: "Avslått",
 };
 
+/* ── Lifecycle strip ────────────────────────────────────────── */
+const LIFECYCLE_STEPS = [
+  { key: "draft",     label: "Utkast" },
+  { key: "submitted", label: "Sendt inn" },
+  { key: "review",    label: "Gjennomgang" },
+  { key: "approved",  label: "Godkjent" },
+] as const;
 
+function statusToLifecycleStep(status: ReportStatus): string {
+  if (status === "needs_revision" || status === "rejected") return "review";
+  return status;
+}
+
+function ReportLifecycleStrip({ status }: { status: ReportStatus }) {
+  const currentKey = statusToLifecycleStep(status);
+  const currentIdx = LIFECYCLE_STEPS.findIndex((s) => s.key === currentKey);
+  const isReturned = status === "needs_revision" || status === "rejected";
+
+  return (
+    <div className="flex items-center gap-1 py-2 w-full overflow-x-auto" role="list" aria-label="Rapportstatus">
+      {LIFECYCLE_STEPS.map((step, i) => {
+        const isPast    = i < currentIdx;
+        const isCurrent = i === currentIdx;
+        return (
+          <React.Fragment key={step.key}>
+            {i > 0 && (
+              <div className={`h-0.5 flex-1 min-w-[16px] rounded ${isPast ? "bg-primary" : "bg-border"}`} />
+            )}
+            <div className="flex flex-col items-center gap-0.5 min-w-[56px]" role="listitem">
+              {isPast ? (
+                <CheckCircle2 className="h-5 w-5 text-primary" />
+              ) : (
+                <div
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+                    isCurrent
+                      ? isReturned
+                        ? "bg-orange-500 text-white"
+                        : "bg-primary text-primary-foreground"
+                      : "bg-muted text-muted-foreground"
+                  }`}
+                >
+                  {i + 1}
+                </div>
+              )}
+              <span className={`text-[10px] leading-tight text-center ${isCurrent ? "font-semibold" : "text-muted-foreground"}`}>
+                {step.label}
+              </span>
+              {isCurrent && (
+                <span className={`text-[9px] ${isReturned ? "text-orange-500" : "text-primary"}`}>
+                  {isReturned ? "Returnert" : "Du er her"}
+                </span>
+              )}
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
 
 type ReportComment = {
   id: number;
@@ -734,6 +792,10 @@ export default function CaseReportsPage() {
               <CardDescription>
                 {editingReport ? "Oppdater rapporten og lagre endringene." : "Fyll ut felene og lagre som utkast."}
               </CardDescription>
+              {/* Lifecycle strip */}
+              <div className="pt-2">
+                <ReportLifecycleStrip status={(editingReport?.status as ReportStatus) ?? "draft"} />
+              </div>
             </CardHeader>
             <CardContent>
               <form onSubmit={handleSave} className="space-y-4">
@@ -1086,6 +1148,9 @@ export default function CaseReportsPage() {
 
             {selectedFeedbackReport && (
               <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">
+                {/* Lifecycle strip */}
+                <ReportLifecycleStrip status={selectedFeedbackReport.status as ReportStatus} />
+
                 {/* Status badge */}
                 <div className="flex items-center gap-2">
                   <Badge className={statusColors[selectedFeedbackReport.status as ReportStatus] ?? ""}>
