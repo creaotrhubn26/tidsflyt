@@ -7,7 +7,7 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths,
 import { nb } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/components/theme-provider";
-import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, FolderKanban, Workflow } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, FolderKanban, Plus, Workflow } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type HeatmapData = {
@@ -267,12 +267,42 @@ export function CalendarHeatmap({
     ? ["#1E2C35", "#265865", "#2D7180", "#36889A", "#3EA3B5", "#51C2D0"]
     : ["#E8EFED", "#CFE3DC", "#AACDBF", "#7BB79F", "#4E9A6F", "#1F6B73"];
 
+  // Dynamic scale: compute max hours for the month, quantise into 5 buckets
+  const monthMaxHours = useMemo(() => {
+    let max = 0;
+    for (const day of monthDays) {
+      const h = heatmapHoursByDate.get(format(day, "yyyy-MM-dd")) ?? 0;
+      if (h > max) max = h;
+    }
+    return Math.max(max, 1); // avoid /0
+  }, [monthDays, heatmapHoursByDate]);
+
+  // Whether the entire month has any data
+  const monthHasData = useMemo(() => {
+    for (const day of monthDays) {
+      const k = format(day, "yyyy-MM-dd");
+      if ((heatmapHoursByDate.get(k) ?? 0) > 0) return true;
+      if ((entriesByDate.get(k) ?? []).length > 0) return true;
+      if ((activitiesByDate.get(k) ?? []).length > 0) return true;
+    }
+    return false;
+  }, [monthDays, heatmapHoursByDate, entriesByDate, activitiesByDate]);
+
+  const legendTicks = useMemo(() => {
+    const step = monthMaxHours / 5;
+    return Array.from({ length: 6 }, (_, i) => {
+      const val = Math.round(step * i * 10) / 10;
+      return val % 1 === 0 ? `${val}t` : `${val.toFixed(1)}t`;
+    });
+  }, [monthMaxHours]);
+
   const getIntensityColor = (hours: number) => {
     if (hours <= 0) return palette[0];
-    if (hours < 2) return palette[1];
-    if (hours < 4) return palette[2];
-    if (hours < 6) return palette[3];
-    if (hours < 8) return palette[4];
+    const ratio = hours / monthMaxHours;
+    if (ratio < 0.2) return palette[1];
+    if (ratio < 0.4) return palette[2];
+    if (ratio < 0.6) return palette[3];
+    if (ratio < 0.8) return palette[4];
     return palette[5];
   };
 
@@ -391,6 +421,9 @@ export function CalendarHeatmap({
           {monthDays.map((day) => {
             const dateStr = format(day, "yyyy-MM-dd");
             const dayHours = heatmapHoursByDate.get(dateStr) ?? 0;
+            const dayEntries = entriesByDate.get(dateStr) ?? [];
+            const dayEntryCount = dayEntries.length;
+            const dayCaseCount = new Set(dayEntries.map(e => e.caseNumber).filter(Boolean)).size;
             const isSelected = effectiveSelectedDate === dateStr;
             const isCurrentDay = isToday(day);
             const markers = markersByDate.get(dateStr) ?? [];
@@ -405,29 +438,45 @@ export function CalendarHeatmap({
                     onClick={() => onDateSelect(dateStr)}
                     className={cn(
                       "relative aspect-square rounded-md border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-1",
+                      isCurrentDay && !isSelected && "ring-2 ring-[#1F6B73]/40 border-[#1F6B73]/50",
                       isSelected
-                        ? "border-[#104c53] ring-2 ring-[#1F6B73]/30"
-                        : "border-[rgba(11,33,39,0.08)] hover:border-[#8bb5a5]",
+                        ? "border-[#104c53] ring-2 ring-[#1F6B73]/40 shadow-[inset_0_0_0_1.5px_rgba(31,107,115,0.3)]"
+                        : !isCurrentDay && "border-[rgba(11,33,39,0.08)] hover:border-[#8bb5a5]",
                     )}
                     style={{ backgroundColor: getIntensityColor(dayHours), color: getDayTextColor(dayHours) }}
                     data-testid={`heatmap-day-${dateStr}`}
                     aria-pressed={isSelected}
                   >
                     {format(day, "d")}
-                    {hasHoliday ? (
+                    {/* Holiday marker */}
+                    {hasHoliday && (
                       <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-[#E55B4C]" />
-                    ) : null}
-                    {hasVacation ? (
+                    )}
+                    {/* Vacation marker */}
+                    {hasVacation && (
                       <span className="absolute left-1 top-3.5 h-1.5 w-1.5 rounded-full bg-[#E3A93A]" />
-                    ) : null}
+                    )}
+                    {/* Today indicator */}
                     {isCurrentDay && (
-                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#F3F7F6]" />
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#1F6B73] dark:bg-[#51C2D0]" />
+                    )}
+                    {/* Entry count badge */}
+                    {dayEntryCount > 0 && (
+                      <span className="absolute bottom-0.5 right-0.5 flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[#1F6B73]/80 text-[7px] font-bold leading-none text-white px-0.5">
+                        {dayEntryCount}
+                      </span>
                     )}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent>
+                <TooltipContent className="space-y-0.5">
                   <p className="font-medium">{format(day, "d. MMMM", { locale: nb })}</p>
                   <p className="text-muted-foreground">{dayHours.toFixed(1)} timer</p>
+                  {dayEntryCount > 0 && (
+                    <p className="text-muted-foreground">{dayEntryCount} registrering{dayEntryCount !== 1 ? "er" : ""}</p>
+                  )}
+                  {dayCaseCount > 0 && (
+                    <p className="text-muted-foreground">{dayCaseCount} sak{dayCaseCount !== 1 ? "er" : ""}</p>
+                  )}
                   {markers.map((marker) => (
                     <p
                       key={`${dateStr}-${marker.label}`}
@@ -436,7 +485,7 @@ export function CalendarHeatmap({
                         marker.kind === "holiday" ? "text-[#B93B2D]" : "text-[#99660E]",
                       )}
                     >
-                      {marker.label}
+                      {marker.kind === "holiday" ? "● " : "● "}{marker.label}
                     </p>
                   ))}
                 </TooltipContent>
@@ -445,14 +494,46 @@ export function CalendarHeatmap({
           })}
         </motion.div>
 
-        <div className="mt-4 flex items-center justify-end gap-2">
-          <span className="text-xs text-[#6a7a7f] dark:text-muted-foreground">Mindre</span>
-          <div className="flex gap-1">
-            {palette.map((color) => (
-              <div key={color} className="h-3 w-3 rounded-sm border border-[rgba(11,33,39,0.07)]" style={{ backgroundColor: color }} />
-            ))}
+        {/* Empty month overlay */}
+        {!monthHasData && (
+          <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-[#c5d6d0] dark:border-border bg-[#f7faf9] dark:bg-muted/30 py-8 px-4 text-center">
+            <CalendarDays className="h-10 w-10 text-[#1F6B73]/30 mb-3" />
+            <p className="text-sm font-medium text-[#3a5761] dark:text-foreground mb-1">Ingen data denne måneden</p>
+            <p className="text-xs text-[#6a7a7f] dark:text-muted-foreground mb-3">Start med å registrere timer eller opprett en sak.</p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-lg border-[#cadad4] dark:border-border text-[#1F6B73]"
+              onClick={() => onDateSelect(format(monthStart, "yyyy-MM-dd"))}
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Registrer første time
+            </Button>
           </div>
-          <span className="text-xs text-[#6a7a7f] dark:text-muted-foreground">Mer</span>
+        )}
+
+        {/* Legend */}
+        <div className="mt-4 flex flex-col gap-2">
+          {/* Color scale with tick labels */}
+          <div className="flex items-end justify-end gap-0">
+            <span className="text-[10px] text-[#6a7a7f] dark:text-muted-foreground mr-1.5">Mindre</span>
+            <div className="flex">
+              {palette.map((color, i) => (
+                <div key={color} className="flex flex-col items-center">
+                  <div className="h-3 w-5 border border-[rgba(11,33,39,0.07)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '3px 0 0 3px' : i === palette.length - 1 ? '0 3px 3px 0' : 0 }} />
+                  <span className="text-[8px] leading-tight mt-0.5 text-[#8a9a9e] dark:text-muted-foreground">{legendTicks[i]}</span>
+                </div>
+              ))}
+            </div>
+            <span className="text-[10px] text-[#6a7a7f] dark:text-muted-foreground ml-1.5">Mer</span>
+          </div>
+          {/* Marker key */}
+          <div className="flex items-center justify-end gap-3 text-[10px] text-[#6a7a7f] dark:text-muted-foreground">
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#E55B4C]" />Helligdag</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#E3A93A]" />Ferie</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#1F6B73] dark:bg-[#51C2D0]" />I dag</span>
+            <span className="inline-flex items-center gap-1"><span className="flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[#1F6B73]/80 text-[7px] font-bold text-white px-0.5">2</span>Antall</span>
+          </div>
         </div>
 
         <div className="mt-5 rounded-xl border border-[#d3dfdb] dark:border-border bg-white/85 dark:bg-card p-4">
