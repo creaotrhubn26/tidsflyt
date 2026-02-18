@@ -119,6 +119,25 @@
   --hm-palette-3: #6EB1BE;
   --hm-palette-4: #3E95A3;
   --hm-palette-5: #1F6B73;
+
+  /* ── ActivityFeed design tokens ── */
+  --af-accent: #1F6B73;
+  --af-accent-fg: #ffffff;
+  --af-surface: rgba(255,255,255,0.95);
+  --af-border: #d8e4e0;
+  --af-text: #24383e;
+  --af-text-muted: #5d6d72;
+  --af-unread-bg: #f6fbfa;
+  --af-stamp-bg: rgba(31,107,115,0.1);
+  --af-stamp-fg: #1F6B73;
+  --af-stamp-ring: rgba(31,107,115,0.1);
+  --af-info-bg: rgba(14,165,233,0.1);
+  --af-info-fg: #0ea5e9;
+  --af-info-ring: rgba(14,165,233,0.1);
+  --af-empty-icon: 0.2;
+  --af-row-hover: rgba(255,255,255,0.8);
+  --af-filter-active-bg: #1F6B73;
+  --af-filter-active-fg: #ffffff;
 }
 
 .dark {
@@ -167,6 +186,26 @@
   --warning-foreground: 0 0% 100%;
   --info: 199 89% 48%;
   --info-foreground: 0 0% 100%;
+
+  /* ── ActivityFeed dark tokens ── */
+  --af-accent: #51C2D0;
+  --af-accent-fg: #0e1a1f;
+  --af-surface: rgba(15,25,30,0.95);
+  --af-border: hsl(222 40% 18%);
+  --af-text: hsl(210 20% 92%);
+  --af-text-muted: hsl(215 20% 75%);
+  --af-unread-bg: #0f1f25;
+  --af-stamp-bg: rgba(81,194,208,0.1);
+  --af-stamp-fg: #51C2D0;
+  --af-stamp-ring: rgba(81,194,208,0.1);
+  --af-info-bg: rgba(56,189,248,0.1);
+  --af-info-fg: #38bdf8;
+  --af-info-ring: rgba(56,189,248,0.1);
+  --af-empty-icon: 0.2;
+  --af-row-hover: hsl(222 47% 14%);
+  --af-filter-active-bg: #51C2D0;
+  --af-filter-active-fg: #0e1a1f;
+
   --shadow-2xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-xs: 0px 2px 0px 0px hsl(0 0% 0% / 0.00);
   --shadow-sm: 0px 2px 0px 0px hsl(0 0% 0% / 0.00), 0px 1px 2px -1px hsl(0 0% 0% / 0.00);
