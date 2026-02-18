@@ -6,8 +6,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   FileText,
-  Calendar,
-  Users,
   Activity,
   BarChart3,
   Zap,
@@ -20,9 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
-  ChartContainer,
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
@@ -45,6 +41,15 @@ const statusColors = {
   needs_revision: "#f97316",
   approved: "#22c55e",
   rejected: "#ef4444",
+};
+
+const statusBgClass: Record<string, string> = {
+  draft: "bg-[#94a3b8]",
+  pending: "bg-[#eab308]",
+  submitted: "bg-[#3b82f6]",
+  needs_revision: "bg-[#f97316]",
+  approved: "bg-[#22c55e]",
+  rejected: "bg-[#ef4444]",
 };
 
 const statusLabels = {
@@ -615,8 +620,7 @@ export function CaseAnalyticsDashboard({
                   onClick={() => onFilterByStatus?.(item.status)}
                 >
                   <div
-                    className="h-2 w-2 rounded-full"
-                    style={{ backgroundColor: item.color }}
+                    className={`h-2 w-2 rounded-full ${statusBgClass[item.status] || "bg-[#64748b]"}`}
                   />
                   {item.label}: {item.count}
                 </Badge>

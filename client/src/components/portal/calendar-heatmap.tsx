@@ -144,13 +144,13 @@ function vacationMarkersForDate(date: Date): CalendarMarker[] {
 function getStatusTone(status: string) {
   switch (status) {
     case "approved":
-      return "bg-[#E8F5EE] text-[#1E6D55] border-[#C4E4D3]";
+      return "bg-[#E8F5EE] text-[#1E6D55] border-[#C4E4D3] dark:bg-emerald-900/30 dark:text-emerald-300 dark:border-emerald-700";
     case "pending":
-      return "bg-[#FDF4E7] text-[#9D6A18] border-[#F3D8A6]";
+      return "bg-[#FDF4E7] text-[#9D6A18] border-[#F3D8A6] dark:bg-amber-900/30 dark:text-amber-300 dark:border-amber-700";
     case "rejected":
-      return "bg-[#FCE9E8] text-[#A2463F] border-[#F1C2BF]";
+      return "bg-[#FCE9E8] text-[#A2463F] border-[#F1C2BF] dark:bg-red-900/30 dark:text-red-300 dark:border-red-700";
     default:
-      return "bg-[#EEF4F2] text-[#50656C] border-[#D4E1DD]";
+      return "bg-[#EEF4F2] text-[#50656C] border-[#D4E1DD] dark:bg-muted dark:text-muted-foreground dark:border-border";
   }
 }
 
@@ -289,16 +289,16 @@ export function CalendarHeatmap({
 
   return (
     <Card
-      className="rounded-2xl border-[#d8e4e0] bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] shadow-[0_12px_30px_rgba(20,58,65,0.07)]"
+      className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
       data-testid="calendar-heatmap"
     >
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <CardTitle className="text-2xl font-semibold tracking-tight text-[#153c46]">
+            <CardTitle className="text-2xl font-semibold tracking-tight text-[#153c46] dark:text-foreground">
               {title}
             </CardTitle>
-            <p className="mt-1 text-sm text-[#53686f]">
+            <p className="mt-1 text-sm text-[#53686f] dark:text-muted-foreground">
               Klikk på en dag for å se registreringer og hendelser
             </p>
           </div>
@@ -308,14 +308,14 @@ export function CalendarHeatmap({
               type="button"
               size="icon"
               variant="outline"
-              className="h-9 w-9 rounded-lg border-[#cadad4] bg-white text-[#335159] hover:bg-[#f0f5f3]"
+              className="h-9 w-9 rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
               onClick={() => onMonthChange(addMonths(monthStart, -1))}
               data-testid="heatmap-month-prev"
               disabled={isRefreshing}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="min-w-[142px] rounded-lg border border-[#d2dfdb] bg-[#eef4f2] px-3 py-1.5 text-center text-sm font-semibold text-[#1f414a]">
+            <div className="min-w-[142px] rounded-lg border border-[#d2dfdb] dark:border-border bg-[#eef4f2] dark:bg-muted px-3 py-1.5 text-center text-sm font-semibold text-[#1f414a] dark:text-foreground">
               <motion.span
                 key={monthKey}
                 initial={reduceMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: monthDirection >= 0 ? 8 : -8 }}
@@ -330,7 +330,7 @@ export function CalendarHeatmap({
               type="button"
               size="icon"
               variant="outline"
-              className="h-9 w-9 rounded-lg border-[#cadad4] bg-white text-[#335159] hover:bg-[#f0f5f3]"
+              className="h-9 w-9 rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
               onClick={() => onMonthChange(addMonths(monthStart, 1))}
               data-testid="heatmap-month-next"
               disabled={isRefreshing}
@@ -341,7 +341,7 @@ export function CalendarHeatmap({
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-lg border-[#cadad4] bg-white text-[#335159] hover:bg-[#f0f5f3]"
+              className="rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
               onClick={() => {
                 const now = new Date();
                 onMonthChange(startOfMonth(now));
@@ -359,7 +359,7 @@ export function CalendarHeatmap({
                   animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
                   exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -3 }}
                   transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  className="hidden rounded-full border border-[#cde0d9] bg-[#f5faf8] px-2.5 py-1 text-[11px] font-medium text-[#2f555e] md:inline-flex md:items-center md:gap-1.5"
+                  className="hidden rounded-full border border-[#cde0d9] dark:border-border bg-[#f5faf8] dark:bg-muted px-2.5 py-1 text-[11px] font-medium text-[#2f555e] dark:text-muted-foreground md:inline-flex md:items-center md:gap-1.5"
                 >
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1F6B73]" />
                   Oppdaterer
@@ -446,16 +446,16 @@ export function CalendarHeatmap({
         </motion.div>
 
         <div className="mt-4 flex items-center justify-end gap-2">
-          <span className="text-xs text-[#6a7a7f]">Mindre</span>
+          <span className="text-xs text-[#6a7a7f] dark:text-muted-foreground">Mindre</span>
           <div className="flex gap-1">
             {palette.map((color) => (
               <div key={color} className="h-3 w-3 rounded-sm border border-[rgba(11,33,39,0.07)]" style={{ backgroundColor: color }} />
             ))}
           </div>
-          <span className="text-xs text-[#6a7a7f]">Mer</span>
+          <span className="text-xs text-[#6a7a7f] dark:text-muted-foreground">Mer</span>
         </div>
 
-        <div className="mt-5 rounded-xl border border-[#d3dfdb] bg-white/85 p-4">
+        <div className="mt-5 rounded-xl border border-[#d3dfdb] dark:border-border bg-white/85 dark:bg-card p-4">
           <AnimatePresence initial={false} mode="wait">
             <motion.div
               key={effectiveSelectedDate}
@@ -468,7 +468,7 @@ export function CalendarHeatmap({
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-[#1F6B73]" />
-                  <h4 className="text-base font-semibold capitalize text-[#1b3d46]">{selectedDateLabel}</h4>
+                  <h4 className="text-base font-semibold capitalize text-[#1b3d46] dark:text-foreground">{selectedDateLabel}</h4>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   {selectedMarkers.map((marker) => (
@@ -477,56 +477,56 @@ export function CalendarHeatmap({
                       className={cn(
                         "border",
                         marker.kind === "holiday"
-                          ? "border-[#f2c4bf] bg-[#fdeceb] text-[#ab4036]"
-                          : "border-[#f2ddb4] bg-[#fdf5e8] text-[#9e6a18]",
+                          ? "border-[#f2c4bf] bg-[#fdeceb] text-[#ab4036] dark:border-red-700 dark:bg-red-900/30 dark:text-red-300"
+                          : "border-[#f2ddb4] bg-[#fdf5e8] text-[#9e6a18] dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
                       )}
                     >
                       {marker.label}
                     </Badge>
                   ))}
-                  <Badge className="border border-[#cbe0d8] bg-[#edf7f3] text-[#1f6b73]">
+                  <Badge className="border border-[#cbe0d8] bg-[#edf7f3] text-[#1f6b73] dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
                     {selectedHours.toFixed(1)} timer totalt
                   </Badge>
                 </div>
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-                <div className="rounded-lg border border-[#d7e3df] bg-[#f4f8f7] px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479]">Registreringer</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a]">{selectedEntries.length}</p>
+                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Registreringer</p>
+                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{selectedEntries.length}</p>
                 </div>
-                <div className="rounded-lg border border-[#d7e3df] bg-[#f4f8f7] px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479]">Godkjent</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a]">{approvedCount}</p>
+                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Godkjent</p>
+                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{approvedCount}</p>
                 </div>
-                <div className="rounded-lg border border-[#d7e3df] bg-[#f4f8f7] px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479]">Venter</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a]">{pendingCount}</p>
+                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Venter</p>
+                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{pendingCount}</p>
                 </div>
-                <div className="rounded-lg border border-[#d7e3df] bg-[#f4f8f7] px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479]">Saker</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a]">{uniqueCases.length}</p>
+                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Saker</p>
+                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{uniqueCases.length}</p>
                 </div>
               </div>
 
               <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-[#d9e4e1] bg-white p-3">
+                <div className="rounded-lg border border-[#d9e4e1] dark:border-border bg-white dark:bg-card p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <ClipboardList className="h-4 w-4 text-[#1F6B73]" />
-                    <h5 className="text-sm font-semibold text-[#21414a]">Dagens registreringer</h5>
+                    <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Dagens registreringer</h5>
                   </div>
                   {selectedEntries.length === 0 ? (
-                    <p className="text-sm text-[#5f7277]">Ingen registreringer denne dagen.</p>
+                    <p className="text-sm text-[#5f7277] dark:text-muted-foreground">Ingen registreringer denne dagen.</p>
                   ) : (
                     <div className="space-y-2">
                       {selectedEntries.slice(0, 6).map((entry) => (
-                        <div key={entry.id} className="rounded-md border border-[#e1e9e6] bg-[#fafcfb] p-2.5">
+                        <div key={entry.id} className="rounded-md border border-[#e1e9e6] dark:border-border bg-[#fafcfb] dark:bg-muted p-2.5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-[#213d45]">{entry.description}</p>
+                              <p className="truncate text-sm font-medium text-[#213d45] dark:text-foreground">{entry.description}</p>
                               <div className="mt-1 flex flex-wrap items-center gap-1.5">
                                 {entry.caseNumber ? (
-                                  <Badge variant="outline" className="border-[#d2dfdb] bg-white text-[#48626a]">
+                                  <Badge variant="outline" className="border-[#d2dfdb] dark:border-border bg-white dark:bg-card text-[#48626a] dark:text-muted-foreground">
                                     <FolderKanban className="mr-1 h-3 w-3" />
                                     {entry.caseNumber}
                                   </Badge>
@@ -542,8 +542,8 @@ export function CalendarHeatmap({
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-sm font-semibold text-[#13434d]">{entry.hours.toFixed(1)}t</p>
-                              <p className="text-xs text-[#5f7277]">{format(new Date(entry.createdAt), "HH:mm", { locale: nb })}</p>
+                              <p className="text-sm font-semibold text-[#13434d] dark:text-foreground">{entry.hours.toFixed(1)}t</p>
+                              <p className="text-xs text-[#5f7277] dark:text-muted-foreground">{format(new Date(entry.createdAt), "HH:mm", { locale: nb })}</p>
                             </div>
                           </div>
                         </div>
@@ -552,23 +552,23 @@ export function CalendarHeatmap({
                   )}
                 </div>
 
-                <div className="rounded-lg border border-[#d9e4e1] bg-white p-3">
+                <div className="rounded-lg border border-[#d9e4e1] dark:border-border bg-white dark:bg-card p-3">
                   <div className="mb-2 flex items-center gap-2">
                     <Workflow className="h-4 w-4 text-[#1F6B73]" />
-                    <h5 className="text-sm font-semibold text-[#21414a]">Hendelser</h5>
+                    <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Hendelser</h5>
                   </div>
                   {selectedActivities.length === 0 ? (
-                    <p className="text-sm text-[#5f7277]">Ingen hendelser denne dagen.</p>
+                    <p className="text-sm text-[#5f7277] dark:text-muted-foreground">Ingen hendelser denne dagen.</p>
                   ) : (
                     <div className="space-y-2">
                       {selectedActivities.slice(0, 6).map((activity) => (
-                        <div key={activity.id} className="rounded-md border border-[#e1e9e6] bg-[#fafcfb] p-2.5">
+                        <div key={activity.id} className="rounded-md border border-[#e1e9e6] dark:border-border bg-[#fafcfb] dark:bg-muted p-2.5">
                           <div className="flex items-start justify-between gap-2">
                             <div className="min-w-0">
-                              <p className="text-sm text-[#213d45]">{activity.message}</p>
-                              <p className="mt-0.5 truncate text-xs text-[#5f7277]">{activity.user ?? "Ukjent bruker"}</p>
+                              <p className="text-sm text-[#213d45] dark:text-foreground">{activity.message}</p>
+                              <p className="mt-0.5 truncate text-xs text-[#5f7277] dark:text-muted-foreground">{activity.user ?? "Ukjent bruker"}</p>
                             </div>
-                            <div className="inline-flex items-center gap-1 text-xs text-[#4f666d]">
+                            <div className="inline-flex items-center gap-1 text-xs text-[#4f666d] dark:text-muted-foreground">
                               <Clock3 className="h-3 w-3" />
                               {format(new Date(activity.timestamp), "HH:mm", { locale: nb })}
                             </div>

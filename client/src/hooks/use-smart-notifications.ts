@@ -1,5 +1,5 @@
 import { useToast } from "@/hooks/use-toast";
-import { type ReactNode, useCallback, useRef } from "react";
+import { useCallback, useRef } from "react";
 import type { ToastActionElement } from "@/components/ui/toast";
 
 export type NotificationPriority = "info" | "success" | "warning" | "error" | "urgent";

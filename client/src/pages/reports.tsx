@@ -13,7 +13,6 @@ import {
   Users,
   BarChart3,
   Calendar,
-  Edit3,
   Bell,
   ArrowUpRight,
   ArrowDownRight,
@@ -84,7 +83,7 @@ export default function ReportsPage() {
     ? format(subDays(new Date(), 7), "yyyy-MM-dd")
     : format(subDays(new Date(), 30), "yyyy-MM-dd");
 
-  const { data: reports = [], isLoading, refetch } = useQuery<ReportEntry[]>({
+  const { data: reports = [], isLoading } = useQuery<ReportEntry[]>({
     queryKey: ["/api/reports", { 
       startDate, 
       status: statusFilter === "all" ? "" : statusFilter 
@@ -146,7 +145,7 @@ export default function ReportsPage() {
         user,
         hours: data.hours,
         approvals: data.approvals,
-        approvalRate: data.approvals > 0 ? ((data.approvals / (Object.values(stats)[0]?.approvals || 1)) * 100) : 0,
+        approvalRate: total > 0 ? ((data.approvals / total) * 100) : 0,
       }));
   }, [filteredReports]);
 
@@ -277,6 +276,9 @@ export default function ReportsPage() {
                 <div>
                   <p className="text-sm text-muted-foreground">Snitt per ansatt</p>
                   <p className="text-2xl font-bold">{avgHours.toFixed(1)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {users.length} registrerte brukere
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -372,7 +374,7 @@ export default function ReportsPage() {
                 <CardContent className="space-y-3">
                   {userStats.length > 0 ? (
                     userStats.map((user, idx) => (
-                      <div key={user.user} className="flex items-center justify-between p-2 rounded-lg bg-white/50 hover:bg-white/80 transition">
+                      <div key={user.user} className="flex items-center justify-between p-2 rounded-lg bg-white/50 dark:bg-card/50 hover:bg-white/80 dark:hover:bg-card/80 transition">
                         <div>
                           <p className="text-sm font-medium">{idx + 1}. {user.user}</p>
                           <p className="text-xs text-muted-foreground">{user.approvals} godkjente</p>
@@ -398,11 +400,11 @@ export default function ReportsPage() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <div className="p-4 rounded-lg bg-white/60">
+                  <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60">
                     <p className="text-sm text-muted-foreground mb-2">Denne uken</p>
                     <p className="text-3xl font-bold font-mono">{trends.currentWeekTotal.toFixed(1)}t</p>
                   </div>
-                  <div className="p-4 rounded-lg bg-white/60">
+                  <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60">
                     <p className="text-sm text-muted-foreground mb-2">Forrige uke</p>
                     <p className="text-3xl font-bold font-mono">{trends.previousWeekTotal.toFixed(1)}t</p>
                   </div>
@@ -420,6 +422,37 @@ export default function ReportsPage() {
                 </div>
               </CardContent>
             </Card>
+
+            {stats && (
+              <Card className="bg-gradient-to-br from-slate-50 to-slate-100/30 border-slate-200/60">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BarChart3 className="h-5 w-5" />
+                    Nøkkeltall fra systemet
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 text-center">
+                      <p className="text-sm text-muted-foreground mb-1">Totalt timer</p>
+                      <p className="text-2xl font-bold font-mono">{stats.totalHours?.toFixed(1) ?? "–"}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 text-center">
+                      <p className="text-sm text-muted-foreground mb-1">Aktive brukere</p>
+                      <p className="text-2xl font-bold font-mono">{stats.activeUsers ?? "–"}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 text-center">
+                      <p className="text-sm text-muted-foreground mb-1">Ventende godkj.</p>
+                      <p className="text-2xl font-bold font-mono">{stats.pendingApprovals ?? "–"}</p>
+                    </div>
+                    <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 text-center">
+                      <p className="text-sm text-muted-foreground mb-1">Saker denne uken</p>
+                      <p className="text-2xl font-bold font-mono">{stats.casesThisWeek ?? "–"}</p>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           {/* SCHEDULE TAB */}
@@ -432,7 +465,7 @@ export default function ReportsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="p-4 rounded-lg bg-white/60 space-y-3">
+                <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 space-y-3">
                   <div>
                     <label className="text-sm font-medium">Rapporttype</label>
                     <Select>
@@ -554,7 +587,13 @@ export default function ReportsPage() {
                       </TableRow>
                     ) : (
                       filteredReports.map((report) => (
-                        <TableRow key={report.id} data-testid={`report-row-${report.id}`}>
+                        <TableRow
+                          key={report.id}
+                          data-testid={`report-row-${report.id}`}
+                          className={cn(selectedReportForAction === report.id && "bg-primary/5 ring-1 ring-primary/20")}
+                          onClick={() => setSelectedReportForAction(selectedReportForAction === report.id ? null : report.id)}
+                          style={{ cursor: "pointer" }}
+                        >
                           <TableCell className="font-medium">{report.userName}</TableCell>
                           <TableCell className="text-muted-foreground">{report.department}</TableCell>
                           <TableCell>

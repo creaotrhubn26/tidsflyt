@@ -17,13 +17,13 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { 
   ChevronRight, ChevronDown, Eye, EyeOff, Minus, Plus, Monitor, Tablet, Smartphone,
-  Save, ExternalLink, Loader2, ArrowLeft, Type, Image, Box, Layers, 
-  LayoutTemplate, Star, Users, Zap, MessageSquare, Building2, Phone, Mail,
+  Save, Loader2, ArrowLeft, Type, Box, Layers, 
+  Star, Users, Zap, MessageSquare, Building2, Phone, Mail,
   Home, Sparkles, Clock, Shield, TrendingUp, CheckCircle, Heart, Calendar,
   Globe, MapPin, Send, Rocket, Award, Target, Briefcase, Settings, Grid3X3,
   Undo2, Redo2, Palette, AlignLeft, AlignCenter, AlignRight, Bold, Italic,
-  Search, FileText, Link2, ImageIcon, Trash2, Copy, GripVertical, PlusCircle,
-  Database, Edit, Archive,
+  Search, FileText, Link2, ImageIcon, Trash2, GripVertical, PlusCircle,
+  Database,
   type LucideIcon
 } from "lucide-react";
 
@@ -196,8 +196,6 @@ const fontSizes = [
   { label: '3XL', value: '1.875rem' },
   { label: '4XL', value: '2.25rem' },
 ];
-
-const spacingValues = [0, 4, 8, 12, 16, 20, 24, 32, 40, 48, 64];
 
 interface LayerItemProps {
   label: string;
@@ -2122,36 +2120,90 @@ interface MediaFile {
 function MediaLibraryPanel() {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadInfo, setUploadInfo] = useState<{ savings?: number; format?: string } | null>(null);
 
   const { data: files = [], isLoading } = useQuery<MediaFile[]>({
     queryKey: ['/api/cms/media'],
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
-      const formData = new FormData();
-      formData.append('file', file);
-      
-      const token = sessionStorage.getItem('admin_token');
-      const response = await fetch('/api/cms/media', {
-        method: 'POST',
-        headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error('Upload failed');
+  const [isUploading, setIsUploading] = useState(false);
+
+  const handleUploadFile = async (file: File) => {
+    // Validate file size (10MB max)
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'For stor fil', description: 'Maks 10 MB per fil.', variant: 'destructive' });
+      return;
+    }
+
+    // Validate dimensions for non-SVG images
+    if (file.type.startsWith('image/') && !file.type.includes('svg')) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const img = document.createElement('img');
+          img.onload = () => {
+            URL.revokeObjectURL(img.src);
+            if (img.width > 4096 || img.height > 4096) {
+              toast({ title: 'Stor dimensjon', description: `${img.width}×${img.height} — vil bli skalert ned automatisk.` });
+            }
+            resolve();
+          };
+          img.onerror = () => { URL.revokeObjectURL(img.src); reject(new Error('Ugyldig bilde')); };
+          img.src = URL.createObjectURL(file);
+        });
+      } catch {
+        toast({ title: 'Ugyldig fil', description: 'Kunne ikke lese bildet.', variant: 'destructive' });
+        return;
       }
-      return response.json();
-    },
-    onSuccess: () => {
-      toast({ title: 'Lastet opp', description: 'Filen er lastet opp.' });
+    }
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    setIsUploading(true);
+    setUploadProgress(0);
+    setUploadInfo(null);
+
+    try {
+      const token = getAdminToken();
+
+      const data = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/cms/upload');
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        xhr.onload = () => {
+          try {
+            const result = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) resolve(result);
+            else reject(new Error(result.error || 'Opplasting feilet'));
+          } catch { reject(new Error('Ugyldig svar')); }
+        };
+        xhr.onerror = () => reject(new Error('Nettverksfeil'));
+        xhr.send(formData);
+      });
+
+      if (data.url) {
+        setUploadInfo({ savings: data.savings, format: data.format });
+        const desc = data.optimized 
+          ? `${data.format?.toUpperCase()}, ${data.savings}% spart`
+          : 'Lastet opp.';
+        toast({ title: 'Lastet opp', description: desc });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/cms/media'] });
-    },
-    onError: () => {
-      toast({ title: 'Feil', description: 'Kunne ikke laste opp filen.', variant: 'destructive' });
-    },
-  });
+    } catch (err: any) {
+      toast({ title: 'Feil', description: err.message || 'Opplasting feilet.', variant: 'destructive' });
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
 
   const deleteMutation = useMutation({
     mutationFn: (id: number) => authenticatedApiRequest(`/api/cms/media/${id}`, { method: 'DELETE' }),
@@ -2168,7 +2220,7 @@ function MediaLibraryPanel() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      uploadMutation.mutate(file);
+      handleUploadFile(file);
     }
   };
 
@@ -2183,11 +2235,31 @@ function MediaLibraryPanel() {
         data-testid="input-file-upload"
       />
       <div className="flex items-center gap-2">
-        <Button onClick={handleUpload} disabled={uploadMutation.isPending} data-testid="button-upload-media">
-          {uploadMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
+        <Button onClick={handleUpload} disabled={isUploading} data-testid="button-upload-media">
+          {isUploading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Plus className="h-4 w-4 mr-2" />}
           Last opp
         </Button>
       </div>
+
+      {/* Upload Progress */}
+      {isUploading && (
+        <div className="space-y-1" data-testid="upload-progress">
+          <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>
+        </div>
+      )}
+
+      {/* Optimization Info */}
+      {uploadInfo && !isUploading && (
+        <p className="text-xs text-muted-foreground">
+          Siste opplasting: {uploadInfo.format?.toUpperCase()}{uploadInfo.savings ? ` · ${uploadInfo.savings}% spart` : ''}
+        </p>
+      )}
 
       {isLoading ? (
         <div className="flex items-center justify-center py-8">
@@ -2556,43 +2628,100 @@ interface ActivityLogItem {
 function VersionsPanel() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<'versions' | 'activity'>('versions');
+  const [selectedType, setSelectedType] = useState<string>('all');
+  const [confirmRestore, setConfirmRestore] = useState<{ id: number; label: string; version: number } | null>(null);
+  const [previewData, setPreviewData] = useState<any>(null);
   
   const { data: activityLog = [], isLoading: activityLoading } = useQuery<ActivityLogItem[]>({
     queryKey: ['/api/cms/activity-log'],
     enabled: activeTab === 'activity',
   });
 
-  const versions = [
-    { id: 1, type: 'Hero', date: '2024-01-20 14:32', user: 'Admin' },
-    { id: 2, type: 'Funksjoner', date: '2024-01-20 12:15', user: 'Admin' },
-    { id: 3, type: 'Design', date: '2024-01-19 16:45', user: 'Admin' },
-  ];
+  const { data: versions = [], isLoading: versionsLoading } = useQuery<any[]>({
+    queryKey: ['/api/cms/versions', selectedType],
+    queryFn: async () => {
+      const url = selectedType === 'all'
+        ? '/api/cms/versions?limit=50'
+        : `/api/cms/versions?content_type=${selectedType}&limit=50`;
+      return authenticatedApiRequest(url);
+    },
+    enabled: activeTab === 'versions',
+  });
+
+  const restoreMutation = useMutation({
+    mutationFn: async (versionId: number) => {
+      return authenticatedApiRequest(`/api/cms/versions/${versionId}/restore`, { method: 'POST' });
+    },
+    onSuccess: () => {
+      toast({ title: 'Gjenopprettet', description: 'Versjonen ble gjenopprettet.' });
+      queryClient.invalidateQueries({ predicate: (q) =>
+        Array.isArray(q.queryKey) && typeof q.queryKey[0] === 'string' && q.queryKey[0].startsWith('/api/cms')
+      });
+      setConfirmRestore(null);
+      setPreviewData(null);
+    },
+    onError: (error: Error) => {
+      toast({ title: 'Feil', description: error.message || 'Gjenoppretting feilet.', variant: 'destructive' });
+    },
+  });
+
+  const handlePreview = async (versionId: number) => {
+    try {
+      const full = await authenticatedApiRequest(`/api/cms/versions/${versionId}`);
+      setPreviewData(previewData?.id === versionId ? null : full);
+    } catch {
+      toast({ title: 'Feil', description: 'Kunne ikke laste versjon.', variant: 'destructive' });
+    }
+  };
+
+  const contentTypeLabels: Record<string, string> = {
+    hero: 'Hero', sections: 'Seksjoner', feature: 'Funksjon', testimonial: 'Referanse',
+    design_tokens: 'Design', seo: 'SEO', blog_post: 'Blogg', navigation: 'Navigasjon',
+    form: 'Skjema', cms_publish: 'Publisering', cms_pages: 'Sider', portal_settings: 'Portal',
+  };
 
   const getActionLabel = (action: string) => {
     const labels: Record<string, string> = {
-      'create': 'Opprettet',
-      'update': 'Oppdatert',
-      'delete': 'Slettet',
-      'publish': 'Publisert',
-      'unpublish': 'Avpublisert',
-      'archive': 'Arkivert',
-      'restore': 'Gjenopprettet',
+      'create': 'Opprettet', 'update': 'Oppdatert', 'delete': 'Slettet',
+      'publish': 'Publisert', 'unpublish': 'Avpublisert', 'archive': 'Arkivert', 'restore': 'Gjenopprettet',
     };
     return labels[action] || action;
   };
 
   const getResourceLabel = (type: string) => {
     const labels: Record<string, string> = {
-      'content_type': 'Innholdstype',
-      'content_entry': 'Innhold',
-      'field': 'Felt',
-      'media': 'Media',
+      'content_type': 'Innholdstype', 'content_entry': 'Innhold', 'field': 'Felt', 'media': 'Media',
     };
     return labels[type] || type;
   };
 
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleString('nb-NO', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    });
+  };
+
   return (
     <div className="h-full flex flex-col">
+      {/* Restore Confirmation Dialog */}
+      {confirmRestore && (
+        <div className="absolute inset-0 z-50 bg-background/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-background border rounded-lg p-4 max-w-sm w-full shadow-lg space-y-3">
+            <h4 className="font-medium text-sm">Bekreft gjenoppretting</h4>
+            <p className="text-sm text-muted-foreground">
+              Er du sikker på at du vil gjenopprette <strong>{confirmRestore.label}</strong> til versjon {confirmRestore.version}? Nåværende tilstand lagres automatisk som en ny versjon.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="outline" onClick={() => setConfirmRestore(null)}>Avbryt</Button>
+              <Button size="sm" onClick={() => restoreMutation.mutate(confirmRestore.id)} disabled={restoreMutation.isPending}>
+                {restoreMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1" /> : null}
+                Gjenopprett
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'versions' | 'activity')} className="flex-1 flex flex-col">
         <TabsList className="w-full rounded-none border-b bg-transparent h-10 p-0 shrink-0">
           <TabsTrigger value="versions" className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary text-xs">
@@ -2603,21 +2732,109 @@ function VersionsPanel() {
           </TabsTrigger>
         </TabsList>
         
-        <TabsContent value="versions" className="flex-1 m-0 p-4 space-y-4">
+        <TabsContent value="versions" className="flex-1 m-0 p-4 space-y-3">
           <p className="text-sm text-muted-foreground">Se og gjenopprett tidligere versjoner.</p>
-          <div className="space-y-2">
-            {versions.map((version) => (
-              <div key={version.id} className="flex items-center justify-between gap-4 p-3 border rounded-md" data-testid={`version-item-${version.id}`}>
-                <div>
-                  <p className="font-medium text-sm">{version.type}</p>
-                  <p className="text-xs text-muted-foreground">{version.date} av {version.user}</p>
-                </div>
-                <Button size="sm" variant="outline" onClick={() => toast({ title: 'Gjenopprettet', description: `${version.type} er gjenopprettet` })} data-testid={`button-restore-${version.id}`}>
-                  Gjenopprett
-                </Button>
+          
+          <select
+            value={selectedType}
+            onChange={(e) => setSelectedType(e.target.value)}
+            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs"
+            aria-label="Filtrer versjonstype"
+            data-testid="select-version-type-filter"
+          >
+            <option value="all">Alle typer</option>
+            <option value="hero">Hero</option>
+            <option value="sections">Seksjoner</option>
+            <option value="feature">Funksjoner</option>
+            <option value="testimonial">Referanser</option>
+            <option value="design_tokens">Design</option>
+            <option value="seo">SEO</option>
+            <option value="blog_post">Blogg</option>
+            <option value="navigation">Navigasjon</option>
+            <option value="cms_pages">Sider</option>
+          </select>
+
+          {/* Version Preview Panel */}
+          {previewData && (
+            <div className="p-3 border-2 border-primary/30 rounded-md bg-primary/5 space-y-2">
+              <div className="flex items-center justify-between">
+                <Badge variant="secondary" className="text-xs">
+                  v{previewData.version_number} — {contentTypeLabels[previewData.content_type] || previewData.content_type}
+                </Badge>
+                <Button size="sm" variant="ghost" className="h-6 px-2 text-xs" onClick={() => setPreviewData(null)}>✕</Button>
               </div>
-            ))}
-          </div>
+              <p className="text-xs text-muted-foreground">
+                {previewData.change_description || 'Ingen beskrivelse'}
+              </p>
+              <div className="max-h-32 overflow-y-auto text-xs bg-muted/50 rounded p-2">
+                <pre className="whitespace-pre-wrap break-all text-[10px]">
+                  {JSON.stringify(typeof previewData.data === 'string' ? JSON.parse(previewData.data) : previewData.data, null, 2).slice(0, 500)}
+                  {JSON.stringify(previewData.data).length > 500 ? '\n...' : ''}
+                </pre>
+              </div>
+            </div>
+          )}
+
+          {versionsLoading ? (
+            <div className="flex justify-center py-8">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : !Array.isArray(versions) || versions.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Clock className="h-8 w-8 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">Ingen versjoner funnet</p>
+              <p className="text-xs mt-1">Versjoner lagres automatisk ved endringer</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {versions.map((version) => (
+                <div key={version.id} className="p-3 border rounded-md space-y-1" data-testid={`version-item-${version.id}`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-medium text-sm truncate">
+                          {contentTypeLabels[version.content_type] || version.content_type}
+                        </span>
+                        <span className="text-[10px] bg-secondary px-1 py-0.5 rounded shrink-0">
+                          v{version.version_number}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground truncate">
+                        {formatDate(version.created_at)}{version.changed_by ? ` — ${version.changed_by}` : ''}
+                      </p>
+                      {version.change_description && (
+                        <p className="text-xs text-muted-foreground truncate">{version.change_description}</p>
+                      )}
+                    </div>
+                    <div className="flex gap-1 shrink-0">
+                      <Button
+                        size="sm"
+                        variant={previewData?.id === version.id ? 'default' : 'outline'}
+                        className="h-7 w-7 p-0"
+                        onClick={() => handlePreview(version.id)}
+                        title="Forhåndsvis"
+                      >
+                        <Eye className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setConfirmRestore({
+                          id: version.id,
+                          label: contentTypeLabels[version.content_type] || version.content_type,
+                          version: version.version_number,
+                        })}
+                        data-testid={`button-restore-${version.id}`}
+                      >
+                        Gjenopprett
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </TabsContent>
         
         <TabsContent value="activity" className="flex-1 m-0 p-4 space-y-4">
@@ -2658,7 +2875,7 @@ interface VisualBuilderProps {
   onLogout: () => void;
 }
 
-export function VisualBuilder({ onLogout }: VisualBuilderProps) {
+export function VisualBuilder({ onLogout: _onLogout }: VisualBuilderProps) {
   const [selectedElement, setSelectedElementState] = useState<SelectedElement | null>(null);
   const [deviceMode, setDeviceMode] = useState<'desktop' | 'tablet' | 'mobile'>('desktop');
   const [zoom, setZoom] = useState(100);

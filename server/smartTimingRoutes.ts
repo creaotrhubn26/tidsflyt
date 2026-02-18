@@ -3,10 +3,14 @@ import { pool } from "./db";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import multer from "multer";
+import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'smart-timing-secret';
+const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
+if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
+  console.warn('[SECURITY] JWT_SECRET not set in production! Set JWT_SECRET env var.');
+}
 
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -14,10 +18,10 @@ if (!fs.existsSync(uploadDir)) {
 }
 
 const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
+  destination: (_req, _file, cb) => {
     cb(null, uploadDir);
   },
-  filename: (req, file, cb) => {
+  filename: (_req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
     cb(null, file.fieldname + '-' + uniqueSuffix + ext);
@@ -27,7 +31,7 @@ const storage = multer.diskStorage({
 const upload = multer({ 
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (req, file, cb) => {
+  fileFilter: (_req, file, cb) => {
     const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
     if (allowedTypes.includes(file.mimetype)) {
       cb(null, true);
@@ -43,22 +47,253 @@ interface AuthRequest extends Request {
 }
 
 function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+  // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
-  if (!authHeader?.startsWith('Bearer ')) {
-    return res.status(401).json({ error: 'No token provided' });
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      req.admin = decoded;
+      return next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
   }
-  try {
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    req.admin = decoded;
-    next();
-  } catch (err) {
-    return res.status(401).json({ error: 'Invalid token' });
+  // Fall back to session-based auth (Google OAuth)
+  if (req.isAuthenticated?.() && req.user) {
+    const user = req.user as any;
+    req.admin = { id: user.id, email: user.email, role: user.role };
+    return next();
   }
+  return res.status(401).json({ error: 'Authentication required' });
+}
+
+// Middleware: require any authenticated user (session or JWT)
+function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
+  // Check session auth first
+  if (req.isAuthenticated?.() && req.user) {
+    return next();
+  }
+  // Check JWT
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    try {
+      const token = authHeader.split(' ')[1];
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      req.admin = decoded;
+      return next();
+    } catch (err) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+  }
+  return res.status(401).json({ error: 'Authentication required' });
 }
 
 export function registerSmartTimingRoutes(app: Express) {
   
+  // ========== SERVER-SIDE PII DETECTION ==========
+  // Mirrors client-side detection as a safety net for GDPR compliance
+  
+  const PII_NORWEGIAN_NAMES = new Set([
+    // Common Norwegian male names
+    'jan','bjørn','ole','lars','kjell','arne','knut','svein','thomas',
+    'hans','geir','tor','morten','terje','erik','martin','andreas','john',
+    'karl','rune','trond','jon','arild','harald','magnus','stefan','einar','øyvind',
+    'helge','gunnar','leif','frode','espen','stian','steinar','roger',
+    'øystein','eirik','henrik','rolf','kristian','jostein','ivar','tore','petter',
+    'olav','nils','stig','vidar','tommy','alexander','christian','daniel','fredrik',
+    'simen','tobias','mathias','jonas','kristoffer','sindre','vegard','håkon','jørgen',
+    'anders','markus','nikolai','sebastian','adrian','even','gaute','torbjørn','sigurd',
+    'amund','erlend','halvard','pål','snorre','sverre','trygve','yngve','ulf','birger',
+    'aksel','tarjei','vetle','herman','edvard','halvor','asbjørn','brage',
+    'filip','kasper','ludvig','oskar','william','noah','oliver','jakob','elias','isak',
+    'emil','liam','leon','theo','lucas','hugo','felix','oscar','benjamin',
+    'mohammed','muhammad','ahmed','ali','hussein','omar','hassan','ibrahim','hamza',
+    'yusuf','adam','david','michael','abdi','abdullahi','abdirahman','mahad','samir','tariq','khalid','bilal','imran',
+    'aryan','arian','amir','reza','navid','farhad','kian','parsa',
+    // Common Norwegian female names
+    'anna','anne','inger','kari','marit','ingrid','eva','ida','berit',
+    'astrid','bjørg','randi','solveig','hilde','marianne','ellen','kristin','silje',
+    'elisabeth','nina','heidi','gerd','monica','hanne','bente','marie',
+    'camilla','lene','trine','anita','wenche','turid','ruth',
+    'laila','mette','kirsten','gunn','unni','torill','rigmor','siri','grete',
+    'ragnhild','sigrid','helen','stine','maria','therese','julie','marte','emilie',
+    'nora','emma','sara','sofie','thea','amalie','linnea','leah','aurora',
+    'vilde','frida','martine','andrine','katrine','maren','tuva','hedda','tiril',
+    'oda','synne','selma','jenny','karoline','elise','maja','olivia','ella',
+    'ingeborg','johanne','mathilde','alma','agnes','petra','eline','andrea',
+    'fatima','aisha','amina','mariam','yasmin','leila','nadia','samira',
+    'sofia','maryam','khadija','zahra','hawa','sumaya','ayan','hodan','asma',
+  ]);
+
+  const PII_NORWEGIAN_SURNAMES = new Set([
+    'hansen','johansen','olsen','larsen','andersen','pedersen','nilsen','kristiansen',
+    'jensen','karlsen','johnsen','pettersen','eriksen','berg','haugen','hagen','johannessen',
+    'andreassen','jacobsen','dahl','jørgensen','halvorsen','henriksen','lund','sørensen',
+    'jakobsen','moen','gundersen','iversen','strand','solberg','svendsen','danielsen',
+    'berge','knutsen','fredriksen','bakken','christensen','lie','amundsen','nguyen',
+    'holm','martinsen','aasen','thorsen','ellingsen','ruud','bøe','eide','nygård',
+    'ali','ahmed','hussein','mohamed','khan','singh','patel','sharma','kumar',
+    'nguyen','tran','le','pham','hoang',
+  ]);
+
+  const PII_SAFE_WORDS = new Set([
+    'sin','per','over','under','til','fra','ved','for','med','mot',
+    'den','det','han','hun','hen','dem','seg','som','kan','har',
+    'vil','bli','var','men','dag','tid','liv','tur','ble','min',
+    'din','vår','alle','noen','andre','hele','mange','bare','også',
+    'etter','mellom','gjennom','dette','disse','denne','mitt','ditt',
+    'gutten','jenta','brukeren','deltakeren','klienten','personen',
+    'ungdom','ungdommen','barnet','eleven','pasienten','beboeren',
+    'foreldrene','foresatte','familien','søsken','venner','læreren',
+    'may','møte','møter','møtet','tak','mark','tone','toner','tonet',
+    'berg','lund','vik','strand','moen','lie','dal','bakke','holm',
+    'tiltak','vedtak','rapport','plan','mål','aktivitet','oppfølging',
+    'samtale','observasjon','kartlegging','evaluering','vurdering',
+    'utvikling','fremgang','utfordring','mestring','fungering',
+    'skole','hjem','fritid','arbeid','trening','behandling',
+    'barnevern','nav','bup','ppt','helsestasjon','fastlege',
+    'mars','sol','august','april','juni','juli','adam','eva',
+  ]);
+
+  // Contextual phrases where names typically follow (Norwegian social work)
+  const SERVER_NAME_TRIGGER_PATTERNS = [
+    /\b(?:møte|møtt|samtale|oppfølging|kontakt)\s+med\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\b(?:snakket|pratet|diskuterte|drøftet)\s+med\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\b(?:ringte|kontaktet|informerte|varslet)\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\b(?:hentet|kjørte|fulgte|leverte|besøkte|hjalp)\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\bhos\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\b([A-ZÆØÅ][a-zæøå]{2,})\s+(?:var|er|ble|har|hadde)\b/g,
+    /\b([A-ZÆØÅ][a-zæøå]{2,})\s+(?:sin|sitt|sine)\b/g,
+  ];
+
+  // Relationship patterns
+  const SERVER_RELATIONSHIP_PATTERNS = [
+    /\b(?:mor(?:en)?|far(?:en)?|søster(?:en)?|bror(?:en)?)\s+til\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+    /\b([A-ZÆØÅ][a-zæøå]{2,})\s+sin\s+(?:mor|far|søster|bror|familie)/gi,
+    /\b([A-ZÆØÅ][a-zæøå]{2,})s\s+(?:mor|far|søster|bror|foreldre|hjem)/gi,
+    /\bfamilien\s+([A-ZÆØÅ][a-zæøå]{2,})/gi,
+  ];
+
+  // Full name: two consecutive capitalized words
+  const SERVER_FULL_NAME_PATTERN = /\b([A-ZÆØÅ][a-zæøå]{2,})\s+([A-ZÆØÅ][a-zæøå]{2,})\b/g;
+
+  interface ServerPiiWarning {
+    match: string;
+    type: string;
+    field: string;
+    confidence: 'high' | 'medium' | 'low';
+  }
+
+  function stripHtmlServer(html: string): string {
+    if (!html) return '';
+    return html.replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/\s+/g, ' ').trim();
+  }
+
+  function scanFieldsForPii(fields: Record<string, string | undefined>): ServerPiiWarning[] {
+    const warnings: ServerPiiWarning[] = [];
+    
+    for (const [fieldName, rawText] of Object.entries(fields)) {
+      if (!rawText) continue;
+      const text = stripHtmlServer(rawText);
+      if (!text) continue;
+
+      // 1. Dictionary name scan
+      const words = text.split(/\s+/);
+      for (const word of words) {
+        const cleaned = word.replace(/[.,;:!?"'()[\]{}]/g, '').toLowerCase();
+        if (cleaned.length < 3) continue;
+        if (PII_SAFE_WORDS.has(cleaned)) continue;
+        if (PII_NORWEGIAN_NAMES.has(cleaned)) {
+          if (!warnings.some(w => w.match === cleaned && w.field === fieldName)) {
+            warnings.push({ match: cleaned, type: 'name', field: fieldName, confidence: 'high' });
+          }
+        }
+      }
+
+      // 2. Contextual phrase detection (catches names NOT in dictionary)
+      for (const pattern of SERVER_NAME_TRIGGER_PATTERNS) {
+        const regex = new RegExp(pattern.source, pattern.flags);
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(text)) !== null) {
+          const name = m[1];
+          if (!name || PII_SAFE_WORDS.has(name.toLowerCase())) continue;
+          if (!warnings.some(w => w.match.toLowerCase() === name.toLowerCase() && w.field === fieldName)) {
+            warnings.push({ 
+              match: name.toLowerCase(), 
+              type: 'name', 
+              field: fieldName, 
+              confidence: PII_NORWEGIAN_NAMES.has(name.toLowerCase()) ? 'high' : 'medium' 
+            });
+          }
+        }
+      }
+
+      // 3. Full name detection (two consecutive capitalized words)
+      {
+        const regex = new RegExp(SERVER_FULL_NAME_PATTERN.source, SERVER_FULL_NAME_PATTERN.flags);
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(text)) !== null) {
+          const first = m[1].toLowerCase();
+          const second = m[2].toLowerCase();
+          if (PII_SAFE_WORDS.has(first) && PII_SAFE_WORDS.has(second)) continue;
+          const firstIsName = PII_NORWEGIAN_NAMES.has(first);
+          const secondIsSurname = PII_NORWEGIAN_SURNAMES.has(second);
+          const secondIsName = PII_NORWEGIAN_NAMES.has(second);
+          if (!firstIsName && !secondIsSurname && !secondIsName) continue;
+          const fullName = `${m[1]} ${m[2]}`;
+          if (!warnings.some(w => w.match.toLowerCase() === fullName.toLowerCase() && w.field === fieldName)) {
+            warnings.push({ match: fullName, type: 'full_name', field: fieldName, confidence: 'high' });
+          }
+        }
+      }
+
+      // 4. Relationship patterns
+      for (const pattern of SERVER_RELATIONSHIP_PATTERNS) {
+        const regex = new RegExp(pattern.source, pattern.flags);
+        let m: RegExpExecArray | null;
+        while ((m = regex.exec(text)) !== null) {
+          const name = m[1];
+          if (!name || PII_SAFE_WORDS.has(name.toLowerCase())) continue;
+          warnings.push({ match: m[0], type: 'relationship', field: fieldName, confidence: 'high' });
+        }
+      }
+
+      // 5. Check for email
+      const emailRe = /\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b/g;
+      let m: RegExpExecArray | null;
+      while ((m = emailRe.exec(text)) !== null) {
+        warnings.push({ match: m[0], type: 'email', field: fieldName, confidence: 'high' });
+      }
+
+      // 6. Check for Norwegian SSN (11 digits)
+      const ssnRe = /\b\d{6}\s?\d{5}\b/g;
+      while ((m = ssnRe.exec(text)) !== null) {
+        const digits = m[0].replace(/\s/g, '');
+        if (digits.length === 11) {
+          warnings.push({ match: '[fødselsnummer]', type: 'ssn', field: fieldName, confidence: 'high' });
+        }
+      }
+
+      // 7. Check for phone numbers
+      const phoneRe = /\b(?:\+47\s?)?\d{2}\s?\d{2}\s?\d{2}\s?\d{2}\b/g;
+      while ((m = phoneRe.exec(text)) !== null) {
+        if (!/SAK|REF|NR/i.test(text.slice(Math.max(0, m.index - 10), m.index))) {
+          warnings.push({ match: m[0], type: 'phone', field: fieldName, confidence: 'high' });
+        }
+      }
+
+      // 8. Check for exact ages
+      const ageRe = /\b(\d{1,2})\s+år(?:\s+gammel)?\b/gi;
+      while ((m = ageRe.exec(text)) !== null) {
+        warnings.push({ match: m[0], type: 'date', field: fieldName, confidence: 'high' });
+      }
+    }
+
+    return warnings;
+  }
+
   // Helper function to create a content version (for versioning system)
   async function createContentVersion(contentType: string, contentId: number | null, data: any, changedBy?: string, changeDescription?: string) {
     try {
@@ -93,7 +328,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Serve Tidum logo for emails (SVG format for best quality)
-  app.get("/api/logo", (req, res) => {
+  app.get("/api/logo", (_req, res) => {
     const logoSvg = `
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 50" width="200" height="50">
         <!-- Pocket Watch -->
@@ -131,7 +366,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Health check
-  app.get("/api/health", async (req, res) => {
+  app.get("/api/health", async (_req, res) => {
     try {
       const result = await pool.query('SELECT NOW()');
       res.json({ status: 'ok', timestamp: result.rows[0].now });
@@ -158,7 +393,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== LOGS (Time Entries) ==========
-  app.get("/api/logs", async (req, res) => {
+  app.get("/api/logs", requireAuth, async (req, res) => {
     try {
       const { user_id, month, year, start_date, end_date, project_id } = req.query;
       const userId = user_id || 'default';
@@ -202,7 +437,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/logs", async (req, res) => {
+  app.post("/api/logs", requireAuth, async (req, res) => {
     try {
       const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id } = req.body;
       const result = await pool.query(
@@ -217,7 +452,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.put("/api/logs/:id", async (req, res) => {
+  app.put("/api/logs/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage } = req.body;
@@ -233,7 +468,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/logs/:id", async (req, res) => {
+  app.delete("/api/logs/:id", requireAuth, async (req, res) => {
     try {
       await pool.query('DELETE FROM log_row WHERE id = $1', [req.params.id]);
       res.status(204).send();
@@ -242,7 +477,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/logs/bulk", async (req, res) => {
+  app.post("/api/logs/bulk", requireAuth, async (req, res) => {
     try {
       const { rows, user_id, project_id } = req.body;
       const userId = user_id || 'default';
@@ -263,7 +498,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== USER SETTINGS ==========
-  app.get("/api/settings", async (req, res) => {
+  app.get("/api/settings", requireAuth, async (req, res) => {
     try {
       const userId = (req.query.user_id as string) || 'default';
       const result = await pool.query('SELECT * FROM user_settings WHERE user_id = $1', [userId]);
@@ -280,7 +515,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/settings", async (req, res) => {
+  app.post("/api/settings", requireAuth, async (req, res) => {
     try {
       const { user_id, paid_break, tax_pct, hourly_rate, timesheet_sender, timesheet_recipient, timesheet_format, theme_mode, view_mode, language } = req.body;
       const userId = user_id || 'default';
@@ -309,7 +544,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== PROJECT INFO ==========
-  app.get("/api/project-info", async (req, res) => {
+  app.get("/api/project-info", requireAuth, async (req, res) => {
     try {
       const userId = (req.query.user_id as string) || 'default';
       const result = await pool.query(
@@ -322,7 +557,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/project-info", async (req, res) => {
+  app.post("/api/project-info", requireAuth, async (req, res) => {
     try {
       const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id } = req.body;
       const result = await pool.query(
@@ -336,7 +571,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.put("/api/project-info/:id", async (req, res) => {
+  app.put("/api/project-info/:id", requireAuth, async (req, res) => {
     try {
       const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id } = req.body;
       const result = await pool.query(
@@ -352,7 +587,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== QUICK TEMPLATES ==========
-  app.get("/api/quick-templates", async (req, res) => {
+  app.get("/api/quick-templates", requireAuth, async (req, res) => {
     try {
       const userId = (req.query.user_id as string) || 'default';
       const result = await pool.query(
@@ -365,7 +600,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/quick-templates", async (req, res) => {
+  app.post("/api/quick-templates", requireAuth, async (req, res) => {
     try {
       const { label, activity, title, project, place, is_favorite, display_order, user_id } = req.body;
       const result = await pool.query(
@@ -379,7 +614,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/quick-templates/:id", async (req, res) => {
+  app.delete("/api/quick-templates/:id", requireAuth, async (req, res) => {
     try {
       await pool.query('DELETE FROM quick_templates WHERE id = $1', [req.params.id]);
       res.status(204).send();
@@ -389,7 +624,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANIES ==========
-  app.get("/api/companies", async (req, res) => {
+  app.get("/api/companies", requireAuth, async (_req, res) => {
     try {
       const result = await pool.query('SELECT id, name, display_order FROM companies ORDER BY display_order, name');
       res.json(result.rows);
@@ -398,7 +633,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies", async (req, res) => {
+  app.post("/api/companies", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name } = req.body;
       const result = await pool.query(
@@ -412,13 +647,13 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== ADMIN AUTH ==========
-  app.post("/api/admin/login", async (req, res) => {
+  app.post("/api/admin/login", authRateLimit, async (req, res) => {
     try {
       const { username, password } = req.body;
       const result = await pool.query(
-        `SELECT a.*, v.name as vendor_name, v.slug as vendor_slug 
+        `SELECT a.*, v.business_name as vendor_name, v.id as vendor_slug 
          FROM admin_users a 
-         LEFT JOIN vendors v ON a.vendor_id = v.id 
+         LEFT JOIN vendors v ON a.vendor_id::text = v.id::text 
          WHERE (a.username = $1 OR a.email = $1) AND a.is_active = true`,
         [username]
       );
@@ -753,7 +988,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY PORTAL ==========
-  app.get("/api/company/users", async (req, res) => {
+  app.get("/api/company/users", requireAuth, async (req, res) => {
     try {
       const companyId = req.query.company_id || 1;
       const result = await pool.query(
@@ -770,7 +1005,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.post("/api/company/users", async (req, res) => {
+  app.post("/api/company/users", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { company_id, user_email, role } = req.body;
       const result = await pool.query(
@@ -784,7 +1019,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.patch("/api/company/users/:id", async (req, res) => {
+  app.patch("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { role, approved } = req.body;
       const result = await pool.query(
@@ -799,7 +1034,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.delete("/api/company/users/:id", async (req, res) => {
+  app.delete("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       await pool.query('DELETE FROM company_users WHERE id = $1', [req.params.id]);
       res.status(204).send();
@@ -809,7 +1044,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY LOGS ==========
-  app.get("/api/company/logs", async (req, res) => {
+  app.get("/api/company/logs", requireAuth, async (req, res) => {
     try {
       const { company_id, user_email, month, year } = req.query;
       
@@ -842,7 +1077,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY AUDIT LOG ==========
-  app.get("/api/company/audit", async (req, res) => {
+  app.get("/api/company/audit", requireAuth, async (req, res) => {
     try {
       const companyId = req.query.company_id || 1;
       const result = await pool.query(
@@ -861,7 +1096,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SETUP TABLES ==========
-  app.post("/api/cms/setup", async (req, res) => {
+  app.post("/api/cms/setup", async (_req, res) => {
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS site_settings (
@@ -1109,7 +1344,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: CLEAR TESTIMONIALS ==========
-  app.post("/api/cms/clear-testimonials", async (req, res) => {
+  app.post("/api/cms/clear-testimonials", async (_req, res) => {
     try {
       await pool.query('DELETE FROM landing_testimonials WHERE 1=1');
       res.json({ success: true, message: 'All testimonials deleted' });
@@ -1130,7 +1365,7 @@ export function registerSmartTimingRoutes(app: Express) {
   updateTestimonialsTable();
 
   // ========== CMS: SEED DEFAULT CONTENT ==========
-  app.post("/api/cms/seed", async (req, res) => {
+  app.post("/api/cms/seed", async (_req, res) => {
     try {
       // Check if already seeded
       const heroCheck = await pool.query('SELECT COUNT(*) FROM landing_hero');
@@ -1198,7 +1433,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SITE SETTINGS ==========
-  app.get("/api/cms/settings", async (req, res) => {
+  app.get("/api/cms/settings", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM site_settings ORDER BY key');
       res.json(result.rows);
@@ -1231,7 +1466,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: LANDING HERO ==========
-  app.get("/api/cms/hero", async (req, res) => {
+  app.get("/api/cms/hero", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
@@ -1274,7 +1509,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: LANDING FEATURES ==========
-  app.get("/api/cms/features", async (req, res) => {
+  app.get("/api/cms/features", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1338,7 +1573,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: LANDING TESTIMONIALS ==========
-  app.get("/api/cms/testimonials", async (req, res) => {
+  app.get("/api/cms/testimonials", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1402,7 +1637,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: PARTNERS ==========
-  app.get("/api/cms/partners", async (req, res) => {
+  app.get("/api/cms/partners", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1451,7 +1686,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: ACTIVITY LOG ==========
-  app.get("/api/cms/activity-log", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/cms/activity-log", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query(`
         SELECT cal.*, au.username as admin_username 
@@ -1467,7 +1702,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: LANDING CTA/SECTIONS ==========
-  app.get("/api/cms/sections", async (req, res) => {
+  app.get("/api/cms/sections", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
@@ -1658,7 +1893,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: GET ALL LANDING CONTENT ==========
-  app.get("/api/cms/landing", async (req, res) => {
+  app.get("/api/cms/landing", async (_req, res) => {
     try {
       const [heroResult, featuresResult, testimonialsResult, sectionsResult, partnersResult, vendorsResult] = await Promise.all([
         pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1'),
@@ -1685,7 +1920,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: WHY PAGE ==========
   
   // Get all Why page content
-  app.get("/api/cms/why-page", async (req, res) => {
+  app.get("/api/cms/why-page", async (_req, res) => {
     try {
       const [heroResult, statsResult, benefitsResult, featuresResult, nordicResult, trustResult, ctaResult] = await Promise.all([
         pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1'),
@@ -1712,7 +1947,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Why Page Hero
-  app.get("/api/cms/why-page/hero", async (req, res) => {
+  app.get("/api/cms/why-page/hero", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
@@ -1750,7 +1985,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Why Page Stats CRUD
-  app.get("/api/cms/why-page/stats", async (req, res) => {
+  app.get("/api/cms/why-page/stats", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM why_page_stats WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1797,7 +2032,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Why Page Benefits CRUD
-  app.get("/api/cms/why-page/benefits", async (req, res) => {
+  app.get("/api/cms/why-page/benefits", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM why_page_benefits WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1844,7 +2079,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Why Page Features CRUD
-  app.get("/api/cms/why-page/features", async (req, res) => {
+  app.get("/api/cms/why-page/features", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM why_page_features WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
@@ -1931,7 +2166,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: DESIGN TOKENS ==========
-  app.get("/api/cms/design-tokens", async (req, res) => {
+  app.get("/api/cms/design-tokens", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
@@ -1991,7 +2226,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SECTION DESIGN SETTINGS ==========
-  app.get("/api/cms/section-design", async (req, res) => {
+  app.get("/api/cms/section-design", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM section_design_settings WHERE is_active = true ORDER BY section_name');
       res.json(result.rows);
@@ -2058,7 +2293,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: DESIGN PRESETS ==========
-  app.get("/api/cms/design-presets", async (req, res) => {
+  app.get("/api/cms/design-presets", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
       res.json(result.rows);
@@ -2192,7 +2427,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get all access requests (admin only)
-  app.get("/api/admin/access-requests", authenticateAdmin, async (req, res) => {
+  app.get("/api/admin/access-requests", authenticateAdmin, async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
       res.json({ requests: result.rows });
@@ -2287,7 +2522,7 @@ export function registerSmartTimingRoutes(app: Express) {
   ensureCaseReportsTable();
 
   // Setup case_reports table (admin endpoint)
-  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/case-reports/setup", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       await ensureCaseReportsTable();
       res.json({ success: true, message: 'Case reports table created' });
@@ -2297,7 +2532,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get all case reports for a user
-  app.get("/api/case-reports", async (req, res) => {
+  app.get("/api/case-reports", requireAuth, async (req, res) => {
     try {
       const { user_id } = req.query;
       const userId = user_id || 'default';
@@ -2313,7 +2548,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get single case report
-  app.get("/api/case-reports/:id", async (req, res) => {
+  app.get("/api/case-reports/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const result = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
@@ -2327,12 +2562,15 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Create new case report
-  app.post("/api/case-reports", async (req, res) => {
+  app.post("/api/case-reports", requireAuth, async (req, res) => {
     try {
       const { 
         user_id, user_cases_id, case_id, month, background, actions, 
         progress, challenges, factors, assessment, recommendations, notes 
       } = req.body;
+
+      // Server-side PII scan (warning only on create — does not block)
+      const piiWarnings = scanFieldsForPii({ background, actions, progress, challenges, factors, assessment, recommendations, notes });
       
       const result = await pool.query(
         `INSERT INTO case_reports 
@@ -2341,14 +2579,20 @@ export function registerSmartTimingRoutes(app: Express) {
          RETURNING *`,
         [user_id || 'default', user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
       );
-      res.status(201).json(result.rows[0]);
+
+      const response: any = result.rows[0];
+      if (piiWarnings.length > 0) {
+        response.pii_warnings = piiWarnings;
+        response.pii_warning_message = `Advarsel: ${piiWarnings.length} mulige personopplysninger oppdaget. Vennligst gjennomgå rapporten.`;
+      }
+      res.status(201).json(response);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }
   });
 
   // Update case report
-  app.put("/api/case-reports/:id", async (req, res) => {
+  app.put("/api/case-reports/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { 
@@ -2395,7 +2639,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Delete case report
-  app.delete("/api/case-reports/:id", async (req, res) => {
+  app.delete("/api/case-reports/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       await pool.query('DELETE FROM case_reports WHERE id = $1', [id]);
@@ -2483,7 +2727,7 @@ export function registerSmartTimingRoutes(app: Express) {
   ensureReportCommentsTable();
 
   // Get comments for a report (user must own the report or be admin)
-  app.get("/api/case-reports/:id/comments", async (req, res) => {
+  app.get("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { include_internal, user_id } = req.query;
@@ -2513,7 +2757,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Add comment to a report (user must own the report)
-  app.post("/api/case-reports/:id/comments", async (req, res) => {
+  app.post("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { author_id, author_name, author_role, content, is_internal, parent_id } = req.body;
@@ -2551,7 +2795,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Mark comments as read (user must own the report)
-  app.post("/api/case-reports/:id/comments/mark-read", async (req, res) => {
+  app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
       const { reader_id } = req.body;
@@ -2580,7 +2824,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get unread comment count for a user
-  app.get("/api/case-reports/unread-count", async (req, res) => {
+  app.get("/api/case-reports/unread-count", requireAuth, async (req, res) => {
     try {
       const { user_id } = req.query;
       if (!user_id) {
@@ -2602,9 +2846,37 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Submit report for review (change status from draft to pending)
-  app.post("/api/case-reports/:id/submit", async (req, res) => {
+  app.post("/api/case-reports/:id/submit", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
+
+      // Fetch the report content for PII scanning before submission
+      const reportCheck = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      if (reportCheck.rows.length === 0) {
+        return res.status(404).json({ error: 'Report not found' });
+      }
+      const report = reportCheck.rows[0];
+
+      // Server-side PII scan — blocks submission if PII found
+      const piiWarnings = scanFieldsForPii({
+        background: report.background,
+        actions: report.actions,
+        progress: report.progress,
+        challenges: report.challenges,
+        factors: report.factors,
+        assessment: report.assessment,
+        recommendations: report.recommendations,
+        notes: report.notes,
+      });
+
+      if (piiWarnings.length > 0) {
+        return res.status(400).json({
+          error: 'Rapporten inneholder mulige personopplysninger og kan ikke sendes inn.',
+          pii_warnings: piiWarnings,
+          message: `${piiWarnings.length} mulige personopplysninger funnet. Fjern disse før innsending.`,
+        });
+      }
+
       const result = await pool.query(
         `UPDATE case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected') RETURNING *`,
         [id]
@@ -2670,7 +2942,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/media/folders", async (req, res) => {
+  app.get("/api/cms/media/folders", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_media_folders ORDER BY name');
       res.json(result.rows);
@@ -2730,11 +3002,24 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  // ========== CMS: SEO SETTINGS ==========
-  app.get("/api/cms/seo/global", async (req, res) => {
+  // ========== CMS: SEO SETTINGS (consolidated to seo_global_settings) ==========
+  app.get("/api/cms/seo/global", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM cms_global_seo LIMIT 1');
-      res.json(result.rows[0] || null);
+      let result = await pool.query('SELECT * FROM seo_global_settings WHERE id = 1');
+      if (result.rows.length === 0) {
+        const insertResult = await pool.query(
+          `INSERT INTO seo_global_settings (id, site_name, sitemap_enabled, sitemap_auto_generate) 
+           VALUES (1, 'Tidum', true, true) RETURNING *`
+        );
+        result = { rows: [insertResult.rows[0]], rowCount: 1, command: '', oid: 0, fields: [] } as any;
+      }
+      const row = result.rows[0];
+      // Map field names for backward compat with CMS UI
+      res.json({
+        ...row,
+        google_site_verification: row.google_verification || '',
+        bing_site_verification: row.bing_verification || '',
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2742,25 +3027,44 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.put("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url } = req.body;
-      const existing = await pool.query('SELECT * FROM cms_global_seo LIMIT 1');
-      
-      if (existing.rows.length > 0) {
-        const result = await pool.query(
-          `UPDATE cms_global_seo SET site_name = $1, site_description = $2, default_og_image = $3, 
-           google_site_verification = $4, bing_site_verification = $5, favicon_url = $6, updated_at = NOW()
-           WHERE id = $7 RETURNING *`,
-          [site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url, existing.rows[0].id]
-        );
-        res.json(result.rows[0]);
-      } else {
-        const result = await pool.query(
-          `INSERT INTO cms_global_seo (site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-          [site_name, site_description, default_og_image, google_site_verification, bing_site_verification, favicon_url]
-        );
-        res.json(result.rows[0]);
-      }
+      const {
+        site_name, site_description, default_og_image, favicon_url,
+        google_site_verification, bing_site_verification,
+        google_verification, bing_verification,
+        robots_txt, sitemap_enabled, sitemap_auto_generate
+      } = req.body;
+
+      // Support both old and new field names
+      const gVerif = google_verification || google_site_verification || '';
+      const bVerif = bing_verification || bing_site_verification || '';
+
+      const result = await pool.query(
+        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
+         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
+         sitemap_auto_generate, updated_at)
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         ON CONFLICT (id) DO UPDATE SET
+         site_name = EXCLUDED.site_name,
+         site_description = EXCLUDED.site_description,
+         default_og_image = EXCLUDED.default_og_image,
+         favicon_url = EXCLUDED.favicon_url,
+         google_verification = EXCLUDED.google_verification,
+         bing_verification = EXCLUDED.bing_verification,
+         robots_txt = COALESCE(EXCLUDED.robots_txt, seo_global_settings.robots_txt),
+         sitemap_enabled = COALESCE(EXCLUDED.sitemap_enabled, seo_global_settings.sitemap_enabled),
+         sitemap_auto_generate = COALESCE(EXCLUDED.sitemap_auto_generate, seo_global_settings.sitemap_auto_generate),
+         updated_at = NOW()
+         RETURNING *`,
+        [site_name || 'Tidum', site_description, default_og_image, favicon_url,
+         gVerif, bVerif, robots_txt, sitemap_enabled, sitemap_auto_generate]
+      );
+
+      const row = result.rows[0];
+      res.json({
+        ...row,
+        google_site_verification: row.google_verification || '',
+        bing_site_verification: row.bing_verification || '',
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2802,7 +3106,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: FORMS ==========
-  app.get("/api/cms/forms", async (req, res) => {
+  app.get("/api/cms/forms", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_forms ORDER BY created_at DESC');
       res.json(result.rows);
@@ -2871,7 +3175,7 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, $4) RETURNING *`,
         [req.params.id, JSON.stringify(req.body), req.ip, req.headers['user-agent']]
       );
-      res.json({ success: true, message: formResult.rows[0].success_message });
+      res.json({ success: true, message: formResult.rows[0].success_message, submissionId: result.rows[0]?.id });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -2890,7 +3194,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: NAVIGATION ==========
-  app.get("/api/cms/navigation", async (req, res) => {
+  app.get("/api/cms/navigation", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_navigation WHERE is_active = true ORDER BY location');
       res.json(result.rows);
@@ -2934,13 +3238,29 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: BLOG/POSTS ==========
+
+  // Helper: calculate reading time and word count
+  function calculateReadingStats(content: string | null): { readingTime: number; wordCount: number } {
+    if (!content) return { readingTime: 0, wordCount: 0 };
+    const text = content.replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    const wordCount = text.split(/\s+/).filter(Boolean).length;
+    const readingTime = Math.max(1, Math.ceil(wordCount / 200));
+    return { readingTime, wordCount };
+  }
+
+  // Admin: list posts with pagination
   app.get("/api/cms/posts", async (req, res) => {
     try {
-      const { status, category_id } = req.query;
+      const { status, category_id, page = '1', limit = '20' } = req.query;
+      const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+      const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
+      const offset = (pageNum - 1) * limitNum;
+
       let query = 'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id';
+      let countQuery = 'SELECT COUNT(*) FROM cms_posts p';
       const conditions: string[] = [];
       const params: any[] = [];
-      
+
       if (status) {
         params.push(status);
         conditions.push(`p.status = $${params.length}`);
@@ -2949,37 +3269,173 @@ export function registerSmartTimingRoutes(app: Express) {
         params.push(category_id);
         conditions.push(`p.category_id = $${params.length}`);
       }
-      
+
       if (conditions.length > 0) {
-        query += ' WHERE ' + conditions.join(' AND ');
+        const where = ' WHERE ' + conditions.join(' AND ');
+        query += where;
+        countQuery += where;
       }
       query += ' ORDER BY p.created_at DESC';
       
+      // Count
+      const countResult = await pool.query(countQuery, params);
+      const total = parseInt(countResult.rows[0].count, 10);
+
+      // Paginate
+      params.push(limitNum);
+      query += ` LIMIT $${params.length}`;
+      params.push(offset);
+      query += ` OFFSET $${params.length}`;
+
       const result = await pool.query(query, params);
+      res.json({
+        posts: result.rows,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public: list published posts with pagination, category & tag filtering
+  app.get("/api/blog", async (req, res) => {
+    try {
+      const { page = '1', limit = '12', category, tag, q } = req.query;
+      const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
+      const limitNum = Math.min(50, Math.max(1, parseInt(limit as string, 10) || 12));
+      const offset = (pageNum - 1) * limitNum;
+
+      let query = `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.author, p.category_id, 
+                    p.tags, p.status, p.reading_time, p.word_count, p.published_at, p.created_at, p.updated_at,
+                    c.name as category_name, c.slug as category_slug
+                    FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id`;
+      let countQuery = 'SELECT COUNT(*) FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id';
+      const conditions: string[] = ["p.status = 'published'"];
+      const params: any[] = [];
+
+      if (category) {
+        params.push(category);
+        conditions.push(`c.slug = $${params.length}`);
+      }
+      if (tag) {
+        params.push(tag);
+        conditions.push(`$${params.length} = ANY(p.tags)`);
+      }
+      if (q) {
+        params.push(q);
+        conditions.push(`to_tsvector('norwegian', coalesce(p.title,'') || ' ' || coalesce(p.excerpt,'') || ' ' || coalesce(p.content,'')) @@ plainto_tsquery('norwegian', $${params.length})`);
+      }
+
+      const where = ' WHERE ' + conditions.join(' AND ');
+      query += where;
+      countQuery += where;
+
+      query += ' ORDER BY p.published_at DESC NULLS LAST, p.created_at DESC';
+
+      const countResult = await pool.query(countQuery, params);
+      const total = parseInt(countResult.rows[0].count, 10);
+
+      params.push(limitNum);
+      query += ` LIMIT $${params.length}`;
+      params.push(offset);
+      query += ` OFFSET $${params.length}`;
+
+      const result = await pool.query(query, params);
+      res.json({
+        posts: result.rows,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          totalPages: Math.ceil(total / limitNum),
+        }
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public: get single post by slug
+  app.get("/api/blog/:slug", async (req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT p.*, c.name as category_name, c.slug as category_slug
+         FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id
+         WHERE p.slug = $1 AND p.status = 'published'`,
+        [req.params.slug]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public: get related posts (by shared category + tags)
+  app.get("/api/blog/:slug/related", async (req, res) => {
+    try {
+      const post = await pool.query(
+        "SELECT id, category_id, tags FROM cms_posts WHERE slug = $1 AND status = 'published'",
+        [req.params.slug]
+      );
+      if (post.rows.length === 0) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      const { id, category_id, tags } = post.rows[0];
+      const limit = Math.min(6, parseInt(req.query.limit as string, 10) || 3);
+
+      const result = await pool.query(
+        `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.reading_time, p.published_at,
+                c.name as category_name
+         FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id
+         WHERE p.status = 'published' AND p.id != $1
+         ORDER BY
+           CASE WHEN p.category_id = $2 THEN 0 ELSE 1 END,
+           CASE WHEN p.tags && $3::text[] THEN 0 ELSE 1 END,
+           p.published_at DESC NULLS LAST
+         LIMIT $4`,
+        [id, category_id, tags || [], limit]
+      );
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
+  // Admin: get post by ID
   app.get("/api/cms/posts/:id", async (req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM cms_posts WHERE id = $1', [req.params.id]);
+      const result = await pool.query(
+        'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id WHERE p.id = $1',
+        [req.params.id]
+      );
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
+  // Admin: create post
   app.post("/api/cms/posts", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status } = req.body;
+      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
+              meta_title, meta_description, og_image, scheduled_at } = req.body;
       const published_at = status === 'published' ? new Date() : null;
-      
+      const { readingTime, wordCount } = calculateReadingStats(content);
+
       const result = await pool.query(
-        `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft', published_at]
+        `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status,
+         meta_title, meta_description, og_image, reading_time, word_count, scheduled_at, published_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
+        [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft',
+         meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, published_at]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -2987,21 +3443,28 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // Admin: update post
   app.put("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status } = req.body;
+      const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
+              meta_title, meta_description, og_image, scheduled_at } = req.body;
       const existingPost = await pool.query('SELECT status, published_at FROM cms_posts WHERE id = $1', [req.params.id]);
       let published_at = existingPost.rows[0]?.published_at;
-      
+
       if (status === 'published' && existingPost.rows[0]?.status !== 'published') {
         published_at = new Date();
       }
-      
+
+      const { readingTime, wordCount } = calculateReadingStats(content);
+
       const result = await pool.query(
-        `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4, featured_image = $5, 
-         author = $6, category_id = $7, tags = $8, status = $9, published_at = $10, updated_at = NOW()
-         WHERE id = $11 RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at, req.params.id]
+        `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4, featured_image = $5,
+         author = $6, category_id = $7, tags = $8, status = $9, published_at = $10,
+         meta_title = $11, meta_description = $12, og_image = $13, reading_time = $14, word_count = $15,
+         scheduled_at = $16, updated_at = NOW()
+         WHERE id = $17 RETURNING *`,
+        [title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at,
+         meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, req.params.id]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -3009,6 +3472,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // Admin: delete post
   app.delete("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       await pool.query('DELETE FROM cms_posts WHERE id = $1', [req.params.id]);
@@ -3019,9 +3483,12 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Categories
-  app.get("/api/cms/categories", async (req, res) => {
+  app.get("/api/cms/categories", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM cms_categories ORDER BY name');
+      const result = await pool.query(
+        `SELECT c.*, (SELECT COUNT(*) FROM cms_posts p WHERE p.category_id = c.id AND p.status = 'published') as post_count
+         FROM cms_categories c ORDER BY c.name`
+      );
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3041,6 +3508,20 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // Update category
+  app.put("/api/cms/categories/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name, slug, description, parent_id } = req.body;
+      const result = await pool.query(
+        'UPDATE cms_categories SET name = $1, slug = $2, description = $3, parent_id = $4, updated_at = NOW() WHERE id = $5 RETURNING *',
+        [name, slug, description, parent_id, req.params.id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.delete("/api/cms/categories/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       await pool.query('DELETE FROM cms_categories WHERE id = $1', [req.params.id]);
@@ -3049,6 +3530,167 @@ export function registerSmartTimingRoutes(app: Express) {
       res.status(500).json({ error: err.message });
     }
   });
+
+  // ========== BLOG COMMENTS ==========
+
+  // Public: get approved comments for a post
+  app.get("/api/blog/:slug/comments", async (req, res) => {
+    try {
+      const post = await pool.query("SELECT id FROM cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
+      if (post.rows.length === 0) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      const result = await pool.query(
+        `SELECT id, post_id, parent_id, author_name, author_url, content, created_at
+         FROM blog_comments WHERE post_id = $1 AND status = 'approved' ORDER BY created_at ASC`,
+        [post.rows[0].id]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Public: submit comment
+  app.post("/api/blog/:slug/comments", async (req, res) => {
+    try {
+      const post = await pool.query("SELECT id FROM cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
+      if (post.rows.length === 0) {
+        return res.status(404).json({ error: 'Post not found' });
+      }
+      const { author_name, author_email, author_url, content, parent_id } = req.body;
+      if (!author_name || !content) {
+        return res.status(400).json({ error: 'Name and content are required' });
+      }
+      const result = await pool.query(
+        `INSERT INTO blog_comments (post_id, parent_id, author_name, author_email, author_url, content, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, post_id, parent_id, author_name, content, created_at`,
+        [post.rows[0].id, parent_id || null, author_name, author_email, author_url, content,
+         req.ip, req.headers['user-agent']]
+      );
+      res.status(201).json({ ...result.rows[0], message: 'Comment submitted for moderation' });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: list all comments with moderation
+  app.get("/api/cms/comments", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { status, post_id } = req.query;
+      let query = `SELECT bc.*, p.title as post_title, p.slug as post_slug
+                    FROM blog_comments bc JOIN cms_posts p ON bc.post_id = p.id`;
+      const conditions: string[] = [];
+      const params: any[] = [];
+
+      if (status) {
+        params.push(status);
+        conditions.push(`bc.status = $${params.length}`);
+      }
+      if (post_id) {
+        params.push(post_id);
+        conditions.push(`bc.post_id = $${params.length}`);
+      }
+      if (conditions.length > 0) {
+        query += ' WHERE ' + conditions.join(' AND ');
+      }
+      query += ' ORDER BY bc.created_at DESC';
+
+      const result = await pool.query(query, params);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: moderate comment (approve/spam/trash)
+  app.put("/api/cms/comments/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { status } = req.body;
+      if (!['pending', 'approved', 'spam', 'trash'].includes(status)) {
+        return res.status(400).json({ error: 'Invalid status' });
+      }
+      const result = await pool.query(
+        'UPDATE blog_comments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+        [status, req.params.id]
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Admin: delete comment
+  app.delete("/api/cms/comments/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM blog_comments WHERE id = $1', [req.params.id]);
+      res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== RSS FEED ==========
+  app.get("/feed.xml", async (req, res) => {
+    try {
+      const posts = await pool.query(
+        `SELECT title, slug, excerpt, author, published_at, updated_at
+         FROM cms_posts WHERE status = 'published'
+         ORDER BY published_at DESC NULLS LAST LIMIT 20`
+      );
+      const baseUrl = `https://${req.get('host')}`;
+      const now = new Date().toUTCString();
+
+      let rss = '<?xml version="1.0" encoding="UTF-8"?>\n';
+      rss += '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">\n';
+      rss += '<channel>\n';
+      rss += '  <title>Tidum Blogg</title>\n';
+      rss += `  <link>${baseUrl}/blog</link>\n`;
+      rss += '  <description>Siste innlegg fra Tidum</description>\n';
+      rss += '  <language>nb-NO</language>\n';
+      rss += `  <lastBuildDate>${now}</lastBuildDate>\n`;
+      rss += `  <atom:link href="${baseUrl}/feed.xml" rel="self" type="application/rss+xml"/>\n`;
+
+      for (const post of posts.rows) {
+        rss += '  <item>\n';
+        rss += `    <title><![CDATA[${post.title}]]></title>\n`;
+        rss += `    <link>${baseUrl}/blog/${post.slug}</link>\n`;
+        rss += `    <guid isPermaLink="true">${baseUrl}/blog/${post.slug}</guid>\n`;
+        if (post.excerpt) {
+          rss += `    <description><![CDATA[${post.excerpt}]]></description>\n`;
+        }
+        if (post.author) {
+          rss += `    <author>${post.author}</author>\n`;
+        }
+        if (post.published_at) {
+          rss += `    <pubDate>${new Date(post.published_at).toUTCString()}</pubDate>\n`;
+        }
+        rss += '  </item>\n';
+      }
+
+      rss += '</channel>\n</rss>';
+      res.set('Content-Type', 'application/rss+xml; charset=utf-8');
+      res.send(rss);
+    } catch (err: any) {
+      res.status(500).send('Error generating RSS feed');
+    }
+  });
+
+  // ========== SCHEDULED PUBLISHING CRON ==========
+  // Check for scheduled posts every 60 seconds
+  setInterval(async () => {
+    try {
+      const result = await pool.query(
+        `UPDATE cms_posts SET status = 'published', published_at = NOW(), updated_at = NOW()
+         WHERE status = 'scheduled' AND scheduled_at <= NOW() RETURNING id, title`
+      );
+      if (result.rows.length > 0) {
+        console.log(`[Blog] Auto-published ${result.rows.length} scheduled posts:`, result.rows.map((r: any) => r.title));
+      }
+    } catch (err) {
+      // Silently ignore - table might not exist yet
+    }
+  }, 60000);
 
   // ========== CONTENT VERSIONING ==========
 
@@ -3282,7 +3924,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ============================================
 
   // Get analytics settings
-  app.get("/api/cms/analytics", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/cms/analytics", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM analytics_settings WHERE id = 1');
       if (result.rows.length === 0) {
@@ -3336,7 +3978,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Public endpoint to get GA4 tracking code
-  app.get("/api/analytics/config", async (req, res) => {
+  app.get("/api/analytics/config", async (_req, res) => {
     try {
       const result = await pool.query(
         'SELECT ga4_measurement_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent FROM analytics_settings WHERE id = 1 AND is_active = true'
@@ -3351,67 +3993,11 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ============================================
-  // SEO Global Settings API
-  // ============================================
-
-  // Get global SEO settings
-  app.get("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
-    try {
-      const result = await pool.query('SELECT * FROM seo_global_settings WHERE id = 1');
-      if (result.rows.length === 0) {
-        const insertResult = await pool.query(
-          `INSERT INTO seo_global_settings (id, site_name, sitemap_enabled, sitemap_auto_generate) 
-           VALUES (1, 'Smart Timing', true, true) RETURNING *`
-        );
-        return res.json(insertResult.rows[0]);
-      }
-      res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // Update global SEO settings
-  app.put("/api/cms/seo/global", authenticateAdmin, async (req: AuthRequest, res) => {
-    try {
-      const {
-        site_name, site_description, default_og_image, favicon_url,
-        google_verification, bing_verification, robots_txt, sitemap_enabled, sitemap_auto_generate
-      } = req.body;
-
-      const result = await pool.query(
-        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
-         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
-         sitemap_auto_generate, updated_at)
-         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
-         ON CONFLICT (id) DO UPDATE SET
-         site_name = EXCLUDED.site_name,
-         site_description = EXCLUDED.site_description,
-         default_og_image = EXCLUDED.default_og_image,
-         favicon_url = EXCLUDED.favicon_url,
-         google_verification = EXCLUDED.google_verification,
-         bing_verification = EXCLUDED.bing_verification,
-         robots_txt = EXCLUDED.robots_txt,
-         sitemap_enabled = EXCLUDED.sitemap_enabled,
-         sitemap_auto_generate = EXCLUDED.sitemap_auto_generate,
-         updated_at = NOW()
-         RETURNING *`,
-        [site_name, site_description, default_og_image, favicon_url,
-         google_verification, bing_verification, robots_txt, sitemap_enabled, sitemap_auto_generate]
-      );
-
-      res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ============================================
-  // SEO Pages API
+  // SEO Pages API (consolidated - old global handlers removed above)
   // ============================================
 
   // Get all SEO pages
-  app.get("/api/cms/seo/pages", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/cms/seo/pages", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM seo_pages ORDER BY page_path');
       res.json(result.rows);
@@ -3520,7 +4106,9 @@ export function registerSmartTimingRoutes(app: Express) {
         'SELECT sitemap_enabled FROM seo_global_settings WHERE id = 1'
       );
       
-      if (globalSettings.rows.length === 0 || !globalSettings.rows[0].sitemap_enabled) {
+      // Default to enabled if no settings row
+      const sitemapEnabled = globalSettings.rows.length === 0 || globalSettings.rows[0].sitemap_enabled !== false;
+      if (!sitemapEnabled) {
         return res.status(404).send('Sitemap disabled');
       }
 
@@ -3528,23 +4116,33 @@ export function registerSmartTimingRoutes(app: Express) {
         'SELECT page_path, priority, change_frequency, updated_at FROM seo_pages WHERE is_active = true AND robots_index = true'
       );
 
-      const baseUrl = `https://${req.get('host')}`;
+      const baseUrl = 'https://tidum.no';
       
       let sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n';
       sitemap += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
       
-      // Add static pages
-      const staticPages = ['/', '/login', '/register'];
-      for (const page of staticPages) {
+      // Static public pages with correct priorities
+      const staticPages: Array<{ path: string; priority: number; changefreq: string }> = [
+        { path: '/', priority: 1.0, changefreq: 'weekly' },
+        { path: '/kontakt', priority: 0.7, changefreq: 'monthly' },
+        { path: '/hvorfor', priority: 0.8, changefreq: 'monthly' },
+        { path: '/guide', priority: 0.7, changefreq: 'monthly' },
+        { path: '/blog', priority: 0.9, changefreq: 'daily' },
+        { path: '/personvern', priority: 0.3, changefreq: 'yearly' },
+        { path: '/vilkar', priority: 0.3, changefreq: 'yearly' },
+      ];
+      for (const pg of staticPages) {
         sitemap += '  <url>\n';
-        sitemap += `    <loc>${baseUrl}${page}</loc>\n`;
-        sitemap += '    <changefreq>weekly</changefreq>\n';
-        sitemap += '    <priority>0.8</priority>\n';
+        sitemap += `    <loc>${baseUrl}${pg.path}</loc>\n`;
+        sitemap += `    <changefreq>${pg.changefreq}</changefreq>\n`;
+        sitemap += `    <priority>${pg.priority}</priority>\n`;
         sitemap += '  </url>\n';
       }
 
-      // Add dynamic SEO pages
+      // Dynamic SEO pages from DB
+      const existingPaths = new Set(staticPages.map(p => p.path));
       for (const page of pages.rows) {
+        if (existingPaths.has(page.page_path)) continue;
         sitemap += '  <url>\n';
         sitemap += `    <loc>${baseUrl}${page.page_path}</loc>\n`;
         if (page.updated_at) {
@@ -3555,10 +4153,29 @@ export function registerSmartTimingRoutes(app: Express) {
         sitemap += '  </url>\n';
       }
 
-      // Add blog posts if they exist
+      // Published builder pages
+      try {
+        const builderPages = await pool.query(
+          "SELECT slug, updated_at FROM builder_pages WHERE status = 'published'"
+        );
+        for (const bp of builderPages.rows) {
+          sitemap += '  <url>\n';
+          sitemap += `    <loc>${baseUrl}/p/${bp.slug}</loc>\n`;
+          if (bp.updated_at) {
+            sitemap += `    <lastmod>${new Date(bp.updated_at).toISOString().split('T')[0]}</lastmod>\n`;
+          }
+          sitemap += '    <changefreq>monthly</changefreq>\n';
+          sitemap += '    <priority>0.6</priority>\n';
+          sitemap += '  </url>\n';
+        }
+      } catch (e) {
+        // builder_pages table might not exist
+      }
+
+      // Published blog posts
       try {
         const posts = await pool.query(
-          "SELECT slug, updated_at FROM cms_posts WHERE status = 'published'"
+          "SELECT slug, updated_at, published_at FROM cms_posts WHERE status = 'published' ORDER BY published_at DESC"
         );
         for (const post of posts.rows) {
           sitemap += '  <url>\n';
@@ -3577,11 +4194,14 @@ export function registerSmartTimingRoutes(app: Express) {
       sitemap += '</urlset>';
 
       // Update last generated timestamp
-      await pool.query(
-        'UPDATE seo_global_settings SET last_sitemap_generated = NOW() WHERE id = 1'
-      );
+      try {
+        await pool.query(
+          'UPDATE seo_global_settings SET last_sitemap_generated = NOW() WHERE id = 1'
+        );
+      } catch (e) {}
 
       res.set('Content-Type', 'application/xml');
+      res.set('Cache-Control', 'public, max-age=3600');
       res.send(sitemap);
     } catch (err: any) {
       res.status(500).send('Error generating sitemap');
@@ -3609,8 +4229,10 @@ Disallow: /api/
 Disallow: /admin/
 Disallow: /cms/
 Disallow: /dashboard/
+Disallow: /login
+Disallow: /register
 
-Sitemap: https://${req.get('host')}/sitemap.xml`;
+Sitemap: https://tidum.no/sitemap.xml`;
       }
 
       res.set('Content-Type', 'text/plain');
@@ -3625,7 +4247,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   // ============================================
 
   // Get all email templates
-  app.get("/api/cms/email/templates", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/cms/email/templates", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM email_templates ORDER BY category, name');
       res.json(result.rows);
@@ -3700,7 +4322,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   // ============================================
 
   // Get email settings
-  app.get("/api/cms/email/settings", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/cms/email/settings", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM email_settings WHERE id = 1');
       if (result.rows.length === 0) {
@@ -4031,7 +4653,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // Seed default email templates
-  app.post("/api/cms/email/seed-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/cms/email/seed-templates", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const defaultTemplates = [
         {
@@ -4231,7 +4853,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   ensureReportTables();
 
   // Get all report templates
-  app.get("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/report-templates", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query(
         `SELECT * FROM report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
@@ -4358,7 +4980,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // Get available block types
-  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM report_block_types WHERE is_active = true ORDER BY name');
       if (result.rows.length === 0) {
@@ -4388,7 +5010,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // Seed default block types
-  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const defaultBlocks = [
         { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
@@ -4513,6 +5135,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       const fontFamily = template.font_family || 'Helvetica';
       const fontSize = parseInt(template.font_size) || 11;
       const primaryColor = template.primary_color || '#2563EB';
+      doc.font(fontFamily);
 
       // Header
       if (template.header_enabled) {
@@ -4869,7 +5492,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   });
 
   // Get aggregated feedback statistics (for public Why page)
-  app.get("/api/feedback/stats", async (req, res) => {
+  app.get("/api/feedback/stats", async (_req, res) => {
     try {
       // Get average satisfaction rating
       const avgRating = await pool.query(
@@ -5072,7 +5695,7 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
   // ============================================
 
   // Get all content types
-  app.get("/api/cms/content-types", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+  app.get("/api/cms/content-types", authenticateAdmin, async (_req: AuthRequest, res: Response) => {
     try {
       const result = await pool.query(`
         SELECT ct.*, 
@@ -5523,6 +6146,438 @@ Sitemap: https://${req.get('host')}/sitemap.xml`;
       
       const result = await pool.query(query, params);
       res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ========== SEO CRAWLER ROUTES ==========
+  
+  // List all crawl jobs
+  app.get("/api/cms/crawler/jobs", authenticateAdmin, async (_req: AuthRequest, res: Response) => {
+    try {
+      const result = await pool.query(
+        "SELECT * FROM crawler_jobs ORDER BY created_at DESC LIMIT 50"
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get single job details
+  app.get("/api/cms/crawler/jobs/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const job = await pool.query("SELECT * FROM crawler_jobs WHERE id = $1", [id]);
+      if (job.rows.length === 0) return res.status(404).json({ error: "Job not found" });
+
+      const { getCrawlSummary: getSummary } = await import("./crawler-engine");
+      const summary = await getSummary(parseInt(id));
+      res.json({ ...job.rows[0], summary });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Create & start a new crawl job
+  app.post("/api/cms/crawler/jobs", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const {
+        name, target_url, crawl_type = "full",
+        max_pages = 500, max_depth = 10, crawl_delay_ms = 200,
+        respect_robots_txt = true, follow_external_links = false,
+        follow_subdomains = false, include_images = true,
+        include_css = false, include_js = false,
+        check_canonical = true, check_hreflang = true,
+        extract_structured_data = true, check_accessibility = true,
+        custom_user_agent, custom_robots_txt,
+        url_list, include_patterns, exclude_patterns,
+        custom_extraction,
+      } = req.body;
+
+      if (!target_url) return res.status(400).json({ error: "target_url is required" });
+
+      // Validate URL
+      try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
+
+      const result = await pool.query(
+        `INSERT INTO crawler_jobs (
+          name, target_url, crawl_type, max_pages, max_depth, crawl_delay_ms,
+          respect_robots_txt, follow_external_links, follow_subdomains,
+          include_images, include_css, include_js,
+          check_canonical, check_hreflang, extract_structured_data, check_accessibility,
+          custom_user_agent, custom_robots_txt,
+          url_list, include_patterns, exclude_patterns, custom_extraction,
+          status
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'pending')
+        RETURNING *`,
+        [
+          name || `Crawl ${target_url}`, target_url, crawl_type,
+          max_pages, max_depth, crawl_delay_ms,
+          respect_robots_txt, follow_external_links, follow_subdomains,
+          include_images, include_css, include_js,
+          check_canonical, check_hreflang, extract_structured_data, check_accessibility,
+          custom_user_agent || null, custom_robots_txt || null,
+          url_list || null, include_patterns || null, exclude_patterns || null,
+          custom_extraction ? JSON.stringify(custom_extraction) : null,
+        ]
+      );
+
+      const job = result.rows[0];
+
+      // Start crawl asynchronously
+      const { runCrawlJob } = await import("./crawler-engine");
+      runCrawlJob({
+        jobId: job.id,
+        targetUrl: target_url,
+        maxPages: max_pages,
+        maxDepth: max_depth,
+        crawlDelayMs: crawl_delay_ms,
+        respectRobotsTxt: respect_robots_txt,
+        followExternalLinks: follow_external_links,
+        followSubdomains: follow_subdomains,
+        includeImages: include_images,
+        includeCss: include_css,
+        includeJs: include_js,
+        checkCanonical: check_canonical,
+        checkHreflang: check_hreflang,
+        extractStructuredData: extract_structured_data,
+        checkAccessibility: check_accessibility,
+        customUserAgent: custom_user_agent,
+        customRobotsTxt: custom_robots_txt,
+        urlList: url_list,
+        includePatterns: include_patterns,
+        excludePatterns: exclude_patterns,
+        customExtraction: custom_extraction,
+      }).catch(err => console.error("[Crawler] Background job error:", err));
+
+      res.status(201).json(job);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get job results with pagination and filters
+  app.get("/api/cms/crawler/jobs/:id/results", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = Math.min(parseInt(req.query.limit as string) || 50, 200);
+      const offset = (page - 1) * limit;
+      const statusCode = req.query.status_code as string;
+      const issueType = req.query.issue_type as string;
+      const search = req.query.search as string;
+      const sortBy = req.query.sort_by as string || "url";
+      const sortDir = (req.query.sort_dir as string || "asc").toUpperCase() === "DESC" ? "DESC" : "ASC";
+
+      let where = "WHERE job_id = $1";
+      const params: any[] = [id];
+      let paramIdx = 2;
+
+      if (statusCode) {
+        where += ` AND status_code = $${paramIdx++}`;
+        params.push(parseInt(statusCode));
+      }
+      if (issueType) {
+        where += ` AND issues @> $${paramIdx++}::jsonb`;
+        params.push(JSON.stringify([{ type: issueType }]));
+      }
+      if (search) {
+        where += ` AND (url ILIKE $${paramIdx} OR title ILIKE $${paramIdx})`;
+        params.push(`%${search}%`);
+        paramIdx++;
+      }
+
+      const allowedSorts = ["url", "status_code", "response_time_ms", "word_count", "title_length", "depth", "created_at"];
+      const sort = allowedSorts.includes(sortBy) ? sortBy : "url";
+
+      const totalResult = await pool.query(`SELECT COUNT(*) as c FROM crawler_results ${where}`, params);
+      const total = parseInt(totalResult.rows[0].c);
+
+      const rows = await pool.query(
+        `SELECT * FROM crawler_results ${where} ORDER BY ${sort} ${sortDir} LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+        [...params, limit, offset]
+      );
+
+      res.json({
+        results: rows.rows,
+        pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get issues summary for a job
+  app.get("/api/cms/crawler/jobs/:id/issues", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `SELECT 
+           issue->>'type' as issue_type,
+           issue->>'severity' as severity,
+           COUNT(*) as count,
+           array_agg(DISTINCT url) as example_urls
+         FROM crawler_results, jsonb_array_elements(issues) as issue
+         WHERE job_id = $1
+         GROUP BY issue->>'type', issue->>'severity'
+         ORDER BY 
+           CASE issue->>'severity' WHEN 'error' THEN 1 WHEN 'warning' THEN 2 ELSE 3 END,
+           count DESC`,
+        [id]
+      );
+      res.json(result.rows.map(r => ({
+        ...r,
+        count: parseInt(r.count),
+        example_urls: r.example_urls?.slice(0, 5) || [],
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get duplicates report
+  app.get("/api/cms/crawler/jobs/:id/duplicates", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { findDuplicatePages } = await import("./crawler-engine");
+      const duplicates = await findDuplicatePages(parseInt(id));
+      res.json(duplicates);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get redirect report
+  app.get("/api/cms/crawler/jobs/:id/redirects", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const result = await pool.query(
+        `SELECT url, redirect_url, redirect_chain, redirect_type, status_code
+         FROM crawler_results
+         WHERE job_id = $1 AND redirect_url IS NOT NULL
+         ORDER BY array_length(redirect_chain, 1) DESC NULLS LAST`,
+        [id]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Cancel a running crawl
+  app.post("/api/cms/crawler/jobs/:id/cancel", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { cancelCrawl } = await import("./crawler-engine");
+      cancelCrawl(parseInt(id));
+      await pool.query("UPDATE crawler_jobs SET status = 'cancelled' WHERE id = $1 AND status = 'running'", [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Delete a crawl job and its results
+  app.delete("/api/cms/crawler/jobs/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      await pool.query("DELETE FROM crawler_results WHERE job_id = $1", [id]);
+      await pool.query("DELETE FROM crawler_jobs WHERE id = $1", [id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Export results as CSV
+  app.get("/api/cms/crawler/jobs/:id/export", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const format = req.query.format as string || "csv";
+
+      const results = await pool.query(
+        "SELECT * FROM crawler_results WHERE job_id = $1 ORDER BY url",
+        [id]
+      );
+
+      if (format === "csv") {
+        const headers = [
+          "URL", "Status Code", "Content Type", "Response Time (ms)", "Content Size",
+          "Title", "Title Length", "Meta Description", "Meta Desc Length",
+          "Canonical URL", "Canonical Self", "H1 Count", "H2 Count",
+          "Internal Links", "External Links", "Images", "Images Without Alt",
+          "Word Count", "Text Ratio", "Indexable", "Indexability Reason",
+          "Issues Count", "Depth",
+        ];
+
+        const csvRows = [headers.join(",")];
+        for (const r of results.rows) {
+          csvRows.push([
+            `"${(r.url || "").replace(/"/g, '""')}"`,
+            r.status_code || "",
+            `"${r.content_type || ""}"`,
+            r.response_time_ms || "",
+            r.content_size || "",
+            `"${(r.title || "").replace(/"/g, '""')}"`,
+            r.title_length || "",
+            `"${(r.meta_description || "").replace(/"/g, '""')}"`,
+            r.meta_description_length || "",
+            `"${r.canonical_url || ""}"`,
+            r.canonical_is_self ?? "",
+            r.h1_count || 0,
+            r.h2_count || 0,
+            r.internal_links_count || 0,
+            r.external_links_count || 0,
+            r.images_count || 0,
+            r.images_without_alt || 0,
+            r.word_count || 0,
+            r.text_ratio || 0,
+            r.indexable ?? "",
+            `"${r.indexability_reason || ""}"`,
+            Array.isArray(r.issues) ? r.issues.length : 0,
+            r.depth || 0,
+          ].join(","));
+        }
+
+        res.setHeader("Content-Type", "text/csv");
+        res.setHeader("Content-Disposition", `attachment; filename=crawl-${id}-results.csv`);
+        res.send(csvRows.join("\n"));
+      } else {
+        // JSON export
+        res.setHeader("Content-Disposition", `attachment; filename=crawl-${id}-results.json`);
+        res.json(results.rows);
+      }
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Compare two crawls
+  app.get("/api/cms/crawler/jobs/:id/compare/:otherId", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id, otherId } = req.params;
+
+      // Get results from both crawls
+      const [crawl1, crawl2] = await Promise.all([
+        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM crawler_results WHERE job_id = $1", [id]),
+        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM crawler_results WHERE job_id = $1", [otherId]),
+      ]);
+
+      const map1 = new Map(crawl1.rows.map(r => [r.url, r]));
+      const map2 = new Map(crawl2.rows.map(r => [r.url, r]));
+
+      const allUrls = new Set(Array.from(map1.keys()).concat(Array.from(map2.keys())));
+      const added: string[] = [];
+      const removed: string[] = [];
+      const changed: Array<{ url: string; changes: Record<string, { old: any; new: any }> }> = [];
+
+      allUrls.forEach((url) => {
+        const r1 = map1.get(url);
+        const r2 = map2.get(url);
+        if (!r1 && r2) added.push(url);
+        else if (r1 && !r2) removed.push(url);
+        else if (r1 && r2) {
+          const changes: Record<string, { old: any; new: any }> = {};
+          if (r1.status_code !== r2.status_code) changes.status_code = { old: r1.status_code, new: r2.status_code };
+          if (r1.title !== r2.title) changes.title = { old: r1.title, new: r2.title };
+          if (r1.meta_description !== r2.meta_description) changes.meta_description = { old: r1.meta_description, new: r2.meta_description };
+          if (r1.indexable !== r2.indexable) changes.indexable = { old: r1.indexable, new: r2.indexable };
+          if (r1.word_count !== r2.word_count) changes.word_count = { old: r1.word_count, new: r2.word_count };
+          if (Object.keys(changes).length > 0) changed.push({ url, changes });
+        }
+      });
+
+      res.json({
+        crawl1Id: parseInt(id),
+        crawl2Id: parseInt(otherId),
+        summary: {
+          crawl1Pages: crawl1.rows.length,
+          crawl2Pages: crawl2.rows.length,
+          added: added.length,
+          removed: removed.length,
+          changed: changed.length,
+        },
+        added: added.slice(0, 100),
+        removed: removed.slice(0, 100),
+        changed: changed.slice(0, 100),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Crawler Schedules ──
+  app.get("/api/cms/crawler/schedules", authenticateAdmin, async (_req: AuthRequest, res: Response) => {
+    try {
+      const result = await pool.query("SELECT * FROM crawler_schedules ORDER BY created_at DESC");
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/cms/crawler/schedules", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links } = req.body;
+      if (!target_url) return res.status(400).json({ error: "target_url required" });
+
+      const result = await pool.query(
+        `INSERT INTO crawler_schedules (name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *`,
+        [name || `Schedule ${target_url}`, target_url, cron_expression || "0 3 * * 1", max_pages || 500, max_depth || 10, crawl_delay_ms || 200, respect_robots_txt ?? true, follow_external_links ?? false]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/crawler/schedules/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { is_active, cron_expression, max_pages, max_depth } = req.body;
+
+      const updates: string[] = [];
+      const params: any[] = [];
+      let idx = 1;
+
+      if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(is_active); }
+      if (cron_expression) { updates.push(`cron_expression = $${idx++}`); params.push(cron_expression); }
+      if (max_pages) { updates.push(`max_pages = $${idx++}`); params.push(max_pages); }
+      if (max_depth) { updates.push(`max_depth = $${idx++}`); params.push(max_depth); }
+
+      if (updates.length === 0) return res.status(400).json({ error: "No updates provided" });
+
+      params.push(id);
+      const result = await pool.query(
+        `UPDATE crawler_schedules SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
+        params
+      );
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/cms/crawler/schedules/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      await pool.query("DELETE FROM crawler_schedules WHERE id = $1", [req.params.id]);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get crawl progress (real-time)
+  app.get("/api/cms/crawler/jobs/:id/progress", authenticateAdmin, async (req: AuthRequest, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { getCrawlProgress } = await import("./crawler-engine");
+      const progress = getCrawlProgress(parseInt(id));
+      const job = await pool.query("SELECT status, pages_crawled, pages_total, errors_count, warnings_count FROM crawler_jobs WHERE id = $1", [id]);
+      res.json({ ...job.rows[0], liveProgress: progress || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

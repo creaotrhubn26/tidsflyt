@@ -1,5 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Clock, BarChart3, FileText, Settings, ChevronDown } from 'lucide-react';
+import { Link } from 'wouter';
+import { Clock, BarChart3, FileText, Settings, ArrowRight, ChevronRight, CheckCircle2 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { tidumPageStyles } from '@/lib/tidum-page-styles';
+import { useSEO } from '@/hooks/use-seo';
+import tidumWordmark from '@assets/tidum-wordmark.png';
 
 const COLORS = {
   primary: '#1F6B73',
@@ -44,23 +49,21 @@ const FAQAccordion: React.FC<{ item: FAQItem }> = ({ item }) => {
 
   return (
     <div
-      className="p-6 rounded-lg bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] border border-[#D8E6DF] transition-all hover:border-[#1F6B73]"
-      style={{ borderColor: isOpen ? COLORS.primary : '#D8E6DF' }}
+      className={`p-6 rounded-lg bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] border transition-all hover:border-[#1F6B73] ${isOpen ? 'border-[var(--ig-primary)]' : 'border-[#D8E6DF]'}`}
     >
       <button
         onClick={() => setIsOpen(!isOpen)}
         className="w-full flex items-center justify-between font-bold cursor-pointer"
       >
-        <span style={{ color: COLORS.textDark }}>{item.question}</span>
+        <span className="text-[var(--ig-text-dark)]">{item.question}</span>
         <span
-          style={{ color: COLORS.textLight }}
-          className={`transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          className={`text-[var(--ig-text-light)] transition-transform ${isOpen ? 'rotate-180' : ''}`}
         >
           ▼
         </span>
       </button>
       {isOpen && (
-        <p className="text-sm mt-4" style={{ color: COLORS.textLight }}>
+        <p className="text-sm mt-4 text-[var(--ig-text-light)]">
           {item.answer}
         </p>
       )}
@@ -84,18 +87,17 @@ const ScreenshotPlaceholder: React.FC<{
 
   return (
     <div
-      className="rounded-lg p-8 border-2 border-dashed flex items-center justify-center bg-gradient-to-br from-[#E6F2EE] to-[#DDE9E5]"
-      style={{ borderColor: '#D8E6DF', height: '280px' }}
+      className="rounded-lg p-8 border-2 border-dashed border-[#D8E6DF] h-[280px] flex items-center justify-center bg-gradient-to-br from-[#E6F2EE] to-[#DDE9E5]"
     >
       <div className="text-center">
-        <div style={{ fontSize: '48px', marginBottom: '12px' }}>{emoji}</div>
-        <p className="font-semibold mb-2" style={{ color: COLORS.primary }}>
+        <div className="ig-emoji-lg mb-3">{emoji}</div>
+        <p className="font-semibold mb-2 text-[var(--ig-primary)]">
           {title}
         </p>
-        <p className="text-sm" style={{ color: COLORS.textLight }}>
+        <p className="text-sm text-[var(--ig-text-light)]">
           Skjermbilde vil vises her etter konfigurering
         </p>
-        <p className="text-xs mt-3" style={{ color: '#95A3A6' }}>
+        <p className="text-xs mt-3 text-[#95A3A6]">
           Min. {size} anbefalt
         </p>
       </div>
@@ -108,83 +110,50 @@ const WhiskerIllustrationPlaceholder: React.FC<{
   description: string;
 }> = ({ title, description }) => (
   <div
-    className="rounded-lg p-8 border-2 border-dashed flex items-center justify-center bg-gradient-to-br from-purple-100 to-pink-100"
-    style={{
-      borderColor: '#C084FC',
-      minHeight: '300px',
-      backgroundColor: 'rgba(196, 132, 252, 0.08)',
-    }}
+    className="rounded-lg p-8 border-2 border-dashed border-[#C084FC] min-h-[300px] bg-[rgba(196,132,252,0.08)] flex items-center justify-center"
   >
     <div className="text-center">
-      <div style={{ fontSize: '56px', marginBottom: '16px' }}>🎨</div>
-      <p className="font-semibold mb-2" style={{ color: '#9333EA' }}>
+      <div className="ig-emoji-xl">🎨</div>
+      <p className="font-semibold mb-2 text-[#9333EA]">
         {title}
       </p>
-      <p className="text-sm max-w-xs" style={{ color: '#7E22CE' }}>
+      <p className="text-sm max-w-xs text-[#7E22CE]">
         {description}
       </p>
-      <p className="text-xs mt-4 px-3 py-1 bg-white rounded-full inline-block" style={{ color: '#C084FC' }}>
+      <p className="text-xs mt-4 px-3 py-1 bg-white rounded-full inline-block text-[#C084FC]">
         🤖 Whisker illustration - upload here
       </p>
     </div>
   </div>
 );
+
+const StepBadge: React.FC<{ number: number }> = ({ number }) => (
   <div
-    className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg text-white flex-shrink-0"
-    style={{
-      background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-    }}
+    className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg text-white flex-shrink-0 bg-[linear-gradient(135deg,var(--ig-primary),var(--ig-secondary))]"
   >
     {number}
   </div>
-);
-
-const SectionDivider: React.FC = () => (
-  <div
-    className="h-px bg-gradient-to-r from-transparent via-[#D5DDD9] to-transparent my-10"
-  />
 );
 
 const InfoBox: React.FC<{ children: React.ReactNode; type?: 'success' | 'info' | 'warning' }> = ({
   children,
   type = 'info',
 }) => {
-  const styles = {
-    success: {
-      bg: '#E7F3EE',
-      border: '#4E9A6F',
-      text: '#2A6452',
-    },
-    info: {
-      bg: '#F0F5F7',
-      border: COLORS.primary,
-      text: COLORS.textDark,
-    },
-    warning: {
-      bg: '#FEF3E6',
-      border: '#D97706',
-      text: '#92400E',
-    },
+  const classMap = {
+    success: 'bg-[#E7F3EE] border-[#4E9A6F] text-[#2A6452]',
+    info: 'bg-[#F0F5F7] border-[var(--ig-primary,#1F6B73)] text-[var(--ig-text-dark,#1E2A2C)]',
+    warning: 'bg-[#FEF3E6] border-[#D97706] text-[#92400E]',
   };
 
-  const style = styles[type];
-
   return (
-    <div
-      className="border-l-4 p-4 rounded"
-      style={{
-        backgroundColor: style.bg,
-        borderColor: style.border,
-        color: style.text,
-      }}
-    >
+    <div className={`border-l-4 p-4 rounded ${classMap[type]}`}>
       {children}
     </div>
   );
 };
 
 const WorkflowSVG: React.FC = () => (
-  <svg viewBox="0 0 800 200" className="w-full h-auto" style={{ maxHeight: '200px' }}>
+  <svg viewBox="0 0 800 200" className="w-full h-auto max-h-[200px]">
     {/* Step 1 */}
     <rect x="20" y="40" width="140" height="120" rx="8" fill="#E7F3EE" stroke="#D8E6DF" strokeWidth="2" />
     <text x="90" y="85" textAnchor="middle" fontSize="24">
@@ -251,7 +220,7 @@ const WorkflowSVG: React.FC = () => (
 );
 
 const ReportGenerationSVG: React.FC = () => (
-  <svg viewBox="0 0 900 150" className="w-full h-auto mb-6" style={{ maxHeight: '150px' }}>
+  <svg viewBox="0 0 900 150" className="w-full h-auto mb-6 max-h-[150px]">
     <circle cx="60" cy="75" r="35" fill="#E7F3EE" stroke={COLORS.primary} strokeWidth="2" />
     <text x="60" y="85" textAnchor="middle" fontSize="24">
       📊
@@ -309,7 +278,7 @@ const ReportGenerationSVG: React.FC = () => (
 );
 
 const CaseLifecycleSVG: React.FC = () => (
-  <svg viewBox="0 0 900 180" className="w-full h-auto mb-8" style={{ maxHeight: '180px' }}>
+  <svg viewBox="0 0 900 180" className="w-full h-auto mb-8 max-h-[180px]">
     {/* Timeline */}
     <line x1="50" y1="90" x2="850" y2="90" stroke="#D8E6DF" strokeWidth="3" />
 
@@ -364,7 +333,7 @@ const CaseLifecycleSVG: React.FC = () => (
 );
 
 const AccessRequestSVG: React.FC = () => (
-  <svg viewBox="0 0 900 140" className="w-full h-auto mb-6" style={{ maxHeight: '140px' }}>
+  <svg viewBox="0 0 900 140" className="w-full h-auto mb-6 max-h-[140px]">
     {/* Request */}
     <rect x="20" y="30" width="120" height="80" rx="8" fill="#E7F3EE" stroke={COLORS.primary} strokeWidth="2" />
     <text x="80" y="60" textAnchor="middle" fontSize="20">
@@ -447,6 +416,12 @@ const AccessRequestSVG: React.FC = () => (
 export const InteractiveGuide: React.FC = () => {
   const observerRef = useRef<IntersectionObserver | null>(null);
 
+  useSEO({
+    title: "Interaktiv guide – Lær Tidum",
+    description: "Steg-for-steg guide til Tidum. Lær timeføring, rapportering og prosjektstyring på en enkel måte.",
+    canonical: "https://tidum.no/guide",
+  });
+
   useEffect(() => {
     observerRef.current = new IntersectionObserver(
       (entries) => {
@@ -468,90 +443,80 @@ export const InteractiveGuide: React.FC = () => {
   }, []);
 
   return (
-    <div style={{ backgroundColor: '#F9FCFB', minHeight: '100vh' }}>
-      {/* Navigation */}
-      <nav
-        className="sticky top-0 z-50 border-b backdrop-blur-sm bg-white/80"
-        style={{ borderColor: COLORS.border }}
-      >
-        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/favicon-32x32.png" alt="Tidum" className="h-8 w-8 rounded-lg" />
-            <div>
-              <h1 className="text-lg font-bold" style={{ color: COLORS.textDark }}>
-                Tidum Veiledning
-              </h1>
-              <p className="text-xs" style={{ color: COLORS.textLight }}>
-                Lær til å bruke plattformen effektivt
-              </p>
+    <main className="tidum-page">
+      <style>{tidumPageStyles}
+      {`
+        .ig-page { --ig-primary: ${COLORS.primary}; --ig-secondary: ${COLORS.secondary}; --ig-accent: ${COLORS.accent}; --ig-text-dark: ${COLORS.textDark}; --ig-text-light: ${COLORS.textLight}; --ig-bg-light: ${COLORS.bgLight}; --ig-border: ${COLORS.border}; }
+        .ig-emoji-lg { font-size: 48px; }
+        .ig-emoji-xl { font-size: 56px; margin-bottom: 16px; }
+      `}
+      </style>
+
+      <div className="rt-container pb-20 pt-8 ig-page">
+        {/* ── Hero / Header Panel ── */}
+        <section className="tidum-panel tidum-fade-up relative overflow-hidden rounded-[28px]">
+          <div className="pointer-events-none absolute -left-16 top-[34%] h-36 w-96 rotate-[-14deg] rounded-[999px] bg-[rgba(131,171,145,0.2)]" />
+          <div className="pointer-events-none absolute right-[-140px] top-14 h-80 w-[520px] rounded-[999px] bg-[rgba(194,205,195,0.24)]" />
+
+          <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
+            <div className="flex items-center gap-3">
+              <Link href="/">
+                <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11 cursor-pointer" />
+              </Link>
+            </div>
+            <div className="flex items-center gap-4 sm:gap-6">
+              <Link href="/hvorfor" className="hidden items-center gap-2 text-base text-[#26373C] transition-colors hover:text-[var(--color-primary)] sm:inline-flex">
+                Hvorfor Tidum?
+              </Link>
+              <Link href="/kontakt">
+                <Button className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold">
+                  Be om demo
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </Link>
+            </div>
+          </header>
+
+          <div className="relative z-10 px-6 py-12 sm:px-8 sm:py-16 text-center max-w-4xl mx-auto">
+            <h1 className="tidum-title">
+              Velkommen til <span className="text-[var(--color-primary)]">Tidum</span>
+            </h1>
+            <p className="tidum-text mt-6 max-w-2xl mx-auto">
+              Behersk kunsten med <span className="font-semibold text-[var(--color-primary)]">intelligent arbeidstidsregistrering</span>.
+              Registrer, analyser og optimaliser hver time av din profesjonelle reise.
+            </p>
+            <div className="mt-6 max-w-2xl mx-auto">
+              <InfoBox type="info">
+                📖 Denne interaktive veiledningen tar deg gjennom alle funksjoner med historier, eksempler og reelle arbeitsflyter.
+              </InfoBox>
             </div>
           </div>
-          <div className="text-sm" style={{ color: COLORS.textLight }}>
-            📖 Interaktiv guide
-          </div>
-        </div>
-      </nav>
+        </section>
 
-      {/* Hero */}
-      <div className="pt-16 pb-20 px-6">
-        <div className="max-w-4xl mx-auto text-center">
-          <h2
-            className="text-5xl font-bold mb-6"
-            style={{
-              background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
-            Velkommen til Tidum
-          </h2>
-          <p className="text-xl mb-8 leading-relaxed" style={{ color: COLORS.textLight }}>
-            Behersk kunsten med <span style={{ color: COLORS.primary, fontWeight: '600' }}>intelligent arbeidstidsregistrering</span>.
-            Registrer, analyser og optimaliser hver time av din profesjonelle reise med Tidums omfattende plattform.
-          </p>
-          <InfoBox type="info">
-            📖 Denne interaktive veiledningen tar deg gjennom alle funksjoner med historier, eksempler og reelle arbeitsflyter.
-          </InfoBox>
-        </div>
-        <SectionDivider />
-      </div>
-
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-6 pb-20">
+        {/* Content */}
+        <div className="max-w-7xl mx-auto mt-12">
         {/* TIME REGISTRATION */}
-        <div className="mb-20" data-observe>
-          <div className="flex items-center gap-4 mb-12">
-            <div
-              className="w-14 h-14 rounded-2xl border flex items-center justify-center"
-              style={{ backgroundColor: '#E7F3EE', borderColor: '#D8E6DF', color: '#3A8B73', fontSize: '24px' }}
-            >
-              <Clock size={24} />
+        <section className="tidum-fade-up mb-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
+          <div className="flex items-center gap-4 mb-10">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E7F3EE]">
+              <Clock size={24} className="text-[#3A8B73]" />
             </div>
             <div>
-              <h2
-                className="text-3xl font-bold"
-                style={{
-                  background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
                 ⏱️ Registrer Din Tid
               </h2>
-              <p className="text-sm mt-2" style={{ color: COLORS.textLight }}>
+              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                 Din profesjonelle dagbok starter her
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D5DDD9] mb-8 shadow-sm">
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
             <div className="flex gap-4">
-              <div style={{ fontSize: '48px' }}>🌅</div>
+              <div className="ig-emoji-lg">🌅</div>
               <div>
-                <h3 className="text-xl font-bold mb-2">Din første dag med Tidum</h3>
-                <p className="leading-relaxed" style={{ color: COLORS.textLight }}>
+                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Din første dag med Tidum</h3>
+                <p className="leading-relaxed text-[var(--color-text-muted)]">
                   Hver profesjonell dag forteller en historie. Når du registrerer tid, bygger du ikke bare et tidsarkiv—du dokumenterer dine
                   arbeidsresultater. Hver oppføring blir en byggesten i din profesjonelle fortelling, og skaper mønstre som avslører dine
                   arbeidsvanер, produktivitetspakker og områder for forbedring.
@@ -566,18 +531,16 @@ export const InteractiveGuide: React.FC = () => {
             </div>
           </div>
 
-          <div
-            className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] mb-8"
-          >
-            <h3 className="font-bold mb-6" style={{ color: COLORS.primary }}>
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mb-6">
+            <h3 className="font-semibold mb-6 text-[var(--color-primary)]">
               📸 Arbeitsflyt for tidsregistrering
             </h3>
             <WorkflowSVG />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-            <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
-              <h3 className="text-lg font-bold mb-6 flex items-center gap-2" style={{ color: COLORS.textDark }}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
+            <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
+              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-[#1D2C31]">
                 <span>➕</span> Opprett tidsføring i 4 steg
               </h3>
               <div className="space-y-6">
@@ -593,10 +556,10 @@ export const InteractiveGuide: React.FC = () => {
                     <div key={num} className="flex gap-4">
                       <StepBadge number={num} />
                       <div>
-                        <p className="font-semibold" style={{ color: COLORS.primary }}>
+                        <p className="font-semibold text-[var(--color-primary)]">
                           {step.title}
                         </p>
-                        <p className="text-sm mt-1" style={{ color: COLORS.textLight }}>
+                        <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                           {step.desc}
                         </p>
                       </div>
@@ -608,43 +571,30 @@ export const InteractiveGuide: React.FC = () => {
 
             <ScreenshotPlaceholder title="Tidsregistrering Skjermbilde" emoji="📱" size="480x360px" src="/screenshots/time-tracking.webp" />
           </div>
-        </div>
-
-        <SectionDivider />
+        </section>
 
         {/* REPORTS */}
-        <div className="mb-20" data-observe>
-          <div className="flex items-center gap-4 mb-12">
-            <div
-              className="w-14 h-14 rounded-2xl border flex items-center justify-center"
-              style={{ backgroundColor: '#E8F5EE', borderColor: '#D8E6DF', color: '#4E9A6F', fontSize: '24px' }}
-            >
-              <BarChart3 size={24} />
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
+          <div className="flex items-center gap-4 mb-10">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8F5EE]">
+              <BarChart3 size={24} className="text-[#4E9A6F]" />
             </div>
             <div>
-              <h2
-                className="text-3xl font-bold"
-                style={{
-                  background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
                 📊 Rapporter & Analyse
               </h2>
-              <p className="text-sm mt-2" style={{ color: COLORS.textLight }}>
+              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                 Gjør tidsdata om til innsikter
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D5DDD9] mb-8 shadow-sm">
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
             <div className="flex gap-4">
-              <div style={{ fontSize: '48px' }}>📈</div>
+              <div className="ig-emoji-lg">📈</div>
               <div>
-                <h3 className="text-xl font-bold mb-2">Fra tall til historier</h3>
-                <p className="leading-relaxed" style={{ color: COLORS.textLight }}>
+                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Fra tall til historier</h3>
+                <p className="leading-relaxed text-[var(--color-text-muted)]">
                   Rapporter gjør dataene dine meningsfulle. Du oppdager hvilke prosjekter som forbruker mest tid, hvordan produktiviteten
                   varierer, og hvor muligheter for optimalisering ligger. Rapporter gjør rutinearbeid om til forretnetsforstand.
                 </p>
@@ -658,7 +608,7 @@ export const InteractiveGuide: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
             {[
               {
                 icon: '✓',
@@ -679,19 +629,19 @@ export const InteractiveGuide: React.FC = () => {
                 examples: ['Interaktive grafer', 'Mønstertellinger', 'Prediksjoner'],
               },
             ].map((report, idx) => (
-              <div key={idx} className="bg-white rounded-2xl p-6 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
+              <div key={idx} className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-5">
                 <div className="flex items-center gap-3 mb-4">
-                  <span style={{ color: COLORS.primary, fontSize: '20px' }}>{report.icon}</span>
-                  <h4 className="font-bold">{report.title}</h4>
+                  <span className="text-[var(--color-primary)] text-xl">{report.icon}</span>
+                  <h4 className="font-semibold text-[#1D2C31]">{report.title}</h4>
                 </div>
-                <p className="text-sm" style={{ color: COLORS.textLight }}>
+                <p className="text-sm text-[var(--color-text-muted)]">
                   {report.desc}
                 </p>
-                <div className="mt-4 pt-4 border-t border-[#D8E6DF]">
-                  <p className="text-xs font-semibold" style={{ color: COLORS.primary }}>
+                <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+                  <p className="text-xs font-semibold text-[var(--color-primary)]">
                     📊 Eksempel:
                   </p>
-                  <ul className="text-xs mt-2" style={{ color: COLORS.textLight }}>
+                  <ul className="text-xs mt-2 text-[var(--color-text-muted)]">
                     {report.examples.map((ex, i) => (
                       <li key={i}>✓ {ex}</li>
                     ))}
@@ -701,13 +651,13 @@ export const InteractiveGuide: React.FC = () => {
             ))}
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] mb-8">
-            <h3 className="text-lg font-bold mb-4">📸 Eksempel: Rapport Dashboard</h3>
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mb-6">
+            <h3 className="text-lg font-semibold mb-4 text-[#1D2C31]">📸 Eksempel: Rapport Dashboard</h3>
             <ScreenshotPlaceholder title="Rapport Dashboard Skjermbilde" emoji="📋" size="900x320px" src="/screenshots/reports-dashboard.webp" />
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
-            <h3 className="text-lg font-bold mb-8">Slik genererer du din første rapport</h3>
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
+            <h3 className="text-lg font-semibold mb-8 text-[#1D2C31]">Slik genererer du din første rapport</h3>
             <ReportGenerationSVG />
             <div className="space-y-6">
               {[1, 2, 3, 4].map((num) => {
@@ -722,10 +672,10 @@ export const InteractiveGuide: React.FC = () => {
                   <div key={num} className="flex gap-4">
                     <StepBadge number={num} />
                     <div>
-                      <p className="font-semibold" style={{ color: step.color }}>
+                      <p className="font-semibold text-[var(--ig-secondary)]">
                         {step.title}
                       </p>
-                      <p className="text-sm mt-1" style={{ color: COLORS.textLight }}>
+                      <p className="text-sm mt-1 text-[var(--ig-text-light)]">
                         {step.desc}
                       </p>
                     </div>
@@ -734,47 +684,34 @@ export const InteractiveGuide: React.FC = () => {
               })}
             </div>
             <InfoBox type="success">
-              ✨ <span className="font-bold" style={{ color: COLORS.primary }}>Godkjenningsflyt:</span> Rapporter må ofte godkjennes av
+              ✨ <span className="font-bold text-[var(--color-primary)]">Godkjenningsflyt:</span> Rapporter må ofte godkjennes av
               leder. Du får notifikasjoner når de er behandlet.
             </InfoBox>
           </div>
-        </div>
-
-        <SectionDivider />
+        </section>
 
         {/* CASE MANAGEMENT */}
-        <div className="mb-20" data-observe>
-          <div className="flex items-center gap-4 mb-12">
-            <div
-              className="w-14 h-14 rounded-2xl border flex items-center justify-center"
-              style={{ backgroundColor: '#F5EFE1', borderColor: '#D8E6DF', color: '#8F7E52', fontSize: '24px' }}
-            >
-              <FileText size={24} />
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
+          <div className="flex items-center gap-4 mb-10">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F5EFE1]">
+              <FileText size={24} className="text-[#8F7E52]" />
             </div>
             <div>
-              <h2
-                className="text-3xl font-bold"
-                style={{
-                  background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
                 📋 Sakshåndtering
               </h2>
-              <p className="text-sm mt-2" style={{ color: COLORS.textLight }}>
+              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                 Spor, dokumenter og løs saker systematisk
               </p>
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D5DDD9] mb-8 shadow-sm">
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
             <div className="flex gap-4">
-              <div style={{ fontSize: '48px' }}>🔍</div>
+              <div className="ig-emoji-lg">🔍</div>
               <div>
-                <h3 className="text-xl font-bold mb-2">Dokumentasjon som gir kraft</h3>
-                <p className="leading-relaxed" style={{ color: COLORS.textLight }}>
+                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Dokumentasjon som gir kraft</h3>
+                <p className="leading-relaxed text-[var(--color-text-muted)]">
                   Hver sak forteller en historie fra påbegynnelse til løsning. Detaljert dokumentasjon skaper en kunnskapsbase som hjelper
                   teamet ditt lære, forbedres og ta bedre avgjørelser. Saker er ikke bare poster—de er leksjoner som blir verdifulle for hele
                   organisasjonen.
@@ -789,23 +726,23 @@ export const InteractiveGuide: React.FC = () => {
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
-            <h3 className="text-lg font-bold mb-8">Sakens livssyklus</h3>
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
+            <h3 className="text-lg font-semibold mb-8 text-[#1D2C31]">Sakens livssyklus</h3>
             <CaseLifecycleSVG />
             <div className="space-y-6">
               {[
-                { emoji: '📥', title: 'Sak opprettet', desc: 'Ny sak med innledende informasjon', color: COLORS.primary },
-                { emoji: '🔄', title: 'Dokumentasjon', desc: 'Samle bevis og dokumenter funn', color: COLORS.secondary },
-                { emoji: '👀', title: 'Gjennomgang', desc: 'Venter på ledelse/admin-godkjenning', color: '#D97706' },
-                { emoji: '✅', title: 'Løsning & lukking', desc: 'Godkjent og lagt til kunnskapsbase', color: COLORS.secondary },
+                { emoji: '📥', title: 'Sak opprettet', desc: 'Ny sak med innledende informasjon', colorClass: 'text-[var(--ig-primary)]' },
+                { emoji: '🔄', title: 'Dokumentasjon', desc: 'Samle bevis og dokumenter funn', colorClass: 'text-[var(--ig-secondary)]' },
+                { emoji: '👀', title: 'Gjennomgang', desc: 'Venter på ledelse/admin-godkjenning', colorClass: 'text-[#D97706]' },
+                { emoji: '✅', title: 'Løsning & lukking', desc: 'Godkjent og lagt til kunnskapsbase', colorClass: 'text-[var(--ig-secondary)]' },
               ].map((stage, idx) => (
                 <div key={idx} className="flex gap-6">
                   <div className="text-2xl">{stage.emoji}</div>
                   <div className="flex-1">
-                    <p className="font-bold" style={{ color: stage.color }}>
+                    <p className={`font-bold ${stage.colorClass}`}>
                       {idx + 1}. {stage.title}
                     </p>
-                    <p className="text-sm mt-1" style={{ color: COLORS.textLight }}>
+                    <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                       {stage.desc}
                     </p>
                   </div>
@@ -818,46 +755,33 @@ export const InteractiveGuide: React.FC = () => {
               detaljerte saker.
             </InfoBox>
           </div>
-        </div>
-
-        <SectionDivider />
+        </section>
 
         {/* ADMINISTRATION */}
-        <div className="mb-20" data-observe>
-          <div className="flex items-center gap-4 mb-12">
-            <div
-              className="w-14 h-14 rounded-2xl border flex items-center justify-center"
-              style={{ backgroundColor: '#F0F5F7', borderColor: '#D8E6DF', color: COLORS.primary, fontSize: '24px' }}
-            >
-              <Settings size={24} />
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
+          <div className="flex items-center gap-4 mb-10">
+            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F5F7]">
+              <Settings size={24} className="text-[var(--color-primary)]" />
             </div>
             <div>
-              <h2
-                className="text-3xl font-bold"
-                style={{
-                  background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-                  WebkitBackgroundClip: 'text',
-                  WebkitTextFillColor: 'transparent',
-                  backgroundClip: 'text',
-                }}
-              >
+              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
                 ⚙️ Administrasjon
               </h2>
-              <p className="text-sm mt-2" style={{ color: COLORS.textLight }}>
+              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
                 Styr brukere, tilgang og ressurser
               </p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-            <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
-              <h3 className="text-lg font-bold mb-6">Saksgodkjenning</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
+              <h3 className="text-lg font-semibold mb-6 text-[#1D2C31]">Saksgodkjenning</h3>
               <div className="space-y-4">
                 <InfoBox type="success">
                   <p className="text-sm">
                     <span className="font-semibold">Admin deling</span>
                   </p>
-                  <p className="text-xs mt-1" style={{ color: COLORS.textLight }}>
+                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
                     Oversikt over alle innsendte saker som venter gjennomgang
                   </p>
                 </InfoBox>
@@ -866,7 +790,7 @@ export const InteractiveGuide: React.FC = () => {
                   <p className="text-sm">
                     <span className="font-semibold">Godkjenn/Avvis</span>
                   </p>
-                  <p className="text-xs mt-1" style={{ color: COLORS.textLight }}>
+                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
                     Sett status eller be om revisjon med kommentarer
                   </p>
                 </InfoBox>
@@ -875,7 +799,7 @@ export const InteractiveGuide: React.FC = () => {
                   <p className="text-sm">
                     <span className="font-semibold">Kvalitetssjekk</span>
                   </p>
-                  <p className="text-xs mt-1" style={{ color: COLORS.textLight }}>
+                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
                     Sikre konsistens og fullständighet i dokumentasjonen
                   </p>
                 </InfoBox>
@@ -885,17 +809,17 @@ export const InteractiveGuide: React.FC = () => {
             <ScreenshotPlaceholder title="Admin Panel Skjermbilde" emoji="🖥️" size="600x240px" src="/screenshots/admin-panel.webp" />
           </div>
 
-          <div className="bg-white rounded-2xl p-8 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] mt-8">
-            <h3 className="text-lg font-bold mb-6">Tilgangsforespørsel arbeidsflyt</h3>
+          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mt-5">
+            <h3 className="text-lg font-semibold mb-6 text-[#1D2C31]">Tilgangsforespørsel arbeidsflyt</h3>
             <AccessRequestSVG />
 
             <div className="grid grid-cols-3 gap-4">
               {['Innsendt', 'Vurdert', 'Fullstendig'].map((title, idx) => (
-                <div key={idx} className="bg-white rounded-2xl p-4 border border-[#D8E6DF] text-center">
-                  <p className="font-semibold text-sm mb-2" style={{ color: COLORS.primary }}>
+                <div key={idx} className="rounded-xl border border-[var(--color-border)] bg-white/90 p-4 text-center">
+                  <p className="font-semibold text-sm mb-2 text-[var(--color-primary)]">
                     {title}
                   </p>
-                  <p className="text-xs" style={{ color: COLORS.textLight }}>
+                  <p className="text-xs text-[var(--color-text-muted)]">
                     {idx === 0 && 'Bruker sender forespørsel om tilgang'}
                     {idx === 1 && 'Leder gjennomgår og avgjør'}
                     {idx === 2 && 'Bruker får beskjed om resultat'}
@@ -904,24 +828,14 @@ export const InteractiveGuide: React.FC = () => {
               ))}
             </div>
           </div>
-        </div>
-
-        <SectionDivider />
+        </section>
 
         {/* BEST PRACTICES */}
-        <div className="mb-20" data-observe>
-          <h2
-            className="text-3xl font-bold mb-12"
-            style={{
-              background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
+          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] mb-8">
             💡 Best Practices
           </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {[
               { emoji: '🎯', title: 'Vær konsistent', desc: 'Registrer tid daglig. Konsistens skaper ærlige data og bedre innsikter.' },
               { emoji: '📝', title: 'Detaljer betyr noe', desc: 'Legg til meningsfulle beskrivelser. Framtidig deg vil takke deg.' },
@@ -930,12 +844,12 @@ export const InteractiveGuide: React.FC = () => {
               { emoji: '🤝', title: 'Samarbeid', desc: 'Del kunnskap gjennom saksmeldinger. Hele teamet vinner.' },
               { emoji: '📊', title: 'Data først', desc: 'Bruk analyser til å begrunne avgjørelser. Data taler sterkere.' },
             ].map((practice, idx) => (
-              <div key={idx} className="bg-white rounded-2xl p-6 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8]">
+              <div key={idx} className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-5 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
                 <div className="flex items-start gap-4">
-                  <span style={{ fontSize: '28px' }}>{practice.emoji}</span>
+                  <span className="text-[28px]">{practice.emoji}</span>
                   <div>
-                    <h4 className="font-bold">{practice.title}</h4>
-                    <p className="text-sm mt-2" style={{ color: COLORS.textLight }}>
+                    <h4 className="font-semibold text-[#1D2C31]">{practice.title}</h4>
+                    <p className="text-sm mt-2 text-[var(--color-text-muted)]">
                       {practice.desc}
                     </p>
                   </div>
@@ -943,21 +857,11 @@ export const InteractiveGuide: React.FC = () => {
               </div>
             ))}
           </div>
-        </div>
-
-        <SectionDivider />
+        </section>
 
         {/* FAQ */}
-        <div className="mb-20" data-observe>
-          <h2
-            className="text-3xl font-bold mb-12"
-            style={{
-              background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
+          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] mb-8">
             ❓ Ofte Stilte Spørsmål
           </h2>
           <div className="space-y-4">
@@ -965,72 +869,95 @@ export const InteractiveGuide: React.FC = () => {
               <FAQAccordion key={idx} item={item} />
             ))}
           </div>
-        </div>
+        </section>
 
         {/* CTA */}
-        <div className="bg-white rounded-2xl p-12 border border-[#D8E6DF] bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] text-center mb-8">
-          <h2
-            className="text-3xl font-bold mb-6"
-            style={{
-              background: `linear-gradient(135deg, ${COLORS.primary}, ${COLORS.secondary})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-            }}
-          >
+        <section className="tidum-fade-up mt-12 rounded-3xl border border-[#1a5d65] bg-[var(--color-primary)] px-6 py-10 text-white sm:px-8 text-center">
+          <h2 className="text-[clamp(28px,4vw,42px)] font-semibold tracking-tight">
             Klar til å mestre din tid?
           </h2>
-          <p className="text-lg mb-8" style={{ color: COLORS.textLight }}>
+          <p className="mx-auto mt-4 max-w-2xl text-white/85">
             Du har nå alt du trenger for å bruke Tidum effektivt. Start rolig, vær konsistent, og se dine produktivitetsinnsikter vokse.
           </p>
-          <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <button
-              className="px-8 py-3 rounded-lg text-white font-bold hover:shadow-lg transform hover:scale-105 transition"
-              style={{ background: `linear-gradient(to right, ${COLORS.primary}, ${COLORS.secondary})` }}
-            >
-              🚀 Kom i gang
-            </button>
-            <button
-              className="px-8 py-3 rounded-lg font-bold hover:text-white transition"
-              style={{
-                border: `2px solid ${COLORS.primary}`,
-                color: COLORS.primary,
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = COLORS.primary;
-                e.currentTarget.style.color = 'white';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = COLORS.primary;
-              }}
-            >
-              📞 Kontakt support
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Footer */}
-      <footer className="border-t border-[#D5DDD9] backdrop-blur-md mt-20">
-        <div className="max-w-7xl mx-auto px-6 py-12 text-center" style={{ color: COLORS.textLight }}>
-          <p>© 2024-2026 Tidum Plattform. Alle rettigheter forbeholdt.</p>
-          <p className="mt-2">Spørsmål? Sjekk dokumentasjonen eller kontakt support@tidum.com</p>
-          <div className="flex justify-center gap-6 mt-6">
-            {['Dokumentasjon', 'API', 'Support', 'Fellesskap'].map((link) => (
-              <a
-                key={link}
-                href="#"
-                style={{ color: COLORS.textLight }}
-                className="hover:text-[#1F6B73] transition"
+          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
+            <Link href="/kontakt">
+              <Button className="h-auto rounded-xl bg-white px-6 py-3 text-[var(--color-primary)] hover:bg-white/90 font-semibold">
+                🚀 Kom i gang
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Button>
+            </Link>
+            <Link href="/kontakt">
+              <Button
+                variant="outline"
+                className="h-auto rounded-xl border-white/70 px-6 py-3 text-white hover:bg-white/10 font-semibold"
               >
-                {link}
-              </a>
-            ))}
+                📞 Kontakt support
+                <ChevronRight className="ml-1.5 h-4 w-4" />
+              </Button>
+            </Link>
           </div>
+        </section>
         </div>
-      </footer>
-    </div>
+
+        {/* ── Footer ── */}
+        <footer className="tidum-fade-up mt-10 rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(245,248,246,0.92))] px-6 py-8 sm:px-8">
+          <div className="grid gap-8 md:grid-cols-[1.2fr,0.9fr,1fr]">
+            <div>
+              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto" />
+              <p className="mt-4 max-w-md text-sm leading-relaxed text-[var(--color-text-muted)]">
+                Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
+              </p>
+              <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
+                kontakt@tidum.no
+              </Link>
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Snarveier</p>
+              <div className="mt-3 grid gap-2 text-sm">
+                <Link href="/" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
+                  <ChevronRight className="h-4 w-4" />
+                  Forside
+                </Link>
+                <Link href="/hvorfor" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
+                  <ChevronRight className="h-4 w-4" />
+                  Hvorfor Tidum?
+                </Link>
+                <Link href="/personvern" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
+                  <ChevronRight className="h-4 w-4" />
+                  Personvern
+                </Link>
+                <Link href="/vilkar" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
+                  <ChevronRight className="h-4 w-4" />
+                  Vilkår
+                </Link>
+              </div>
+            </div>
+
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Trygghet</p>
+              <div className="mt-3 grid gap-2">
+                {[
+                  "Bygget for norsk arbeidsliv",
+                  "Personvern først",
+                  "Klar for dokumentasjonskrav",
+                ].map((item) => (
+                  <div key={item} className="inline-flex items-start gap-2 rounded-lg bg-white/75 px-3 py-2 text-sm text-[#2B3C41]">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-secondary)]" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-text-muted)]">
+            <p>© {new Date().getFullYear()} Tidum. Alle rettigheter reservert.</p>
+            <p>Enkel registrering. Trygg dokumentasjon. Full oversikt.</p>
+          </div>
+        </footer>
+      </div>
+    </main>
   );
 };
 

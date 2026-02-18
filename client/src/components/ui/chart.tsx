@@ -300,10 +300,8 @@ const ChartLegendContent = React.forwardRef<
                 <itemConfig.icon />
               ) : (
                 <div
-                  className="h-2 w-2 shrink-0 rounded-[2px]"
-                  style={{
-                    backgroundColor: item.color,
-                  }}
+                  className="h-2 w-2 shrink-0 rounded-[2px] bg-[--chart-legend-color]"
+                  style={{ "--chart-legend-color": item.color } as React.CSSProperties}
                 />
               )}
               {itemConfig?.label}

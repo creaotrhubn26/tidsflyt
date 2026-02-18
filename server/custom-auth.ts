@@ -1,7 +1,7 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import session from "express-session";
-import type { Express, RequestHandler, Request, Response, NextFunction } from "express";
+import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import { db } from "./db";
 import { users } from "@shared/schema";
@@ -87,7 +87,7 @@ export async function setupCustomAuth(app: Express) {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: `${baseUrl}/api/auth/google/callback`,
       scope: ["profile", "email"],
-    }, async (accessToken, refreshToken, profile, done) => {
+    }, async (_accessToken, _refreshToken, profile, done) => {
       try {
         const user = await findOrCreateUser(profile, "google");
         if (!user) {
@@ -120,12 +120,12 @@ export async function setupCustomAuth(app: Express) {
 
   app.get("/api/auth/google/callback", 
     passport.authenticate("google", { failureRedirect: "/?error=auth_failed" }),
-    (req, res) => {
+    (_req, res) => {
       res.redirect("/dashboard");
     }
   );
 
-  app.get("/api/auth/apple", (req, res) => {
+  app.get("/api/auth/apple", (_req, res) => {
     res.status(501).json({ 
       error: "Apple Sign-In krever ytterligere konfigurasjon",
       message: "Kontakt administrator for å sette opp Apple Sign-In"
@@ -145,7 +145,7 @@ export async function setupCustomAuth(app: Express) {
       if (err) {
         return res.status(500).json({ error: "Kunne ikke logge ut" });
       }
-      req.session.destroy((err) => {
+      req.session.destroy((_err) => {
         res.clearCookie("connect.sid");
         res.json({ success: true });
       });
@@ -157,7 +157,7 @@ export async function setupCustomAuth(app: Express) {
       if (err) {
         return res.redirect("/?error=logout_failed");
       }
-      req.session.destroy((err) => {
+      req.session.destroy((_err) => {
         res.clearCookie("connect.sid");
         res.redirect("/");
       });

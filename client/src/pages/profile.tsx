@@ -4,7 +4,6 @@ import {
   User, 
   Mail, 
   Phone, 
-  Building, 
   Clock, 
   Calendar, 
   Settings, 
@@ -25,28 +24,40 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useTheme } from "@/components/theme-provider";
-
-const mockProfile = {
-  name: "Demo Bruker",
-  email: "demo@tidum.no",
-  phone: "+47 123 45 678",
-  role: "admin",
-  company: "Demo Selskap AS",
-  joinedAt: "2024-01-15",
-  totalHours: 1245.5,
-  reportsSubmitted: 52,
-};
+import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 
 export default function ProfilePage() {
   const [location] = useLocation();
   const isSettingsRoute = location === "/settings";
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { setTheme, resolvedTheme } = useTheme();
+  const { user } = useAuth();
   const [notifications, setNotifications] = useState({
     email: true,
     push: false,
     weekly: true,
   });
   const [language, setLanguage] = useState("no");
+
+  // Fetch stats from API
+  const { data: stats } = useQuery<{ totalHours: number }>({
+    queryKey: ["/api/stats"],
+    staleTime: 60_000,
+  });
+
+  const profile = {
+    name: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || user?.email?.split("@")[0] || "Bruker",
+    email: user?.email || "",
+    role: user?.role || "member",
+    joinedAt: user?.createdAt ? new Date(user.createdAt).toLocaleDateString("nb-NO") : "",
+    totalHours: stats?.totalHours ?? 0,
+  };
+
+  const initials = profile.name
+    .split(" ")
+    .map((n: string) => n[0])
+    .join("")
+    .toUpperCase();
 
   return (
     <PortalLayout>
@@ -67,31 +78,29 @@ export default function ProfilePage() {
             <div className="flex flex-col sm:flex-row items-start gap-6">
               <Avatar className="h-20 w-20">
                 <AvatarFallback className="bg-primary text-primary-foreground text-2xl">
-                  {mockProfile.name.split(" ").map(n => n[0]).join("")}
+                  {initials}
                 </AvatarFallback>
               </Avatar>
 
               <div className="flex-1">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
-                  <h2 className="text-xl font-bold">{mockProfile.name}</h2>
+                  <h2 className="text-xl font-bold">{profile.name}</h2>
                   <Badge variant="destructive" className="w-fit">
                     <Shield className="h-3 w-3 mr-1" />
-                    Administrator
+                    {profile.role === "admin" || profile.role === "super_admin" ? "Administrator" : "Medlem"}
                   </Badge>
                 </div>
-                <p className="text-muted-foreground">{mockProfile.email}</p>
-                <p className="text-sm text-muted-foreground mt-1">{mockProfile.company}</p>
+                <p className="text-muted-foreground">{profile.email}</p>
 
                 <div className="flex flex-wrap gap-4 mt-4">
                   <div className="flex items-center gap-2 text-sm">
                     <Clock className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-mono font-medium">{mockProfile.totalHours}t</span>
+                    <span className="font-mono font-medium">{profile.totalHours.toFixed(1)}t</span>
                     <span className="text-muted-foreground">totalt</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">{mockProfile.reportsSubmitted}</span>
-                    <span className="text-muted-foreground">rapporter</span>
+                    <span className="text-muted-foreground">Medlem siden {profile.joinedAt}</span>
                   </div>
                 </div>
               </div>
@@ -115,21 +124,21 @@ export default function ProfilePage() {
                 <Label htmlFor="name">Navn</Label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input id="name" defaultValue={mockProfile.name} className="pl-9" data-testid="input-name" />
+                  <Input id="name" defaultValue={profile.name} className="pl-9" data-testid="input-name" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">E-post</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input id="email" type="email" defaultValue={mockProfile.email} className="pl-9" data-testid="input-email" />
+                  <Input id="email" type="email" defaultValue={profile.email} className="pl-9" data-testid="input-email" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="phone">Telefon</Label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                  <Input id="phone" type="tel" defaultValue={mockProfile.phone} className="pl-9" data-testid="input-phone" />
+                  <Input id="phone" type="tel" defaultValue="" className="pl-9" data-testid="input-phone" />
                 </div>
               </div>
               <Button className="w-full" data-testid="save-contact-button">Lagre endringer</Button>

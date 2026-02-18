@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -535,6 +535,106 @@ export const designPresets = pgTable("design_presets", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Builder Pages - Visual Editor output
+export const builderPages = pgTable("builder_pages", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(), // URL path, e.g. "about", "pricing"
+  title: text("title").notNull(),
+  description: text("description"),
+  sections: jsonb("sections").notNull(), // Full Section[] JSON
+  themeKey: text("theme_key").default("tidum-standard"),
+  status: text("status").default("draft").notNull(), // draft, published, scheduled, archived
+  version: integer("version").default(1),
+  publishedAt: timestamp("published_at"),
+  scheduledAt: timestamp("scheduled_at"), // Future publish date
+  // SEO fields
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  ogImage: text("og_image"),
+  canonicalUrl: text("canonical_url"),
+  // Global layout
+  globalHeader: jsonb("global_header"), // Header config JSON
+  globalFooter: jsonb("global_footer"), // Footer config JSON
+  customCss: text("custom_css"), // Page-level custom CSS
+  // i18n
+  locale: text("locale").default("nb"), // nb = Norwegian Bokmål, en = English
+  translationOf: integer("translation_of"), // Points to original page id
+  createdBy: text("created_by"),
+  updatedBy: text("updated_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertBuilderPageSchema = createInsertSchema(builderPages);
+export type InsertBuilderPage = z.infer<typeof insertBuilderPageSchema>;
+export type BuilderPage = typeof builderPages.$inferSelect;
+
+// Section Templates - Reusable section snippets
+export const sectionTemplates = pgTable("section_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  category: text("category").default("custom"),
+  thumbnail: text("thumbnail"),
+  sectionData: jsonb("section_data").notNull(), // Section JSON
+  isBuiltIn: boolean("is_built_in").default(false),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertSectionTemplateSchema = createInsertSchema(sectionTemplates);
+export type InsertSectionTemplate = z.infer<typeof insertSectionTemplateSchema>;
+export type SectionTemplate = typeof sectionTemplates.$inferSelect;
+
+// Page Versions - Revision history
+export const pageVersions = pgTable("page_versions", {
+  id: serial("id").primaryKey(),
+  pageId: integer("page_id").notNull(),
+  version: integer("version").notNull(),
+  title: text("title").notNull(),
+  sections: jsonb("sections").notNull(),
+  themeKey: text("theme_key"),
+  customCss: text("custom_css"),
+  changedBy: text("changed_by"),
+  changeNote: text("change_note"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertPageVersionSchema = createInsertSchema(pageVersions);
+export type InsertPageVersion = z.infer<typeof insertPageVersionSchema>;
+export type PageVersion = typeof pageVersions.$inferSelect;
+
+// Form Submissions - Contact form data from builder pages
+export const formSubmissions = pgTable("form_submissions", {
+  id: serial("id").primaryKey(),
+  pageId: integer("page_id"),
+  pageSlug: text("page_slug"),
+  formName: text("form_name").default("contact"),
+  data: jsonb("data").notNull(), // { name, email, message, ... }
+  status: text("status").default("new").notNull(), // new, read, replied, archived
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertFormSubmissionSchema = createInsertSchema(formSubmissions);
+export type InsertFormSubmission = z.infer<typeof insertFormSubmissionSchema>;
+export type FormSubmission = typeof formSubmissions.$inferSelect;
+
+// Page Analytics - View tracking
+export const pageAnalytics = pgTable("page_analytics", {
+  id: serial("id").primaryKey(),
+  pageId: integer("page_id").notNull(),
+  pageSlug: text("page_slug"),
+  viewedAt: timestamp("viewed_at").defaultNow(),
+  duration: integer("duration"), // seconds on page
+  referrer: text("referrer"),
+  userAgent: text("user_agent"),
+  country: text("country"),
+  device: text("device"), // desktop, tablet, mobile
+});
+
 // Case Reports table
 export const caseReports = pgTable("case_reports", {
   id: serial("id").primaryKey(),
@@ -579,6 +679,71 @@ export const companyAuditLog = pgTable("company_audit_log", {
   hash: text("hash"),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ========== BLOG SYSTEM ==========
+
+// Blog Categories
+export const blogCategories = pgTable("cms_categories", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),
+  description: text("description"),
+  parentId: integer("parent_id"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Blog Posts
+export const blogPosts = pgTable("cms_posts", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  excerpt: text("excerpt"),
+  content: text("content"),
+  featuredImage: text("featured_image"),
+  author: text("author"),
+  categoryId: integer("category_id"),
+  tags: text("tags").array(),
+  status: text("status").default("draft").notNull(), // draft, published, scheduled, archived
+  metaTitle: text("meta_title"),
+  metaDescription: text("meta_description"),
+  ogImage: text("og_image"),
+  readingTime: integer("reading_time"), // minutes
+  wordCount: integer("word_count"),
+  scheduledAt: timestamp("scheduled_at"),
+  publishedAt: timestamp("published_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Blog Comments
+export const blogComments = pgTable("blog_comments", {
+  id: serial("id").primaryKey(),
+  postId: integer("post_id").notNull(),
+  parentId: integer("parent_id"), // threaded replies
+  authorName: text("author_name").notNull(),
+  authorEmail: text("author_email"),
+  authorUrl: text("author_url"),
+  content: text("content").notNull(),
+  status: text("status").default("pending").notNull(), // pending, approved, spam, trash
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Blog Insert Schemas
+export const insertBlogCategorySchema = createInsertSchema(blogCategories).omit({ id: true, createdAt: true, updatedAt: true });
+export const insertBlogPostSchema = createInsertSchema(blogPosts).omit({ id: true, createdAt: true, updatedAt: true, publishedAt: true });
+export const insertBlogCommentSchema = createInsertSchema(blogComments).omit({ id: true, createdAt: true, updatedAt: true });
+
+// Blog Types
+export type BlogPost = typeof blogPosts.$inferSelect;
+export type InsertBlogPost = z.infer<typeof insertBlogPostSchema>;
+export type BlogCategory = typeof blogCategories.$inferSelect;
+export type InsertBlogCategory = z.infer<typeof insertBlogCategorySchema>;
+export type BlogComment = typeof blogComments.$inferSelect;
+export type InsertBlogComment = z.infer<typeof insertBlogCommentSchema>;
 
 // CMS Content Versions (for version history and restore)
 export const contentVersions = pgTable("content_versions", {

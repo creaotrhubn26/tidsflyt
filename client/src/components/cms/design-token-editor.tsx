@@ -7,12 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { ScrollArea } from "@/components/ui/scroll-area";
+
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Palette, Type, Box, CircleDot, Sparkles, Layout, Copy, Download,
-  Check, Save, Loader2, RefreshCw, Eye, Code2, Wand2
+  Palette, Type, Box, Sparkles, Copy,
+  Check, Save, Loader2, RefreshCw, Code2, Wand2
 } from "lucide-react";
 
 function getAdminToken(): string | null {

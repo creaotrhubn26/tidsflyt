@@ -45,6 +45,25 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          // Extract heavy libraries into separate cacheable vendor chunks
+          if (id.includes("node_modules/recharts") || id.includes("node_modules/d3-")) {
+            return "recharts-vendor";
+          }
+          if (id.includes("node_modules/react-quill") || id.includes("node_modules/quill")) {
+            return "quill-vendor";
+          }
+          if (id.includes("node_modules/framer-motion")) {
+            return "framer-vendor";
+          }
+          if (id.includes("node_modules/@dnd-kit")) {
+            return "dndkit-vendor";
+          }
+        },
+      },
+    },
   },
   server: {
     fs: {

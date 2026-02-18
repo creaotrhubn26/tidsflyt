@@ -1,13 +1,11 @@
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { 
-  Play, Pause, RotateCcw, Clock, Zap, MousePointer, 
-  Eye, ScrollText, ArrowDownToLine
+  Play, Clock, Zap, MousePointer, 
+  Eye, ScrollText
 } from "lucide-react";
 
 interface AnimationConfig {

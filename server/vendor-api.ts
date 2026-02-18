@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "./db";
-import { apiKeyAuth, requirePermission, generateApiKey, ApiRequest } from "./api-middleware";
+import { apiKeyAuth, requirePermission, ApiRequest } from "./api-middleware";
 import { 
   logRow, 
   companyUsers, 
@@ -10,7 +10,7 @@ import {
   apiUsageLog,
   vendors
 } from "@shared/schema";
-import { eq, and, gte, lte, sql, desc, count } from "drizzle-orm";
+import { eq, and, gte, desc, count } from "drizzle-orm";
 import { z } from "zod";
 
 const router = Router();
@@ -338,7 +338,7 @@ router.get("/usage", apiKeyAuth, async (req: ApiRequest, res) => {
   }
 });
 
-router.get("/health", (req, res) => {
+router.get("/health", (_req, res) => {
   res.json({
     status: "ok",
     version: "1.0.0",

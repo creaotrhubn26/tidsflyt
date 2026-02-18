@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -610,8 +610,10 @@ export default function VendorsPage() {
               </div>
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
-                  <Label>Status</Label>
+                  <Label htmlFor="vendor-status">Status</Label>
                   <select
+                    id="vendor-status"
+                    aria-label="Status"
                     value={vendorForm.status}
                     onChange={(e) => setVendorForm({ ...vendorForm, status: e.target.value })}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
@@ -623,8 +625,10 @@ export default function VendorsPage() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <Label>Abonnement</Label>
+                  <Label htmlFor="vendor-plan">Abonnement</Label>
                   <select
+                    id="vendor-plan"
+                    aria-label="Abonnement"
                     value={vendorForm.subscriptionPlan}
                     onChange={(e) => setVendorForm({ ...vendorForm, subscriptionPlan: e.target.value })}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"

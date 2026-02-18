@@ -35,16 +35,16 @@ export function StatCard({ title, value, icon, trend, colorClass = "text-primary
 
   return (
     <Card
-      className="overflow-visible rounded-2xl border-[#d8e4e0] bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] shadow-[0_12px_30px_rgba(20,58,65,0.07)]"
+      className="overflow-visible rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
       data-testid={`stat-card-${title.toLowerCase().replace(/\s+/g, '-')}`}
     >
       <CardContent className="p-6">
         <div className="flex items-start justify-between gap-4">
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-[#5f7075] truncate">
+            <p className="text-sm font-medium text-[#5f7075] dark:text-muted-foreground truncate">
               {title}
             </p>
-            <p className="text-3xl font-semibold mt-2 tracking-tight text-[#153c46]">
+            <p className="text-3xl font-semibold mt-2 tracking-tight text-[#153c46] dark:text-foreground">
               {value}
             </p>
             {trend && (
@@ -54,13 +54,13 @@ export function StatCard({ title, value, icon, trend, colorClass = "text-primary
                   {trend.value > 0 ? "+" : ""}
                   {trend.value.toFixed(1)}%
                 </span>
-                <span className="text-[#5f7075] text-xs">
+                <span className="text-[#5f7075] dark:text-muted-foreground text-xs">
                   vs forrige periode
                 </span>
               </div>
             )}
           </div>
-          <div className={cn("p-3 rounded-xl border border-[#d5e5df] bg-[#e7f3ee]", colorClass)}>
+          <div className={cn("p-3 rounded-xl border border-[#d5e5df] dark:border-border bg-[#e7f3ee] dark:bg-muted", colorClass)}>
             {icon}
           </div>
         </div>

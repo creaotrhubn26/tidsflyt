@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { X, Menu } from "lucide-react";
+import { X } from "lucide-react";
 
 export interface MobileOptimizationConfig {
   reduceAnimations: boolean;
@@ -11,7 +11,6 @@ export interface MobileOptimizationConfig {
 }
 
 export function useMobileOptimization(): MobileOptimizationConfig {
-  const [isMobile, setIsMobile] = useState(false);
   const [config, setConfig] = useState<MobileOptimizationConfig>({
     reduceAnimations: false,
     largerTouchTargets: false,
@@ -23,7 +22,6 @@ export function useMobileOptimization(): MobileOptimizationConfig {
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth < 768;
-      setIsMobile(mobile);
 
       setConfig((prev) => ({
         ...prev,

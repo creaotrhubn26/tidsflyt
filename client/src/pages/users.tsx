@@ -14,13 +14,10 @@ import {
   User,
   Clock,
   Loader2,
-  Activity,
-  TrendingUp,
   AlertCircle,
-  BarChart3,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -43,7 +40,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -94,7 +91,7 @@ export default function UsersPage() {
     setTab(isInvitesRoute ? "pending" : "all");
   }, [isInvitesRoute]);
 
-  const { data: companyUsers = [], isLoading, refetch } = useQuery<CompanyUser[]>({
+  const { data: companyUsers = [], isLoading } = useQuery<CompanyUser[]>({
     queryKey: ['/api/company/users', 1],
   });
 
@@ -170,16 +167,6 @@ export default function UsersPage() {
       totalHours: users.reduce((sum, u) => sum + (u.hoursThisWeek || 0), 0),
       daysSinceLastActivity: 3, // Mock data
       averageHoursPerUser: users.length > 0 ? Math.round(users.reduce((sum, u) => sum + (u.hoursThisWeek || 0), 0) / users.length * 10) / 10 : 0,
-    };
-    return stats;
-  }, [users]);
-
-  // Role distribution
-  const roleStats = useMemo(() => {
-    const stats = {
-      admin: users.filter(u => u.role === 'admin').length,
-      case_manager: users.filter(u => u.role === 'case_manager').length,
-      member: users.filter(u => u.role === 'member').length,
     };
     return stats;
   }, [users]);

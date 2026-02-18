@@ -1,4 +1,5 @@
 import { useLocation } from "wouter";
+import { useSEO } from "@/hooks/use-seo";
 import {
   ArrowRight,
   BarChart3,
@@ -21,6 +22,7 @@ import {
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import tidumMockup from "@assets/tidum-mockup.png";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
@@ -494,6 +496,50 @@ const howItWorksSteps = [
 export default function LandingPage() {
   const [, setLocation] = useLocation();
 
+  useSEO({
+    title: "Tidum – Profesjonell timeføring for norske bedrifter",
+    description: "Tidum er Norges mest brukervennlige plattform for timeføring, rapportering og ressursplanlegging. Spar tid, øk lønnsomhet og hold full kontroll over timer og prosjekter.",
+    ogType: "website",
+    canonical: "https://tidum.no/",
+    jsonLd: [
+      {
+        "@context": "https://schema.org",
+        "@type": "Organization",
+        name: "Tidum",
+        url: "https://tidum.no",
+        logo: "https://tidum.no/favicon-512x512.png",
+        sameAs: [],
+        contactPoint: {
+          "@type": "ContactPoint",
+          telephone: "+47-97-95-92-94",
+          contactType: "customer service",
+          availableLanguage: "Norwegian",
+        },
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        name: "Tidum",
+        url: "https://tidum.no",
+        inLanguage: "nb",
+        description: "Profesjonell timeføring for norske bedrifter",
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        name: "Tidum",
+        applicationCategory: "BusinessApplication",
+        operatingSystem: "Web",
+        offers: {
+          "@type": "Offer",
+          price: "0",
+          priceCurrency: "NOK",
+        },
+        description: "Norges mest brukervennlige plattform for timeføring, rapportering og ressursplanlegging.",
+      },
+    ],
+  });
+
   const goToContact = () => setLocation("/kontakt");
 
   const scrollToFeatures = () => {
@@ -506,105 +552,7 @@ export default function LandingPage() {
 
   return (
     <main className="tidum-page">
-      <style>{`
-        .tidum-page {
-          --color-primary: #1F6B73;
-          --color-primary-hover: #18585F;
-          --color-secondary: #4E9A6F;
-          --color-bg-main: #FAFAF8;
-          --color-bg-section: #F1F1ED;
-          --color-text-main: #1E2A2C;
-          --color-text-muted: #5F6B6D;
-          --color-border: #E1E4E3;
-          /* Force a light, high-contrast surface inside landing (independent of app dark mode). */
-          --background: 60 20% 98%;
-          --foreground: 194 19% 14%;
-          --card: 0 0% 100%;
-          --card-foreground: 194 19% 14%;
-          --card-border: 164 10% 88%;
-          --popover: 0 0% 100%;
-          --popover-foreground: 194 19% 14%;
-          --popover-border: 164 10% 88%;
-          --muted: 165 10% 94%;
-          --muted-foreground: 188 9% 44%;
-          background:
-            radial-gradient(circle at 8% 3%, rgba(78, 154, 111, 0.10), transparent 38%),
-            radial-gradient(circle at 88% 6%, rgba(31, 107, 115, 0.12), transparent 42%),
-            var(--color-bg-main);
-          color: var(--color-text-main);
-          font-family: Inter, "Avenir Next", "Segoe UI", sans-serif;
-          min-height: 100vh;
-        }
-
-        .tidum-panel {
-          border: 1px solid var(--color-border);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 251, 248, 0.95));
-          box-shadow: 0 18px 60px rgba(24, 37, 41, 0.09);
-        }
-
-        .tidum-title {
-          font-size: clamp(calc(var(--rt-h1) * 1.15), 5.4vw, calc(var(--rt-h1) * 1.65));
-          line-height: 0.97;
-          letter-spacing: -0.03em;
-          font-weight: 600;
-          color: #0E4852;
-        }
-
-        .tidum-text {
-          font-size: clamp(var(--rt-body), 1.45vw, calc(var(--rt-body) * 1.38));
-          line-height: 1.48;
-          color: var(--color-text-main);
-        }
-
-        .tidum-btn-primary {
-          background: var(--color-primary);
-          color: #fff;
-          border: 1px solid rgba(20, 77, 84, 0.6);
-          border-radius: 12px;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
-        }
-
-        .tidum-btn-primary:hover {
-          background: var(--color-primary-hover);
-        }
-
-        .tidum-btn-secondary {
-          background: #fff;
-          color: #223136;
-          border: 1px solid var(--color-border);
-          border-radius: 12px;
-        }
-
-        .tidum-btn-secondary:hover {
-          background: #f6f7f4;
-        }
-
-        .tidum-fade-up {
-          animation: tidum-fade-up 0.6s ease both;
-        }
-
-        .tidum-page :is(button, a):focus-visible {
-          outline: 3px solid #1F6B73;
-          outline-offset: 2px;
-        }
-
-        @keyframes tidum-fade-up {
-          from {
-            opacity: 0;
-            transform: translateY(14px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .tidum-fade-up {
-            animation: none;
-          }
-        }
-      `}</style>
+      <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
         <section className="tidum-panel tidum-fade-up relative overflow-hidden rounded-[28px]">

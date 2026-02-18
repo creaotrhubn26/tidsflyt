@@ -313,7 +313,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     const weeks: DayEntry[][] = [];
     let currentWeek: DayEntry[] = [];
     
-    dayEntries.forEach((entry, index) => {
+    dayEntries.forEach((entry, _index) => {
       const dayOfWeek = getDay(new Date(entry.date));
       // Monday = 1, so we use dayOfWeek - 1 for Monday-based index
       const mondayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
@@ -488,7 +488,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
             <div className="space-y-1 max-h-[300px] overflow-y-auto">
               {weekGroups.map((week, weekIndex) => (
                 <div key={weekIndex} className="grid grid-cols-5 gap-1">
-                  {week.map((entry, dayIndex) => {
+                  {week.map((entry, _dayIndex) => {
                     const entryIndex = dayEntries.findIndex(e => e.date === entry.date);
                     const dayNum = parseInt(format(new Date(entry.date), "d"));
                     

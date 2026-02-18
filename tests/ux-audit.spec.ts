@@ -70,7 +70,7 @@ async function collectNavigationMetrics(page: any) {
 }
 
 async function collectSmoothnessMetrics(page: any, durationMs = 1200) {
-  return page.evaluate(async (duration) => {
+  return page.evaluate(async (duration: number) => {
     const longTasksSupported = "PerformanceObserver" in window;
     const longTasks: PerformanceEntry[] = [];
     let observer: PerformanceObserver | undefined;

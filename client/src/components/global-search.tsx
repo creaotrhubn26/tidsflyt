@@ -1,12 +1,10 @@
 import { useEffect, useState, useRef, useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { 
   Search, 
   Clock, 
   FileText, 
   Users, 
-  Settings, 
   ArrowRight,
   X,
   Command,
@@ -19,8 +17,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { format } from "date-fns";
-import { nb } from "date-fns/locale";
 
 interface SearchResult {
   id: string;

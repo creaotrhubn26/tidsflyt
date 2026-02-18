@@ -1,7 +1,6 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { apiRequest } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
 import { GlobalSearch } from "@/components/global-search";
@@ -84,7 +83,6 @@ interface PortalLayoutProps {
 export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
-  const reduceMotion = useReducedMotion();
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ['/api/company/users', 1],
@@ -99,7 +97,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     id: "demo",
     name: "Demo Bruker",
     email: "demo@tidum.no",
-    role: "admin",
+    role: "member",
     vendorId: undefined,
   };
 
@@ -142,17 +140,6 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const toggleSidebar = useCallback(() => {
     setCollapsed((previous) => !previous);
   }, []);
-
-  const pageTransition = useMemo(
-    () =>
-      reduceMotion
-        ? { duration: 0 }
-        : {
-            duration: 0.18,
-            ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
-          },
-    [reduceMotion],
-  );
 
   const getRoleBadge = (role: string) => {
     switch (role) {
@@ -266,7 +253,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   );
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_5%_2%,rgba(78,154,111,0.09),transparent_34%),radial-gradient(circle_at_96%_2%,rgba(31,107,115,0.11),transparent_36%),#eef3f1]">
+    <div className="min-h-screen bg-[radial-gradient(circle_at_5%_2%,rgba(78,154,111,0.09),transparent_34%),radial-gradient(circle_at_96%_2%,rgba(31,107,115,0.11),transparent_36%),#eef3f1] dark:bg-background">
       <aside
         className={cn(
           "fixed inset-y-0 left-0 z-40 bg-[linear-gradient(180deg,#123C45_0%,#0D2C34_58%,#0A242B_100%)] border-r border-[#1c4d57] shadow-[10px_0_38px_rgba(10,35,41,0.24)] flex-col hidden md:flex transition-all duration-300",
@@ -295,7 +282,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         "flex flex-col min-h-screen transition-all duration-300",
         collapsed ? "md:pl-16" : "md:pl-64"
       )}>
-        <header className="sticky top-0 z-30 h-16 bg-white/90 backdrop-blur border-b border-[#d6e2de] flex items-center justify-between px-4 md:px-6">
+        <header className="sticky top-0 z-30 h-16 bg-white/90 dark:bg-card/90 backdrop-blur border-b border-[#d6e2de] dark:border-border flex items-center justify-between px-4 md:px-6">
           <div className="flex items-center gap-4">
             <Sheet>
               <SheetTrigger asChild>
@@ -312,7 +299,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
               <SmartTimingLogo size="sm" showText={false} />
             </div>
             
-            <h1 className="text-lg font-semibold hidden md:block text-[#183a44]">
+            <h1 className="text-lg font-semibold hidden md:block text-[#183a44] dark:text-foreground">
               {activePageLabel}
             </h1>
           </div>
@@ -324,18 +311,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         </header>
 
         <main className="flex-1 p-4 md:p-6 pb-20 md:pb-6 overflow-x-hidden">
-          <AnimatePresence mode="wait" initial={false}>
-            <motion.div
-              key={location}
-              className="transform-gpu"
-              initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: 6 }}
-              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-              exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
-              transition={pageTransition}
-            >
-              {children}
-            </motion.div>
-          </AnimatePresence>
+          {children}
         </main>
       </div>
 

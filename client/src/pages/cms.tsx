@@ -1,19 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
+import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
 import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
+import { CrawlerDashboard } from "@/components/cms/crawler-dashboard";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { 
-  Loader2, Save, Plus, Trash2, GripVertical, Lock, Eye, ExternalLink, ArrowLeft,
+  Loader2, Save, Plus, Trash2, GripVertical, Eye, ExternalLink, ArrowLeft,
   ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
   Heart, Home, Phone, Mail, Calendar, Download, Upload, Settings, Search, Menu,
   X, ChevronRight, ChevronDown, ChevronUp, Bell, Gift, Award, Target, Briefcase, Building, Building2,
@@ -217,8 +220,6 @@ const iconOptionsWithLabels = [
   { value: "Smartphone", label: "Smarttelefon" },
 ];
 
-const iconOptions = iconOptionsWithLabels.map(o => o.value).filter(Boolean);
-
 function IconSelect({ 
   value, 
   onChange, 
@@ -236,6 +237,7 @@ function IconSelect({
         className="w-full h-9 rounded-md border border-input bg-background pl-9 pr-3 py-1 text-sm appearance-none cursor-pointer"
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        aria-label="Velg ikon"
         data-testid={testId}
       >
         {iconOptionsWithLabels.map(opt => (
@@ -261,43 +263,129 @@ function ImageUploader({
   value, 
   onChange, 
   label,
-  placeholder = "https://eksempel.no/bilde.jpg"
+  placeholder = "https://eksempel.no/bilde.jpg",
+  maxWidth = 4096,
+  maxHeight = 4096,
+  maxSizeMB = 10,
 }: { 
   value: string; 
   onChange: (url: string) => void; 
   label: string;
   placeholder?: string;
+  maxWidth?: number;
+  maxHeight?: number;
+  maxSizeMB?: number;
 }) {
   const { toast } = useToast();
   const [isUploading, setIsUploading] = useState(false);
-  const fileInputRef = useState<HTMLInputElement | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadInfo, setUploadInfo] = useState<{ savings?: number; format?: string; width?: number; height?: number } | null>(null);
+
+  const validateDimensions = (file: File): Promise<{ width: number; height: number }> => {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) {
+        reject(new Error('Filen er ikke et gyldig bilde.'));
+        return;
+      }
+      const img = document.createElement('img');
+      img.onload = () => {
+        URL.revokeObjectURL(img.src);
+        if (img.width > maxWidth || img.height > maxHeight) {
+          // Server will resize, but warn user
+          toast({
+            title: "Stor dimensjon",
+            description: `Bildet (${img.width}×${img.height}) vil bli automatisk skalert ned til maks ${maxWidth}×${maxHeight}.`,
+          });
+        }
+        resolve({ width: img.width, height: img.height });
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(img.src);
+        reject(new Error('Kunne ikke lese bildedimensjoner.'));
+      };
+      img.src = URL.createObjectURL(file);
+    });
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Validate file size
+    if (file.size > maxSizeMB * 1024 * 1024) {
+      toast({ title: "For stor fil", description: `Maks filstørrelse er ${maxSizeMB} MB.`, variant: "destructive" });
+      return;
+    }
+
+    // Validate dimensions (non-blocking for SVG)
+    if (!file.type.includes('svg')) {
+      try {
+        await validateDimensions(file);
+      } catch (err: any) {
+        toast({ title: "Ugyldig bilde", description: err.message, variant: "destructive" });
+        return;
+      }
+    }
+
     const formData = new FormData();
     formData.append('image', file);
 
     setIsUploading(true);
+    setUploadProgress(0);
+    setUploadInfo(null);
+
     try {
       const token = getAdminToken();
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}` },
-        body: formData,
+
+      // Use XMLHttpRequest for progress tracking
+      const data = await new Promise<any>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/api/cms/upload');
+        if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            setUploadProgress(Math.round((event.loaded / event.total) * 100));
+          }
+        };
+
+        xhr.onload = () => {
+          try {
+            const result = JSON.parse(xhr.responseText);
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(result);
+            } else {
+              reject(new Error(result.error || 'Opplasting feilet'));
+            }
+          } catch {
+            reject(new Error('Ugyldig svar fra server'));
+          }
+        };
+
+        xhr.onerror = () => reject(new Error('Nettverksfeil under opplasting'));
+        xhr.send(formData);
       });
-      const data = await response.json();
+
       if (data.url) {
         onChange(data.url);
-        toast({ title: "Lastet opp", description: "Bildet er lastet opp." });
+        setUploadInfo({
+          savings: data.savings,
+          format: data.format,
+          width: data.width,
+          height: data.height,
+        });
+        const desc = data.optimized
+          ? `Konvertert til ${data.format?.toUpperCase()}, ${data.savings}% mindre.`
+          : 'Bildet er lastet opp.';
+        toast({ title: "Lastet opp", description: desc });
       } else {
         toast({ title: "Feil", description: data.error || "Kunne ikke laste opp bilde.", variant: "destructive" });
       }
-    } catch (err) {
-      toast({ title: "Feil", description: "Opplasting feilet.", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Feil", description: err.message || "Opplasting feilet.", variant: "destructive" });
     } finally {
       setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -326,6 +414,25 @@ function ImageUploader({
           </Button>
         </label>
       </div>
+      {/* Upload Progress Bar */}
+      {isUploading && (
+        <div className="space-y-1" data-testid="upload-progress">
+          <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+            <div
+              className="h-full bg-primary rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>
+        </div>
+      )}
+      {/* Optimization Info */}
+      {uploadInfo && !isUploading && (
+        <p className="text-xs text-muted-foreground">
+          {uploadInfo.format?.toUpperCase()}{uploadInfo.width ? ` ${uploadInfo.width}×${uploadInfo.height}` : ''}
+          {uploadInfo.savings ? ` · ${uploadInfo.savings}% spart` : ''}
+        </p>
+      )}
       {value && (
         <div className="mt-2 p-2 border rounded-lg bg-muted/50 inline-block">
           <img src={value} alt="Forhåndsvisning" className="h-12 object-contain" onError={(e) => (e.currentTarget.style.display = 'none')} />
@@ -350,23 +457,15 @@ interface AdminProfile {
 
 export default function CMSPage() {
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("hero");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
-  const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
-
-  const isSuperAdmin = adminProfile?.role === 'super_admin';
 
   useEffect(() => {
     const token = getAdminToken();
     if (token) {
       setIsAuthenticated(true);
-      // Fetch admin profile
-      authenticatedApiRequest('/api/admin/profile')
-        .then((profile: AdminProfile) => setAdminProfile(profile))
-        .catch(() => {});
     }
   }, []);
 
@@ -398,11 +497,6 @@ export default function CMSPage() {
     setIsAuthenticated(false);
     toast({ title: "Logget ut", description: "Du er nå logget ut." });
   };
-
-  const { data: content, isLoading } = useQuery<LandingContent>({
-    queryKey: ['/api/cms/landing'],
-    enabled: isAuthenticated,
-  });
 
   if (!isAuthenticated) {
     return (
@@ -465,9 +559,6 @@ export function CMSPageLegacy() {
   
   const [activeTab, setActiveTab] = useState(getInitialTab);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [loginUsername, setLoginUsername] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
-  const [loginLoading, setLoginLoading] = useState(false);
   const [adminProfile, setAdminProfile] = useState<AdminProfile | null>(null);
 
   const isSuperAdmin = adminProfile?.role === 'super_admin';
@@ -600,6 +691,9 @@ export function CMSPageLegacy() {
           <TabsTrigger value="why-page" data-testid="tab-why-page">
             <FileText className="h-4 w-4 mr-1" />Hvorfor
           </TabsTrigger>
+          <TabsTrigger value="crawler" data-testid="tab-crawler">
+            <Globe className="h-4 w-4 mr-1" />Crawler
+          </TabsTrigger>
           <TabsTrigger value="activity" data-testid="tab-activity">Aktivitet</TabsTrigger>
           <TabsTrigger value="versions" data-testid="tab-versions">
             <RefreshCw className="h-4 w-4 mr-1" />Versjoner
@@ -684,6 +778,10 @@ export function CMSPageLegacy() {
           <WhyPageEditor />
         </TabsContent>
 
+        <TabsContent value="crawler">
+          <CrawlerDashboard />
+        </TabsContent>
+
         <TabsContent value="activity">
           <ActivityLogViewer />
         </TabsContent>
@@ -740,19 +838,6 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
     { value: "left", label: "Venstrejustert" },
     { value: "center", label: "Sentrert" },
     { value: "right", label: "Høyrejustert" },
-  ];
-
-  const iconOptions = [
-    { value: "", label: "Ingen ikon" },
-    { value: "ArrowRight", label: "Pil høyre" },
-    { value: "Play", label: "Avspill" },
-    { value: "Clock", label: "Klokke" },
-    { value: "Zap", label: "Lyn" },
-    { value: "Star", label: "Stjerne" },
-    { value: "Check", label: "Hake" },
-    { value: "Shield", label: "Skjold" },
-    { value: "Users", label: "Brukere" },
-    { value: "TrendingUp", label: "Trend opp" },
   ];
 
   const mutation = useMutation({
@@ -894,6 +979,7 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
                       value={formData.cta_primary_type}
                       onChange={(e) => setFormData({ ...formData, cta_primary_type: e.target.value })}
+                      aria-label="Primærknapp handling"
                       data-testid="select-hero-cta-primary-type"
                     >
                       {ctaTypeOptions.map(opt => (
@@ -947,6 +1033,7 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
                       value={formData.cta_secondary_type}
                       onChange={(e) => setFormData({ ...formData, cta_secondary_type: e.target.value })}
+                      aria-label="Sekundærknapp handling"
                       data-testid="select-hero-cta-secondary-type"
                     >
                       {ctaTypeOptions.map(opt => (
@@ -1033,6 +1120,7 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                     className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
                     value={formData.layout}
                     onChange={(e) => setFormData({ ...formData, layout: e.target.value })}
+                    aria-label="Layout"
                     data-testid="select-hero-layout"
                   >
                     {layoutOptions.map(opt => (
@@ -1047,6 +1135,7 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
                     checked={formData.background_overlay}
                     onChange={(e) => setFormData({ ...formData, background_overlay: e.target.checked })}
                     className="h-4 w-4"
+                    aria-label="Vis mørk overlegg på bakgrunn"
                     data-testid="checkbox-hero-overlay"
                   />
                   <Label htmlFor="background_overlay">Vis mørk overlegg på bakgrunn</Label>
@@ -2153,6 +2242,7 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (val
           value={value}
           onChange={(e) => onChange(e.target.value)}
           className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+          aria-label={label}
           data-testid={`color-picker-${label.toLowerCase().replace(/\s/g, '-')}`}
         />
       </div>
@@ -2459,6 +2549,7 @@ function DesignEditor() {
                       value={tokens.font_family || 'Inter'}
                       onChange={(e) => updateToken('font_family', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Brødtekst font"
                       data-testid="select-font-family"
                     >
                       <option value="Inter">Inter</option>
@@ -2475,6 +2566,7 @@ function DesignEditor() {
                       value={tokens.font_family_heading || 'Inter'}
                       onChange={(e) => updateToken('font_family_heading', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Overskrift font"
                       data-testid="select-font-heading"
                     >
                       <option value="Inter">Inter</option>
@@ -2504,6 +2596,7 @@ function DesignEditor() {
                       value={tokens.font_size_scale || '1.25'}
                       onChange={(e) => updateToken('font_size_scale', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Størrelsesskala"
                       data-testid="select-font-scale"
                     >
                       <option value="1.125">Minor Second (1.125)</option>
@@ -2545,6 +2638,7 @@ function DesignEditor() {
                       value={tokens.font_weight_normal || '400'}
                       onChange={(e) => updateToken('font_weight_normal', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Normal vekt"
                       data-testid="select-weight-normal"
                     >
                       <option value="300">Light (300)</option>
@@ -2558,6 +2652,7 @@ function DesignEditor() {
                       value={tokens.font_weight_medium || '500'}
                       onChange={(e) => updateToken('font_weight_medium', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Halvfet vekt"
                       data-testid="select-weight-medium"
                     >
                       <option value="500">Medium (500)</option>
@@ -2570,6 +2665,7 @@ function DesignEditor() {
                       value={tokens.font_weight_bold || '700'}
                       onChange={(e) => updateToken('font_weight_bold', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Fet vekt"
                       data-testid="select-weight-bold"
                     >
                       <option value="600">Semi-bold (600)</option>
@@ -2735,6 +2831,7 @@ function DesignEditor() {
                       value={tokens.animation_easing || 'cubic-bezier(0.4, 0, 0.2, 1)'}
                       onChange={(e) => updateToken('animation_easing', e.target.value)}
                       className="w-full h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+                      aria-label="Easing funksjon"
                       data-testid="select-animation-easing"
                     >
                       <option value="linear">Linear</option>
@@ -2754,7 +2851,8 @@ function DesignEditor() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={tokens.enable_animations !== false}
+                      aria-checked={tokens.enable_animations !== false ? "true" : "false"}
+                      aria-label="Aktiver animasjoner"
                       onClick={() => updateToken('enable_animations', !tokens.enable_animations)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                         tokens.enable_animations !== false ? 'bg-primary' : 'bg-input'
@@ -2775,7 +2873,8 @@ function DesignEditor() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={tokens.enable_hover_effects !== false}
+                      aria-checked={tokens.enable_hover_effects !== false ? "true" : "false"}
+                      aria-label="Hover-effekter"
                       onClick={() => updateToken('enable_hover_effects', !tokens.enable_hover_effects)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
                         tokens.enable_hover_effects !== false ? 'bg-primary' : 'bg-input'
@@ -3072,7 +3171,7 @@ function MediaLibrary() {
   );
 }
 
-// ========== SEO EDITOR ==========
+// ========== SEO EDITOR (Enhanced) ==========
 interface GlobalSEO {
   id?: number;
   site_name: string;
@@ -3081,18 +3180,67 @@ interface GlobalSEO {
   google_site_verification: string;
   bing_site_verification: string;
   favicon_url: string;
+  robots_txt: string;
+  sitemap_enabled: boolean;
+  sitemap_auto_generate: boolean;
+}
+
+interface SEOPageEntry {
+  id?: number;
+  page_path: string;
+  title: string;
+  meta_description: string;
+  meta_keywords: string;
+  canonical_url: string;
+  og_title: string;
+  og_description: string;
+  og_image: string;
+  og_type: string;
+  twitter_card: string;
+  twitter_title: string;
+  twitter_description: string;
+  twitter_image: string;
+  robots_index: boolean;
+  robots_follow: boolean;
+  structured_data: string;
+  priority: number;
+  change_frequency: string;
+  is_active: boolean;
+}
+
+function SERPPreview({ title, description, url }: { title: string; description: string; url: string }) {
+  const truncTitle = title.length > 60 ? title.substring(0, 57) + '...' : title;
+  const truncDesc = description.length > 160 ? description.substring(0, 157) + '...' : description;
+  return (
+    <div className="rounded-lg border bg-white p-4 space-y-1 dark:bg-zinc-900 dark:border-zinc-700">
+      <p className="text-xs text-muted-foreground mb-2 font-medium">Google-forhåndsvisning</p>
+      <p className="text-sm text-[#1a0dab] dark:text-blue-400 font-medium truncate">{truncTitle || 'Sidetittel'}</p>
+      <p className="text-xs text-[#006621] dark:text-green-400">{url || 'https://tidum.no/'}</p>
+      <p className="text-xs text-[#545454] dark:text-zinc-400 line-clamp-2">{truncDesc || 'Metabeskrivelse vises her...'}</p>
+      <div className="flex gap-2 mt-2 text-xs text-muted-foreground">
+        <span>Tittel: {title.length}/60</span>
+        <span>Beskrivelse: {description.length}/160</span>
+      </div>
+    </div>
+  );
 }
 
 function SEOEditor() {
   const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState<'global' | 'pages' | 'robots' | 'sitemap'>('global');
   const [globalSeo, setGlobalSeo] = useState<GlobalSEO>({
     site_name: '',
     site_description: '',
     default_og_image: '',
     google_site_verification: '',
     bing_site_verification: '',
-    favicon_url: ''
+    favicon_url: '',
+    robots_txt: '',
+    sitemap_enabled: true,
+    sitemap_auto_generate: true,
   });
+  const [editingPage, setEditingPage] = useState<SEOPageEntry | null>(null);
+  const [showNewPage, setShowNewPage] = useState(false);
 
   const { data: seoData, isLoading } = useQuery<GlobalSEO | null>({
     queryKey: ['/api/cms/seo/global'],
@@ -3103,9 +3251,22 @@ function SEOEditor() {
     }
   });
 
+  const { data: seoPages, refetch: refetchPages } = useQuery<SEOPageEntry[]>({
+    queryKey: ['/api/cms/seo/pages'],
+    queryFn: async () => {
+      const res = await authenticatedApiRequest('/api/cms/seo/pages');
+      return res.ok ? res.json() : [];
+    }
+  });
+
   useEffect(() => {
     if (seoData) {
-      setGlobalSeo(seoData);
+      setGlobalSeo({
+        ...seoData,
+        robots_txt: seoData.robots_txt || '',
+        sitemap_enabled: seoData.sitemap_enabled ?? true,
+        sitemap_auto_generate: seoData.sitemap_auto_generate ?? true,
+      });
     }
   }, [seoData]);
 
@@ -3124,6 +3285,58 @@ function SEOEditor() {
     }
   });
 
+  const savePageMutation = useMutation({
+    mutationFn: async (page: SEOPageEntry) => {
+      const method = page.id ? 'PUT' : 'POST';
+      const url = page.id ? `/api/cms/seo/pages/${page.id}` : '/api/cms/seo/pages';
+      return authenticatedApiRequest(url, {
+        method,
+        body: JSON.stringify(page)
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Side-SEO lagret" });
+      setEditingPage(null);
+      setShowNewPage(false);
+      refetchPages();
+    },
+    onError: (error: Error) => {
+      toast({ title: "Feil", description: error.message, variant: "destructive" });
+    }
+  });
+
+  const deletePageMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/seo/pages/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      toast({ title: "Side-SEO slettet" });
+      refetchPages();
+    }
+  });
+
+  const newPageTemplate: SEOPageEntry = {
+    page_path: '/',
+    title: '',
+    meta_description: '',
+    meta_keywords: '',
+    canonical_url: '',
+    og_title: '',
+    og_description: '',
+    og_image: '',
+    og_type: 'website',
+    twitter_card: 'summary_large_image',
+    twitter_title: '',
+    twitter_description: '',
+    twitter_image: '',
+    robots_index: true,
+    robots_follow: true,
+    structured_data: '',
+    priority: 0.5,
+    change_frequency: 'weekly',
+    is_active: true,
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -3134,96 +3347,382 @@ function SEOEditor() {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Search className="h-5 w-5" />
-                SEO-innstillinger
-              </CardTitle>
-              <CardDescription>Optimaliser nettstedet for søkemotorer</CardDescription>
-            </div>
-            <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-seo">
-              {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-              Lagre endringer
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Grunnleggende</h3>
-              <div>
-                <Label>Nettstedsnavn</Label>
-                <Input
-                  value={globalSeo.site_name}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, site_name: e.target.value })}
-                  placeholder="Tidum"
-                  data-testid="input-seo-site-name"
-                />
-              </div>
-              <div>
-                <Label>Nettstedsbeskrivelse</Label>
-                <Textarea
-                  value={globalSeo.site_description}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, site_description: e.target.value })}
-                  placeholder="Profesjonell timeregistrering for norske bedrifter"
-                  rows={3}
-                  data-testid="input-seo-site-description"
-                />
-              </div>
-              <div>
-                <Label>Favicon URL</Label>
-                <Input
-                  value={globalSeo.favicon_url}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, favicon_url: e.target.value })}
-                  placeholder="/favicon.ico"
-                  data-testid="input-seo-favicon"
-                />
-              </div>
-            </div>
+      {/* Tab Navigation */}
+      <div className="flex gap-1 border-b pb-0">
+        {([
+          { key: 'global' as const, label: 'Globale innstillinger' },
+          { key: 'pages' as const, label: 'Side-SEO' },
+          { key: 'robots' as const, label: 'Robots.txt' },
+          { key: 'sitemap' as const, label: 'Sitemap' },
+        ]).map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-[1px] ${
+              activeTab === tab.key
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-            <div className="space-y-4">
-              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Sosiale medier</h3>
+      {/* Global SEO Tab */}
+      {activeTab === 'global' && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
               <div>
-                <Label>Standard Open Graph-bilde</Label>
-                <Input
-                  value={globalSeo.default_og_image}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, default_og_image: e.target.value })}
-                  placeholder="https://example.com/og-image.jpg"
-                  data-testid="input-seo-og-image"
-                />
-                <p className="text-xs text-muted-foreground mt-1">Anbefalt størrelse: 1200x630 piksler</p>
+                <CardTitle className="flex items-center gap-2">
+                  <Search className="h-5 w-5" />
+                  SEO-innstillinger
+                </CardTitle>
+                <CardDescription>Optimaliser nettstedet for søkemotorer</CardDescription>
               </div>
+              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} data-testid="button-save-seo">
+                {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Lagre endringer
+              </Button>
             </div>
-          </div>
-
-          <div className="border-t pt-6">
-            <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-4">Verifisering</h3>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <SERPPreview
+              title={globalSeo.site_name ? `${globalSeo.site_name} – ${globalSeo.site_description?.substring(0, 40) || ''}` : ''}
+              description={globalSeo.site_description || ''}
+              url="https://tidum.no/"
+            />
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <Label>Google Search Console</Label>
-                <Input
-                  value={globalSeo.google_site_verification}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, google_site_verification: e.target.value })}
-                  placeholder="Verifiseringskode"
-                  data-testid="input-seo-google-verification"
-                />
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Grunnleggende</h3>
+                <div>
+                  <Label>Nettstedsnavn</Label>
+                  <Input
+                    value={globalSeo.site_name}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, site_name: e.target.value })}
+                    placeholder="Tidum"
+                    data-testid="input-seo-site-name"
+                  />
+                </div>
+                <div>
+                  <Label>Nettstedsbeskrivelse</Label>
+                  <Textarea
+                    value={globalSeo.site_description}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, site_description: e.target.value })}
+                    placeholder="Profesjonell timeregistrering for norske bedrifter"
+                    rows={3}
+                    data-testid="input-seo-site-description"
+                  />
+                </div>
+                <div>
+                  <Label>Favicon URL</Label>
+                  <Input
+                    value={globalSeo.favicon_url}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, favicon_url: e.target.value })}
+                    placeholder="/favicon.ico"
+                    data-testid="input-seo-favicon"
+                  />
+                </div>
               </div>
-              <div>
-                <Label>Bing Webmaster Tools</Label>
-                <Input
-                  value={globalSeo.bing_site_verification}
-                  onChange={(e) => setGlobalSeo({ ...globalSeo, bing_site_verification: e.target.value })}
-                  placeholder="Verifiseringskode"
-                  data-testid="input-seo-bing-verification"
-                />
+              <div className="space-y-4">
+                <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Sosiale medier</h3>
+                <div>
+                  <Label>Standard Open Graph-bilde</Label>
+                  <Input
+                    value={globalSeo.default_og_image}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, default_og_image: e.target.value })}
+                    placeholder="https://tidum.no/og-image.jpg"
+                    data-testid="input-seo-og-image"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Anbefalt størrelse: 1200x630 piksler</p>
+                </div>
               </div>
             </div>
-          </div>
-        </CardContent>
-      </Card>
+            <div className="border-t pt-6">
+              <h3 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide mb-4">Verifisering</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <Label>Google Search Console</Label>
+                  <Input
+                    value={globalSeo.google_site_verification}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, google_site_verification: e.target.value })}
+                    placeholder="Verifiseringskode fra Google"
+                    data-testid="input-seo-google-verification"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">Koden fra Google Search Console verifiseringssiden</p>
+                </div>
+                <div>
+                  <Label>Bing Webmaster Tools</Label>
+                  <Input
+                    value={globalSeo.bing_site_verification}
+                    onChange={(e) => setGlobalSeo({ ...globalSeo, bing_site_verification: e.target.value })}
+                    placeholder="Verifiseringskode fra Bing"
+                    data-testid="input-seo-bing-verification"
+                  />
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Per-Page SEO Tab */}
+      {activeTab === 'pages' && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>Side-spesifikk SEO</CardTitle>
+                <CardDescription>Administrer SEO-innstillinger for hver side</CardDescription>
+              </div>
+              <Button onClick={() => { setEditingPage({ ...newPageTemplate }); setShowNewPage(true); }}>
+                <Plus className="h-4 w-4 mr-2" />
+                Legg til side
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {(editingPage || showNewPage) ? (
+              <div className="space-y-6 border rounded-lg p-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="font-semibold">{editingPage?.id ? 'Rediger side-SEO' : 'Ny side-SEO'}</h3>
+                  <Button variant="ghost" size="sm" onClick={() => { setEditingPage(null); setShowNewPage(false); }}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <SERPPreview
+                  title={editingPage?.title || ''}
+                  description={editingPage?.meta_description || ''}
+                  url={`https://tidum.no${editingPage?.page_path || '/'}`}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <Label>Sidesti</Label>
+                    <Input value={editingPage?.page_path || ''} onChange={e => setEditingPage({ ...editingPage!, page_path: e.target.value })} placeholder="/kontakt" />
+                  </div>
+                  <div>
+                    <Label>Tittel (maks 60 tegn)</Label>
+                    <Input value={editingPage?.title || ''} onChange={e => setEditingPage({ ...editingPage!, title: e.target.value })} placeholder="Kontakt oss – Tidum" maxLength={70} />
+                  </div>
+                  <div className="md:col-span-2">
+                    <Label>Metabeskrivelse (maks 160 tegn)</Label>
+                    <Textarea value={editingPage?.meta_description || ''} onChange={e => setEditingPage({ ...editingPage!, meta_description: e.target.value })} placeholder="Beskrivelse for Google..." rows={2} maxLength={170} />
+                  </div>
+                  <div>
+                    <Label>Nøkkelord</Label>
+                    <Input value={editingPage?.meta_keywords || ''} onChange={e => setEditingPage({ ...editingPage!, meta_keywords: e.target.value })} placeholder="timeføring, norsk, rapportering" />
+                  </div>
+                  <div>
+                    <Label>Kanonisk URL</Label>
+                    <Input value={editingPage?.canonical_url || ''} onChange={e => setEditingPage({ ...editingPage!, canonical_url: e.target.value })} placeholder="https://tidum.no/kontakt" />
+                  </div>
+                </div>
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-sm mb-3">Open Graph</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>OG Tittel</Label>
+                      <Input value={editingPage?.og_title || ''} onChange={e => setEditingPage({ ...editingPage!, og_title: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label>OG Bilde</Label>
+                      <Input value={editingPage?.og_image || ''} onChange={e => setEditingPage({ ...editingPage!, og_image: e.target.value })} placeholder="https://..." />
+                    </div>
+                    <div className="md:col-span-2">
+                      <Label>OG Beskrivelse</Label>
+                      <Textarea value={editingPage?.og_description || ''} onChange={e => setEditingPage({ ...editingPage!, og_description: e.target.value })} rows={2} />
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-sm mb-3">Twitter Card</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label>Korttype</Label>
+                      <Select value={editingPage?.twitter_card || 'summary_large_image'} onValueChange={v => setEditingPage({ ...editingPage!, twitter_card: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="summary">Summary</SelectItem>
+                          <SelectItem value="summary_large_image">Summary Large Image</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div>
+                      <Label>Twitter Bilde</Label>
+                      <Input value={editingPage?.twitter_image || ''} onChange={e => setEditingPage({ ...editingPage!, twitter_image: e.target.value })} />
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t pt-4">
+                  <h4 className="font-medium text-sm mb-3">Indeksering & Sitemap</h4>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={editingPage?.robots_index ?? true} onChange={e => setEditingPage({ ...editingPage!, robots_index: e.target.checked })} className="rounded" />
+                      Indekser side
+                    </label>
+                    <label className="flex items-center gap-2 text-sm">
+                      <input type="checkbox" checked={editingPage?.robots_follow ?? true} onChange={e => setEditingPage({ ...editingPage!, robots_follow: e.target.checked })} className="rounded" />
+                      Følg lenker
+                    </label>
+                    <div>
+                      <Label className="text-xs">Prioritet</Label>
+                      <Input type="number" min={0} max={1} step={0.1} value={editingPage?.priority ?? 0.5} onChange={e => setEditingPage({ ...editingPage!, priority: parseFloat(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Endringsfrekvens</Label>
+                      <Select value={editingPage?.change_frequency || 'weekly'} onValueChange={v => setEditingPage({ ...editingPage!, change_frequency: v })}>
+                        <SelectTrigger><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="always">Alltid</SelectItem>
+                          <SelectItem value="hourly">Timelig</SelectItem>
+                          <SelectItem value="daily">Daglig</SelectItem>
+                          <SelectItem value="weekly">Ukentlig</SelectItem>
+                          <SelectItem value="monthly">Månedlig</SelectItem>
+                          <SelectItem value="yearly">Årlig</SelectItem>
+                          <SelectItem value="never">Aldri</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => { setEditingPage(null); setShowNewPage(false); }}>Avbryt</Button>
+                  <Button onClick={() => editingPage && savePageMutation.mutate(editingPage)} disabled={savePageMutation.isPending}>
+                    {savePageMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                    Lagre
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(!seoPages || seoPages.length === 0) ? (
+                  <p className="text-center text-muted-foreground py-8">Ingen side-spesifikke SEO-innstillinger ennå. Klikk «Legg til side» for å komme i gang.</p>
+                ) : (
+                  <div className="divide-y rounded-lg border">
+                    {seoPages?.map(page => (
+                      <div key={page.id} className="flex items-center justify-between p-3 hover:bg-muted/50">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-sm truncate">{page.title || page.page_path}</p>
+                          <p className="text-xs text-muted-foreground truncate">{page.page_path} • Prioritet: {page.priority}</p>
+                        </div>
+                        <div className="flex gap-1 ml-2">
+                          <Button variant="ghost" size="sm" onClick={() => setEditingPage(page)}>
+                            <Pencil className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="text-destructive" onClick={() => page.id && deletePageMutation.mutate(page.id)}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Robots.txt Tab */}
+      {activeTab === 'robots' && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>Robots.txt</CardTitle>
+                <CardDescription>Kontroller hva søkemotorer kan indeksere. Endringer lagres under «Globale innstillinger».</CardDescription>
+              </div>
+              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Lagre
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Textarea
+              value={globalSeo.robots_txt}
+              onChange={(e) => setGlobalSeo({ ...globalSeo, robots_txt: e.target.value })}
+              rows={12}
+              className="font-mono text-sm"
+              placeholder={`User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /admin/\nDisallow: /cms/\nDisallow: /dashboard/\n\nSitemap: https://tidum.no/sitemap.xml`}
+            />
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Forhåndsvisning:</span>
+              <a href="/robots.txt" target="_blank" rel="noopener" className="text-primary underline">Se gjeldende robots.txt</a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Sitemap Tab */}
+      {activeTab === 'sitemap' && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <CardTitle>Sitemap-innstillinger</CardTitle>
+                <CardDescription>Administrer XML-sitemapen for bedre indeksering</CardDescription>
+              </div>
+              <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending}>
+                {saveMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                Lagre
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <div className="flex flex-col gap-4">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={globalSeo.sitemap_enabled}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, sitemap_enabled: e.target.checked })}
+                  className="rounded"
+                />
+                <div>
+                  <span className="font-medium text-sm">Aktiver sitemap</span>
+                  <p className="text-xs text-muted-foreground">Generer /sitemap.xml automatisk</p>
+                </div>
+              </label>
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={globalSeo.sitemap_auto_generate}
+                  onChange={(e) => setGlobalSeo({ ...globalSeo, sitemap_auto_generate: e.target.checked })}
+                  className="rounded"
+                />
+                <div>
+                  <span className="font-medium text-sm">Auto-generer</span>
+                  <p className="text-xs text-muted-foreground">Oppdater sitemap automatisk ved endringer</p>
+                </div>
+              </label>
+            </div>
+            <div className="border-t pt-4 space-y-3">
+              <h4 className="font-medium text-sm">Inkluderte sider</h4>
+              <div className="rounded-lg border divide-y text-sm">
+                {['/', '/kontakt', '/hvorfor', '/guide', '/blog', '/personvern', '/vilkar'].map(path => (
+                  <div key={path} className="flex items-center justify-between px-3 py-2">
+                    <span>{path}</span>
+                    <span className="text-xs text-green-600">Inkludert</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+                  <span>+ Publiserte blogginnlegg</span>
+                  <span className="text-xs">Automatisk</span>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 text-muted-foreground">
+                  <span>+ Publiserte builder-sider</span>
+                  <span className="text-xs">Automatisk</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <span>Forhåndsvisning:</span>
+              <a href="/sitemap.xml" target="_blank" rel="noopener" className="text-primary underline">Se gjeldende sitemap.xml</a>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -3505,6 +4004,7 @@ function FormBuilder() {
                         value={field.type}
                         onChange={(e) => updateField(field.id, { type: e.target.value as FormField['type'] })}
                         className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        aria-label={`Felttype for ${field.label || 'felt'}`}
                         data-testid={`select-field-type-${index}`}
                       >
                         <option value="text">Tekst</option>
@@ -3800,6 +4300,7 @@ function NavigationEditor() {
                         value={item.target || '_self'}
                         onChange={(e) => updateItem(item.id, { target: e.target.value as '_blank' | '_self' })}
                         className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        aria-label={`Lenkemål for ${item.label || 'lenke'}`}
                         data-testid={`select-nav-target-${index}`}
                       >
                         <option value="_self">Samme vindu</option>
@@ -3832,7 +4333,13 @@ interface BlogPost {
   category_id: number | null;
   category_name?: string | null;
   tags: string[] | null;
-  status: 'draft' | 'published' | 'archived';
+  status: 'draft' | 'published' | 'scheduled' | 'archived';
+  meta_title?: string | null;
+  meta_description?: string | null;
+  og_image?: string | null;
+  reading_time?: number | null;
+  word_count?: number | null;
+  scheduled_at?: string | null;
   published_at: string | null;
   created_at: string;
   updated_at: string;
@@ -3843,6 +4350,20 @@ interface BlogCategory {
   name: string;
   slug: string;
   description: string | null;
+  post_count?: string;
+}
+
+interface BlogComment {
+  id: number;
+  post_id: number;
+  parent_id: number | null;
+  author_name: string;
+  author_email: string | null;
+  content: string;
+  status: string;
+  post_title?: string;
+  post_slug?: string;
+  created_at: string;
 }
 
 function BlogEditor() {
@@ -3853,17 +4374,23 @@ function BlogEditor() {
   const [newPostTitle, setNewPostTitle] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>('');
+  const [tagInput, setTagInput] = useState("");
+  const [showSeo, setShowSeo] = useState(false);
+  const [activeTab, setActiveTab] = useState<'posts' | 'comments'>('posts');
+  const [commentFilter, setCommentFilter] = useState<string>('pending');
+  const autosaveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const { data: postsData, refetch: refetchPosts } = useQuery<BlogPost[]>({
+  // ── Queries ──
+  const { data: postsResponse, refetch: refetchPosts } = useQuery<{ posts: BlogPost[]; pagination: any } | BlogPost[]>({
     queryKey: ['/api/cms/posts', filterStatus],
     queryFn: async () => {
-      const url = filterStatus ? `/api/cms/posts?status=${filterStatus}` : '/api/cms/posts';
+      const url = filterStatus ? `/api/cms/posts?status=${filterStatus}&limit=100` : '/api/cms/posts?limit=100';
       const res = await fetch(url);
       const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      return data;
     }
   });
-  const posts = Array.isArray(postsData) ? postsData : [];
+  const posts: BlogPost[] = Array.isArray(postsResponse) ? postsResponse : (postsResponse?.posts ?? []);
 
   const { data: categoriesData, refetch: refetchCategories } = useQuery<BlogCategory[]>({
     queryKey: ['/api/cms/categories'],
@@ -3875,9 +4402,20 @@ function BlogEditor() {
   });
   const categories = Array.isArray(categoriesData) ? categoriesData : [];
 
+  const { data: commentsData, refetch: refetchComments } = useQuery<BlogComment[]>({
+    queryKey: ['/api/cms/comments', commentFilter],
+    queryFn: async () => {
+      const url = commentFilter ? `/api/cms/comments?status=${commentFilter}` : '/api/cms/comments';
+      const res = await authenticatedApiRequest(url);
+      return Array.isArray(res) ? res : [];
+    }
+  });
+  const commentsList = Array.isArray(commentsData) ? commentsData : [];
+
+  // ── Mutations ──
   const createPostMutation = useMutation({
     mutationFn: async (title: string) => {
-      const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const slug = title.toLowerCase().replace(/[^a-z0-9æøå]+/g, '-').replace(/(^-|-$)/g, '');
       return authenticatedApiRequest('/api/cms/posts', {
         method: 'POST',
         body: JSON.stringify({ title, slug, status: 'draft' })
@@ -3918,7 +4456,7 @@ function BlogEditor() {
 
   const createCategoryMutation = useMutation({
     mutationFn: async (name: string) => {
-      const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
+      const slug = name.toLowerCase().replace(/[^a-z0-9æøå]+/g, '-').replace(/(^-|-$)/g, '');
       return authenticatedApiRequest('/api/cms/categories', {
         method: 'POST',
         body: JSON.stringify({ name, slug })
@@ -3932,281 +4470,618 @@ function BlogEditor() {
     }
   });
 
+  const moderateCommentMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+      return authenticatedApiRequest(`/api/cms/comments/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ status })
+      });
+    },
+    onSuccess: () => {
+      refetchComments();
+      toast({ title: "Kommentar oppdatert" });
+    }
+  });
+
+  const deleteCommentMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/comments/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      refetchComments();
+      toast({ title: "Kommentar slettet" });
+    }
+  });
+
+  // ── Autosave (localStorage) ──
+  const autosaveKey = selectedPost ? `blog_draft_${selectedPost.id}` : null;
+
+  // Load draft on post select
+  useEffect(() => {
+    if (!autosaveKey || !selectedPost) return;
+    const saved = localStorage.getItem(autosaveKey);
+    if (saved) {
+      try {
+        const draft = JSON.parse(saved);
+        if (draft.updated_at && draft.updated_at > (selectedPost.updated_at || '')) {
+          setSelectedPost({ ...selectedPost, ...draft });
+          toast({ title: "Utkast gjenopprettet", description: "Lokalt utkast ble lastet." });
+        }
+      } catch { /* ignore */ }
+    }
+  }, [autosaveKey]);
+
+  // Autosave on change
+  const triggerAutosave = useCallback((post: BlogPost) => {
+    if (autosaveRef.current) clearTimeout(autosaveRef.current);
+    autosaveRef.current = setTimeout(() => {
+      const key = `blog_draft_${post.id}`;
+      localStorage.setItem(key, JSON.stringify({
+        title: post.title,
+        content: post.content,
+        excerpt: post.excerpt,
+        tags: post.tags,
+        meta_title: post.meta_title,
+        meta_description: post.meta_description,
+        updated_at: new Date().toISOString(),
+      }));
+    }, 2000);
+  }, []);
+
+  const updateField = <K extends keyof BlogPost>(field: K, value: BlogPost[K]) => {
+    if (!selectedPost) return;
+    const updated = { ...selectedPost, [field]: value };
+    setSelectedPost(updated);
+    triggerAutosave(updated);
+  };
+
+  const clearDraft = () => {
+    if (autosaveKey) localStorage.removeItem(autosaveKey);
+  };
+
+  // ── Tag helpers ──
+  const addTag = () => {
+    const tag = tagInput.trim().toLowerCase();
+    if (!tag || !selectedPost) return;
+    const currentTags = selectedPost.tags ?? [];
+    if (!currentTags.includes(tag)) {
+      updateField('tags', [...currentTags, tag]);
+    }
+    setTagInput("");
+  };
+
+  const removeTag = (tag: string) => {
+    if (!selectedPost) return;
+    updateField('tags', (selectedPost.tags ?? []).filter(t => t !== tag));
+  };
+
+  // ── Reading time calc ──
+  const readingStats = selectedPost?.content ? (() => {
+    const text = (selectedPost.content || '').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+    const words = text.split(/\s+/).filter(Boolean).length;
+    return { words, minutes: Math.max(1, Math.ceil(words / 200)) };
+  })() : { words: 0, minutes: 0 };
+
   const getStatusBadge = (status: string) => {
     const styles: Record<string, string> = {
       draft: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
       published: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+      scheduled: 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200',
       archived: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
     };
     const labels: Record<string, string> = {
       draft: 'Utkast',
       published: 'Publisert',
+      scheduled: 'Planlagt',
       archived: 'Arkivert'
     };
-    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status]}`}>{labels[status]}</span>;
+    return <span className={`px-2 py-1 rounded-full text-xs font-medium ${styles[status] || styles.draft}`}>{labels[status] || status}</span>;
+  };
+
+  const getCommentStatusBadge = (status: string) => {
+    const styles: Record<string, string> = {
+      pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200',
+      approved: 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200',
+      spam: 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200',
+      trash: 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200'
+    };
+    return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${styles[status] || ''}`}>{status}</span>;
   };
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Newspaper className="h-5 w-5" />
-                Blogg og Artikler
-              </CardTitle>
-              <CardDescription>Opprett og publiser innhold</CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setShowNewCategory(true)} data-testid="button-new-category">
-                <Tag className="h-4 w-4 mr-2" />
-                Ny kategori
-              </Button>
-              <Button onClick={() => setShowNewPost(true)} data-testid="button-new-post">
-                <Plus className="h-4 w-4 mr-2" />
-                Nytt innlegg
-              </Button>
-            </div>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="flex gap-4 mb-6">
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-              data-testid="select-filter-status"
-            >
-              <option value="">Alle innlegg</option>
-              <option value="draft">Utkast</option>
-              <option value="published">Publisert</option>
-              <option value="archived">Arkivert</option>
-            </select>
-          </div>
-
-          {posts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-              <Newspaper className="h-12 w-12 mb-4 opacity-50" />
-              <p>Ingen innlegg ennå</p>
-              <Button variant="outline" className="mt-4" onClick={() => setShowNewPost(true)} data-testid="button-create-first-post">
-                Opprett ditt første innlegg
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {posts.map(post => (
-                <div
-                  key={post.id}
-                  className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer hover-elevate ${
-                    selectedPost?.id === post.id ? 'ring-2 ring-primary' : ''
-                  }`}
-                  onClick={() => setSelectedPost(post)}
-                  data-testid={`post-${post.id}`}
-                >
-                  <div>
-                    <h4 className="font-medium">{post.title}</h4>
-                    <div className="flex gap-2 items-center mt-1">
-                      {getStatusBadge(post.status)}
-                      {post.category_name && (
-                        <span className="text-xs text-muted-foreground">{post.category_name}</span>
-                      )}
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(post.created_at).toLocaleDateString('nb-NO')}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedPost(post); }} data-testid={`button-edit-post-${post.id}`}>
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-              ))}
-            </div>
+      {/* Tab switcher: Posts / Comments */}
+      <div className="flex gap-2 border-b pb-2">
+        <Button variant={activeTab === 'posts' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('posts')}>
+          <Newspaper className="h-4 w-4 mr-2" />
+          Innlegg
+        </Button>
+        <Button variant={activeTab === 'comments' ? 'default' : 'ghost'} size="sm" onClick={() => setActiveTab('comments')}>
+          <MessageCircle className="h-4 w-4 mr-2" />
+          Kommentarer
+          {commentsList.filter(c => c.status === 'pending').length > 0 && (
+            <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-yellow-500 text-white text-xs">
+              {commentsList.filter(c => c.status === 'pending').length}
+            </span>
           )}
-        </CardContent>
-      </Card>
+        </Button>
+      </div>
 
-      {selectedPost && (
+      {/* ─── COMMENTS TAB ─── */}
+      {activeTab === 'comments' && (
         <Card>
           <CardHeader>
-            <div className="flex items-center justify-between gap-4">
-              <CardTitle>Rediger innlegg</CardTitle>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => updatePostMutation.mutate({ ...selectedPost, status: 'published' })}
-                  disabled={updatePostMutation.isPending || selectedPost.status === 'published'}
-                  data-testid="button-publish-post"
-                >
-                  Publiser
-                </Button>
-                <Button onClick={() => updatePostMutation.mutate(selectedPost)} disabled={updatePostMutation.isPending} data-testid="button-save-post">
-                  {updatePostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
-                  Lagre
-                </Button>
-                <Button
-                  variant="destructive"
-                  onClick={() => deletePostMutation.mutate(selectedPost.id)}
-                  disabled={deletePostMutation.isPending}
-                  data-testid="button-delete-post"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
+            <CardTitle className="flex items-center gap-2">
+              <MessageCircle className="h-5 w-5" />
+              Kommentarmoderering
+            </CardTitle>
+            <CardDescription>Godkjenn, avvis eller slett kommentarer</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-4">
-                <div>
-                  <Label>Tittel</Label>
-                  <Input
-                    value={selectedPost.title}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, title: e.target.value })}
-                    data-testid="input-post-title"
-                  />
-                </div>
-                <div>
-                  <Label>URL-slug</Label>
-                  <Input
-                    value={selectedPost.slug}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, slug: e.target.value })}
-                    data-testid="input-post-slug"
-                  />
-                </div>
-                <div>
-                  <Label>Utdrag</Label>
-                  <Textarea
-                    value={selectedPost.excerpt || ''}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, excerpt: e.target.value })}
-                    rows={2}
-                    data-testid="input-post-excerpt"
-                  />
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div>
-                  <Label>Kategori</Label>
-                  <select
-                    value={selectedPost.category_id || ''}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, category_id: e.target.value ? Number(e.target.value) : null })}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    data-testid="select-post-category"
-                  >
-                    <option value="">Ingen kategori</option>
-                    {categories.map(cat => (
-                      <option key={cat.id} value={cat.id}>{cat.name}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <Label>Forfatter</Label>
-                  <Input
-                    value={selectedPost.author || ''}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, author: e.target.value })}
-                    data-testid="input-post-author"
-                  />
-                </div>
-                <div>
-                  <Label>Fremhevet bilde URL</Label>
-                  <Input
-                    value={selectedPost.featured_image || ''}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, featured_image: e.target.value })}
-                    placeholder="https://..."
-                    data-testid="input-post-image"
-                  />
-                </div>
-                <div>
-                  <Label>Status</Label>
-                  <select
-                    value={selectedPost.status}
-                    onChange={(e) => setSelectedPost({ ...selectedPost, status: e.target.value as BlogPost['status'] })}
-                    className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
-                    data-testid="select-post-status"
-                  >
-                    <option value="draft">Utkast</option>
-                    <option value="published">Publisert</option>
-                    <option value="archived">Arkivert</option>
-                  </select>
-                </div>
-              </div>
+          <CardContent>
+            <div className="flex gap-2 mb-4">
+              {['pending', 'approved', 'spam', 'trash'].map(s => (
+                <Button key={s} variant={commentFilter === s ? 'default' : 'outline'} size="sm"
+                  onClick={() => setCommentFilter(s)}>
+                  {s === 'pending' ? 'Ventende' : s === 'approved' ? 'Godkjent' : s === 'spam' ? 'Spam' : 'Søppel'}
+                </Button>
+              ))}
             </div>
-            <div>
-              <Label>Innhold</Label>
-              <Textarea
-                value={selectedPost.content || ''}
-                onChange={(e) => setSelectedPost({ ...selectedPost, content: e.target.value })}
-                rows={12}
-                placeholder="Skriv innholdet her..."
-                data-testid="input-post-content"
-              />
-            </div>
+            {commentsList.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-8 text-center">Ingen kommentarer med denne statusen.</p>
+            ) : (
+              <div className="space-y-3">
+                {commentsList.map(comment => (
+                  <div key={comment.id} className="p-4 rounded-lg border space-y-2">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-medium text-sm">{comment.author_name}</span>
+                          {getCommentStatusBadge(comment.status)}
+                          {comment.author_email && (
+                            <span className="text-xs text-muted-foreground">{comment.author_email}</span>
+                          )}
+                        </div>
+                        <p className="text-sm whitespace-pre-wrap">{comment.content}</p>
+                        <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                          {comment.post_title && <span>på «{comment.post_title}»</span>}
+                          <span>{new Date(comment.created_at).toLocaleDateString('nb-NO')}</span>
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        {comment.status !== 'approved' && (
+                          <Button size="sm" variant="outline" onClick={() => moderateCommentMutation.mutate({ id: comment.id, status: 'approved' })}>
+                            <Check className="h-3 w-3 mr-1" />Godkjenn
+                          </Button>
+                        )}
+                        {comment.status !== 'spam' && (
+                          <Button size="sm" variant="outline" onClick={() => moderateCommentMutation.mutate({ id: comment.id, status: 'spam' })}>
+                            Spam
+                          </Button>
+                        )}
+                        <Button size="sm" variant="destructive" onClick={() => deleteCommentMutation.mutate(comment.id)}>
+                          <Trash2 className="h-3 w-3" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
 
-      <Dialog open={showNewPost} onOpenChange={setShowNewPost}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Opprett nytt innlegg</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              value={newPostTitle}
-              onChange={(e) => setNewPostTitle(e.target.value)}
-              placeholder="Innleggets tittel"
-              data-testid="input-new-post-title"
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowNewPost(false)}>Avbryt</Button>
-              <Button
-                onClick={() => createPostMutation.mutate(newPostTitle)}
-                disabled={!newPostTitle || createPostMutation.isPending}
-                data-testid="button-create-post"
-              >
-                {createPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Opprett
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {/* ─── POSTS TAB ─── */}
+      {activeTab === 'posts' && (
+        <>
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Newspaper className="h-5 w-5" />
+                    Blogg og Artikler
+                  </CardTitle>
+                  <CardDescription>Opprett og publiser innhold</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" onClick={() => setShowNewCategory(true)} data-testid="button-new-category">
+                    <Tag className="h-4 w-4 mr-2" />
+                    Ny kategori
+                  </Button>
+                  <Button onClick={() => setShowNewPost(true)} data-testid="button-new-post">
+                    <Plus className="h-4 w-4 mr-2" />
+                    Nytt innlegg
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex gap-4 mb-6">
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Filtrer etter status"
+                  data-testid="select-filter-status"
+                >
+                  <option value="">Alle innlegg</option>
+                  <option value="draft">Utkast</option>
+                  <option value="published">Publisert</option>
+                  <option value="scheduled">Planlagt</option>
+                  <option value="archived">Arkivert</option>
+                </select>
+              </div>
 
-      <Dialog open={showNewCategory} onOpenChange={setShowNewCategory}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Opprett ny kategori</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              value={newCategoryName}
-              onChange={(e) => setNewCategoryName(e.target.value)}
-              placeholder="Kategorinavn"
-              data-testid="input-new-category-name"
-            />
-            <div className="flex gap-2 justify-end">
-              <Button variant="outline" onClick={() => setShowNewCategory(false)}>Avbryt</Button>
-              <Button
-                onClick={() => createCategoryMutation.mutate(newCategoryName)}
-                disabled={!newCategoryName || createCategoryMutation.isPending}
-                data-testid="button-create-category"
-              >
-                {createCategoryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-                Opprett
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+              {posts.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
+                  <Newspaper className="h-12 w-12 mb-4 opacity-50" />
+                  <p>Ingen innlegg ennå</p>
+                  <Button variant="outline" className="mt-4" onClick={() => setShowNewPost(true)} data-testid="button-create-first-post">
+                    Opprett ditt første innlegg
+                  </Button>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {posts.map(post => (
+                    <div
+                      key={post.id}
+                      className={`flex items-center justify-between p-4 rounded-lg border cursor-pointer hover-elevate ${
+                        selectedPost?.id === post.id ? 'ring-2 ring-primary' : ''
+                      }`}
+                      onClick={() => setSelectedPost(post)}
+                      data-testid={`post-${post.id}`}
+                    >
+                      <div className="flex items-center gap-3">
+                        {post.featured_image && (
+                          <img src={post.featured_image} alt="" className="h-10 w-10 rounded object-cover" />
+                        )}
+                        <div>
+                          <h4 className="font-medium">{post.title}</h4>
+                          <div className="flex gap-2 items-center mt-1">
+                            {getStatusBadge(post.status)}
+                            {post.category_name && (
+                              <span className="text-xs text-muted-foreground">{post.category_name}</span>
+                            )}
+                            {post.reading_time && (
+                              <span className="text-xs text-muted-foreground">{post.reading_time} min</span>
+                            )}
+                            <span className="text-xs text-muted-foreground">
+                              {new Date(post.created_at).toLocaleDateString('nb-NO')}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        {post.status === 'published' && (
+                          <Button size="sm" variant="ghost" onClick={(e) => {
+                            e.stopPropagation();
+                            window.open(`/blog/${post.slug}`, '_blank');
+                          }} title="Se innlegg">
+                            <ExternalLink className="h-4 w-4" />
+                          </Button>
+                        )}
+                        <Button size="sm" variant="ghost" onClick={(e) => { e.stopPropagation(); setSelectedPost(post); }} data-testid={`button-edit-post-${post.id}`}>
+                          <Edit className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* ── Post Editor ── */}
+          {selectedPost && (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <CardTitle>Rediger innlegg</CardTitle>
+                    <CardDescription className="flex items-center gap-3 mt-1">
+                      <span>{readingStats.words.toLocaleString('nb-NO')} ord</span>
+                      <span>{readingStats.minutes} min lesetid</span>
+                    </CardDescription>
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    {selectedPost.status === 'published' && (
+                      <Button variant="outline" size="sm" onClick={() => window.open(`/blog/${selectedPost.slug}`, '_blank')}>
+                        <Eye className="h-4 w-4 mr-2" />
+                        Forhåndsvis
+                      </Button>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => {
+                        clearDraft();
+                        updatePostMutation.mutate({ ...selectedPost, status: 'published' });
+                      }}
+                      disabled={updatePostMutation.isPending || selectedPost.status === 'published'}
+                      data-testid="button-publish-post"
+                    >
+                      Publiser
+                    </Button>
+                    <Button onClick={() => {
+                      clearDraft();
+                      updatePostMutation.mutate(selectedPost);
+                    }} disabled={updatePostMutation.isPending} data-testid="button-save-post">
+                      {updatePostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Save className="h-4 w-4 mr-2" />}
+                      Lagre
+                    </Button>
+                    <Button
+                      variant="destructive"
+                      onClick={() => { clearDraft(); deletePostMutation.mutate(selectedPost.id); }}
+                      disabled={deletePostMutation.isPending}
+                      data-testid="button-delete-post"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Left column */}
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Tittel</Label>
+                      <Input
+                        value={selectedPost.title}
+                        onChange={(e) => updateField('title', e.target.value)}
+                        data-testid="input-post-title"
+                      />
+                    </div>
+                    <div>
+                      <Label>URL-slug</Label>
+                      <Input
+                        value={selectedPost.slug}
+                        onChange={(e) => updateField('slug', e.target.value)}
+                        data-testid="input-post-slug"
+                      />
+                    </div>
+                    <div>
+                      <Label>Utdrag</Label>
+                      <Textarea
+                        value={selectedPost.excerpt || ''}
+                        onChange={(e) => updateField('excerpt', e.target.value)}
+                        rows={2}
+                        data-testid="input-post-excerpt"
+                      />
+                    </div>
+                    {/* Tags */}
+                    <div>
+                      <Label>Tagger</Label>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {(selectedPost.tags ?? []).map(tag => (
+                          <span key={tag} className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-primary/10 text-primary">
+                            #{tag}
+                            <button onClick={() => removeTag(tag)} className="hover:text-destructive" aria-label={`Fjern tag ${tag}`}>
+                              <X className="h-3 w-3" />
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={tagInput}
+                          onChange={(e) => setTagInput(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addTag(); } }}
+                          placeholder="Legg til tag..."
+                          className="flex-1"
+                        />
+                        <Button variant="outline" size="sm" onClick={addTag} disabled={!tagInput.trim()}>
+                          <Plus className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right column */}
+                  <div className="space-y-4">
+                    <div>
+                      <Label>Kategori</Label>
+                      <select
+                        value={selectedPost.category_id || ''}
+                        onChange={(e) => updateField('category_id', e.target.value ? Number(e.target.value) : null)}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        aria-label="Kategori"
+                        data-testid="select-post-category"
+                      >
+                        <option value="">Ingen kategori</option>
+                        {categories.map(cat => (
+                          <option key={cat.id} value={cat.id}>{cat.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <Label>Forfatter</Label>
+                      <Input
+                        value={selectedPost.author || ''}
+                        onChange={(e) => updateField('author', e.target.value)}
+                        data-testid="input-post-author"
+                      />
+                    </div>
+                    {/* Featured image with upload */}
+                    <div>
+                      <Label>Fremhevet bilde</Label>
+                      <ImageUploader
+                        value={selectedPost.featured_image || ''}
+                        onChange={(url) => updateField('featured_image', url)}
+                        label="Fremhevet bilde"
+                      />
+                    </div>
+                    <div>
+                      <Label>Status</Label>
+                      <select
+                        value={selectedPost.status}
+                        onChange={(e) => updateField('status', e.target.value as BlogPost['status'])}
+                        className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                        aria-label="Status"
+                        data-testid="select-post-status"
+                      >
+                        <option value="draft">Utkast</option>
+                        <option value="published">Publisert</option>
+                        <option value="scheduled">Planlagt</option>
+                        <option value="archived">Arkivert</option>
+                      </select>
+                    </div>
+                    {/* Scheduled publishing */}
+                    {selectedPost.status === 'scheduled' && (
+                      <div>
+                        <Label>Publiseringstidspunkt</Label>
+                        <Input
+                          type="datetime-local"
+                          value={selectedPost.scheduled_at ? selectedPost.scheduled_at.slice(0, 16) : ''}
+                          onChange={(e) => updateField('scheduled_at', e.target.value ? new Date(e.target.value).toISOString() : null)}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Rich Text Content Editor */}
+                <div>
+                  <Label>Innhold</Label>
+                  <RichTextEditor
+                    value={selectedPost.content || ''}
+                    onChange={(val) => updateField('content', val)}
+                    placeholder="Skriv innholdet her..."
+                    minHeight="300px"
+                    testId="input-post-content"
+                  />
+                </div>
+
+                {/* SEO Section (collapsible) */}
+                <div className="border rounded-lg">
+                  <button
+                    className="flex items-center justify-between w-full p-4 text-left"
+                    onClick={() => setShowSeo(!showSeo)}
+                  >
+                    <span className="font-medium flex items-center gap-2">
+                      <Search className="h-4 w-4" />
+                      SEO-innstillinger
+                    </span>
+                    {showSeo ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                  </button>
+                  {showSeo && (
+                    <div className="px-4 pb-4 space-y-4">
+                      <div>
+                        <Label>Meta-tittel</Label>
+                        <Input
+                          value={selectedPost.meta_title || ''}
+                          onChange={(e) => updateField('meta_title', e.target.value)}
+                          placeholder={selectedPost.title}
+                          maxLength={70}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {(selectedPost.meta_title || selectedPost.title).length}/70 tegn
+                        </p>
+                      </div>
+                      <div>
+                        <Label>Meta-beskrivelse</Label>
+                        <Textarea
+                          value={selectedPost.meta_description || ''}
+                          onChange={(e) => updateField('meta_description', e.target.value)}
+                          placeholder={selectedPost.excerpt || 'Kort beskrivelse for søkemotorer...'}
+                          rows={2}
+                          maxLength={160}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {(selectedPost.meta_description || '').length}/160 tegn
+                        </p>
+                      </div>
+                      <div>
+                        <Label>OG:Image URL</Label>
+                        <Input
+                          value={selectedPost.og_image || ''}
+                          onChange={(e) => updateField('og_image', e.target.value)}
+                          placeholder={selectedPost.featured_image || 'https://...'}
+                        />
+                      </div>
+                      {/* SEO Preview */}
+                      <div className="p-3 rounded-lg bg-muted/50 space-y-1">
+                        <p className="text-xs text-muted-foreground">Google forhåndsvisning:</p>
+                        <p className="text-blue-600 text-sm font-medium truncate">
+                          {selectedPost.meta_title || selectedPost.title}
+                        </p>
+                        <p className="text-green-700 text-xs truncate">
+                          tidum.no/blog/{selectedPost.slug}
+                        </p>
+                        <p className="text-xs text-muted-foreground line-clamp-2">
+                          {selectedPost.meta_description || selectedPost.excerpt || 'Ingen beskrivelse angitt.'}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {/* New post dialog */}
+          <Dialog open={showNewPost} onOpenChange={setShowNewPost}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Opprett nytt innlegg</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Input
+                  value={newPostTitle}
+                  onChange={(e) => setNewPostTitle(e.target.value)}
+                  placeholder="Innleggets tittel"
+                  data-testid="input-new-post-title"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setShowNewPost(false)}>Avbryt</Button>
+                  <Button
+                    onClick={() => createPostMutation.mutate(newPostTitle)}
+                    disabled={!newPostTitle || createPostMutation.isPending}
+                    data-testid="button-create-post"
+                  >
+                    {createPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Opprett
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+
+          {/* New category dialog */}
+          <Dialog open={showNewCategory} onOpenChange={setShowNewCategory}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Opprett ny kategori</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <Input
+                  value={newCategoryName}
+                  onChange={(e) => setNewCategoryName(e.target.value)}
+                  placeholder="Kategorinavn"
+                  data-testid="input-new-category-name"
+                />
+                <div className="flex gap-2 justify-end">
+                  <Button variant="outline" onClick={() => setShowNewCategory(false)}>Avbryt</Button>
+                  <Button
+                    onClick={() => createCategoryMutation.mutate(newCategoryName)}
+                    disabled={!newCategoryName || createCategoryMutation.isPending}
+                    data-testid="button-create-category"
+                  >
+                    {createCategoryMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                    Opprett
+                  </Button>
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
+        </>
+      )}
     </div>
   );
 }
 
 // Why Page Editor
 function WhyPageEditor() {
-  const { toast } = useToast();
   const [activeSection, setActiveSection] = useState("hero");
 
   const { data: whyPageData, isLoading } = useQuery({
@@ -4940,7 +5815,6 @@ function WhyCtaEditor({ content }: { content: any }) {
 
 // Pages Editor for Contact, Privacy, Terms
 function PagesEditor() {
-  const { toast } = useToast();
   const [activePageTab, setActivePageTab] = useState("contact");
 
   const { data: contactPage, isLoading: contactLoading } = useQuery({
@@ -5357,6 +6231,7 @@ function VersionHistory() {
               value={selectedType}
               onChange={(e) => setSelectedType(e.target.value)}
               className="w-full max-w-xs h-9 rounded-md border border-input bg-background px-3 text-sm mt-1"
+              aria-label="Filtrer etter innholdstype"
               data-testid="select-version-filter"
             >
               <option value="all">Alle typer</option>
@@ -5683,6 +6558,7 @@ function AnalyticsEditor() {
                   value={formData.cookie_consent}
                   onChange={(e) => setFormData({ ...formData, cookie_consent: e.target.value })}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Cookie-samtykke"
                 >
                   <option value="required">Påkrevd (alltid spør)</option>
                   <option value="optional">Valgfritt</option>
@@ -5788,7 +6664,7 @@ function EmailEditor() {
     queryFn: () => authenticatedApiRequest('/api/cms/email/templates'),
   });
 
-  const { data: settings, isLoading: settingsLoading } = useQuery<EmailSettingsData>({
+  const { data: settings } = useQuery<EmailSettingsData>({
     queryKey: ['/api/cms/email/settings'],
     queryFn: () => authenticatedApiRequest('/api/cms/email/settings'),
   });
@@ -6211,6 +7087,7 @@ function EmailEditor() {
                   value={templateForm.category}
                   onChange={(e) => setTemplateForm({ ...templateForm, category: e.target.value })}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Kategori"
                 >
                   <option value="general">Generell</option>
                   <option value="onboarding">Onboarding</option>
@@ -6724,6 +7601,7 @@ function ReportDesigner() {
                       });
                     }}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label="Rapporttype"
                   >
                     <option value="standard">Standard</option>
                     <option value="miljoarbeider">Miljøarbeider</option>
@@ -6737,6 +7615,7 @@ function ReportDesigner() {
                       checked={templateForm.privacy_notice_enabled || false}
                       onChange={(e) => setTemplateForm({ ...templateForm, privacy_notice_enabled: e.target.checked })}
                       className="h-4 w-4 rounded border"
+                      aria-label="Inkluder personvernmerknad"
                     />
                     <Label htmlFor="privacy-notice">Inkluder personvernmerknad</Label>
                   </div>
@@ -6792,6 +7671,7 @@ function ReportDesigner() {
                     value={templateForm.paper_size}
                     onChange={(e) => setTemplateForm({ ...templateForm, paper_size: e.target.value })}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label="Papirstørrelse"
                   >
                     <option value="A4">A4</option>
                     <option value="Letter">Letter</option>
@@ -6804,6 +7684,7 @@ function ReportDesigner() {
                     value={templateForm.orientation}
                     onChange={(e) => setTemplateForm({ ...templateForm, orientation: e.target.value })}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label="Orientering"
                   >
                     <option value="portrait">Stående</option>
                     <option value="landscape">Liggende</option>
@@ -6817,6 +7698,7 @@ function ReportDesigner() {
                       value={templateForm.primary_color}
                       onChange={(e) => setTemplateForm({ ...templateForm, primary_color: e.target.value })}
                       className="h-9 w-12 rounded border"
+                      aria-label="Primærfarge"
                     />
                     <Input
                       value={templateForm.primary_color}
@@ -6831,6 +7713,7 @@ function ReportDesigner() {
                     value={templateForm.font_family}
                     onChange={(e) => setTemplateForm({ ...templateForm, font_family: e.target.value })}
                     className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label="Font"
                   >
                     <option value="Helvetica">Helvetica</option>
                     <option value="Times-Roman">Times Roman</option>
@@ -6883,6 +7766,7 @@ function ReportDesigner() {
                           id="show-date"
                           checked={templateForm.header_show_date}
                           onChange={(e) => setTemplateForm({ ...templateForm, header_show_date: e.target.checked })}
+                          aria-label="Vis dato"
                         />
                         <Label htmlFor="show-date">Vis dato</Label>
                       </div>
@@ -6892,6 +7776,7 @@ function ReportDesigner() {
                           id="show-page"
                           checked={templateForm.header_show_page_numbers}
                           onChange={(e) => setTemplateForm({ ...templateForm, header_show_page_numbers: e.target.checked })}
+                          aria-label="Vis sidetall"
                         />
                         <Label htmlFor="show-page">Vis sidetall</Label>
                       </div>
@@ -6951,6 +7836,7 @@ function ReportDesigner() {
                               value={block.config.field || ''}
                               onChange={(e) => updateBlock(block.id, { ...block.config, field: e.target.value, label: fieldLabels[e.target.value] })}
                               className="w-full h-8 rounded-md border border-input bg-background px-2 text-sm"
+                              aria-label="Velg felt"
                             >
                               <option value="">Velg felt...</option>
                               {Object.entries(fieldLabels).map(([key, label]) => (
@@ -7028,6 +7914,7 @@ function ReportDesigner() {
                         id="footer-page"
                         checked={templateForm.footer_show_page_numbers}
                         onChange={(e) => setTemplateForm({ ...templateForm, footer_show_page_numbers: e.target.checked })}
+                        aria-label="Vis sidetall i bunntekst"
                       />
                       <Label htmlFor="footer-page">Vis sidetall</Label>
                     </div>
@@ -7451,6 +8338,7 @@ function VendorManagement() {
                   value={vendorForm.status}
                   onChange={(e) => setVendorForm({ ...vendorForm, status: e.target.value })}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Status"
                   data-testid="select-vendor-status"
                 >
                   <option value="active">Aktiv</option>
@@ -7464,6 +8352,7 @@ function VendorManagement() {
                   value={vendorForm.subscriptionPlan}
                   onChange={(e) => setVendorForm({ ...vendorForm, subscriptionPlan: e.target.value })}
                   className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  aria-label="Abonnement"
                   data-testid="select-vendor-plan"
                 >
                   <option value="basic">Basis</option>
@@ -7877,6 +8766,7 @@ function PortalDesigner() {
           value={value || '#ffffff'}
           onChange={(e) => onChange(e.target.value)}
           className="h-8 w-10 rounded border cursor-pointer"
+          aria-label={label}
           data-testid={testId}
         />
         <Input
@@ -8094,7 +8984,6 @@ function PortalDesigner() {
                                 index={index}
                                 isSelected={selectedNavIndex === index}
                                 primaryColor={settings.primary_color}
-                                textColor={settings.tokens.colors.text}
                                 onClick={() => {
                                   setSelectedRegion('nav-item');
                                   setSelectedNavIndex(index);
@@ -8252,11 +9141,13 @@ function PortalDesigner() {
                       <div className="flex items-center gap-2">
                         <input
                           type="checkbox"
+                          id="sticky-header"
                           checked={settings.layout.headerStyle === 'fixed'}
                           onChange={(e) => updateLayout('headerStyle', e.target.checked ? 'fixed' : 'static')}
                           className="h-4 w-4"
+                          aria-label="Sticky header"
                         />
-                        <Label className="text-xs">Sticky header</Label>
+                        <Label htmlFor="sticky-header" className="text-xs">Sticky header</Label>
                       </div>
                     </div>
                   </>
@@ -8381,11 +9272,13 @@ function PortalDesigner() {
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id="compact-mode"
                         checked={settings.layout.compactMode}
                         onChange={(e) => updateLayout('compactMode', e.target.checked)}
                         className="h-4 w-4"
+                        aria-label="Kompakt modus"
                       />
-                      <Label className="text-xs">Kompakt modus</Label>
+                      <Label htmlFor="compact-mode" className="text-xs">Kompakt modus</Label>
                     </div>
                   </>
                 )}
@@ -8411,20 +9304,24 @@ function PortalDesigner() {
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id="show-footer"
                         checked={settings.layout.footerEnabled}
                         onChange={(e) => updateLayout('footerEnabled', e.target.checked)}
                         className="h-4 w-4"
+                        aria-label="Vis footer"
                       />
-                      <Label className="text-xs">Vis footer</Label>
+                      <Label htmlFor="show-footer" className="text-xs">Vis footer</Label>
                     </div>
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id="show-branding"
                         checked={settings.show_branding}
                         onChange={(e) => updateSettings({ ...settings, show_branding: e.target.checked })}
                         className="h-4 w-4"
+                        aria-label="Vis Powered by"
                       />
-                      <Label className="text-xs">Vis "Powered by"</Label>
+                      <Label htmlFor="show-branding" className="text-xs">Vis "Powered by"</Label>
                     </div>
                   </>
                 )}
@@ -8468,6 +9365,7 @@ function PortalDesigner() {
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id="nav-item-visible"
                         checked={navItems[selectedNavIndex].enabled}
                         onChange={() => {
                           const updated = [...navItems];
@@ -8475,8 +9373,9 @@ function PortalDesigner() {
                           updateSettings({ ...settings, nav_items: updated });
                         }}
                         className="h-4 w-4"
+                        aria-label="Synlig"
                       />
-                      <Label className="text-xs">Synlig</Label>
+                      <Label htmlFor="nav-item-visible" className="text-xs">Synlig</Label>
                     </div>
                   </>
                 )}
@@ -8952,7 +9851,6 @@ function SortableNavItem({
   index, 
   isSelected, 
   primaryColor, 
-  textColor,
   onClick 
 }: { 
   id: string; 
@@ -8960,7 +9858,6 @@ function SortableNavItem({
   index: number;
   isSelected: boolean;
   primaryColor: string;
-  textColor: string;
   onClick: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
@@ -8981,7 +9878,7 @@ function SortableNavItem({
       role="button"
       tabIndex={0}
       aria-label={`${item.label} navigasjonselement. Bruk piltaster for å flytte.`}
-      aria-grabbed={isDragging}
+      aria-roledescription="draggable"
       onClick={(e) => { e.stopPropagation(); onClick(); }}
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {

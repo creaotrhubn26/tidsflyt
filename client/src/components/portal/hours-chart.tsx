@@ -49,32 +49,41 @@ export function HoursChart({ data, title = "Timefordeling" }: HoursChartProps) {
           ? "border-[#344b54] bg-[linear-gradient(180deg,#0f191e,#13232a)]"
           : "border-[#d8e4e0] bg-[linear-gradient(180deg,#ffffff,#f7fbf9)]",
       )}
+      style={{
+        '--hc-title': chartColors.title,
+        '--hc-text-muted': chartColors.textMuted,
+        '--hc-text-strong': chartColors.textStrong,
+        '--hc-panel-bg': chartColors.panelBg,
+        '--hc-panel-border': chartColors.panelBorder,
+        '--hc-empty-bg': chartColors.emptyBg,
+        '--hc-empty-border': chartColors.emptyBorder,
+      } as React.CSSProperties}
       data-testid="hours-chart"
     >
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <CardTitle className="text-2xl font-semibold tracking-tight" style={{ color: chartColors.title }}>
+            <CardTitle className="text-2xl font-semibold tracking-tight text-[var(--hc-title)]">
               {title}
             </CardTitle>
-            <p className="mt-1 text-sm" style={{ color: chartColors.textMuted }}>
+            <p className="mt-1 text-sm text-[var(--hc-text-muted)]">
               Timer fordelt per ukedag i valgt periode
             </p>
           </div>
           <div className="grid grid-cols-2 gap-2 sm:min-w-[240px]">
-            <div className="rounded-lg border px-3 py-2" style={{ backgroundColor: chartColors.panelBg, borderColor: chartColors.panelBorder }}>
-              <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: chartColors.textMuted }}>
+            <div className="rounded-lg border px-3 py-2 bg-[var(--hc-panel-bg)] border-[var(--hc-panel-border)]">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--hc-text-muted)]">
                 Totalt
               </p>
-              <p className="text-base font-semibold" style={{ color: chartColors.textStrong }}>
+              <p className="text-base font-semibold text-[var(--hc-text-strong)]">
                 {totalHours.toFixed(1)}t
               </p>
             </div>
-            <div className="rounded-lg border px-3 py-2" style={{ backgroundColor: chartColors.panelBg, borderColor: chartColors.panelBorder }}>
-              <p className="text-[11px] font-medium uppercase tracking-wide" style={{ color: chartColors.textMuted }}>
+            <div className="rounded-lg border px-3 py-2 bg-[var(--hc-panel-bg)] border-[var(--hc-panel-border)]">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-[var(--hc-text-muted)]">
                 Høyest
               </p>
-              <p className="text-base font-semibold" style={{ color: chartColors.textStrong }}>
+              <p className="text-base font-semibold text-[var(--hc-text-strong)]">
                 {peakDay.day} ({peakDay.hours.toFixed(1)}t)
               </p>
             </div>
@@ -84,15 +93,14 @@ export function HoursChart({ data, title = "Timefordeling" }: HoursChartProps) {
       <CardContent>
         {!hasData ? (
           <div
-            className="h-[300px] flex items-center justify-center rounded-xl border border-dashed"
-            style={{ borderColor: chartColors.emptyBorder, backgroundColor: chartColors.emptyBg }}
+            className="h-[300px] flex items-center justify-center rounded-xl border border-dashed border-[var(--hc-empty-border)] bg-[var(--hc-empty-bg)]"
           >
-            <p className="text-sm font-medium" style={{ color: chartColors.textMuted }}>
+            <p className="text-sm font-medium text-[var(--hc-text-muted)]">
               Ingen timedata tilgjengelig
             </p>
           </div>
         ) : (
-          <div className="rounded-xl border p-3 sm:p-4" style={{ backgroundColor: chartColors.panelBg, borderColor: chartColors.panelBorder }}>
+          <div className="rounded-xl border p-3 sm:p-4 bg-[var(--hc-panel-bg)] border-[var(--hc-panel-border)]">
             <ResponsiveContainer width="100%" height={300}>
               <BarChart data={data} margin={{ top: 22, right: 16, left: 4, bottom: 4 }} barCategoryGap="24%">
                 <defs>

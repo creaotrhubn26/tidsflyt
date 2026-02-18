@@ -1,19 +1,18 @@
 import { 
   type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Activity, type InsertActivity,
-  type LogRow, type CompanyUser, type ProjectInfo, type UserSettings,
-  type SiteSetting, type InsertSiteSetting, type LandingHero, type InsertLandingHero,
+  type LogRow, type CompanyUser,
+  type SiteSetting, type LandingHero, type InsertLandingHero,
   type LandingFeature, type InsertLandingFeature, type LandingTestimonial, type InsertLandingTestimonial,
   type LandingCta, type InsertLandingCta,
   type WhyPageHero, type InsertWhyPageHero, type WhyPageStat, type InsertWhyPageStat,
   type WhyPageBenefit, type InsertWhyPageBenefit, type WhyPageFeature, type InsertWhyPageFeature,
   type WhyPageContent, type InsertWhyPageContent,
-  logRow, companyUsers, projectInfo, userSettings, companyAuditLog, companies,
+  logRow, companyUsers,
   siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta,
   whyPageHero, whyPageStats, whyPageBenefits, whyPageFeatures, whyPageContent
 } from "@shared/schema";
-import { randomUUID } from "crypto";
 import { db, pool } from "./db";
-import { eq, desc, and, gte, lte, sql, asc } from "drizzle-orm";
+import { eq, desc, and, gte, lte } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -200,7 +199,6 @@ export class ExternalDbStorage implements IStorage {
   }
 
   async createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry> {
-    const now = new Date();
     const result = await db.insert(logRow).values({
       userId: entry.userId,
       date: entry.date,
@@ -328,10 +326,10 @@ export class ExternalDbStorage implements IStorage {
         activeUsers,
         pendingApprovals: users.filter(u => !u.approved).length,
         casesThisWeek: uniqueProjects,
-        hoursTrend: 12.5,
-        usersTrend: 8.3,
-        approvalsTrend: -5.2,
-        casesTrend: 15.0,
+        hoursTrend: 0,
+        usersTrend: 0,
+        approvalsTrend: 0,
+        casesTrend: 0,
       };
     }
     

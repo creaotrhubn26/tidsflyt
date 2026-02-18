@@ -12,7 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
-import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock, Search, BarChart3, TrendingUp, AlertCircle } from "lucide-react";
+import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock, Search, BarChart3, TrendingUp } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";

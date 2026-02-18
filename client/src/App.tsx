@@ -5,6 +5,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthGuard } from "@/components/auth-guard";
+import { ErrorBoundary } from "@/components/error-boundary";
 import NotFound from "@/pages/not-found";
 
 const Landing = lazy(() => import("@/pages/landing"));
@@ -28,15 +30,16 @@ const VendorApiAdmin = lazy(() => import("@/pages/vendor-api-admin"));
 const AccessRequests = lazy(() => import("@/pages/access-requests"));
 const WhyTidum = lazy(() => import("@/pages/why-tidum"));
 const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
+const BuilderPage = lazy(() => import("@/pages/builder-page"));
+const Blog = lazy(() => import("@/pages/blog"));
+const BlogPostPage = lazy(() => import("@/pages/blog-post"));
 
 function RouteLoadingFallback() {
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_12%_8%,rgba(78,154,111,0.12),transparent_30%),radial-gradient(circle_at_88%_2%,rgba(31,107,115,0.12),transparent_34%),#eef3f1] p-6">
-      <div className="mx-auto flex min-h-[70vh] w-full max-w-[1100px] items-center justify-center rounded-2xl border border-[#d6e2de] bg-white/80 shadow-[0_12px_30px_rgba(20,58,65,0.07)]">
-        <div className="inline-flex items-center gap-3 text-sm font-medium text-[#2e535c]">
-          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-[#1F6B73]" />
-          Laster side...
-        </div>
+    <main className="min-h-screen flex items-center justify-center bg-background">
+      <div className="inline-flex items-center gap-3 text-sm font-medium text-muted-foreground">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
+        Laster side...
       </div>
     </main>
   );
@@ -46,28 +49,37 @@ function Router() {
   return (
     <Suspense fallback={<RouteLoadingFallback />}>
       <Switch>
+        {/* Public routes */}
         <Route path="/" component={Landing} />
-        <Route path="/dashboard" component={Dashboard} />
-        <Route path="/time" component={TimeTracking} />
-        <Route path="/reports" component={Reports} />
-        <Route path="/case-reports" component={CaseReports} />
-        <Route path="/admin/case-reviews" component={AdminCaseReviews} />
-        <Route path="/users" component={Users} />
-        <Route path="/profile" component={Profile} />
-        <Route path="/invites" component={Users} />
-        <Route path="/cases" component={CaseReports} />
-        <Route path="/settings" component={Profile} />
-        <Route path="/vendors" component={Vendors} />
-        <Route path="/cms" component={CMS} />
-        <Route path="/cms-legacy" component={CMSPageLegacy} />
         <Route path="/kontakt" component={Contact} />
         <Route path="/personvern" component={Privacy} />
         <Route path="/vilkar" component={Terms} />
-        <Route path="/api-docs" component={ApiDocs} />
-        <Route path="/vendor/api" component={VendorApiAdmin} />
-        <Route path="/admin/access-requests" component={AccessRequests} />
         <Route path="/hvorfor" component={WhyTidum} />
         <Route path="/guide" component={InteractiveGuide} />
+        <Route path="/blog" component={Blog} />
+        <Route path="/blog/:slug" component={BlogPostPage} />
+        <Route path="/p/:slug" component={BuilderPage} />
+
+        {/* Protected routes */}
+        <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
+        <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
+        <Route path="/reports">{() => <AuthGuard><Reports /></AuthGuard>}</Route>
+        <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
+        <Route path="/cases">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
+        <Route path="/profile">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
+        <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
+        <Route path="/invites">{() => <AuthGuard><Users /></AuthGuard>}</Route>
+
+        {/* Admin routes */}
+        <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>
+        <Route path="/users">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><Users /></AuthGuard>}</Route>
+        <Route path="/vendors">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
+        <Route path="/cms">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
+        <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
+        <Route path="/api-docs">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
+        <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
+        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+
         <Route component={NotFound} />
       </Switch>
     </Suspense>
@@ -76,14 +88,18 @@ function Router() {
 
 function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <ThemeProvider defaultTheme="system" storageKey="smart-timing-theme">
-        <TooltipProvider>
-          <Toaster />
-          <Router />
-        </TooltipProvider>
-      </ThemeProvider>
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <ThemeProvider defaultTheme="system" storageKey="smart-timing-theme">
+          <TooltipProvider>
+            <Toaster />
+            <main id="main-content">
+              <Router />
+            </main>
+          </TooltipProvider>
+        </ThemeProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

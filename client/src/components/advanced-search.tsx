@@ -1,7 +1,6 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -18,7 +17,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Badge } from "@/components/ui/badge";
 import { Search, X, Filter, Calendar as CalendarIcon } from "lucide-react";
-import { format, subDays, startOfMonth, endOfMonth } from "date-fns";
+import { format, subDays, startOfMonth } from "date-fns";
 import { nb } from "date-fns/locale";
 
 export interface AdvancedFilterState {
@@ -67,15 +66,6 @@ export function AdvancedSearch({
     if (sortBy) count++;
     return count;
   }, [selectedFilters, dateRange, sortBy]);
-
-  const notifyChange = useCallback(() => {
-    onFilterChange({
-      searchQuery,
-      selectedFilters,
-      dateRange,
-      sortBy: sortBy || undefined,
-    });
-  }, [searchQuery, selectedFilters, dateRange, sortBy, onFilterChange]);
 
   const handleFilterToggle = (filterId: string, value: string) => {
     setSelectedFilters((prev) => {

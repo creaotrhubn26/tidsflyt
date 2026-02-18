@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays, UserX, BarChart3, Lightbulb, Calendar as CalendarIcon } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +78,7 @@ export default function TimeTrackingPage() {
     };
   }, []);
 
-  const { data: todayEntries = [], isLoading, refetch } = useQuery<TimeEntry[]>({
+  const { data: todayEntries = [], isLoading } = useQuery<TimeEntry[]>({
     queryKey: ["/api/time-entries", { startDate: today, endDate: today }],
   });
 
@@ -298,6 +298,21 @@ export default function TimeTrackingPage() {
       .sort((a, b) => b.hours - a.hours);
   }, [todayEntries]);
 
+  // Filtered entries based on active filters
+  const filteredEntries = useMemo(() => {
+    let entries = todayEntries;
+    if (projectFilter && projectFilter !== "all") {
+      entries = entries.filter(e => e.caseNumber === projectFilter);
+    }
+    if (dateFilter.from) {
+      entries = entries.filter(e => new Date(e.createdAt) >= dateFilter.from!);
+    }
+    if (dateFilter.to) {
+      entries = entries.filter(e => new Date(e.createdAt) <= dateFilter.to!);
+    }
+    return entries;
+  }, [todayEntries, projectFilter, dateFilter]);
+
   return (
     <PortalLayout>
       <div className="space-y-6">
@@ -317,7 +332,7 @@ export default function TimeTrackingPage() {
               {weeklyData.map((day) => (
                 <div
                   key={day.date.toISOString()}
-                  className="text-center p-3 rounded-lg bg-white/60 hover:bg-white transition-colors cursor-pointer group"
+                  className="text-center p-3 rounded-lg bg-white/60 dark:bg-card/60 hover:bg-white dark:hover:bg-card transition-colors cursor-pointer group"
                 >
                   <p className="text-xs font-medium text-slate-600 mb-1">{day.day.slice(0, 3)}</p>
                   <div className="h-1.5 bg-slate-200/60 rounded-full mb-2 overflow-hidden">
@@ -476,6 +491,53 @@ export default function TimeTrackingPage() {
             </div>
               </div>
 
+              {/* Filters */}
+              <div className="flex items-center gap-3 flex-wrap">
+                <Select value={projectFilter} onValueChange={setProjectFilter}>
+                  <SelectTrigger className="w-[180px]" data-testid="project-filter">
+                    <SelectValue placeholder="Alle prosjekt" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Alle prosjekt</SelectItem>
+                    {projectOptions.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        <div className="flex items-center gap-2">
+                          <div className={cn("w-2 h-2 rounded-full", p.color)} />
+                          {p.name}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="date"
+                  className="w-[160px]"
+                  value={dateFilter.from ? format(dateFilter.from, "yyyy-MM-dd") : ""}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, from: e.target.value ? new Date(e.target.value) : undefined }))}
+                  placeholder="Fra dato"
+                  data-testid="date-filter-from"
+                />
+                <Input
+                  type="date"
+                  className="w-[160px]"
+                  value={dateFilter.to ? format(dateFilter.to, "yyyy-MM-dd") : ""}
+                  onChange={(e) => setDateFilter(prev => ({ ...prev, to: e.target.value ? new Date(e.target.value) : undefined }))}
+                  placeholder="Til dato"
+                  data-testid="date-filter-to"
+                />
+                {((projectFilter && projectFilter !== "all") || dateFilter.from || dateFilter.to) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => { setProjectFilter(""); setDateFilter({}); }}
+                    data-testid="clear-filters"
+                  >
+                    <X className="h-3 w-3 mr-1" />
+                    Nullstill
+                  </Button>
+                )}
+              </div>
+
               <div className="space-y-3">
                 {isLoading ? (
                   <Card>
@@ -483,16 +545,16 @@ export default function TimeTrackingPage() {
                       Laster registreringer...
                     </CardContent>
                   </Card>
-                ) : todayEntries.length === 0 ? (
+                ) : filteredEntries.length === 0 ? (
                   <Card>
                     <CardContent className="py-12 text-center">
                       <Clock className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                      <h3 className="font-medium mb-2">Ingen registreringer i dag</h3>
-                      <p className="text-muted-foreground">Start timeren eller legg til en manuell registrering.</p>
+                      <h3 className="font-medium mb-2">{((projectFilter && projectFilter !== "all") || dateFilter.from || dateFilter.to) ? "Ingen treff med valgte filtre" : "Ingen registreringer i dag"}</h3>
+                      <p className="text-muted-foreground">{((projectFilter && projectFilter !== "all") || dateFilter.from || dateFilter.to) ? "Prøv å endre eller nullstille filtrene." : "Start timeren eller legg til en manuell registrering."}</p>
                     </CardContent>
                   </Card>
                 ) : (
-                  todayEntries
+                  filteredEntries
                     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                     .map((entry) => {
                       const project = projectOptions.find(p => p.id === entry.caseNumber);
@@ -707,7 +769,7 @@ export default function TimeTrackingPage() {
                 <h3 className="font-semibold mb-4">Kalender (30 siste dager)</h3>
                 <div className="text-sm text-muted-foreground">
                   <p className="mb-3">Gjennomsnittlig timer per dag de siste 30 dagene:</p>
-                  <div className="p-3 bg-white/60 rounded-lg font-mono text-foreground">
+                  <div className="p-3 bg-white/60 dark:bg-card/60 rounded-lg font-mono text-foreground">
                     7.2t / dag - Totalt: 216t
                   </div>
                   <p className="text-xs mt-4">Kalendervisning kommer snart med avansert tidslinjegraf</p>

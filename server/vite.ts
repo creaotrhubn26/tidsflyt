@@ -5,6 +5,7 @@ import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
+import { seoMiddleware } from "./seo-middleware";
 
 const viteLogger = createLogger();
 
@@ -30,6 +31,18 @@ export async function setupVite(server: Server, app: Express) {
   });
 
   app.use(vite.middlewares);
+
+  // SEO middleware — intercept crawler requests and inject meta tags
+  const getDevHtml = async () => {
+    const clientTemplate = path.resolve(
+      import.meta.dirname,
+      "..",
+      "client",
+      "index.html",
+    );
+    return fs.promises.readFile(clientTemplate, "utf-8");
+  };
+  app.use("*", seoMiddleware(getDevHtml));
 
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;

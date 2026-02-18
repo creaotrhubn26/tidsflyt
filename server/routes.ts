@@ -1,16 +1,22 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import express from "express";
+import { type Server } from "http";
 import { storage } from "./storage";
-import type { InsertTimeEntry } from "@shared/schema";
+
 import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db } from "./db";
-import { apiKeys, vendors, accessRequests, insertAccessRequestSchema } from "@shared/schema";
+import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics } from "@shared/schema";
 import { eq, and, isNull, desc } from "drizzle-orm";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
+import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
+
 
 // Zod schema for bulk time entry validation
 const bulkTimeEntrySchema = z.object({
@@ -366,7 +372,7 @@ export async function registerRoutes(
     }
   });
   
-  app.get("/api/github/repos", async (req, res) => {
+  app.get("/api/github/repos", async (_req, res) => {
     try {
       const octokit = await getUncachableGitHubClient();
       const { data } = await octokit.repos.listForAuthenticatedUser({
@@ -379,7 +385,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats", async (req, res) => {
+  app.get("/api/stats", isAuthenticated, async (req, res) => {
     try {
       const { range } = req.query;
       const stats = await storage.getStats(range as string);
@@ -389,7 +395,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users", async (req, res) => {
+  app.get("/api/users", isAuthenticated, async (_req, res) => {
     try {
       const users = await storage.getAllUsers();
       res.json(users.map(u => ({ ...u, password: undefined })));
@@ -398,7 +404,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users/:id", async (req, res) => {
+  app.get("/api/users/:id", isAuthenticated, async (req, res) => {
     try {
       const user = await storage.getUser(req.params.id);
       if (!user) return res.status(404).json({ error: "User not found" });
@@ -408,7 +414,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/users/:id", async (req, res) => {
+  app.patch("/api/users/:id", isAuthenticated, async (req, res) => {
     try {
       const user = await storage.updateUser(req.params.id, req.body);
       if (!user) return res.status(404).json({ error: "User not found" });
@@ -418,7 +424,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/time-entries", async (req, res) => {
+  app.get("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
       const { userId, startDate, endDate, status } = req.query;
       const entries = await storage.getTimeEntries({
@@ -433,7 +439,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/time-entries", async (req, res) => {
+  app.post("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
       const { userId, caseNumber, description, hours, date, status, createdAt } = req.body;
       const entry = await storage.createTimeEntry({
@@ -457,7 +463,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/time-entries/:id", async (req, res) => {
+  app.patch("/api/time-entries/:id", isAuthenticated, async (req, res) => {
     try {
       const entry = await storage.updateTimeEntry(req.params.id, req.body);
       if (!entry) return res.status(404).json({ error: "Entry not found" });
@@ -467,7 +473,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/time-entries/:id", async (req, res) => {
+  app.delete("/api/time-entries/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteTimeEntry(req.params.id);
       if (!deleted) return res.status(404).json({ error: "Entry not found" });
@@ -478,7 +484,7 @@ export async function registerRoutes(
   });
 
   // Bulk create time entries for a month
-  app.post("/api/time-entries/bulk", async (req, res) => {
+  app.post("/api/time-entries/bulk", isAuthenticated, async (req, res) => {
     try {
       // Validate request with Zod schema
       const parseResult = bulkRequestSchema.safeParse(req.body);
@@ -559,7 +565,7 @@ export async function registerRoutes(
   });
 
   // Check for existing entries in date range
-  app.get("/api/time-entries/check-existing", async (req, res) => {
+  app.get("/api/time-entries/check-existing", isAuthenticated, async (req, res) => {
     try {
       const { userId, startDate, endDate } = req.query;
       
@@ -580,7 +586,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/activities", async (req, res) => {
+  app.get("/api/activities", isAuthenticated, async (req, res) => {
     try {
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
@@ -614,7 +620,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports", async (req, res) => {
+  app.get("/api/reports", isAuthenticated, async (req, res) => {
     try {
       const { startDate, endDate, userId, status } = req.query;
       const entries = await storage.getTimeEntries({
@@ -638,7 +644,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/chart-data", async (req, res) => {
+  app.get("/api/chart-data", isAuthenticated, async (_req, res) => {
     try {
       const entries = await storage.getTimeEntries({});
       const users = await storage.getAllUsers();
@@ -668,13 +674,13 @@ export async function registerRoutes(
         return acc;
       }, [] as { date: string; hours: number }[]);
       
-      res.json({ hoursPerDay, heatmapData });
+      res.json({ hoursPerDay, heatmapData, totalUsers: users.length });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.get("/api/reports/export", async (req, res) => {
+  app.get("/api/reports/export", isAuthenticated, async (req, res) => {
     try {
       const { format, startDate, endDate, userId, status } = req.query;
       const entries = await storage.getTimeEntries({
@@ -754,6 +760,459 @@ export async function registerRoutes(
       res.status(500).json({ error: error.message });
     }
   });
+
+  // ═══════════════════════════════════════════
+  // Builder Pages CRUD (Visual Editor)
+  // ═══════════════════════════════════════════
+
+  // List all builder pages
+  app.get("/api/cms/builder-pages", async (_req, res) => {
+    try {
+      const pages = await db.select().from(builderPages).orderBy(desc(builderPages.updatedAt));
+      res.json(pages);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a single builder page by id
+  app.get("/api/cms/builder-pages/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [page] = await db.select().from(builderPages).where(eq(builderPages.id, id));
+      if (!page) return res.status(404).json({ error: "Page not found" });
+      res.json(page);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a builder page by slug (for public rendering)
+  app.get("/api/cms/builder-pages/slug/:slug", async (req, res) => {
+    try {
+      const [page] = await db.select().from(builderPages).where(eq(builderPages.slug, req.params.slug));
+      if (!page) return res.status(404).json({ error: "Page not found" });
+      res.json(page);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Create a new builder page
+  app.post("/api/cms/builder-pages", async (req, res) => {
+    try {
+      const data = insertBuilderPageSchema.parse(req.body);
+      const [page] = await db.insert(builderPages).values(data).returning();
+      res.status(201).json(page);
+    } catch (error: any) {
+      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Update a builder page
+  app.put("/api/cms/builder-pages/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { title, slug, description, sections: pageSections, themeKey, status,
+              metaTitle, metaDescription, ogImage, canonicalUrl, scheduledAt,
+              globalHeader, globalFooter, customCss, locale, translationOf } = req.body;
+      
+      // Save current version before updating
+      const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, id));
+      if (currentPage) {
+        await db.insert(pageVersions).values({
+          pageId: id,
+          version: currentPage.version || 1,
+          title: currentPage.title,
+          sections: currentPage.sections,
+          themeKey: currentPage.themeKey,
+          customCss: currentPage.customCss,
+          changeNote: req.body.changeNote || 'Auto-save',
+        });
+      }
+
+      const updates: any = { updatedAt: new Date(), version: (currentPage?.version || 1) + 1 };
+      if (title !== undefined) updates.title = title;
+      if (slug !== undefined) updates.slug = slug;
+      if (description !== undefined) updates.description = description;
+      if (pageSections !== undefined) updates.sections = pageSections;
+      if (themeKey !== undefined) updates.themeKey = themeKey;
+      if (metaTitle !== undefined) updates.metaTitle = metaTitle;
+      if (metaDescription !== undefined) updates.metaDescription = metaDescription;
+      if (ogImage !== undefined) updates.ogImage = ogImage;
+      if (canonicalUrl !== undefined) updates.canonicalUrl = canonicalUrl;
+      if (globalHeader !== undefined) updates.globalHeader = globalHeader;
+      if (globalFooter !== undefined) updates.globalFooter = globalFooter;
+      if (customCss !== undefined) updates.customCss = customCss;
+      if (locale !== undefined) updates.locale = locale;
+      if (translationOf !== undefined) updates.translationOf = translationOf;
+      if (scheduledAt !== undefined) {
+        updates.scheduledAt = scheduledAt ? new Date(scheduledAt) : null;
+        if (scheduledAt) updates.status = 'scheduled';
+      }
+      if (status !== undefined) {
+        updates.status = status;
+        if (status === 'published') updates.publishedAt = new Date();
+      }
+      const [page] = await db.update(builderPages).set(updates).where(eq(builderPages.id, id)).returning();
+      if (!page) return res.status(404).json({ error: "Page not found" });
+      res.json(page);
+    } catch (error: any) {
+      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Delete a builder page
+  app.delete("/api/cms/builder-pages/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [page] = await db.delete(builderPages).where(eq(builderPages.id, id)).returning();
+      if (!page) return res.status(404).json({ error: "Page not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
+  // Section Templates CRUD
+  // ═══════════════════════════════════════════
+
+  app.get("/api/cms/section-templates", async (_req, res) => {
+    try {
+      const templates = await db.select().from(sectionTemplates).orderBy(desc(sectionTemplates.updatedAt));
+      res.json(templates);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/cms/section-templates", async (req, res) => {
+    try {
+      const [template] = await db.insert(sectionTemplates).values({
+        name: req.body.name,
+        description: req.body.description,
+        category: req.body.category || 'custom',
+        thumbnail: req.body.thumbnail,
+        sectionData: req.body.sectionData,
+      }).returning();
+      res.status(201).json(template);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/cms/section-templates/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      await db.delete(sectionTemplates).where(eq(sectionTemplates.id, id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
+  // Page Versions (Revision History)
+  // ═══════════════════════════════════════════
+
+  app.get("/api/cms/page-versions/:pageId", async (req, res) => {
+    try {
+      const pageId = parseInt(req.params.pageId);
+      const versions = await db.select().from(pageVersions)
+        .where(eq(pageVersions.pageId, pageId))
+        .orderBy(desc(pageVersions.version));
+      res.json(versions);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Restore a specific version
+  app.post("/api/cms/page-versions/:pageId/restore/:versionId", async (req, res) => {
+    try {
+      const pageId = parseInt(req.params.pageId);
+      const versionId = parseInt(req.params.versionId);
+      const [ver] = await db.select().from(pageVersions).where(eq(pageVersions.id, versionId));
+      if (!ver) return res.status(404).json({ error: "Version not found" });
+
+      // Save current as new version before restore
+      const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, pageId));
+      if (currentPage) {
+        await db.insert(pageVersions).values({
+          pageId,
+          version: (currentPage.version || 1),
+          title: currentPage.title,
+          sections: currentPage.sections,
+          themeKey: currentPage.themeKey,
+          customCss: currentPage.customCss,
+          changeNote: 'Pre-restore backup',
+        });
+      }
+
+      const [page] = await db.update(builderPages).set({
+        title: ver.title,
+        sections: ver.sections,
+        themeKey: ver.themeKey,
+        customCss: ver.customCss,
+        version: (currentPage?.version || 1) + 1,
+        updatedAt: new Date(),
+      }).where(eq(builderPages.id, pageId)).returning();
+      res.json(page);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
+  // Form Submissions
+  // ═══════════════════════════════════════════
+
+  app.get("/api/cms/form-submissions", async (req, res) => {
+    try {
+      const { pageId, status: formStatus } = req.query;
+      let query = db.select().from(formSubmissions).orderBy(desc(formSubmissions.createdAt));
+      const results = await query;
+      const filtered = results.filter((s: any) => {
+        if (pageId && s.pageId !== parseInt(pageId as string)) return false;
+        if (formStatus && s.status !== formStatus) return false;
+        return true;
+      });
+      res.json(filtered);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Public form submission endpoint (no auth needed)
+  app.post("/api/cms/form-submissions", async (req, res) => {
+    try {
+      const { pageId, pageSlug, formName, data } = req.body;
+      const [submission] = await db.insert(formSubmissions).values({
+        pageId: pageId || null,
+        pageSlug: pageSlug || null,
+        formName: formName || 'contact',
+        data: data || {},
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
+      }).returning();
+      res.status(201).json(submission);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/cms/form-submissions/:id/status", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const [sub] = await db.update(formSubmissions)
+        .set({ status: req.body.status })
+        .where(eq(formSubmissions.id, id))
+        .returning();
+      res.json(sub);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
+  // Page Analytics
+  // ═══════════════════════════════════════════
+
+  // Track a page view (public, no auth)
+  app.post("/api/cms/page-analytics/track", async (req, res) => {
+    try {
+      const { pageId, pageSlug, duration, referrer, device } = req.body;
+      await db.insert(pageAnalytics).values({
+        pageId: pageId || 0,
+        pageSlug,
+        duration: duration || null,
+        referrer: referrer || null,
+        userAgent: req.get('user-agent'),
+        device: device || 'desktop',
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  });
+
+  // Get analytics for a page
+  app.get("/api/cms/page-analytics/:pageId", async (req, res) => {
+    try {
+      const pageId = parseInt(req.params.pageId);
+      const views = await db.select().from(pageAnalytics)
+        .where(eq(pageAnalytics.pageId, pageId))
+        .orderBy(desc(pageAnalytics.viewedAt));
+      
+      const totalViews = views.length;
+      const avgDuration = views.filter(v => v.duration).reduce((a, v) => a + (v.duration || 0), 0) / Math.max(1, views.filter(v => v.duration).length);
+      const devices = views.reduce((acc: any, v) => {
+        acc[v.device || 'unknown'] = (acc[v.device || 'unknown'] || 0) + 1;
+        return acc;
+      }, {});
+
+      res.json({
+        totalViews,
+        avgDuration: Math.round(avgDuration),
+        devices,
+        recentViews: views.slice(0, 50),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════
+  // CMS Image Upload
+  // ═══════════════════════════════════════════
+
+  const cmsUploadDir = path.join(process.cwd(), 'uploads', 'cms');
+  if (!fs.existsSync(cmsUploadDir)) {
+    fs.mkdirSync(cmsUploadDir, { recursive: true });
+  }
+
+  const cmsStorage = multer.diskStorage({
+    destination: (_req, _file, cb) => cb(null, cmsUploadDir),
+    filename: (_req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const ext = path.extname(file.originalname);
+      cb(null, 'cms-' + uniqueSuffix + ext);
+    }
+  });
+
+  const cmsUpload = multer({
+    storage: cmsStorage,
+    limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+    fileFilter: (_req, file, cb) => {
+      const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      if (allowed.includes(file.mimetype)) cb(null, true);
+      else cb(new Error('Invalid file type'));
+    }
+  });
+
+  app.post("/api/cms/upload", cmsUpload.single('image'), async (req: any, res) => {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+
+    const originalPath = req.file.path;
+    const originalSize = req.file.size;
+    const isSvg = req.file.mimetype === 'image/svg+xml';
+    const isGif = req.file.mimetype === 'image/gif';
+
+    // Skip optimization for SVG and animated GIF
+    if (isSvg || isGif) {
+      const fileUrl = `/uploads/cms/${req.file.filename}`;
+      return res.json({
+        url: fileUrl,
+        filename: req.file.filename,
+        size: originalSize,
+        originalSize,
+        optimized: false,
+        format: isSvg ? 'svg' : 'gif',
+      });
+    }
+
+    try {
+      // Read image metadata
+      const metadata = await sharp(originalPath).metadata();
+      const maxDimension = 2048;
+
+      // Build the sharp pipeline
+      let pipeline = sharp(originalPath).rotate(); // auto-rotate based on EXIF
+
+      // Resize if larger than max dimension
+      if ((metadata.width && metadata.width > maxDimension) || (metadata.height && metadata.height > maxDimension)) {
+        pipeline = pipeline.resize(maxDimension, maxDimension, {
+          fit: 'inside',
+          withoutEnlargement: true,
+        });
+      }
+
+      // Convert to WebP with quality 80 for best size/quality balance
+      const optimizedFilename = req.file.filename.replace(/\.[^.]+$/, '.webp');
+      const optimizedPath = path.join(cmsUploadDir, optimizedFilename);
+
+      const result = await pipeline
+        .webp({ quality: 80, effort: 4 })
+        .toFile(optimizedPath);
+
+      // Also generate a thumbnail (400px wide) for the editor
+      const thumbFilename = 'thumb-' + optimizedFilename;
+      const thumbPath = path.join(cmsUploadDir, thumbFilename);
+      await sharp(optimizedPath)
+        .resize(400, null, { fit: 'inside', withoutEnlargement: true })
+        .webp({ quality: 70 })
+        .toFile(thumbPath);
+
+      // Remove original file if different from optimized
+      if (originalPath !== optimizedPath) {
+        fs.unlink(originalPath, () => {});
+      }
+
+      const savings = Math.round((1 - result.size / originalSize) * 100);
+
+      const fileUrl = `/uploads/cms/${optimizedFilename}`;
+      const thumbUrl = `/uploads/cms/${thumbFilename}`;
+
+      res.json({
+        url: fileUrl,
+        thumbnail: thumbUrl,
+        filename: optimizedFilename,
+        size: result.size,
+        originalSize,
+        optimized: true,
+        format: 'webp',
+        width: result.width,
+        height: result.height,
+        savings,
+      });
+    } catch (err: any) {
+      console.error('Image optimization failed, serving original:', err.message);
+      // Fallback: serve original
+      const fileUrl = `/uploads/cms/${req.file.filename}`;
+      res.json({
+        url: fileUrl,
+        filename: req.file.filename,
+        size: originalSize,
+        originalSize,
+        optimized: false,
+        error: 'Optimization failed, original served',
+      });
+    }
+  });
+
+  // Serve CMS uploads
+  app.use('/uploads/cms', express.static(cmsUploadDir));
+
+  // ═══════════════════════════════════════════
+  // Scheduled Publishing Cron (check on each request)
+  // ═══════════════════════════════════════════
+
+  // Simple scheduled publishing check
+  const checkScheduledPages = async () => {
+    try {
+      const now = new Date();
+      const scheduled = await db.select().from(builderPages)
+        .where(eq(builderPages.status, 'scheduled'));
+      for (const page of scheduled) {
+        if (page.scheduledAt && new Date(page.scheduledAt) <= now) {
+          await db.update(builderPages).set({
+            status: 'published',
+            publishedAt: now,
+            updatedAt: now,
+          }).where(eq(builderPages.id, page.id));
+          console.log(`[CMS] Auto-published scheduled page: ${page.slug}`);
+        }
+      }
+    } catch (err) {
+      console.error('[CMS] Scheduled publishing check failed:', err);
+    }
+  };
+
+  // Check every minute
+  setInterval(checkScheduledPages, 60 * 1000);
 
   return httpServer;
 }

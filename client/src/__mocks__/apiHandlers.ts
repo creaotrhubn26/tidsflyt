@@ -21,7 +21,7 @@ import {
   mockNotifications,
   mockAnalytics,
   mockSearchResults,
-  mockPaginatedResponse,
+  mockPaginatedResponse as _mockPaginatedResponse,
 } from './mockData';
 
 // ============================================================================
@@ -67,7 +67,7 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: { ...user, ...userData } };
   },
 
-  'DELETE /api/users/:id': async (id: string) => {
+  'DELETE /api/users/:id': async (_id: string) => {
     return { success: true, message: 'User deleted' };
   },
 
@@ -97,7 +97,7 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: { ...entry, ...entryData } };
   },
 
-  'DELETE /api/time-entries/:id': async (id: string) => {
+  'DELETE /api/time-entries/:id': async (_id: string) => {
     return { success: true, message: 'Time entry deleted' };
   },
 
@@ -136,11 +136,11 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: { ...report, ...reportData } };
   },
 
-  'POST /api/reports/:id/approve': async (id: string) => {
+  'POST /api/reports/:id/approve': async (_id: string) => {
     return { success: true, message: 'Report approved' };
   },
 
-  'POST /api/reports/:id/reject': async (id: string) => {
+  'POST /api/reports/:id/reject': async (_id: string) => {
     return { success: true, message: 'Report rejected' };
   },
 
@@ -179,11 +179,11 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: mockAccessRequestStats };
   },
 
-  'POST /api/access-requests/:id/approve': async (id: string) => {
+  'POST /api/access-requests/:id/approve': async (_id: string) => {
     return { success: true, message: 'Access request approved' };
   },
 
-  'POST /api/access-requests/:id/reject': async (id: string) => {
+  'POST /api/access-requests/:id/reject': async (_id: string) => {
     return { success: true, message: 'Access request rejected' };
   },
 
@@ -196,11 +196,11 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: mockCaseReviewStats };
   },
 
-  'POST /api/admin/case-reviews/:id/approve': async (id: string) => {
+  'POST /api/admin/case-reviews/:id/approve': async (_id: string) => {
     return { success: true, message: 'Case review approved' };
   },
 
-  'POST /api/admin/case-reviews/:id/reject': async (id: string) => {
+  'POST /api/admin/case-reviews/:id/reject': async (_id: string) => {
     return { success: true, message: 'Case review rejected' };
   },
 
@@ -235,7 +235,7 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, data: mockNotifications };
   },
 
-  'POST /api/notifications/:id/read': async (id: string) => {
+  'POST /api/notifications/:id/read': async (_id: string) => {
     return { success: true, message: 'Notification marked as read' };
   },
 
@@ -244,7 +244,7 @@ export const mockApiHandlers: { [key: string]: any } = {
   },
 
   // SEARCH
-  'GET /api/search': async (query: string) => {
+  'GET /api/search': async (_query: string) => {
     return { success: true, data: mockSearchResults };
   },
 
@@ -259,7 +259,7 @@ export const mockApiHandlers: { [key: string]: any } = {
     return { success: true, fileId, fileName: `export-${new Date().toISOString()}.${exportConfig.format}` };
   },
 
-  'GET /api/export/:fileId': async (fileId: string) => {
+  'GET /api/export/:fileId': async (_fileId: string) => {
     return { success: true, data: 'mock-file-content' };
   },
 };

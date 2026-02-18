@@ -9,6 +9,7 @@ import {
   Code2, Download, Copy, Check, FileCode, FileJson, 
   Braces, LayoutTemplate, Palette 
 } from "lucide-react";
+import { tidumPageStyles, TIDUM_TOKENS } from "@/lib/tidum-page-styles";
 
 interface Section {
   id: string;
@@ -31,10 +32,19 @@ export function CodeExport({ sections }: CodeExportProps) {
   const { toast } = useToast();
   const [copiedType, setCopiedType] = useState<string | null>(null);
 
+  // Detect whether any section uses tidum tokens (background matches tidum colors or id/category is tidum)
+  const hasTidumSections = sections.some(s =>
+    s.background?.color === TIDUM_TOKENS.colorBgMain ||
+    s.background?.color === TIDUM_TOKENS.colorPrimary ||
+    s.background?.color === TIDUM_TOKENS.colorBgSection ||
+    s.id?.startsWith('tidum-tpl-') ||
+    s.id?.startsWith('section-') // user-added sections from tidum templates
+  );
+
   const generateReactCode = () => {
     const imports = `import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-
+${hasTidumSections ? 'import { tidumPageStyles } from "@/lib/tidum-page-styles";\n' : ''}
 `;
 
     const sectionComponents = sections.map((section, idx) => {
@@ -73,9 +83,9 @@ import { Badge } from "@/components/ui/badge";
     const mainComponent = `
 export function LandingPage() {
   return (
-    <div className="landing-page">
-${sections.map((_, idx) => `      <Section${idx} />`).join('\n')}
-    </div>
+    <${hasTidumSections ? 'main className="tidum-page"' : 'div className="landing-page"'}>
+${hasTidumSections ? '      <style>{tidumPageStyles}</style>\n' : ''}${sections.map((_, idx) => `      <Section${idx} />`).join('\n')}
+    </${hasTidumSections ? 'main' : 'div'}>
   );
 }`;
 
@@ -124,7 +134,10 @@ ${sections.map((_, idx) => `      <Section${idx} />`).join('\n')}
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
-    
+${hasTidumSections ? `
+    /* Tidum Design System */
+${tidumPageStyles}
+` : ''}    
 ${styles}
   </style>
 </head>
@@ -160,7 +173,7 @@ ${sections.map((section, idx) => `  <section class="section-${idx}">
       'baseline': 'items-baseline',
     };
 
-    const components = sections.map((section, idx) => {
+    const components = sections.map((section, _idx) => {
       const layoutClasses = section.layout ? [
         section.layout.type === 'grid' ? 'grid' : 'flex',
         section.layout.type === 'grid' ? `grid-cols-${section.layout.gridCols || 3}` : '',
@@ -204,6 +217,8 @@ ${components}
     return JSON.stringify({ 
       version: '1.0.0',
       generatedAt: new Date().toISOString(),
+      designSystem: hasTidumSections ? 'tidum' : 'custom',
+      tokens: hasTidumSections ? TIDUM_TOKENS : undefined,
       sections: sections.map(s => ({
         id: s.id,
         type: s.type,

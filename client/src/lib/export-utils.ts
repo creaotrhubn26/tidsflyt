@@ -55,7 +55,7 @@ export function exportToCSV(
 export function exportToExcel(
   data: ExcelRow[],
   filename: string = "export.xlsx",
-  sheetName: string = "Data"
+  _sheetName: string = "Data"
 ) {
   // This is a simplified version that exports to XLSX format
   // For production, consider using libraries like "xlsx" or "exceljs"
@@ -219,7 +219,7 @@ export async function exportToPDF(
     </head>
     <body>
       <div class="header">
-        ${includeBranding ? `<div class="header-branding">📊 TIDUM</div>` : ""}
+        ${includeBranding ? `<div class="header-branding">${includeLogo ? '📊 ' : ''}TIDUM</div>` : ""}
         <div style="font-size: 18px; font-weight: 600; margin-bottom: 10px;">${escapeHtml(title)}</div>
         ${subtitle ? `<div class="header-subtitle">${escapeHtml(subtitle)}</div>` : ""}
         <div class="header-timestamp">Generert: ${timestamp}</div>

@@ -65,7 +65,7 @@ async function main() {
       runTestsWithReport,
       runTestsCI,
       runPerformanceTests,
-    } = await import('../__mocks__/testRunner');
+    } = await import('../client/src/__mocks__/testRunner');
 
     let results;
 

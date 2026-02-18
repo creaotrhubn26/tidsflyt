@@ -10,15 +10,11 @@ import {
   AlertCircle,
   Plus,
   CheckCircle,
-  TrendingUp,
   Target,
   Bell,
   Briefcase,
-  DollarSign,
   History,
-  ArrowRight,
   ExternalLink,
-  Zap,
   AlertTriangle,
   Info,
   ChevronRight,
@@ -56,7 +52,7 @@ export default function DashboardPage() {
   const reduceMotion = useReducedMotion();
   const [, navigate] = useLocation();
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
-  const [isRangeTransitioning, setIsRangeTransitioning] = useState(false);
+
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
   const [selectedCalendarDate, setSelectedCalendarDate] = useState<string>(() => format(new Date(), "yyyy-MM-dd"));
   const [monthDirection, setMonthDirection] = useState<number>(0);
@@ -119,12 +115,12 @@ export default function DashboardPage() {
     placeholderData: keepPreviousData,
   });
 
-  // Mock data for new features (TODO: Replace with real API endpoints)
+  // Derive task counts from real data where available
   const myTasks = useMemo(() => ({
     pendingApprovals: stats?.pendingApprovals || 0,
-    myDrafts: 3,
-    assignedCases: 5,
-    overdueItems: 2,
+    myDrafts: 0,
+    assignedCases: 0,
+    overdueItems: 0,
   }), [stats]);
 
   const alerts = useMemo(() => {
@@ -254,8 +250,7 @@ export default function DashboardPage() {
   const monthFetchCount = monthEntriesFetchCount + monthActivitiesFetchCount;
 
   const handleTimeRangeChange = (nextRange: TimeRange) => {
-    if (nextRange === timeRange || isRangeTransitioning) return;
-    setIsRangeTransitioning(true);
+    if (nextRange === timeRange) return;
     setTimeRange(nextRange);
   };
 
@@ -268,7 +263,7 @@ export default function DashboardPage() {
         ? -1
         : 0;
 
-    if ((isMonthTransitioning || monthFetchCount > 0) && direction !== 0) {
+    if (isMonthTransitioning && direction !== 0) {
       return;
     }
 
@@ -293,25 +288,10 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    if (!monthEntriesFetching && !monthActivitiesFetching) {
+    if (monthFetchCount === 0 && !monthEntriesFetching && !monthActivitiesFetching) {
       setIsMonthTransitioning(false);
     }
-  }, [monthEntriesFetching, monthActivitiesFetching]);
-
-  useEffect(() => {
-    if (monthFetchCount === 0) {
-      setIsMonthTransitioning(false);
-    }
-  }, [monthFetchCount]);
-
-  useEffect(() => {
-    if (!statsFetching) {
-      const timeout = window.setTimeout(() => {
-        setIsRangeTransitioning(false);
-      }, reduceMotion ? 0 : 120);
-      return () => window.clearTimeout(timeout);
-    }
-  }, [statsFetching, reduceMotion]);
+  }, [monthFetchCount, monthEntriesFetching, monthActivitiesFetching]);
 
   const showHeatmapSkeleton = (monthEntriesLoading || monthActivitiesLoading)
     && calendarHeatmapData.length === 0
@@ -321,16 +301,16 @@ export default function DashboardPage() {
   return (
     <PortalLayout>
       <div className="space-y-6">
-        <section className="relative overflow-hidden rounded-[26px] border border-[#d4dfdb] bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(247,251,249,0.95))] p-5 shadow-[0_20px_44px_rgba(22,43,49,0.08)] md:p-6">
+        <section className="relative overflow-hidden rounded-[26px] border border-[#d4dfdb] dark:border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(247,251,249,0.95))] dark:bg-card p-5 shadow-[0_20px_44px_rgba(22,43,49,0.08)] dark:shadow-none md:p-6">
           <div className="pointer-events-none absolute -left-20 top-8 h-48 w-80 rounded-[999px] bg-[rgba(78,154,111,0.13)] blur-3xl" />
           <div className="pointer-events-none absolute right-0 top-0 h-48 w-72 rounded-bl-[160px] bg-[rgba(31,107,115,0.08)]" />
           <div className="relative space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
-                <h1 className="text-3xl font-semibold tracking-tight text-[#153c46] md:text-4xl" data-testid="dashboard-title">
+                <h1 className="text-3xl font-semibold tracking-tight text-[#153c46] dark:text-foreground md:text-4xl" data-testid="dashboard-title">
                   Dashboard
                 </h1>
-                <p className="mt-1 text-[#4e646b]">Oversikt over selskapets aktivitet</p>
+                <p className="mt-1 text-[#4e646b] dark:text-muted-foreground">Oversikt over selskapets aktivitet</p>
               </div>
 
               <div className="flex flex-wrap gap-2">
@@ -346,7 +326,7 @@ export default function DashboardPage() {
                   <Button 
                     onClick={() => navigate("/time-tracking")}
                     variant="outline"
-                    className="gap-2 border-orange-300 bg-orange-50 text-orange-700 hover:bg-orange-100"
+                    className="gap-2 border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-950/30 text-orange-700 dark:text-orange-400 hover:bg-orange-100 dark:hover:bg-orange-950/50"
                   >
                     <CheckCircle className="h-4 w-4" />
                     Godkjenn ({stats.pendingApprovals})
@@ -366,7 +346,7 @@ export default function DashboardPage() {
             {/* Time Range Selector */}
             <div className="flex justify-end">
               <div
-                className="relative inline-flex w-fit gap-1 rounded-xl border border-[#d8e4e0] bg-[#edf3f1] p-1"
+                className="relative inline-flex w-fit gap-1 rounded-xl border border-[#d8e4e0] dark:border-border bg-[#edf3f1] dark:bg-muted p-1"
                 data-testid="time-range-selector"
               >
                 {timeRangeButtons.map((btn) => {
@@ -377,13 +357,11 @@ export default function DashboardPage() {
                       type="button"
                       key={btn.value}
                       onClick={() => handleTimeRangeChange(btn.value)}
-                      disabled={isRangeTransitioning && !selected}
                       className={cn(
-                        "relative z-10 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3.5 text-xs font-medium transition-[color,transform] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-2 focus-visible:ring-offset-[#edf3f1] motion-reduce:transition-none",
+                        "relative z-10 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3.5 text-xs font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-2 focus-visible:ring-offset-[#edf3f1] motion-reduce:transition-none",
                         selected
-                          ? "text-white -translate-y-[1px]"
-                          : "text-[#4e646b] hover:text-[#153c46]",
-                        isRangeTransitioning && !selected && "cursor-not-allowed opacity-70",
+                          ? "text-white"
+                          : "text-[#4e646b] dark:text-muted-foreground hover:text-[#153c46] dark:hover:text-foreground",
                       )}
                       data-testid={`time-range-${btn.value}`}
                     >
@@ -414,7 +392,7 @@ export default function DashboardPage() {
                   animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
                   exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
                   transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  className="inline-flex items-center gap-2 rounded-full border border-[#cde0d9] bg-white/85 px-3 py-1 text-xs font-medium text-[#2f555e]"
+                  className="inline-flex items-center gap-2 rounded-full border border-[#cde0d9] dark:border-border bg-white/85 dark:bg-muted px-3 py-1 text-xs font-medium text-[#2f555e] dark:text-muted-foreground"
                 >
                   <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1F6B73]" />
                   Oppdaterer tall for valgt periode
@@ -430,8 +408,8 @@ export default function DashboardPage() {
                     key={alert.id}
                     className={cn(
                       "border-l-4 cursor-pointer transition-all hover:shadow-lg",
-                      alert.type === "warning" && "border-l-orange-500 bg-orange-50/50",
-                      alert.type === "info" && "border-l-blue-500 bg-blue-50/50"
+                      alert.type === "warning" && "border-l-orange-500 bg-orange-50/50 dark:bg-orange-950/30",
+                      alert.type === "info" && "border-l-blue-500 bg-blue-50/50 dark:bg-blue-950/30"
                     )}
                     onClick={alert.action}
                   >
@@ -439,8 +417,8 @@ export default function DashboardPage() {
                       <div className="flex items-start gap-3">
                         <div className={cn(
                           "p-2 rounded-lg",
-                          alert.type === "warning" && "bg-orange-100 text-orange-600",
-                          alert.type === "info" && "bg-blue-100 text-blue-600"
+                          alert.type === "warning" && "bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400",
+                          alert.type === "info" && "bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400"
                         )}>
                           {alert.type === "warning" ? <AlertTriangle className="h-5 w-5" /> : <Info className="h-5 w-5" />}
                         </div>
@@ -460,7 +438,7 @@ export default function DashboardPage() {
               {statsLoading ? (
                 <>
                   {[1, 2, 3, 4].map(i => (
-                    <Card key={i} className="rounded-2xl border-[#d8e4e0] bg-white/90">
+                    <Card key={i} className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/90 dark:bg-card">
                       <CardContent className="p-6">
                         <Skeleton className="mb-4 h-4 w-24" />
                         <Skeleton className="mb-2 h-8 w-16" />
@@ -512,7 +490,7 @@ export default function DashboardPage() {
             </div>
 
             {/* My Tasks Widget */}
-            <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+            <Card className="bg-gradient-to-br from-white to-slate-50/50 dark:from-card dark:to-card border-slate-200/60 dark:border-border shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <CheckCircle className="h-5 w-5 text-[#1F6B73]" />
@@ -569,7 +547,7 @@ export default function DashboardPage() {
 
                   <Button
                     variant="outline"
-                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all border-red-200 bg-red-50/50"
+                    className="h-auto flex-col items-start gap-2 p-4 hover:bg-accent hover:shadow-md transition-all border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30"
                     onClick={() => navigate("/time-tracking")}
                   >
                     <div className="flex w-full items-center justify-between">
@@ -586,7 +564,7 @@ export default function DashboardPage() {
             </Card>
 
             {/* Goals Tracking */}
-            <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+            <Card className="bg-gradient-to-br from-white to-slate-50/50 dark:from-card dark:to-card border-slate-200/60 dark:border-border shadow-sm">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-lg">
                   <Target className="h-5 w-5 text-[#1F6B73]" />
@@ -600,9 +578,9 @@ export default function DashboardPage() {
                     const Icon = goal.icon;
                     const percentage = Math.min((goal.current / goal.target) * 100, 100);
                     const colorClasses = {
-                      blue: "text-blue-600 bg-blue-50",
-                      green: "text-green-600 bg-green-50",
-                      purple: "text-purple-600 bg-purple-50",
+                      blue: "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40",
+                      green: "text-green-600 dark:text-green-400 bg-green-50 dark:bg-green-950/40",
+                      purple: "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40",
                     };
                     
                     return (
@@ -636,9 +614,9 @@ export default function DashboardPage() {
         <section className="grid gap-6 xl:grid-cols-[1.75fr,1fr]">
           <div className="space-y-6">
             {chartLoading ? (
-              <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+              <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-2xl text-[#153c46]">Timer per dag</CardTitle>
+                  <CardTitle className="text-2xl text-[#153c46] dark:text-foreground">Timer per dag</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Skeleton className="h-64 w-full" />
@@ -649,9 +627,9 @@ export default function DashboardPage() {
             )}
 
             {showHeatmapSkeleton ? (
-              <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+              <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-2xl text-[#153c46]">Aktivitetsoversikt</CardTitle>
+                  <CardTitle className="text-2xl text-[#153c46] dark:text-foreground">Aktivitetsoversikt</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <Skeleton className="h-32 w-full" />
@@ -675,7 +653,7 @@ export default function DashboardPage() {
 
           <div className="space-y-6">
             {/* Recent Items */}
-            <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+            <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
               <CardHeader className="pb-3">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-lg flex items-center gap-2">
@@ -691,9 +669,9 @@ export default function DashboardPage() {
                 <div className="space-y-2">
                   {recentItems.map((item) => {
                     const statusColors = {
-                      draft: "bg-slate-100 text-slate-700",
-                      pending: "bg-yellow-100 text-yellow-700",
-                      approved: "bg-green-100 text-green-700",
+                      draft: "bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300",
+                      pending: "bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400",
+                      approved: "bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400",
                     };
                     const icons = {
                       time: Clock,
@@ -713,8 +691,8 @@ export default function DashboardPage() {
                         }}
                       >
                         <div className="flex items-start gap-3 w-full">
-                          <div className="p-2 rounded-lg bg-slate-50">
-                            <ItemIcon className="h-4 w-4 text-slate-600" />
+                          <div className="p-2 rounded-lg bg-slate-50 dark:bg-muted">
+                            <ItemIcon className="h-4 w-4 text-slate-600 dark:text-muted-foreground" />
                           </div>
                           <div className="flex-1 text-left min-w-0">
                             <div className="text-sm font-medium truncate">{item.title}</div>
@@ -735,9 +713,9 @@ export default function DashboardPage() {
 
             {/* Activity Feed with Tabs */}
             {activitiesLoading ? (
-              <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+              <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-2xl text-[#153c46]">Siste aktivitet</CardTitle>
+                  <CardTitle className="text-2xl text-[#153c46] dark:text-foreground">Siste aktivitet</CardTitle>
                 </CardHeader>
                 <CardContent>
                   <div className="space-y-3">
@@ -754,7 +732,7 @@ export default function DashboardPage() {
                 </CardContent>
               </Card>
             ) : (
-              <Card className="rounded-2xl border-[#d8e4e0] bg-white/95">
+              <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-lg flex items-center gap-2">
                     <Bell className="h-5 w-5 text-[#1F6B73]" />

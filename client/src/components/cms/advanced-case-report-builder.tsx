@@ -2,8 +2,6 @@ import { useState, useMemo, useEffect } from "react";
 import {
   FileText,
   Calendar,
-  Users,
-  TrendingUp,
   Filter,
   Download,
   Eye,
@@ -19,12 +17,11 @@ import {
   Bookmark,
   Archive,
 } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -51,7 +48,6 @@ interface AdvancedCaseReportBuilderProps {
   onEditReport: (report: CaseReport) => void;
   onExportReports: (reports: CaseReport[], format: string) => void;
   onBulkStatusChange?: (reportIds: number[], newStatus: string) => void;
-  currentUserId?: string;
   externalStatusFilter?: string | null;
 }
 
@@ -110,7 +106,6 @@ export function AdvancedCaseReportBuilder({
   onEditReport,
   onExportReports,
   onBulkStatusChange,
-  currentUserId = "default",
   externalStatusFilter,
 }: AdvancedCaseReportBuilderProps) {
   const [selectedReports, setSelectedReports] = useState<number[]>([]);
@@ -264,7 +259,7 @@ export function AdvancedCaseReportBuilder({
     return format(new Date(dateStr), "d. MMM yyyy", { locale: nb });
   };
 
-  const getUnreadCommentCount = (report: CaseReport): number => {
+  const getUnreadCommentCount = (_report: CaseReport): number => {
     // TODO: Fetch actual unread count from backend
     return 0;
   };

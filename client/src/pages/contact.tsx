@@ -8,6 +8,8 @@ import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { tidumPageStyles } from "@/lib/tidum-page-styles";
+import { useSEO } from "@/hooks/use-seo";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -32,6 +34,26 @@ interface BrregCompany {
 
 export default function Contact() {
   const { toast } = useToast();
+
+  useSEO({
+    title: "Kontakt oss – Tidum",
+    description: "Ta kontakt med Tidum for spørsmål om timeføring, priser eller demo. Vi hjelper norske bedrifter med effektiv tidsregistrering.",
+    canonical: "https://tidum.no/kontakt",
+    jsonLd: {
+      "@context": "https://schema.org",
+      "@type": "ContactPage",
+      name: "Kontakt Tidum",
+      url: "https://tidum.no/kontakt",
+      mainEntity: {
+        "@type": "Organization",
+        name: "Tidum",
+        telephone: "+47-97-95-92-94",
+        email: "kontakt@tidum.no",
+        address: { "@type": "PostalAddress", addressLocality: "Oslo", addressCountry: "NO" },
+      },
+    },
+  });
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -183,83 +205,12 @@ export default function Contact() {
 
   return (
     <main className="tidum-page">
+      <style>{tidumPageStyles}</style>
       <style>{`
-        .tidum-page {
-          --color-primary: #1F6B73;
-          --color-primary-hover: #18585F;
-          --color-secondary: #4E9A6F;
-          --color-bg-main: #FAFAF8;
-          --color-bg-section: #F1F1ED;
-          --color-text-main: #1E2A2C;
-          --color-text-muted: #5F6B6D;
-          --color-border: #E1E4E3;
-          --background: 60 20% 98%;
-          --foreground: 194 19% 14%;
-          --card: 0 0% 100%;
-          --card-foreground: 194 19% 14%;
-          --card-border: 164 10% 88%;
-          --popover: 0 0% 100%;
-          --popover-foreground: 194 19% 14%;
-          --popover-border: 164 10% 88%;
-          --muted: 165 10% 94%;
-          --muted-foreground: 188 9% 44%;
-          background:
-            radial-gradient(circle at 8% 3%, rgba(78, 154, 111, 0.10), transparent 38%),
-            radial-gradient(circle at 88% 6%, rgba(31, 107, 115, 0.12), transparent 42%),
-            var(--color-bg-main);
-          color: var(--color-text-main);
-          font-family: Inter, "Avenir Next", "Segoe UI", sans-serif;
-          min-height: 100vh;
-        }
-
-        .tidum-panel {
-          border: 1px solid var(--color-border);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.97), rgba(250, 251, 248, 0.95));
-          box-shadow: 0 18px 60px rgba(24, 37, 41, 0.09);
-        }
-
         .tidum-contact-card {
           border: 1px solid var(--color-border);
           background: rgba(255, 255, 255, 0.95);
           box-shadow: 0 8px 28px rgba(22, 43, 49, 0.06);
-        }
-
-        .tidum-btn-primary {
-          background: var(--color-primary);
-          color: #fff;
-          border: 1px solid rgba(20, 77, 84, 0.6);
-          border-radius: 12px;
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
-        }
-
-        .tidum-btn-primary:hover {
-          background: var(--color-primary-hover);
-        }
-
-        .tidum-btn-secondary {
-          background: #fff;
-          color: #223136;
-          border: 1px solid var(--color-border);
-          border-radius: 12px;
-        }
-
-        .tidum-btn-secondary:hover {
-          background: #f6f7f4;
-        }
-
-        .tidum-input {
-          border-color: var(--color-border);
-          background: rgba(255, 255, 255, 0.92);
-          color: var(--color-text-main);
-        }
-
-        .tidum-input::placeholder {
-          color: #6f7a7d;
-        }
-
-        .tidum-page :is(button, a, input, textarea):focus-visible {
-          outline: 3px solid #1F6B73;
-          outline-offset: 2px;
         }
       `}</style>
 

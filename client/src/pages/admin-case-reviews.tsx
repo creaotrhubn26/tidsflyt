@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { 
   FileText, 
@@ -9,16 +9,14 @@ import {
   AlertTriangle,
   Clock,
   CheckCircle2,
-  XCircle,
   Eye,
-  Filter,
   BarChart3,
   TrendingUp,
   AlertCircle,
   Search,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,7 +24,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+
 import {
   Dialog,
   DialogContent,
@@ -49,7 +47,7 @@ import {
   TabsTrigger,
 } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { CaseReport } from "@shared/schema";
@@ -231,7 +229,7 @@ export default function AdminCaseReviewsPage() {
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
             <h1 className="text-2xl font-semibold" data-testid="text-page-title">Saksrapporter til godkjenning</h1>
-            <p className="text-muted-foreground">Gjennomgå og gi tilbakemelding på innsendte saksrapporter</p>
+            <p className="text-muted-foreground">Gjennomgå og gi tilbakemelding på innsendte saksrapporter — innlogget som <span className="font-medium">{adminUsername}</span></p>
           </div>
           {pendingCount > 0 && (
             <Badge variant="secondary" className="text-sm">
