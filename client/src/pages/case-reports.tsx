@@ -953,27 +953,27 @@ export default function CaseReportsPage() {
                 <div className="flex items-center gap-3 flex-wrap">
                   <Button
                     type="button"
+                    variant="outline"
                     onClick={handleSave}
                     disabled={saveMutation.isPending || (hasPii && !piiDismissed)}
                     data-testid="button-save-report"
                     className="gap-2"
                   >
                     <Save className="h-4 w-4" />
-                    {saveMutation.isPending ? "Lagrer..." : (editingReport ? "Oppdater" : "Lagre utkast")}
+                    {saveMutation.isPending ? "Lagrer..." : (editingReport ? "Oppdater utkast" : "Lagre utkast")}
                   </Button>
                   {editingReport && (
                     <Button
                       type="button"
-                      variant="secondary"
                       className="gap-2"
                       disabled={submitMutation.isPending || (hasPii && !piiDismissed)}
                       onClick={() => handleSubmit(editingReport.id)}
                     >
                       <Send className="h-4 w-4" />
-                      {submitMutation.isPending ? "Sender..." : "Send inn"}
+                      {submitMutation.isPending ? "Sender..." : "Send inn for godkjenning"}
                     </Button>
                   )}
-                  <Button type="button" variant="outline" onClick={cancelEdit} data-testid="button-cancel">
+                  <Button type="button" variant="ghost" onClick={cancelEdit} data-testid="button-cancel">
                     Avbryt
                   </Button>
 
@@ -1001,6 +1001,10 @@ export default function CaseReportsPage() {
                     ) : null}
                   </div>
                 </div>
+                {/* Reassurance microcopy */}
+                <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+                  Utkast lagres automatisk. Etter innsending kan du redigere igjen hvis rapporten returneres for revisjon.
+                </p>
               </div>
             </CardContent>
           </Card>
@@ -1279,21 +1283,26 @@ export default function CaseReportsPage() {
               </p>
             </div>
 
-            <DialogFooter className="flex gap-2 sm:gap-0">
-              <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>
-                Avbryt
-              </Button>
-              <Button
-                onClick={() => {
-                  if (submitConfirmReportId) submitMutation.mutate(submitConfirmReportId);
-                  setSubmitConfirmOpen(false);
-                }}
-                disabled={submitMutation.isPending}
-                className="gap-2"
-              >
-                <Send className="h-4 w-4" />
-                {submitMutation.isPending ? "Sender..." : "Bekreft innsending"}
-              </Button>
+            <DialogFooter className="flex flex-col gap-2">
+              <div className="flex gap-2 justify-end">
+                <Button variant="outline" onClick={() => setSubmitConfirmOpen(false)}>
+                  Avbryt
+                </Button>
+                <Button
+                  onClick={() => {
+                    if (submitConfirmReportId) submitMutation.mutate(submitConfirmReportId);
+                    setSubmitConfirmOpen(false);
+                  }}
+                  disabled={submitMutation.isPending}
+                  className="gap-2"
+                >
+                  <Send className="h-4 w-4" />
+                  {submitMutation.isPending ? "Sender..." : "Bekreft innsending"}
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground/70 text-right">
+                Du kan redigere igjen hvis rapporten returneres for revisjon.
+              </p>
             </DialogFooter>
           </DialogContent>
         </Dialog>
