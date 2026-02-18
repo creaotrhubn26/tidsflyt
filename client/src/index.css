@@ -91,6 +91,33 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* ── CalendarHeatmap design tokens ── */
+  --hm-accent: #1F6B73;
+  --hm-accent-light: #3EA3B5;
+  --hm-surface: #ffffff;
+  --hm-surface-secondary: #f7fbf9;
+  --hm-surface-panel: #f4f8f7;
+  --hm-surface-card: #fafcfb;
+  --hm-border: #d8e4e0;
+  --hm-border-subtle: rgba(11, 33, 39, 0.08);
+  --hm-border-muted: #d2dfdb;
+  --hm-text: #153c46;
+  --hm-text-secondary: #53686f;
+  --hm-text-muted: #6a7a7f;
+  --hm-text-body: #1f414a;
+  --hm-text-dim: #5e7479;
+  --hm-marker-holiday: #E55B4C;
+  --hm-marker-vacation: #E3A93A;
+  --hm-today-dot: #1F6B73;
+  --hm-accent-muted: rgba(31, 107, 115, 0.3);
+  --hm-shadow: 0 12px 30px rgba(20, 58, 65, 0.07);
+  --hm-palette-0: #E8EFED;
+  --hm-palette-1: #CFE3DC;
+  --hm-palette-2: #AACDBF;
+  --hm-palette-3: #7BB79F;
+  --hm-palette-4: #4E9A6F;
+  --hm-palette-5: #1F6B73;
 }
 
 .dark {
@@ -175,6 +202,33 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  /* ── CalendarHeatmap dark tokens ── */
+  --hm-accent: #3EA3B5;
+  --hm-accent-light: #51C2D0;
+  --hm-surface: hsl(var(--card));
+  --hm-surface-secondary: hsl(var(--card));
+  --hm-surface-panel: hsl(var(--muted));
+  --hm-surface-card: hsl(var(--muted));
+  --hm-border: hsl(var(--border));
+  --hm-border-subtle: hsl(var(--border));
+  --hm-border-muted: hsl(var(--border));
+  --hm-text: hsl(var(--foreground));
+  --hm-text-secondary: hsl(var(--muted-foreground));
+  --hm-text-muted: hsl(var(--muted-foreground));
+  --hm-text-body: hsl(var(--foreground));
+  --hm-text-dim: hsl(var(--muted-foreground));
+  --hm-marker-holiday: #E55B4C;
+  --hm-marker-vacation: #E3A93A;
+  --hm-today-dot: #51C2D0;
+  --hm-accent-muted: rgba(62, 163, 181, 0.3);
+  --hm-shadow: none;
+  --hm-palette-0: #1E2C35;
+  --hm-palette-1: #265865;
+  --hm-palette-2: #2D7180;
+  --hm-palette-3: #36889A;
+  --hm-palette-4: #3EA3B5;
+  --hm-palette-5: #51C2D0;
 }
 
 :root {

@@ -1,13 +1,13 @@
-import { useMemo } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, parseISO, isValid, isSameMonth, isToday, getISOWeek } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, addDays, parseISO, isValid, isSameMonth, isToday, getISOWeek } from "date-fns";
 import { nb } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/theme-provider";
-import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, FolderKanban, Plus, Workflow } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderKanban, Plus, Workflow } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type HeatmapData = {
@@ -49,6 +49,8 @@ interface CalendarHeatmapProps {
   currentMonth: Date;
   onMonthChange: (month: Date) => void;
   title?: string;
+  /** Optional: navigate to time-tracking page for a given date */
+  onAddEntry?: (date: string) => void;
 }
 
 const weekDays = ["Man", "Tir", "Ons", "Tor", "Fre", "Lor", "Son"];
@@ -178,9 +180,13 @@ export function CalendarHeatmap({
   currentMonth,
   onMonthChange,
   title = "Aktivitetsoversikt",
+  onAddEntry,
 }: CalendarHeatmapProps) {
-  const { resolvedTheme } = useTheme();
   const reduceMotion = useReducedMotion();
+  const gridRef = useRef<HTMLDivElement>(null);
+  const [showAllEntries, setShowAllEntries] = useState(false);
+  const [showAllActivities, setShowAllActivities] = useState(false);
+
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
@@ -197,6 +203,9 @@ export function CalendarHeatmap({
       ? format(now, "yyyy-MM-dd")
       : format(monthStart, "yyyy-MM-dd");
   }, [selectedDate, monthStart]);
+
+  // Reset expand state when selected date changes
+  useMemo(() => { setShowAllEntries(false); setShowAllActivities(false); }, [effectiveSelectedDate]);
 
   const heatmapHoursByDate = useMemo(
     () => new Map(data.map((item) => [item.date, item.hours])),
@@ -238,6 +247,7 @@ export function CalendarHeatmap({
     ?? selectedEntries.reduce((sum, entry) => sum + entry.hours, 0);
   const approvedCount = selectedEntries.filter((entry) => entry.status === "approved").length;
   const pendingCount = selectedEntries.filter((entry) => entry.status === "pending").length;
+  const draftCount = selectedEntries.filter((entry) => entry.status !== "approved" && entry.status !== "pending" && entry.status !== "rejected").length;
   const uniqueCases = Array.from(new Set(selectedEntries.map((entry) => entry.caseNumber).filter(Boolean)));
 
   const selectedDateObj = parseISO(effectiveSelectedDate);
@@ -263,9 +273,11 @@ export function CalendarHeatmap({
 
   const selectedMarkers = markersByDate.get(effectiveSelectedDate) ?? [];
 
-  const palette = resolvedTheme === "dark"
-    ? ["#1E2C35", "#265865", "#2D7180", "#36889A", "#3EA3B5", "#51C2D0"]
-    : ["#E8EFED", "#CFE3DC", "#AACDBF", "#7BB79F", "#4E9A6F", "#1F6B73"];
+  // Palette uses CSS design tokens – works in both light and dark mode
+  const palette = [
+    "var(--hm-palette-0)", "var(--hm-palette-1)", "var(--hm-palette-2)",
+    "var(--hm-palette-3)", "var(--hm-palette-4)", "var(--hm-palette-5)",
+  ];
 
   // Dynamic scale: compute max hours for the month, quantise into 5 buckets
   const monthMaxHours = useMemo(() => {
@@ -306,29 +318,57 @@ export function CalendarHeatmap({
     return palette[5];
   };
 
-  const weekDayLabelColor = resolvedTheme === "dark" ? "#AFC5C1" : "#607479";
-
-  const getDayTextColor = (hours: number) => {
-    if (resolvedTheme === "dark") {
-      if (hours <= 0) return "#C8DAD7";
-      if (hours < 4) return "#E3F0EE";
-      return "#F8FDFC";
-    }
-    return hours >= 4 ? "#ffffff" : "#22444d";
+  const getIntensityIndex = (hours: number): number => {
+    if (hours <= 0) return 0;
+    const ratio = hours / monthMaxHours;
+    if (ratio < 0.2) return 1;
+    if (ratio < 0.4) return 2;
+    if (ratio < 0.6) return 3;
+    if (ratio < 0.8) return 4;
+    return 5;
   };
+
+  // Roving tabindex: arrow key navigation within the heatmap grid
+  const handleGridKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      const target = e.target as HTMLElement;
+      if (!target.hasAttribute("data-testid") || !target.getAttribute("data-testid")?.startsWith("heatmap-day-")) return;
+      const dateStr = target.getAttribute("data-testid")!.replace("heatmap-day-", "");
+      const current = parseISO(dateStr);
+      if (!isValid(current)) return;
+
+      let next: Date | null = null;
+      switch (e.key) {
+        case "ArrowRight": next = addDays(current, 1); break;
+        case "ArrowLeft": next = addDays(current, -1); break;
+        case "ArrowDown": next = addDays(current, 7); break;
+        case "ArrowUp": next = addDays(current, -7); break;
+        default: return;
+      }
+      e.preventDefault();
+      if (next && isSameMonth(next, monthStart)) {
+        const nextStr = format(next, "yyyy-MM-dd");
+        onDateSelect(nextStr);
+        // Focus the newly selected cell
+        const nextEl = gridRef.current?.querySelector(`[data-testid="heatmap-day-${nextStr}"]`) as HTMLElement | null;
+        nextEl?.focus();
+      }
+    },
+    [monthStart, onDateSelect],
+  );
 
   return (
     <Card
-      className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
+      className="rounded-2xl border-[var(--hm-border)] bg-[linear-gradient(180deg,var(--hm-surface),var(--hm-surface-secondary))] shadow-[var(--hm-shadow)]"
       data-testid="calendar-heatmap"
     >
       <CardHeader className="pb-3">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <CardTitle className="text-2xl font-semibold tracking-tight text-[#153c46] dark:text-foreground">
+            <CardTitle className="text-2xl font-semibold tracking-tight text-[var(--hm-text)]">
               {title}
             </CardTitle>
-            <p className="mt-1 text-sm text-[#53686f] dark:text-muted-foreground">
+            <p className="mt-1 text-sm text-[var(--hm-text-secondary)]">
               Klikk på en dag for å se registreringer og hendelser
             </p>
           </div>
@@ -338,14 +378,14 @@ export function CalendarHeatmap({
               type="button"
               size="icon"
               variant="outline"
-              className="h-9 w-9 rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
+              className="h-9 w-9 rounded-lg border-[var(--hm-border)] bg-[var(--hm-surface)] text-[var(--hm-text)] hover:bg-[var(--hm-surface-panel)]"
               onClick={() => onMonthChange(addMonths(monthStart, -1))}
               data-testid="heatmap-month-prev"
               disabled={isRefreshing}
             >
               <ChevronLeft className="h-4 w-4" />
             </Button>
-            <div className="min-w-[142px] rounded-lg border border-[#d2dfdb] dark:border-border bg-[#eef4f2] dark:bg-muted px-3 py-1.5 text-center text-sm font-semibold text-[#1f414a] dark:text-foreground">
+            <div className="min-w-[142px] rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-1.5 text-center text-sm font-semibold text-[var(--hm-text)]">
               <motion.span
                 key={monthKey}
                 initial={reduceMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: monthDirection >= 0 ? 8 : -8 }}
@@ -360,7 +400,7 @@ export function CalendarHeatmap({
               type="button"
               size="icon"
               variant="outline"
-              className="h-9 w-9 rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
+              className="h-9 w-9 rounded-lg border-[var(--hm-border)] bg-[var(--hm-surface)] text-[var(--hm-text)] hover:bg-[var(--hm-surface-panel)]"
               onClick={() => onMonthChange(addMonths(monthStart, 1))}
               data-testid="heatmap-month-next"
               disabled={isRefreshing}
@@ -371,7 +411,7 @@ export function CalendarHeatmap({
               type="button"
               variant="outline"
               size="sm"
-              className="rounded-lg border-[#cadad4] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground hover:bg-[#f0f5f3] dark:hover:bg-muted"
+              className="rounded-lg border-[var(--hm-accent)]/30 bg-[var(--hm-accent)]/5 text-[var(--hm-accent)] font-semibold hover:bg-[var(--hm-accent)]/10 hover:border-[var(--hm-accent)]/50"
               onClick={() => {
                 const now = new Date();
                 onMonthChange(startOfMonth(now));
@@ -389,9 +429,9 @@ export function CalendarHeatmap({
                   animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
                   exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -3 }}
                   transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-                  className="hidden rounded-full border border-[#cde0d9] dark:border-border bg-[#f5faf8] dark:bg-muted px-2.5 py-1 text-[11px] font-medium text-[#2f555e] dark:text-muted-foreground md:inline-flex md:items-center md:gap-1.5"
+                  className="hidden rounded-full border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-2.5 py-1 text-[11px] font-medium text-[var(--hm-text-secondary)] md:inline-flex md:items-center md:gap-1.5"
                 >
-                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1F6B73]" />
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--hm-accent)]" />
                   Oppdaterer
                 </motion.div>
               ) : null}
@@ -402,21 +442,25 @@ export function CalendarHeatmap({
       <CardContent>
         <div className="grid grid-cols-7 gap-1.5 mb-2">
           {weekDays.map((day) => (
-            <div key={day} className="py-1 text-center text-xs font-semibold" style={{ color: weekDayLabelColor }}>
+            <div key={day} className="py-1 text-center text-xs font-semibold text-[var(--hm-text-muted)]">
               {day}
             </div>
           ))}
         </div>
 
         <motion.div
+          ref={gridRef}
           key={monthKey}
           className="grid grid-cols-7 gap-1.5 transform-gpu"
+          role="grid"
+          aria-label={`Kalender for ${format(monthStart, "MMMM yyyy", { locale: nb })}`}
           initial={reduceMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: monthDirection >= 0 ? 14 : -14 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
+          onKeyDown={handleGridKeyDown}
         >
           {Array.from({ length: startDayOffset }).map((_, i) => (
-            <div key={`empty-${monthKey}-${i}`} className="aspect-square" />
+            <div key={`empty-${monthKey}-${i}`} className="aspect-square opacity-30" />
           ))}
           {monthDays.map((day) => {
             const dateStr = format(day, "yyyy-MM-dd");
@@ -429,40 +473,53 @@ export function CalendarHeatmap({
             const markers = markersByDate.get(dateStr) ?? [];
             const hasHoliday = markers.some((marker) => marker.kind === "holiday");
             const hasVacation = markers.some((marker) => marker.kind === "vacation");
+            const intensity = getIntensityIndex(dayHours);
+
+            // Build accessible aria-label
+            const parts: string[] = [format(day, "EEEE d. MMMM", { locale: nb })];
+            if (dayHours > 0) parts.push(`${dayHours.toFixed(1)} timer`);
+            if (dayEntryCount > 0) parts.push(`${dayEntryCount} registrering${dayEntryCount !== 1 ? "er" : ""}`);
+            markers.forEach(m => parts.push(m.label));
+            const ariaLabel = parts.join(" – ");
 
             return (
               <Tooltip key={dateStr}>
                 <TooltipTrigger asChild>
                   <button
                     type="button"
+                    role="gridcell"
                     onClick={() => onDateSelect(dateStr)}
                     className={cn(
-                      "relative aspect-square rounded-md border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-1",
-                      isCurrentDay && !isSelected && "ring-2 ring-[#1F6B73]/40 border-[#1F6B73]/50",
+                      "relative aspect-square rounded-md border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
+                      isCurrentDay && !isSelected && "ring-2 ring-[var(--hm-accent)]/40 border-[var(--hm-accent)]/50",
                       isSelected
-                        ? "border-[#104c53] ring-2 ring-[#1F6B73]/40 shadow-[inset_0_0_0_1.5px_rgba(31,107,115,0.3)]"
-                        : !isCurrentDay && "border-[rgba(11,33,39,0.08)] hover:border-[#8bb5a5]",
+                        ? "border-[var(--hm-accent)] ring-2 ring-[var(--hm-accent)]/40 shadow-[inset_0_0_0_1.5px_var(--hm-accent-muted)]"
+                        : !isCurrentDay && "border-[var(--hm-border-subtle)] hover:border-[var(--hm-accent)]/40",
+                      // Text color: high intensity uses white, low uses normal text
+                      intensity >= 4 ? "text-white" : "text-[var(--hm-text)]",
                     )}
-                    style={{ backgroundColor: getIntensityColor(dayHours), color: getDayTextColor(dayHours) }}
+                    style={{ backgroundColor: getIntensityColor(dayHours) }}
                     data-testid={`heatmap-day-${dateStr}`}
-                    aria-pressed={isSelected}
+                    aria-label={ariaLabel}
+                    aria-selected={isSelected}
+                    tabIndex={isSelected ? 0 : -1}
                   >
                     {format(day, "d")}
                     {/* Holiday marker */}
                     {hasHoliday && (
-                      <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-[#E55B4C]" />
+                      <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-marker-holiday)]" />
                     )}
                     {/* Vacation marker */}
                     {hasVacation && (
-                      <span className="absolute left-1 top-3.5 h-1.5 w-1.5 rounded-full bg-[#E3A93A]" />
+                      <span className="absolute left-1 top-3.5 h-1.5 w-1.5 rounded-full bg-[var(--hm-marker-vacation)]" />
                     )}
                     {/* Today indicator */}
                     {isCurrentDay && (
-                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[#1F6B73] dark:bg-[#51C2D0]" />
+                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-today-dot)]" />
                     )}
                     {/* Entry count badge */}
                     {dayEntryCount > 0 && (
-                      <span className="absolute bottom-0.5 right-0.5 flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[#1F6B73]/80 text-[7px] font-bold leading-none text-white px-0.5">
+                      <span className="absolute bottom-0.5 right-0.5 flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[var(--hm-accent)]/80 text-[7px] font-bold leading-none text-white px-0.5">
                         {dayEntryCount}
                       </span>
                     )}
@@ -482,10 +539,10 @@ export function CalendarHeatmap({
                       key={`${dateStr}-${marker.label}`}
                       className={cn(
                         "text-xs",
-                        marker.kind === "holiday" ? "text-[#B93B2D]" : "text-[#99660E]",
+                        marker.kind === "holiday" ? "text-[var(--hm-marker-holiday)]" : "text-[var(--hm-marker-vacation)]",
                       )}
                     >
-                      {marker.kind === "holiday" ? "● " : "● "}{marker.label}
+                      {"● "}{marker.label}
                     </p>
                   ))}
                 </TooltipContent>
@@ -496,14 +553,14 @@ export function CalendarHeatmap({
 
         {/* Empty month overlay */}
         {!monthHasData && (
-          <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-[#c5d6d0] dark:border-border bg-[#f7faf9] dark:bg-muted/30 py-8 px-4 text-center">
-            <CalendarDays className="h-10 w-10 text-[#1F6B73]/30 mb-3" />
-            <p className="text-sm font-medium text-[#3a5761] dark:text-foreground mb-1">Ingen data denne måneden</p>
-            <p className="text-xs text-[#6a7a7f] dark:text-muted-foreground mb-3">Start med å registrere timer eller opprett en sak.</p>
+          <div className="mt-3 flex flex-col items-center rounded-lg border border-dashed border-[var(--hm-border)] bg-[var(--hm-surface-panel)] py-8 px-4 text-center">
+            <CalendarDays className="h-10 w-10 text-[var(--hm-accent)]/30 mb-3" />
+            <p className="text-sm font-medium text-[var(--hm-text)] mb-1">Ingen data denne måneden</p>
+            <p className="text-xs text-[var(--hm-text-muted)] mb-3">Start med å registrere timer eller opprett en sak.</p>
             <Button
               variant="outline"
               size="sm"
-              className="rounded-lg border-[#cadad4] dark:border-border text-[#1F6B73]"
+              className="rounded-lg border-[var(--hm-border)] text-[var(--hm-accent)]"
               onClick={() => onDateSelect(format(monthStart, "yyyy-MM-dd"))}
             >
               <Plus className="h-4 w-4 mr-1" />
@@ -516,27 +573,27 @@ export function CalendarHeatmap({
         <div className="mt-4 flex flex-col gap-2">
           {/* Color scale with tick labels */}
           <div className="flex items-end justify-end gap-0">
-            <span className="text-[10px] text-[#6a7a7f] dark:text-muted-foreground mr-1.5">Mindre</span>
+            <span className="text-[10px] text-[var(--hm-text-muted)] mr-1.5">Mindre</span>
             <div className="flex">
               {palette.map((color, i) => (
-                <div key={color} className="flex flex-col items-center">
-                  <div className="h-3 w-5 border border-[rgba(11,33,39,0.07)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '3px 0 0 3px' : i === palette.length - 1 ? '0 3px 3px 0' : 0 }} />
-                  <span className="text-[8px] leading-tight mt-0.5 text-[#8a9a9e] dark:text-muted-foreground">{legendTicks[i]}</span>
+                <div key={`pal-${i}`} className="flex flex-col items-center">
+                  <div className="h-3 w-5 border border-[var(--hm-border-subtle)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '3px 0 0 3px' : i === palette.length - 1 ? '0 3px 3px 0' : 0 }} />
+                  <span className="text-[8px] leading-tight mt-0.5 text-[var(--hm-text-muted)]">{legendTicks[i]}</span>
                 </div>
               ))}
             </div>
-            <span className="text-[10px] text-[#6a7a7f] dark:text-muted-foreground ml-1.5">Mer</span>
+            <span className="text-[10px] text-[var(--hm-text-muted)] ml-1.5">Mer</span>
           </div>
           {/* Marker key */}
-          <div className="flex items-center justify-end gap-3 text-[10px] text-[#6a7a7f] dark:text-muted-foreground">
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#E55B4C]" />Helligdag</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#E3A93A]" />Ferie</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[#1F6B73] dark:bg-[#51C2D0]" />I dag</span>
-            <span className="inline-flex items-center gap-1"><span className="flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[#1F6B73]/80 text-[7px] font-bold text-white px-0.5">2</span>Antall</span>
+          <div className="flex items-center justify-end gap-3 text-[10px] text-[var(--hm-text-muted)]">
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-marker-holiday)]" />Helligdag</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-marker-vacation)]" />Ferie</span>
+            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-today-dot)]" />I dag</span>
+            <span className="inline-flex items-center gap-1"><span className="flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[var(--hm-accent)]/80 text-[7px] font-bold text-white px-0.5">2</span>Antall</span>
           </div>
         </div>
 
-        <div className="mt-5 rounded-xl border border-[#d3dfdb] dark:border-border bg-white/85 dark:bg-card p-4">
+        <div className="mt-5 rounded-xl border border-[var(--hm-border)] bg-[var(--hm-surface)]/85 p-4">
           <AnimatePresence initial={false} mode="wait">
             <motion.div
               key={effectiveSelectedDate}
@@ -546,126 +603,223 @@ export function CalendarHeatmap({
               transition={reduceMotion ? { duration: 0 } : { duration: 0.14, ease: "easeOut" }}
               className="transform-gpu"
             >
+              {/* Panel header: date label + quick actions */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4 text-[#1F6B73]" />
-                  <h4 className="text-base font-semibold capitalize text-[#1b3d46] dark:text-foreground">{selectedDateLabel}</h4>
+                  <CalendarDays className="h-4 w-4 text-[var(--hm-accent)]" />
+                  <h4 className="text-base font-semibold capitalize text-[var(--hm-text)]">{selectedDateLabel}</h4>
                 </div>
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  {selectedMarkers.map((marker) => (
-                    <Badge
-                      key={`${effectiveSelectedDate}-${marker.label}`}
-                      className={cn(
-                        "border",
-                        marker.kind === "holiday"
-                          ? "border-[#f2c4bf] bg-[#fdeceb] text-[#ab4036] dark:border-red-700 dark:bg-red-900/30 dark:text-red-300"
-                          : "border-[#f2ddb4] bg-[#fdf5e8] text-[#9e6a18] dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-                      )}
+                <div className="flex flex-wrap items-center gap-1.5">
+                  {/* Quick actions */}
+                  {onAddEntry && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 rounded-md border-[var(--hm-accent)]/30 bg-[var(--hm-accent)]/5 text-[var(--hm-accent)] text-xs hover:bg-[var(--hm-accent)]/10"
+                      onClick={() => onAddEntry(effectiveSelectedDate)}
                     >
-                      {marker.label}
-                    </Badge>
-                  ))}
-                  <Badge className="border border-[#cbe0d8] bg-[#edf7f3] text-[#1f6b73] dark:border-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
-                    {selectedHours.toFixed(1)} timer totalt
+                      <Plus className="h-3 w-3 mr-1" />
+                      Legg til
+                    </Button>
+                  )}
+                  {selectedEntries.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 rounded-md text-[var(--hm-text-secondary)] text-xs hover:text-[var(--hm-accent)]"
+                      onClick={() => onAddEntry?.(effectiveSelectedDate)}
+                    >
+                      <ExternalLink className="h-3 w-3 mr-1" />
+                      Se alle for dato
+                    </Button>
+                  )}
+                </div>
+              </div>
+
+              {/* Marker badges + total hours */}
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                {selectedMarkers.map((marker) => (
+                  <Badge
+                    key={`${effectiveSelectedDate}-${marker.label}`}
+                    className={cn(
+                      "border",
+                      marker.kind === "holiday"
+                        ? "border-[#f2c4bf] bg-[#fdeceb] text-[#ab4036] dark:border-red-700 dark:bg-red-900/30 dark:text-red-300"
+                        : "border-[#f2ddb4] bg-[#fdf5e8] text-[#9e6a18] dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+                    )}
+                  >
+                    {marker.label}
                   </Badge>
-                </div>
+                ))}
+                <Badge className="border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] text-[var(--hm-accent)]">
+                  {selectedHours.toFixed(1)} timer totalt
+                </Badge>
               </div>
 
-              <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
-                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Registreringer</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{selectedEntries.length}</p>
-                </div>
-                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Godkjent</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{approvedCount}</p>
-                </div>
-                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Venter</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{pendingCount}</p>
-                </div>
-                <div className="rounded-lg border border-[#d7e3df] dark:border-border bg-[#f4f8f7] dark:bg-muted px-3 py-2">
-                  <p className="text-[11px] uppercase tracking-wide text-[#5e7479] dark:text-muted-foreground">Saker</p>
-                  <p className="mt-0.5 text-sm font-semibold text-[#1f414a] dark:text-foreground">{uniqueCases.length}</p>
-                </div>
-              </div>
-
-              <div className="mt-4 grid gap-4 lg:grid-cols-2">
-                <div className="rounded-lg border border-[#d9e4e1] dark:border-border bg-white dark:bg-card p-3">
-                  <div className="mb-2 flex items-center gap-2">
-                    <ClipboardList className="h-4 w-4 text-[#1F6B73]" />
-                    <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Dagens registreringer</h5>
+              {/* Skeleton shimmer while refreshing */}
+              {isRefreshing ? (
+                <div className="mt-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <Skeleton key={`sk-stat-${i}`} className="h-14 rounded-lg" />
+                    ))}
                   </div>
-                  {selectedEntries.length === 0 ? (
-                    <div className="flex flex-col items-center py-4 text-[#5f7277] dark:text-muted-foreground">
-                      <ClipboardList className="h-8 w-8 mb-2 opacity-30" />
-                      <p className="text-sm">Ingen registreringer denne dagen.</p>
+                  <div className="grid gap-4 lg:grid-cols-2 mt-4">
+                    <Skeleton className="h-28 rounded-lg" />
+                    <Skeleton className="h-28 rounded-lg" />
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Stats grid */}
+                  <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-[var(--hm-text-muted)]">Registreringer</p>
+                      <p className="mt-0.5 text-sm font-semibold text-[var(--hm-text)]">{selectedEntries.length}</p>
                     </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedEntries.slice(0, 6).map((entry) => (
-                        <div key={entry.id} className="rounded-md border border-[#e1e9e6] dark:border-border bg-[#fafcfb] dark:bg-muted p-2.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-[#213d45] dark:text-foreground">{entry.description}</p>
-                              <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                                {entry.caseNumber ? (
-                                  <Badge variant="outline" className="border-[#d2dfdb] dark:border-border bg-white dark:bg-card text-[#48626a] dark:text-muted-foreground">
-                                    <FolderKanban className="mr-1 h-3 w-3" />
-                                    {entry.caseNumber}
-                                  </Badge>
-                                ) : null}
-                                <Badge className={cn("border", getStatusTone(entry.status))}>
-                                  {entry.status === "approved" ? (
-                                    <CheckCircle2 className="mr-1 h-3 w-3" />
-                                  ) : (
-                                    <AlertCircle className="mr-1 h-3 w-3" />
-                                  )}
-                                  {getStatusLabel(entry.status)}
-                                </Badge>
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-[var(--hm-text-muted)]">Godkjent</p>
+                      <p className="mt-0.5 text-sm font-semibold text-[var(--hm-text)]">{approvedCount}</p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-[var(--hm-text-muted)]">Venter</p>
+                      <p className="mt-0.5 text-sm font-semibold text-[var(--hm-text)]">{pendingCount}</p>
+                    </div>
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-2">
+                      <p className="text-[11px] uppercase tracking-wide text-[var(--hm-text-muted)]">Saker</p>
+                      <p className="mt-0.5 text-sm font-semibold text-[var(--hm-text)]">{uniqueCases.length}</p>
+                    </div>
+                  </div>
+
+                  {/* Status mini-summary chips */}
+                  {selectedEntries.length > 0 && (
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {approvedCount > 0 && (
+                        <Badge variant="outline" className="text-[10px] border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-400">
+                          <CheckCircle2 className="h-2.5 w-2.5 mr-0.5" />
+                          {approvedCount} godkjent
+                        </Badge>
+                      )}
+                      {pendingCount > 0 && (
+                        <Badge variant="outline" className="text-[10px] border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-400">
+                          <Clock3 className="h-2.5 w-2.5 mr-0.5" />
+                          {pendingCount} venter
+                        </Badge>
+                      )}
+                      {draftCount > 0 && (
+                        <Badge variant="outline" className="text-[10px] border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/20 dark:text-slate-400">
+                          <AlertCircle className="h-2.5 w-2.5 mr-0.5" />
+                          {draftCount} utkast
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Entries + activities panels */}
+                  <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                    {/* Entries panel */}
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface)] p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <ClipboardList className="h-4 w-4 text-[var(--hm-accent)]" />
+                        <h5 className="text-sm font-semibold text-[var(--hm-text)]">Dagens registreringer</h5>
+                      </div>
+                      {selectedEntries.length === 0 ? (
+                        <div className="flex flex-col items-center py-4 text-[var(--hm-text-secondary)]">
+                          <ClipboardList className="h-8 w-8 mb-2 opacity-30" />
+                          <p className="text-sm">Ingen registreringer denne dagen.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {(showAllEntries ? selectedEntries : selectedEntries.slice(0, 4)).map((entry) => (
+                            <div key={entry.id} className="rounded-md border border-[var(--hm-border)] bg-[var(--hm-surface-secondary)] p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="truncate text-sm font-medium text-[var(--hm-text)]">{entry.description}</p>
+                                  <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                                    {entry.caseNumber ? (
+                                      <Badge variant="outline" className="border-[var(--hm-border)] bg-[var(--hm-surface)] text-[var(--hm-text-secondary)]">
+                                        <FolderKanban className="mr-1 h-3 w-3" />
+                                        {entry.caseNumber}
+                                      </Badge>
+                                    ) : null}
+                                    <Badge className={cn("border", getStatusTone(entry.status))}>
+                                      {entry.status === "approved" ? (
+                                        <CheckCircle2 className="mr-1 h-3 w-3" />
+                                      ) : (
+                                        <AlertCircle className="mr-1 h-3 w-3" />
+                                      )}
+                                      {getStatusLabel(entry.status)}
+                                    </Badge>
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <p className="text-sm font-semibold text-[var(--hm-text)]">{entry.hours.toFixed(1)}t</p>
+                                  <p className="text-xs text-[var(--hm-text-secondary)]">{format(new Date(entry.createdAt), "HH:mm", { locale: nb })}</p>
+                                </div>
                               </div>
                             </div>
-                            <div className="text-right">
-                              <p className="text-sm font-semibold text-[#13434d] dark:text-foreground">{entry.hours.toFixed(1)}t</p>
-                              <p className="text-xs text-[#5f7277] dark:text-muted-foreground">{format(new Date(entry.createdAt), "HH:mm", { locale: nb })}</p>
-                            </div>
-                          </div>
+                          ))}
+                          {selectedEntries.length > 4 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full text-xs text-[var(--hm-accent)] hover:text-[var(--hm-accent)] hover:bg-[var(--hm-accent)]/5"
+                              onClick={() => setShowAllEntries((p) => !p)}
+                            >
+                              {showAllEntries ? "Vis færre" : `Vis alle (${selectedEntries.length})`}
+                            </Button>
+                          )}
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
-                </div>
 
-                <div className="rounded-lg border border-[#d9e4e1] dark:border-border bg-white dark:bg-card p-3">
-                  <div className="mb-2 flex items-center gap-2">
-                    <Workflow className="h-4 w-4 text-[#1F6B73]" />
-                    <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Hendelser</h5>
-                  </div>
-                  {selectedActivities.length === 0 ? (
-                    <div className="flex flex-col items-center py-4 text-[#5f7277] dark:text-muted-foreground">
-                      <Workflow className="h-8 w-8 mb-2 opacity-30" />
-                      <p className="text-sm">Ingen hendelser denne dagen.</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {selectedActivities.slice(0, 6).map((activity) => (
-                        <div key={activity.id} className="rounded-md border border-[#e1e9e6] dark:border-border bg-[#fafcfb] dark:bg-muted p-2.5">
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <p className="text-sm text-[#213d45] dark:text-foreground">{activity.message}</p>
-                              <p className="mt-0.5 truncate text-xs text-[#5f7277] dark:text-muted-foreground">{activity.user ?? "Ukjent bruker"}</p>
-                            </div>
-                            <div className="inline-flex items-center gap-1 text-xs text-[#4f666d] dark:text-muted-foreground">
-                              <Clock3 className="h-3 w-3" />
-                              {format(new Date(activity.timestamp), "HH:mm", { locale: nb })}
-                            </div>
-                          </div>
+                    {/* Activities panel */}
+                    <div className="rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface)] p-3">
+                      <div className="mb-2 flex items-center gap-2">
+                        <Workflow className="h-4 w-4 text-[var(--hm-accent)]" />
+                        <h5 className="text-sm font-semibold text-[var(--hm-text)]">Hendelser</h5>
+                      </div>
+                      {selectedActivities.length === 0 ? (
+                        <div className="flex flex-col items-center py-4 text-[var(--hm-text-secondary)]">
+                          <Workflow className="h-8 w-8 mb-2 opacity-30" />
+                          <p className="text-sm">Ingen hendelser denne dagen.</p>
                         </div>
-                      ))}
+                      ) : (
+                        <div className="space-y-2">
+                          {(showAllActivities ? selectedActivities : selectedActivities.slice(0, 4)).map((activity) => (
+                            <div key={activity.id} className="rounded-md border border-[var(--hm-border)] bg-[var(--hm-surface-secondary)] p-2.5">
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <p className="text-sm text-[var(--hm-text)]">{activity.message}</p>
+                                  <p className="mt-0.5 truncate text-xs text-[var(--hm-text-secondary)]">{activity.user ?? "Ukjent bruker"}</p>
+                                </div>
+                                <div className="inline-flex items-center gap-1 text-xs text-[var(--hm-text-secondary)]">
+                                  <Clock3 className="h-3 w-3" />
+                                  {format(new Date(activity.timestamp), "HH:mm", { locale: nb })}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                          {selectedActivities.length > 4 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="w-full text-xs text-[var(--hm-accent)] hover:text-[var(--hm-accent)] hover:bg-[var(--hm-accent)]/5"
+                              onClick={() => setShowAllActivities((p) => !p)}
+                            >
+                              {showAllActivities ? "Vis færre" : `Vis alle (${selectedActivities.length})`}
+                            </Button>
+                          )}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                </>
+              )}
             </motion.div>
           </AnimatePresence>
         </div>
