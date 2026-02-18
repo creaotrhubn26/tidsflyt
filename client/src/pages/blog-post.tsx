@@ -384,9 +384,10 @@ export default function BlogPost() {
             </div>
           )}
           {topLevelComments.length === 0 && (
-            <p className="text-sm text-muted-foreground mt-4">
-              Ingen kommentarer ennå. Bli den første til å kommentere!
-            </p>
+            <div className="flex flex-col items-center text-muted-foreground py-8">
+              <MessageSquare className="h-10 w-10 mb-2 opacity-30" />
+              <p className="text-sm">Ingen kommentarer ennå. Bli den første til å kommentere!</p>
+            </div>
           )}
         </section>
       </article>

@@ -536,7 +536,10 @@ export default function AdminCaseReviewsPage() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-sm text-muted-foreground mb-4">Ingen kommentarer ennå.</p>
+                    <div className="flex flex-col items-center text-muted-foreground py-6 mb-4">
+                      <MessageCircle className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Ingen kommentarer ennå.</p>
+                    </div>
                   )}
 
                   <div className="space-y-3 border-t pt-4">

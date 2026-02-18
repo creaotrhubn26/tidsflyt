@@ -358,7 +358,10 @@ export default function ReportsPage() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">Ingen data</p>
+                    <div className="flex flex-col items-center py-4 text-muted-foreground">
+                      <BarChart3 className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Ingen data</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -385,7 +388,10 @@ export default function ReportsPage() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">Ingen data</p>
+                    <div className="flex flex-col items-center py-4 text-muted-foreground">
+                      <Users className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Ingen data</p>
+                    </div>
                   )}
                 </CardContent>
               </Card>
@@ -581,8 +587,11 @@ export default function ReportsPage() {
                   <TableBody>
                     {filteredReports.length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                          Ingen registreringer funnet
+                        <TableCell colSpan={7} className="text-center py-12">
+                          <div className="flex flex-col items-center text-muted-foreground">
+                            <FileText className="h-10 w-10 mb-2 opacity-30" />
+                            <p>Ingen registreringer funnet</p>
+                          </div>
                         </TableCell>
                       </TableRow>
                     ) : (

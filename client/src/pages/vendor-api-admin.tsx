@@ -364,9 +364,12 @@ export default function VendorApiAdminPage() {
             {keysLoading ? (
               <p className="text-muted-foreground text-center py-4">Laster nokler...</p>
             ) : !apiKeys || apiKeys.length === 0 ? (
-              <p className="text-muted-foreground text-center py-8">
-                Ingen API-nokler opprettet enna. Klikk "Ny nokkel" for a opprette en.
-              </p>
+              <div className="text-center py-12">
+                <Key className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />
+                <p className="text-muted-foreground">
+                  Ingen API-nøkler opprettet ennå. Klikk "Ny nøkkel" for å opprette en.
+                </p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {apiKeys.map((key) => (
