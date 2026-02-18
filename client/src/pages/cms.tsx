@@ -1410,7 +1410,10 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
                   />
                 ))}
                 {localFeatures.length === 0 && (
-                  <p className="text-center text-muted-foreground py-8">Ingen funksjoner lagt til ennå.</p>
+                  <div className="flex flex-col items-center py-8 text-muted-foreground">
+                    <Zap className="h-10 w-10 mb-2 opacity-30" />
+                    <p>Ingen funksjoner lagt til ennå.</p>
+                  </div>
                 )}
               </div>
             </SortableContext>
@@ -1610,7 +1613,10 @@ function TestimonialsEditor({ testimonials }: { testimonials: LandingTestimonial
               </div>
             ))}
             {testimonials.length === 0 && (
-              <p className="text-center text-muted-foreground py-8">Ingen referanser lagt til ennå.</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <MessageCircle className="h-10 w-10 mb-2 opacity-30" />
+                <p>Ingen referanser lagt til ennå.</p>
+              </div>
             )}
           </div>
         </CardContent>
@@ -1962,7 +1968,10 @@ function PartnersEditor({ partners }: { partners: LandingPartner[] }) {
               </div>
             ))}
             {partners.length === 0 && (
-              <p className="text-center text-muted-foreground py-8 col-span-full">Ingen partnere lagt til ennå.</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground col-span-full">
+                <Building2 className="h-10 w-10 mb-2 opacity-30" />
+                <p>Ingen partnere lagt til ennå.</p>
+              </div>
             )}
           </div>
         </CardContent>
@@ -2044,7 +2053,10 @@ function ActivityLogViewer() {
             ))}
           </div>
         ) : (
-          <p className="text-center text-muted-foreground py-8">Ingen aktivitet registrert ennå.</p>
+          <div className="flex flex-col items-center py-8 text-muted-foreground">
+            <Activity className="h-10 w-10 mb-2 opacity-30" />
+            <p>Ingen aktivitet registrert ennå.</p>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -3597,7 +3609,11 @@ function SEOEditor() {
             ) : (
               <div className="space-y-2">
                 {(!seoPages || seoPages.length === 0) ? (
-                  <p className="text-center text-muted-foreground py-8">Ingen side-spesifikke SEO-innstillinger ennå. Klikk «Legg til side» for å komme i gang.</p>
+                  <div className="flex flex-col items-center py-8 text-muted-foreground">
+                    <Globe className="h-10 w-10 mb-2 opacity-30" />
+                    <p>Ingen side-spesifikke SEO-innstillinger ennå.</p>
+                    <p className="text-xs mt-1">Klikk «Legg til side» for å komme i gang.</p>
+                  </div>
                 ) : (
                   <div className="divide-y rounded-lg border">
                     {seoPages?.map(page => (
@@ -4105,7 +4121,10 @@ function FormBuilder() {
           </DialogHeader>
           <div className="max-h-96 overflow-auto">
             {submissions.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">Ingen innsendelser ennå</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <Inbox className="h-10 w-10 mb-2 opacity-30" />
+                <p>Ingen innsendelser ennå</p>
+              </div>
             ) : (
               <div className="space-y-4">
                 {submissions.map(sub => (
@@ -4627,7 +4646,10 @@ function BlogEditor() {
               ))}
             </div>
             {commentsList.length === 0 ? (
-              <p className="text-sm text-muted-foreground py-8 text-center">Ingen kommentarer med denne statusen.</p>
+              <div className="flex flex-col items-center py-8 text-muted-foreground">
+                <MessageCircle className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">Ingen kommentarer med denne statusen.</p>
+              </div>
             ) : (
               <div className="space-y-3">
                 {commentsList.map(comment => (
@@ -7799,7 +7821,8 @@ function ReportDesigner() {
                 </div>
                 <div className="space-y-2">
                   {blocks.length === 0 ? (
-                    <div className="text-center py-4 text-muted-foreground text-sm">
+                    <div className="flex flex-col items-center py-6 text-muted-foreground text-sm">
+                      <Layers className="h-8 w-8 mb-2 opacity-30" />
                       Ingen blokker lagt til. Klikk på knappene over for å legge til innhold.
                     </div>
                   ) : (

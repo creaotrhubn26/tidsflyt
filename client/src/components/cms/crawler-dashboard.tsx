@@ -687,8 +687,11 @@ function CrawlResults({ jobId }: { jobId: number }) {
                 ))}
                 {(!resultsData?.results || resultsData.results.length === 0) && (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-muted-foreground">
-                      Ingen resultater funnet
+                    <td colSpan={7} className="text-center py-12">
+                      <div className="flex flex-col items-center text-muted-foreground">
+                        <Search className="h-10 w-10 mb-2 opacity-30" />
+                        <p>Ingen resultater funnet</p>
+                      </div>
                     </td>
                   </tr>
                 )}

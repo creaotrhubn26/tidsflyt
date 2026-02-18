@@ -516,7 +516,10 @@ export function CalendarHeatmap({
                     <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Dagens registreringer</h5>
                   </div>
                   {selectedEntries.length === 0 ? (
-                    <p className="text-sm text-[#5f7277] dark:text-muted-foreground">Ingen registreringer denne dagen.</p>
+                    <div className="flex flex-col items-center py-4 text-[#5f7277] dark:text-muted-foreground">
+                      <ClipboardList className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Ingen registreringer denne dagen.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {selectedEntries.slice(0, 6).map((entry) => (
@@ -558,7 +561,10 @@ export function CalendarHeatmap({
                     <h5 className="text-sm font-semibold text-[#21414a] dark:text-foreground">Hendelser</h5>
                   </div>
                   {selectedActivities.length === 0 ? (
-                    <p className="text-sm text-[#5f7277] dark:text-muted-foreground">Ingen hendelser denne dagen.</p>
+                    <div className="flex flex-col items-center py-4 text-[#5f7277] dark:text-muted-foreground">
+                      <Workflow className="h-8 w-8 mb-2 opacity-30" />
+                      <p className="text-sm">Ingen hendelser denne dagen.</p>
+                    </div>
                   ) : (
                     <div className="space-y-2">
                       {selectedActivities.slice(0, 6).map((activity) => (

@@ -561,7 +561,10 @@ export function SectionTemplatesPanel({ onLoadTemplate, currentSection }: Sectio
       <div className="space-y-2">
         <Label className="text-xs text-muted-foreground">Lagrede maler</Label>
         {templatesQuery.data?.length === 0 && (
-          <p className="text-xs text-muted-foreground italic">Ingen maler lagret ennå</p>
+          <div className="flex flex-col items-center py-4 text-muted-foreground">
+            <BookmarkPlus className="h-6 w-6 mb-1 opacity-30" />
+            <p className="text-xs italic">Ingen maler lagret ennå</p>
+          </div>
         )}
         {templatesQuery.data?.map((t: any) => (
           <div key={t.id} className="flex items-center gap-2 p-2 rounded border hover:bg-accent cursor-pointer">
@@ -675,7 +678,10 @@ export function VersionHistory({ pageId, onRestore }: VersionHistoryProps) {
       )}
 
       {versionsQuery.data?.length === 0 && pageId && (
-        <p className="text-xs text-muted-foreground italic">Ingen tidligere versjoner</p>
+        <div className="flex flex-col items-center py-4 text-muted-foreground">
+          <History className="h-6 w-6 mb-1 opacity-30" />
+          <p className="text-xs italic">Ingen tidligere versjoner</p>
+        </div>
       )}
 
       {/* Version Preview Panel */}
@@ -1300,7 +1306,10 @@ export function FormSubmissionsViewer({ pageId }: FormSubmissionsViewerProps) {
       {!pageId && <p className="text-xs text-muted-foreground italic">Lagre siden for å se innsendinger</p>}
 
       {submissionsQuery.data?.length === 0 && (
-        <p className="text-xs text-muted-foreground italic">Ingen innsendinger ennå</p>
+        <div className="flex flex-col items-center py-4 text-muted-foreground">
+          <Globe className="h-6 w-6 mb-1 opacity-30" />
+          <p className="text-xs italic">Ingen innsendinger ennå</p>
+        </div>
       )}
 
       <div className="space-y-2 max-h-72 overflow-y-auto">

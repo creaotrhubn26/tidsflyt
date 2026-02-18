@@ -1879,7 +1879,10 @@ function ContentModelingPanel() {
           )}
 
           {selectedTypeDetails.fields?.length === 0 && !isAddingField && (
-            <p className="text-xs text-muted-foreground text-center py-4">Ingen felt ennå. Legg til ditt første felt.</p>
+            <div className="flex flex-col items-center py-6 text-muted-foreground">
+              <Database className="h-8 w-8 mb-2 opacity-30" />
+              <p className="text-xs">Ingen felt ennå. Legg til ditt første felt.</p>
+            </div>
           )}
 
           {selectedTypeDetails.fields?.map((field) => {
@@ -2266,9 +2269,10 @@ function MediaLibraryPanel() {
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       ) : files.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">
-          Ingen filer lastet opp ennå
-        </p>
+        <div className="flex flex-col items-center py-8 text-muted-foreground">
+          <ImageIcon className="h-10 w-10 mb-2 opacity-30" />
+          <p className="text-sm">Ingen filer lastet opp ennå</p>
+        </div>
       ) : (
         <div className="grid grid-cols-3 gap-3">
           {files.map((file) => (

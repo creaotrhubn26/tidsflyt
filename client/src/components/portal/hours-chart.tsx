@@ -1,5 +1,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LabelList } from "recharts";
+import { BarChart3 } from "lucide-react";
 import { useTheme } from "@/components/theme-provider";
 import { cn } from "@/lib/utils";
 
@@ -93,8 +94,9 @@ export function HoursChart({ data, title = "Timefordeling" }: HoursChartProps) {
       <CardContent>
         {!hasData ? (
           <div
-            className="h-[300px] flex items-center justify-center rounded-xl border border-dashed border-[var(--hc-empty-border)] bg-[var(--hc-empty-bg)]"
+            className="h-[300px] flex flex-col items-center justify-center rounded-xl border border-dashed border-[var(--hc-empty-border)] bg-[var(--hc-empty-bg)] gap-2"
           >
+            <BarChart3 className="h-10 w-10 text-[var(--hc-text-muted)] opacity-30" />
             <p className="text-sm font-medium text-[var(--hc-text-muted)]">
               Ingen timedata tilgjengelig
             </p>

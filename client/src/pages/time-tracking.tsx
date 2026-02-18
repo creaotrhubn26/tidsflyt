@@ -722,7 +722,10 @@ export default function TimeTrackingPage() {
                         </div>
                       ))
                     ) : (
-                      <p className="text-sm text-muted-foreground">Ingen data for dag</p>
+                      <div className="flex flex-col items-center py-4 text-muted-foreground">
+                        <BarChart3 className="h-8 w-8 mb-2 opacity-30" />
+                        <p className="text-sm">Ingen data for dag</p>
+                      </div>
                     )}
                   </div>
                 </CardContent>

@@ -262,10 +262,11 @@ export function DesignTokenEditor() {
   if (!effectiveTokens) {
     return (
       <Card>
-        <CardHeader>
-          <CardTitle>Ingen design tokens funnet</CardTitle>
-          <CardDescription>Opprett ditt første token-sett</CardDescription>
-        </CardHeader>
+        <CardContent className="py-12 text-center">
+          <Palette className="h-12 w-12 mx-auto text-muted-foreground/40 mb-3" />
+          <h3 className="font-semibold mb-1">Ingen design tokens funnet</h3>
+          <p className="text-sm text-muted-foreground">Opprett ditt første token-sett</p>
+        </CardContent>
       </Card>
     );
   }
