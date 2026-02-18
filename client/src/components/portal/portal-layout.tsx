@@ -19,6 +19,7 @@ import {
   Menu,
   Building2,
   Palette,
+  ArrowRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -26,7 +27,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileBottomNav } from "./mobile-bottom-nav";
-import { SmartTimingLogo } from "@/components/smart-timing-logo";
+import tidumWordmark from "@assets/tidum-wordmark.png";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -36,6 +37,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface CompanyUser {
   id: number;
@@ -47,6 +56,7 @@ interface NavItem {
   icon: typeof LayoutDashboard;
   label: string;
   badge?: number;
+  kind?: "route" | "modal";
 }
 
 interface NavItemBase {
@@ -54,10 +64,12 @@ interface NavItemBase {
   icon: typeof LayoutDashboard;
   label: string;
   roles?: string[];
+  kind?: "route" | "modal";
 }
 
 const baseNavItems: NavItemBase[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "__getting-started__", icon: ClipboardList, label: "Kom i gang med Tidum", kind: "modal" },
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/users", icon: Users, label: "Brukere" },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner" },
@@ -81,8 +93,9 @@ interface PortalLayoutProps {
 }
 
 export function PortalLayout({ children, user }: PortalLayoutProps) {
-  const [location] = useLocation();
+  const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
 
   const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
     queryKey: ['/api/company/users', 1],
@@ -127,6 +140,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         .filter((item) => !item.roles || item.roles.includes(currentUser.role))
         .map((item) => ({
           ...item,
+          kind: item.kind || "route",
           badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
         })),
     [currentUser.role, pendingCount],
@@ -162,7 +176,11 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         "flex items-center gap-3 px-4 h-16 border-b border-white/15",
         collapsed && !mobile && "justify-center px-2"
       )}>
-        <SmartTimingLogo collapsed={collapsed && !mobile} />
+        {collapsed && !mobile ? (
+          <img src={tidumWordmark} alt="Tidum" className="h-6 w-auto max-w-[42px] object-contain" />
+        ) : (
+          <img src={tidumWordmark} alt="Tidum" className="h-8 w-auto object-contain" />
+        )}
       </div>
 
       <ScrollArea className="flex-1 py-4">
@@ -170,18 +188,36 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           {navItems.map((item) => {
             const isActive = location === item.path;
             const Icon = item.icon;
-            
+            const itemClassName = cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
+              collapsed && !mobile && "justify-center px-2",
+              isActive
+                ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
+                : "text-[#d2e4e8] hover:bg-white/10 hover:text-white"
+            );
+
+            if (item.kind === "modal") {
+              return (
+                <button
+                  key={item.path}
+                  type="button"
+                  className={itemClassName}
+                  onClick={() => setIsGettingStartedOpen(true)}
+                  data-testid="sidebar-kom-i-gang-med-tidum"
+                >
+                  <Icon className="h-5 w-5 flex-shrink-0" />
+                  {(!collapsed || mobile) && (
+                    <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
+                  )}
+                </button>
+              );
+            }
+
             return (
               <Link
                 key={item.path}
                 href={item.path}
-                className={cn(
-                  "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors",
-                  collapsed && !mobile && "justify-center px-2",
-                  isActive
-                    ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
-                    : "text-[#d2e4e8] hover:bg-white/10 hover:text-white"
-                )}
+                className={itemClassName}
                 data-testid={`sidebar-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
               >
                 <Icon className="h-5 w-5 flex-shrink-0" />
@@ -296,7 +332,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
             </Sheet>
 
             <div className="md:hidden" data-testid="mobile-header-logo">
-              <SmartTimingLogo size="sm" showText={false} />
+              <img src={tidumWordmark} alt="Tidum" className="h-7 w-auto object-contain" />
             </div>
             
             <h1 className="text-lg font-semibold hidden md:block text-[#183a44] dark:text-foreground">
@@ -321,6 +357,71 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         userId={currentUser.id} 
         vendorId={currentUser.vendorId} 
       />
+
+      <Dialog open={isGettingStartedOpen} onOpenChange={setIsGettingStartedOpen}>
+        <DialogContent className="overflow-hidden p-0 sm:max-w-md">
+          <DialogHeader className="border-b bg-muted/30 px-6 py-5">
+            <div className="mb-2">
+              <img
+                src={tidumWordmark}
+                alt="Tidum"
+                className="block w-[220px] max-w-full h-auto"
+              />
+            </div>
+            <DialogTitle className="text-xl">Kom i gang med Tidum</DialogTitle>
+            <DialogDescription>
+              Velg neste steg for å sette opp arbeidsflyten raskt.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2 px-4 py-4">
+            <Button
+              variant="outline"
+              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+              onClick={() => { setIsGettingStartedOpen(false); navigate("/users"); }}
+            >
+              <Users className="mr-3 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Inviter brukere</p>
+                <p className="text-xs text-muted-foreground">Legg til teamet ditt og tildel roller</p>
+              </div>
+              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+              onClick={() => { setIsGettingStartedOpen(false); navigate("/cases"); }}
+            >
+              <FolderKanban className="mr-3 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Opprett første sak</p>
+                <p className="text-xs text-muted-foreground">Sett opp deltakere og oppfølging</p>
+              </div>
+              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+              onClick={() => { setIsGettingStartedOpen(false); navigate("/time-tracking"); }}
+            >
+              <Clock className="mr-3 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Start timeføring</p>
+                <p className="text-xs text-muted-foreground">Registrer tid med en gang</p>
+              </div>
+              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+            </Button>
+          </div>
+
+          <DialogFooter className="border-t px-4 py-3">
+            <Button variant="ghost" onClick={() => setIsGettingStartedOpen(false)}>
+              Lukk
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

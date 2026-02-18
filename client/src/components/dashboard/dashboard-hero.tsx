@@ -1,0 +1,223 @@
+import { useMemo } from "react";
+import {
+  Plus,
+  FileText,
+  CheckCircle,
+  Calendar,
+  CalendarDays,
+  CalendarRange,
+  ChevronDown,
+  Briefcase,
+} from "lucide-react";
+import { format, startOfISOWeek, endOfISOWeek } from "date-fns";
+import { nb } from "date-fns/locale";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
+
+export type TimeRange = "today" | "week" | "month";
+
+interface DashboardHeroProps {
+  mode?: "default" | "tiltaksleder" | "miljoarbeider";
+  title?: string;
+  subtitle?: string;
+  timeRange: TimeRange;
+  onTimeRangeChange: (range: TimeRange) => void;
+  statsFetching: boolean;
+  statsLoading: boolean;
+  pendingApprovals: number;
+  lastUpdated: Date | null;
+  navigate: (path: string) => void;
+}
+
+const TIME_RANGE_BUTTONS: { value: TimeRange; label: string; icon: typeof Calendar }[] = [
+  { value: "today", label: "I dag", icon: Calendar },
+  { value: "week", label: "Denne uken", icon: CalendarDays },
+  { value: "month", label: "Denne måneden", icon: CalendarRange },
+];
+
+function getPeriodLabel(range: TimeRange): string {
+  const now = new Date();
+  switch (range) {
+    case "today":
+      return `I dag (${format(now, "d. MMM", { locale: nb })})`;
+    case "week": {
+      const start = startOfISOWeek(now);
+      const end = endOfISOWeek(now);
+      return `Denne uken (${format(start, "d", { locale: nb })}\u2013${format(end, "d MMM", { locale: nb })})`;
+    }
+    case "month":
+      return `Denne måneden (${format(now, "MMMM yyyy", { locale: nb })})`;
+  }
+}
+
+export function DashboardHero({
+  mode = "default",
+  title = "Dashboard",
+  subtitle,
+  timeRange,
+  onTimeRangeChange,
+  statsFetching,
+  statsLoading,
+  pendingApprovals,
+  lastUpdated,
+  navigate,
+}: DashboardHeroProps) {
+  const reduceMotion = useReducedMotion();
+  const periodLabel = useMemo(() => getPeriodLabel(timeRange), [timeRange]);
+  const isTiltaksleder = mode === "tiltaksleder";
+  const isMiljoarbeider = mode === "miljoarbeider";
+
+  return (
+    <>
+      {/* Title + period label + quick actions */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h1
+            className="text-3xl font-semibold tracking-tight text-[#153c46] dark:text-foreground md:text-4xl"
+            data-testid="dashboard-title"
+          >
+            {title}
+          </h1>
+          <p className="mt-1 text-[#4e646b] dark:text-muted-foreground">
+            {subtitle ? `${subtitle} · ` : ""}
+            Viser: {periodLabel}
+          </p>
+          {/* "Sist oppdatert" when not fetching */}
+          {!statsFetching && lastUpdated && (
+            <p className="mt-0.5 text-xs text-[#4e646b]/60 dark:text-muted-foreground/50">
+              Sist oppdatert: {format(lastUpdated, "HH:mm")}
+            </p>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Split "Ny" button */}
+          <div className="flex">
+            <Button
+              onClick={() => navigate(isTiltaksleder || isMiljoarbeider ? "/cases" : "/time-tracking")}
+              className="gap-2 rounded-r-none bg-gradient-to-r from-[#1F6B73] to-[#195c63] hover:from-[#195c63] hover:to-[#14494f] shadow-lg"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden sm:inline">{isTiltaksleder ? "Gå til tiltak" : isMiljoarbeider ? "Ny oppfølging" : "Ny tidsregistrering"}</span>
+              <span className="sm:hidden">{isTiltaksleder || isMiljoarbeider ? "Tiltak" : "Ny"}</span>
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button className="rounded-l-none border-l border-white/20 bg-gradient-to-r from-[#195c63] to-[#14494f] hover:from-[#14494f] hover:to-[#103d43] px-2 shadow-lg">
+                  <ChevronDown className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => navigate("/time-tracking")}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  {isTiltaksleder || isMiljoarbeider ? "Registrer oppfølging" : "Ny tidsregistrering"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/cases")}>
+                  <FileText className="mr-2 h-4 w-4" />
+                  {isTiltaksleder || isMiljoarbeider ? "Ny tiltaksrapport" : "Ny rapport"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => navigate("/cases")}>
+                  <Briefcase className="mr-2 h-4 w-4" />
+                  {isTiltaksleder || isMiljoarbeider ? "Åpne tiltak" : "Ny sak"}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
+
+          {/* "Godkjenn" badge-button */}
+          {pendingApprovals > 0 && (
+            <Button
+              onClick={() => navigate("/time-tracking")}
+              variant="outline"
+              size="sm"
+              className="gap-1.5 border-[#d8e4e0] dark:border-border text-[#5f7075] dark:text-muted-foreground hover:bg-accent"
+            >
+              <CheckCircle className="h-4 w-4" />
+              Godkjenn
+              <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-orange-500 px-1.5 text-[10px] font-bold text-white">
+                {pendingApprovals}
+              </span>
+            </Button>
+          )}
+
+          {/* "Rapporter" ghost */}
+          <Button
+            onClick={() => navigate("/cases")}
+            variant="ghost"
+            size="sm"
+            className="gap-1.5 text-[#5f7075] dark:text-muted-foreground"
+          >
+            <FileText className="h-4 w-4" />
+            <span className="hidden sm:inline">{isTiltaksleder || isMiljoarbeider ? "Tiltaksrapporter" : "Rapporter"}</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Time range selector + fetching pill */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <AnimatePresence initial={false} mode="wait">
+          {statsFetching && !statsLoading ? (
+            <motion.div
+              key={`stats-fetching-${timeRange}`}
+              initial={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
+              animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
+              exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
+              transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+              className="inline-flex items-center gap-2 rounded-full border border-[#cde0d9] dark:border-border bg-white/85 dark:bg-muted px-3 py-1 text-xs font-medium text-[#2f555e] dark:text-muted-foreground"
+            >
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1F6B73]" />
+              Oppdaterer tall&hellip;
+            </motion.div>
+          ) : (
+            <div />
+          )}
+        </AnimatePresence>
+
+        <div
+          className="relative inline-flex w-fit gap-1 rounded-xl border border-[#d8e4e0] dark:border-border bg-[#edf3f1] dark:bg-muted p-1"
+          data-testid="time-range-selector"
+        >
+          {TIME_RANGE_BUTTONS.map((btn) => {
+            const Icon = btn.icon;
+            const selected = timeRange === btn.value;
+            return (
+              <button
+                type="button"
+                key={btn.value}
+                onClick={() => onTimeRangeChange(btn.value)}
+                className={cn(
+                  "relative z-10 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3.5 text-xs font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-2 focus-visible:ring-offset-[#edf3f1] motion-reduce:transition-none",
+                  selected
+                    ? "text-white"
+                    : "text-[#4e646b] dark:text-muted-foreground hover:text-[#153c46] dark:hover:text-foreground",
+                )}
+                data-testid={`time-range-${btn.value}`}
+              >
+                {selected ? (
+                  <motion.span
+                    layoutId="dashboard-time-range-active-pill"
+                    className="absolute inset-0 transform-gpu rounded-lg border border-[#195c63] bg-[#1F6B73] shadow-[0_8px_18px_rgba(21,92,99,0.26)]"
+                    transition={
+                      reduceMotion
+                        ? { duration: 0 }
+                        : { type: "spring", stiffness: 260, damping: 30, mass: 0.75 }
+                    }
+                  />
+                ) : null}
+                <Icon className="h-4 w-4" />
+                <span className="relative hidden sm:inline">{btn.label}</span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}

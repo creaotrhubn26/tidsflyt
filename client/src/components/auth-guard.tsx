@@ -1,6 +1,7 @@
 import { type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { Redirect } from "wouter";
+import { normalizeRole } from "@shared/roles";
 
 interface AuthGuardProps {
   children: ReactNode;
@@ -32,8 +33,12 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
     return <Redirect to="/" />;
   }
 
-  if (requiredRoles && user && !requiredRoles.includes(user.role ?? "")) {
-    return <Redirect to="/dashboard" />;
+  if (requiredRoles && user) {
+    const normalizedUserRole = normalizeRole(user.role);
+    const normalizedRequiredRoles = requiredRoles.map((role) => normalizeRole(role));
+    if (!normalizedRequiredRoles.includes(normalizedUserRole)) {
+      return <Redirect to="/dashboard" />;
+    }
   }
 
   return <>{children}</>;

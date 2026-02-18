@@ -6,6 +6,7 @@ import connectPg from "connect-pg-simple";
 import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
+import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
 
 interface AuthUser {
   id: string;
@@ -206,7 +207,7 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
   }
   
   const user = req.user as AuthUser;
-  if (user.role !== "vendor_admin" && user.role !== "super_admin") {
+  if (!canAccessVendorApiAdmin(user.role)) {
     return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
   }
   
@@ -220,7 +221,7 @@ export const requireSuperAdmin: RequestHandler = (req, res, next) => {
   }
   
   const user = req.user as AuthUser;
-  if (user.role !== "super_admin") {
+  if (!isSuperAdminLikeRole(user.role)) {
     return res.status(403).json({ message: "Krever super_admin rolle" });
   }
   

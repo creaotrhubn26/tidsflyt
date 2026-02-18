@@ -16,6 +16,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
+import { canAccessVendorApiAdmin } from "@shared/roles";
 
 
 // Zod schema for bulk time entry validation
@@ -30,6 +31,14 @@ const bulkRequestSchema = z.object({
   userId: z.string().min(1, "userId is required"),
   entries: z.array(bulkTimeEntrySchema).min(1, "At least one entry required").max(31, "Maximum 31 entries"),
   overwrite: z.boolean().optional().default(false),
+});
+
+const timerSessionSchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+  elapsedSeconds: z.number().int().min(0),
+  pausedSeconds: z.number().int().min(0),
+  isRunning: z.boolean(),
+  pauseStartedAt: z.string().datetime().nullable().optional(),
 });
 
 export async function registerRoutes(
@@ -77,8 +86,7 @@ export async function registerRoutes(
     }
 
     // Check if user has vendor admin or super admin role
-    const validRoles = ['vendor_admin', 'super_admin'];
-    if (!user.role || !validRoles.includes(user.role)) {
+    if (!canAccessVendorApiAdmin(user.role)) {
       return res.status(403).json({ 
         error: "Forbidden", 
         message: "You do not have admin access. Contact your administrator." 
@@ -477,6 +485,50 @@ export async function registerRoutes(
     try {
       const deleted = await storage.deleteTimeEntry(req.params.id);
       if (!deleted) return res.status(404).json({ error: "Entry not found" });
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/timer-session", isAuthenticated, async (req, res) => {
+    try {
+      const userId = String(req.query.userId || "").trim();
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+      const session = await storage.getTimerSession(userId);
+      res.json(session || null);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/timer-session", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = timerSessionSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+      }
+
+      const payload = parsed.data;
+      const session = await storage.upsertTimerSession({
+        userId: payload.userId,
+        elapsedSeconds: payload.elapsedSeconds,
+        pausedSeconds: payload.pausedSeconds,
+        isRunning: payload.isRunning,
+        pauseStartedAt: payload.pauseStartedAt ? new Date(payload.pauseStartedAt) : null,
+      });
+
+      res.json(session);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/timer-session/:userId", isAuthenticated, async (req, res) => {
+    try {
+      const userId = String(req.params.userId || "").trim();
+      if (!userId) return res.status(400).json({ error: "userId is required" });
+      await storage.deleteTimerSession(userId);
       res.status(204).send();
     } catch (error: any) {
       res.status(500).json({ error: error.message });

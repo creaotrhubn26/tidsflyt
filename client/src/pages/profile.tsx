@@ -26,6 +26,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery } from "@tanstack/react-query";
+import { getRoleLabel, normalizeRole } from "@shared/roles";
 
 export default function ProfilePage() {
   const [location] = useLocation();
@@ -52,6 +53,9 @@ export default function ProfilePage() {
     joinedAt: user?.createdAt ? new Date(user.createdAt).toLocaleDateString("nb-NO") : "",
     totalHours: stats?.totalHours ?? 0,
   };
+
+  const normalizedRole = normalizeRole(profile.role);
+  const isAdminLikeRole = ["super_admin", "hovedadmin", "admin", "vendor_admin", "tiltaksleder", "teamleder"].includes(normalizedRole);
 
   const initials = profile.name
     .split(" ")
@@ -85,9 +89,9 @@ export default function ProfilePage() {
               <div className="flex-1">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-2 mb-2">
                   <h2 className="text-xl font-bold">{profile.name}</h2>
-                  <Badge variant="destructive" className="w-fit">
+                  <Badge variant={isAdminLikeRole ? "destructive" : "secondary"} className="w-fit">
                     <Shield className="h-3 w-3 mr-1" />
-                    {profile.role === "admin" || profile.role === "super_admin" ? "Administrator" : "Medlem"}
+                    {getRoleLabel(profile.role)}
                   </Badge>
                 </div>
                 <p className="text-muted-foreground">{profile.email}</p>

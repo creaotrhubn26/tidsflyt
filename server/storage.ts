@@ -1,13 +1,14 @@
 import { 
   type User, type InsertUser, type TimeEntry, type InsertTimeEntry, type Activity, type InsertActivity,
   type LogRow, type CompanyUser,
+  type TimerSession, type InsertTimerSession,
   type SiteSetting, type LandingHero, type InsertLandingHero,
   type LandingFeature, type InsertLandingFeature, type LandingTestimonial, type InsertLandingTestimonial,
   type LandingCta, type InsertLandingCta,
   type WhyPageHero, type InsertWhyPageHero, type WhyPageStat, type InsertWhyPageStat,
   type WhyPageBenefit, type InsertWhyPageBenefit, type WhyPageFeature, type InsertWhyPageFeature,
   type WhyPageContent, type InsertWhyPageContent,
-  logRow, companyUsers,
+  logRow, companyUsers, timerSessions,
   siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta,
   whyPageHero, whyPageStats, whyPageBenefits, whyPageFeatures, whyPageContent
 } from "@shared/schema";
@@ -26,6 +27,10 @@ export interface IStorage {
   createTimeEntry(entry: InsertTimeEntry): Promise<TimeEntry>;
   updateTimeEntry(id: string, entry: Partial<TimeEntry>): Promise<TimeEntry | undefined>;
   deleteTimeEntry(id: string): Promise<boolean>;
+
+  getTimerSession(userId: string): Promise<TimerSession | undefined>;
+  upsertTimerSession(session: InsertTimerSession): Promise<TimerSession>;
+  deleteTimerSession(userId: string): Promise<boolean>;
   
   getActivities(limit?: number): Promise<Activity[]>;
   createActivity(activity: InsertActivity): Promise<Activity>;
@@ -223,6 +228,41 @@ export class ExternalDbStorage implements IStorage {
 
   async deleteTimeEntry(id: string): Promise<boolean> {
     const result = await db.delete(logRow).where(eq(logRow.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getTimerSession(userId: string): Promise<TimerSession | undefined> {
+    const result = await db.select().from(timerSessions).where(eq(timerSessions.userId, userId)).limit(1);
+    return result[0];
+  }
+
+  async upsertTimerSession(session: InsertTimerSession): Promise<TimerSession> {
+    const result = await db
+      .insert(timerSessions)
+      .values({
+        userId: session.userId,
+        elapsedSeconds: session.elapsedSeconds ?? 0,
+        pausedSeconds: session.pausedSeconds ?? 0,
+        isRunning: session.isRunning ?? true,
+        pauseStartedAt: session.pauseStartedAt ?? null,
+      })
+      .onConflictDoUpdate({
+        target: timerSessions.userId,
+        set: {
+          elapsedSeconds: session.elapsedSeconds ?? 0,
+          pausedSeconds: session.pausedSeconds ?? 0,
+          isRunning: session.isRunning ?? true,
+          pauseStartedAt: session.pauseStartedAt ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+
+    return result[0];
+  }
+
+  async deleteTimerSession(userId: string): Promise<boolean> {
+    const result = await db.delete(timerSessions).where(eq(timerSessions.userId, userId)).returning();
     return result.length > 0;
   }
 

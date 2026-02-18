@@ -45,30 +45,58 @@ import { cn } from "@/lib/utils";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { canManageRole, getRoleLabel, normalizeRole } from "@shared/roles";
 
 const roleColors = {
+  hovedadmin: "bg-destructive/10 text-destructive border-destructive/20",
   admin: "bg-destructive/10 text-destructive border-destructive/20",
+  vendor_admin: "bg-destructive/10 text-destructive border-destructive/20",
+  tiltaksleder: "bg-primary/10 text-primary border-primary/20",
+  teamleder: "bg-primary/10 text-primary border-primary/20",
   case_manager: "bg-primary/10 text-primary border-primary/20",
+  miljoarbeider: "bg-[#1F6B73]/10 text-[#1F6B73] border-[#1F6B73]/20",
   member: "bg-muted text-muted-foreground border-muted",
-};
-
-const roleLabels = {
-  admin: "Administrator",
-  case_manager: "Saksbehandler",
-  member: "Medlem",
+  user: "bg-muted text-muted-foreground border-muted",
 };
 
 const roleIcons = {
+  hovedadmin: Shield,
   admin: Shield,
+  vendor_admin: Shield,
+  tiltaksleder: Users,
+  teamleder: Users,
   case_manager: Users,
+  miljoarbeider: User,
   member: User,
+  user: User,
 };
+
+const roleFilterValues = [
+  "hovedadmin",
+  "admin",
+  "vendor_admin",
+  "tiltaksleder",
+  "teamleder",
+  "case_manager",
+  "miljoarbeider",
+  "member",
+  "user",
+] as const;
+
+const inviteRoleOptions = [
+  "tiltaksleder",
+  "teamleder",
+  "case_manager",
+  "miljoarbeider",
+  "member",
+] as const;
 
 interface CompanyUser {
   id: number;
   company_id: number;
   user_email: string;
-  role: 'admin' | 'case_manager' | 'member';
+  role: string;
   approved: boolean;
   created_at: string;
   updated_at?: string;
@@ -82,10 +110,11 @@ export default function UsersPage() {
   const [tab, setTab] = useState(isInvitesRoute ? "pending" : "all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState<string>("member");
+  const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
   const [filterRole, setFilterRole] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
+  const { user } = useAuth();
 
   useEffect(() => {
     setTab(isInvitesRoute ? "pending" : "all");
@@ -103,7 +132,7 @@ export default function UsersPage() {
       queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
       setInviteDialogOpen(false);
       setInviteEmail("");
-      setInviteRole("member");
+      setInviteRole("miljoarbeider");
       toast({ title: "Invitasjon sendt", description: "Brukeren har blitt lagt til." });
     },
     onError: (error: any) => {
@@ -135,11 +164,24 @@ export default function UsersPage() {
     id: String(u.id),
     name: u.user_email.split('@')[0].replace(/[._]/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
     email: u.user_email,
-    role: u.role as 'admin' | 'case_manager' | 'member',
+    role: normalizeRole(u.role),
     approved: u.approved,
     lastActive: u.updated_at || u.created_at,
     hoursThisWeek: 0,
   }));
+
+  const actorRole = normalizeRole(user?.role);
+  const allowedInviteRoles = inviteRoleOptions.filter((role) => canManageRole(actorRole, role));
+
+  useEffect(() => {
+    if (allowedInviteRoles.length === 0) {
+      return;
+    }
+
+    if (!allowedInviteRoles.includes(inviteRole as any)) {
+      setInviteRole(allowedInviteRoles[0]);
+    }
+  }, [allowedInviteRoles, inviteRole]);
 
   const filteredUsers = users.filter((user) => {
     const matchesSearch = user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -229,9 +271,13 @@ export default function UsersPage() {
                       <SelectValue placeholder="Velg rolle" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="member">Medlem</SelectItem>
-                      <SelectItem value="case_manager">Saksbehandler</SelectItem>
-                      <SelectItem value="admin">Administrator</SelectItem>
+                      {allowedInviteRoles.length === 0 ? (
+                        <SelectItem value="miljoarbeider">Miljøarbeider</SelectItem>
+                      ) : (
+                        allowedInviteRoles.map((role) => (
+                          <SelectItem key={role} value={role}>{getRoleLabel(role)}</SelectItem>
+                        ))
+                      )}
                     </SelectContent>
                   </Select>
                 </div>
@@ -242,7 +288,7 @@ export default function UsersPage() {
                 </Button>
                 <Button 
                   onClick={() => inviteMutation.mutate({ user_email: inviteEmail, role: inviteRole })} 
-                  disabled={!inviteEmail || inviteMutation.isPending}
+                  disabled={!inviteEmail || inviteMutation.isPending || allowedInviteRoles.length === 0}
                   data-testid="send-invite-button"
                 >
                   {inviteMutation.isPending ? (
@@ -347,9 +393,9 @@ export default function UsersPage() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">Alle roller</SelectItem>
-                    <SelectItem value="admin">Administrator</SelectItem>
-                    <SelectItem value="case_manager">Saksbehandler</SelectItem>
-                    <SelectItem value="member">Medlem</SelectItem>
+                    {roleFilterValues.map((role) => (
+                      <SelectItem key={role} value={role}>{getRoleLabel(role)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 
@@ -387,7 +433,8 @@ export default function UsersPage() {
                 </div>
               ) : (
                 filteredUsers.map((user) => {
-                  const RoleIcon = roleIcons[user.role];
+                  const RoleIcon = roleIcons[user.role as keyof typeof roleIcons] ?? User;
+                  const roleColor = roleColors[user.role as keyof typeof roleColors] ?? roleColors.member;
                   
                   return (
                     <div
@@ -409,10 +456,10 @@ export default function UsersPage() {
                           <p className="font-medium truncate">{user.name}</p>
                           <Badge 
                             variant="outline" 
-                            className={cn("text-xs", roleColors[user.role])}
+                            className={cn("text-xs", roleColor)}
                           >
                             <RoleIcon className="h-3 w-3 mr-1" />
-                            {roleLabels[user.role]}
+                            {getRoleLabel(user.role)}
                           </Badge>
                           {!user.approved && (
                             <Badge variant="outline" className="text-xs bg-warning/10 text-warning border-warning/20">

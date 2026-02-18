@@ -6,6 +6,7 @@ import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
+import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -44,6 +45,43 @@ const upload = multer({
 interface AuthRequest extends Request {
   admin?: any;
   companyUser?: any;
+}
+
+function getRequestUserEmail(req: AuthRequest): string | null {
+  const sessionEmail = (req.user as any)?.email;
+  if (typeof sessionEmail === "string" && sessionEmail.length > 0) {
+    return sessionEmail;
+  }
+
+  const adminEmail = req.admin?.email;
+  if (typeof adminEmail === "string" && adminEmail.length > 0) {
+    return adminEmail;
+  }
+
+  return null;
+}
+
+async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): Promise<string> {
+  const normalizedAuthRole = normalizeRole((req.user as any)?.role || req.admin?.role);
+  if (canManageUsers(normalizedAuthRole)) {
+    return normalizedAuthRole;
+  }
+
+  const actorEmail = getRequestUserEmail(req);
+  if (!actorEmail) {
+    return normalizedAuthRole;
+  }
+
+  const actorRoleResult = await pool.query(
+    `SELECT role FROM company_users WHERE company_id = $1 AND user_email = $2 LIMIT 1`,
+    [companyId, actorEmail]
+  );
+
+  if (actorRoleResult.rows.length === 0) {
+    return normalizedAuthRole;
+  }
+
+  return normalizeRole(actorRoleResult.rows[0].role);
 }
 
 const isDevMode = process.env.NODE_ENV !== 'production';
@@ -1020,10 +1058,24 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/company/users", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { company_id, user_email, role } = req.body;
+      const companyId = Number(company_id) || 1;
+      const targetRole = normalizeRole(role || 'member');
+      const actorRole = await resolveActorRoleForCompany(req, companyId);
+
+      if (!canManageUsers(actorRole)) {
+        return res.status(403).json({ error: 'Du har ikke tilgang til å invitere brukere.' });
+      }
+
+      if (!canManageRole(actorRole, targetRole)) {
+        return res.status(403).json({
+          error: `Rollen ${actorRole} kan ikke administrere ${targetRole}.`,
+        });
+      }
+
       const result = await pool.query(
         `INSERT INTO company_users (company_id, user_email, role, approved)
          VALUES ($1, $2, $3, true) RETURNING *`,
-        [company_id || 1, user_email, role || 'member']
+        [companyId, user_email, targetRole]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -1034,10 +1086,26 @@ export function registerSmartTimingRoutes(app: Express) {
   app.patch("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { role, approved } = req.body;
+      const companyId = Number(req.body.company_id || req.query.company_id) || 1;
+      const actorRole = await resolveActorRoleForCompany(req, companyId);
+
+      if (!canManageUsers(actorRole)) {
+        return res.status(403).json({ error: 'Du har ikke tilgang til å endre brukere.' });
+      }
+
+      if (role != null) {
+        const targetRole = normalizeRole(role);
+        if (!canManageRole(actorRole, targetRole)) {
+          return res.status(403).json({
+            error: `Rollen ${actorRole} kan ikke administrere ${targetRole}.`,
+          });
+        }
+      }
+
       const result = await pool.query(
         `UPDATE company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
          WHERE id = $3 RETURNING *`,
-        [role, approved, req.params.id]
+        [role ? normalizeRole(role) : null, approved, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
       res.json(result.rows[0]);
@@ -1048,6 +1116,12 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
+      const companyId = Number(req.body?.company_id || req.query.company_id) || 1;
+      const actorRole = await resolveActorRoleForCompany(req, companyId);
+      if (!canManageUsers(actorRole)) {
+        return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });
+      }
+
       await pool.query('DELETE FROM company_users WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {

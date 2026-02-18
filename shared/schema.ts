@@ -124,6 +124,22 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Live timer session state (pause/resume sync)
+export const timerSessions = pgTable("timer_sessions", {
+  userId: text("user_id").primaryKey(),
+  elapsedSeconds: integer("elapsed_seconds").notNull().default(0),
+  pausedSeconds: integer("paused_seconds").notNull().default(0),
+  isRunning: boolean("is_running").notNull().default(true),
+  pauseStartedAt: timestamp("pause_started_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTimerSessionSchema = createInsertSchema(timerSessions).omit({
+  createdAt: true,
+  updatedAt: true,
+});
+
 // Quick templates table
 export const quickTemplates = pgTable("quick_templates", {
   id: serial("id").primaryKey(),
@@ -935,6 +951,8 @@ export type LogRow = typeof logRow.$inferSelect;
 export type InsertLogRow = z.infer<typeof insertLogRowSchema>;
 export type UserSettings = typeof userSettings.$inferSelect;
 export type InsertUserSettings = z.infer<typeof insertUserSettingsSchema>;
+export type TimerSession = typeof timerSessions.$inferSelect;
+export type InsertTimerSession = z.infer<typeof insertTimerSessionSchema>;
 export type QuickTemplate = typeof quickTemplates.$inferSelect;
 export type InsertQuickTemplate = z.infer<typeof insertQuickTemplateSchema>;
 export type AdminUser = typeof adminUsers.$inferSelect;

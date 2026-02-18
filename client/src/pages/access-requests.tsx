@@ -16,6 +16,7 @@ import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckC
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
+import { isSuperAdminLikeRole } from "@shared/roles";
 
 interface AccessRequest {
   id: number;
@@ -48,7 +49,7 @@ export default function AccessRequestsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
-  const isSuperAdmin = user?.role === "super_admin";
+  const isSuperAdmin = isSuperAdminLikeRole(user?.role);
 
   const { data: requests, isLoading } = useQuery<AccessRequest[]>({
     queryKey: ["/api/access-requests", statusFilter],
