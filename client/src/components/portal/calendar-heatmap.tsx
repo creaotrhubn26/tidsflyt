@@ -1,13 +1,13 @@
-import { useMemo, useState, useCallback, useRef } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, addDays, parseISO, isValid, isSameMonth, isToday, getISOWeek } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, getDay, addMonths, addDays, parseISO, isValid, isSameMonth, isToday, getISOWeek, differenceInCalendarDays, subDays, isBefore, isAfter } from "date-fns";
 import { nb } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, ExternalLink, FolderKanban, Plus, Workflow } from "lucide-react";
+import { AlertCircle, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ClipboardList, Clock3, Download, ExternalLink, Eye, EyeOff, Filter, FolderKanban, Plus, Workflow } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 
 type HeatmapData = {
@@ -51,7 +51,17 @@ interface CalendarHeatmapProps {
   title?: string;
   /** Optional: navigate to time-tracking page for a given date */
   onAddEntry?: (date: string) => void;
+  /** Optional: export callback for current month data */
+  onExport?: (month: Date) => void;
+  /** Optional: target hours per month for progress bar */
+  monthlyGoalHours?: number;
+  /** Timestamp of last data refresh */
+  lastUpdated?: Date | string | null;
 }
+
+type StatusFilter = "all" | "pending" | "rejected" | "approved";
+
+const WEEKDAY_PREF_KEY = "tidum-hm-weekdays";
 
 const weekDays = ["Man", "Tir", "Ons", "Tor", "Fre", "Lor", "Son"];
 
@@ -181,17 +191,32 @@ export function CalendarHeatmap({
   onMonthChange,
   title = "Aktivitetsoversikt",
   onAddEntry,
+  onExport,
+  monthlyGoalHours,
+  lastUpdated,
 }: CalendarHeatmapProps) {
   const reduceMotion = useReducedMotion();
   const gridRef = useRef<HTMLDivElement>(null);
   const [showAllEntries, setShowAllEntries] = useState(false);
   const [showAllActivities, setShowAllActivities] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
+  const [showWeekDays, setShowWeekDays] = useState(() => {
+    try { return localStorage.getItem(WEEKDAY_PREF_KEY) !== "hidden"; } catch { return true; }
+  });
+  const [rangeAnchor, setRangeAnchor] = useState<string | null>(null);
+
+  // Persist weekday preference
+  useEffect(() => {
+    try { localStorage.setItem(WEEKDAY_PREF_KEY, showWeekDays ? "visible" : "hidden"); } catch {}
+  }, [showWeekDays]);
 
   const monthStart = startOfMonth(currentMonth);
   const monthEnd = endOfMonth(currentMonth);
   const monthDays = eachDayOfInterval({ start: monthStart, end: monthEnd });
   const monthKey = format(monthStart, "yyyy-MM");
   const startDayOffset = (getDay(monthStart) + 6) % 7;
+  const today = new Date();
+  const recentCutoff = subDays(today, 7);
 
   const effectiveSelectedDate = useMemo(() => {
     const parsed = parseISO(selectedDate);
@@ -206,6 +231,28 @@ export function CalendarHeatmap({
 
   // Reset expand state when selected date changes
   useMemo(() => { setShowAllEntries(false); setShowAllActivities(false); }, [effectiveSelectedDate]);
+
+  // Range selection: compute start/end
+  const rangeStart = useMemo(() => {
+    if (!rangeAnchor) return null;
+    const a = parseISO(rangeAnchor);
+    const b = parseISO(effectiveSelectedDate);
+    if (!isValid(a) || !isValid(b)) return null;
+    return isBefore(a, b) ? rangeAnchor : effectiveSelectedDate;
+  }, [rangeAnchor, effectiveSelectedDate]);
+
+  const rangeEnd = useMemo(() => {
+    if (!rangeAnchor) return null;
+    const a = parseISO(rangeAnchor);
+    const b = parseISO(effectiveSelectedDate);
+    if (!isValid(a) || !isValid(b)) return null;
+    return isAfter(a, b) ? rangeAnchor : effectiveSelectedDate;
+  }, [rangeAnchor, effectiveSelectedDate]);
+
+  const isInRange = useCallback((dateStr: string) => {
+    if (!rangeStart || !rangeEnd) return false;
+    return dateStr >= rangeStart && dateStr <= rangeEnd;
+  }, [rangeStart, rangeEnd]);
 
   const heatmapHoursByDate = useMemo(
     () => new Map(data.map((item) => [item.date, item.hours])),
@@ -224,6 +271,22 @@ export function CalendarHeatmap({
     });
     return map;
   }, [entries]);
+
+  // Filtered entries by status
+  const filteredEntriesByDate = useMemo(() => {
+    if (statusFilter === "all") return entriesByDate;
+    const map = new Map<string, HeatmapEntry[]>();
+    for (const [date, bucket] of Array.from(entriesByDate.entries())) {
+      const filtered = bucket.filter((e: HeatmapEntry) => {
+        if (statusFilter === "approved") return e.status === "approved";
+        if (statusFilter === "pending") return e.status === "pending";
+        if (statusFilter === "rejected") return e.status === "rejected";
+        return true;
+      });
+      if (filtered.length > 0) map.set(date, filtered);
+    }
+    return map;
+  }, [entriesByDate, statusFilter]);
 
   const activitiesByDate = useMemo(() => {
     const map = new Map<string, HeatmapActivity[]>();
@@ -255,6 +318,49 @@ export function CalendarHeatmap({
     ? format(selectedDateObj, "EEEE d. MMMM yyyy", { locale: nb })
     : effectiveSelectedDate;
 
+  // Month-level stats
+  const monthTotalHours = useMemo(() => {
+    let sum = 0;
+    for (const day of monthDays) {
+      sum += heatmapHoursByDate.get(format(day, "yyyy-MM-dd")) ?? 0;
+    }
+    return sum;
+  }, [monthDays, heatmapHoursByDate]);
+
+  const monthTotalEntries = useMemo(() => {
+    let sum = 0;
+    for (const day of monthDays) {
+      sum += (entriesByDate.get(format(day, "yyyy-MM-dd")) ?? []).length;
+    }
+    return sum;
+  }, [monthDays, entriesByDate]);
+
+  const daysWithData = useMemo(() => {
+    let count = 0;
+    for (const day of monthDays) {
+      const k = format(day, "yyyy-MM-dd");
+      if ((heatmapHoursByDate.get(k) ?? 0) > 0 || (entriesByDate.get(k) ?? []).length > 0) count++;
+    }
+    return count;
+  }, [monthDays, heatmapHoursByDate, entriesByDate]);
+
+  const avgHoursPerDay = daysWithData > 0 ? monthTotalHours / daysWithData : 0;
+
+  // Range selection stats
+  const rangeStats = useMemo(() => {
+    if (!rangeStart || !rangeEnd) return null;
+    let days = 0, hours = 0, entryCount = 0;
+    for (const day of monthDays) {
+      const k = format(day, "yyyy-MM-dd");
+      if (k >= rangeStart && k <= rangeEnd) {
+        days++;
+        hours += heatmapHoursByDate.get(k) ?? 0;
+        entryCount += (entriesByDate.get(k) ?? []).length;
+      }
+    }
+    return { days, hours, entryCount };
+  }, [rangeStart, rangeEnd, monthDays, heatmapHoursByDate, entriesByDate]);
+
   const markersByDate = useMemo(() => {
     const map = new Map<string, CalendarMarker[]>();
     const holidays = holidayMarkersForYear(monthStart.getFullYear());
@@ -272,6 +378,14 @@ export function CalendarHeatmap({
   }, [monthStart, monthDays]);
 
   const selectedMarkers = markersByDate.get(effectiveSelectedDate) ?? [];
+
+  // Which row (week index) the selected date falls in
+  const selectedWeekRow = useMemo(() => {
+    const selDate = parseISO(effectiveSelectedDate);
+    if (!isValid(selDate) || !isSameMonth(selDate, monthStart)) return -1;
+    const dayIndex = selDate.getDate() - 1;
+    return Math.floor((dayIndex + startDayOffset) / 7);
+  }, [effectiveSelectedDate, monthStart, startDayOffset]);
 
   // Palette uses CSS design tokens – works in both light and dark mode
   const palette = [
@@ -328,6 +442,19 @@ export function CalendarHeatmap({
     return 5;
   };
 
+  // Handle day click: normal or shift-click for range
+  const handleDayClick = useCallback(
+    (dateStr: string, e: React.MouseEvent) => {
+      if (e.shiftKey && effectiveSelectedDate) {
+        setRangeAnchor(effectiveSelectedDate);
+      } else {
+        setRangeAnchor(null);
+      }
+      onDateSelect(dateStr);
+    },
+    [effectiveSelectedDate, onDateSelect],
+  );
+
   // Roving tabindex: arrow key navigation within the heatmap grid
   const handleGridKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLDivElement>) => {
@@ -343,19 +470,46 @@ export function CalendarHeatmap({
         case "ArrowLeft": next = addDays(current, -1); break;
         case "ArrowDown": next = addDays(current, 7); break;
         case "ArrowUp": next = addDays(current, -7); break;
+        case "Escape":
+          setRangeAnchor(null);
+          return;
         default: return;
       }
       e.preventDefault();
       if (next && isSameMonth(next, monthStart)) {
         const nextStr = format(next, "yyyy-MM-dd");
+        if (e.shiftKey && !rangeAnchor) setRangeAnchor(dateStr);
         onDateSelect(nextStr);
-        // Focus the newly selected cell
         const nextEl = gridRef.current?.querySelector(`[data-testid="heatmap-day-${nextStr}"]`) as HTMLElement | null;
         nextEl?.focus();
       }
     },
-    [monthStart, onDateSelect],
+    [monthStart, onDateSelect, rangeAnchor],
   );
+
+  // Format hours as "Xt Ym"
+  const formatHoursMinutes = (h: number) => {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    if (mins === 0) return `${hrs}t`;
+    if (hrs === 0) return `${mins}m`;
+    return `${hrs}t ${mins}m`;
+  };
+
+  const lastUpdatedLabel = useMemo(() => {
+    if (!lastUpdated) return null;
+    const d = typeof lastUpdated === "string" ? new Date(lastUpdated) : lastUpdated;
+    if (Number.isNaN(d.getTime())) return null;
+    return format(d, "HH:mm", { locale: nb });
+  }, [lastUpdated]);
+
+  // Total filtered entries visible in grid (for badge on filter)
+  const filterCounts = useMemo(() => ({
+    all: entries.length,
+    pending: entries.filter(e => e.status === "pending").length,
+    rejected: entries.filter(e => e.status === "rejected").length,
+    approved: entries.filter(e => e.status === "approved").length,
+  }), [entries]);
 
   return (
     <Card
@@ -369,7 +523,7 @@ export function CalendarHeatmap({
               {title}
             </CardTitle>
             <p className="mt-1 text-sm text-[var(--hm-text-secondary)]">
-              Klikk på en dag for å se registreringer og hendelser
+              Klikk på en dag for detaljer · Shift-klikk for å velge en periode
             </p>
           </div>
 
@@ -421,6 +575,22 @@ export function CalendarHeatmap({
             >
               I dag
             </Button>
+            {onExport && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="outline"
+                    className="h-9 w-9 rounded-lg border-[var(--hm-border)] bg-[var(--hm-surface)] text-[var(--hm-text-secondary)] hover:bg-[var(--hm-surface-panel)] hover:text-[var(--hm-accent)]"
+                    onClick={() => onExport(monthStart)}
+                  >
+                    <Download className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Eksporter måned</TooltipContent>
+              </Tooltip>
+            )}
             <AnimatePresence initial={false} mode="wait">
               {isRefreshing ? (
                 <motion.div
@@ -438,16 +608,109 @@ export function CalendarHeatmap({
             </AnimatePresence>
           </div>
         </div>
-      </CardHeader>
-      <CardContent>
-        <div className="grid grid-cols-7 gap-2 mb-2">
-          {weekDays.map((day) => (
-            <div key={day} className="py-1 text-center text-[11px] font-medium tracking-wide text-[var(--hm-text-muted)]">
-              {day}
-            </div>
-          ))}
+
+        {/* Month summary bar */}
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-[var(--hm-text-secondary)]">
+          <span className="font-medium">Totalt: <span className="text-[var(--hm-text)] font-semibold">{formatHoursMinutes(monthTotalHours)}</span></span>
+          <span>Snitt: <span className="text-[var(--hm-text)] font-semibold">{avgHoursPerDay.toFixed(1)}t/dag</span></span>
+          <span>{monthTotalEntries} registrering{monthTotalEntries !== 1 ? "er" : ""}</span>
+          {lastUpdatedLabel && (
+            <span className="ml-auto text-[11px] text-[var(--hm-text-muted)]">Oppdatert {lastUpdatedLabel}</span>
+          )}
         </div>
 
+        {/* Goal progress bar */}
+        {monthlyGoalHours != null && monthlyGoalHours > 0 && (
+          <div className="mt-2">
+            <div className="flex items-center justify-between text-[11px] text-[var(--hm-text-muted)] mb-0.5">
+              <span>Mål: {monthlyGoalHours}t</span>
+              <span>{Math.min(100, Math.round((monthTotalHours / monthlyGoalHours) * 100))}%</span>
+            </div>
+            <div className="h-1.5 w-full rounded-full bg-[var(--hm-palette-0)]">
+              <div
+                className="h-full rounded-full bg-[var(--hm-accent)] transition-all duration-300"
+                style={{ width: `${Math.min(100, (monthTotalHours / monthlyGoalHours) * 100)}%` }}
+              />
+            </div>
+          </div>
+        )}
+      </CardHeader>
+      <CardContent>
+        {/* Filter chips + weekday toggle */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1 rounded-lg border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] p-0.5">
+            <Filter className="h-3 w-3 ml-1.5 text-[var(--hm-text-muted)]" />
+            {([
+              { key: "all" as const, label: "Alle" },
+              { key: "pending" as const, label: "Ventende" },
+              { key: "rejected" as const, label: "Avvist" },
+              { key: "approved" as const, label: "Godkjent" },
+            ]).map(({ key, label }) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setStatusFilter(key)}
+                className={cn(
+                  "rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors",
+                  statusFilter === key
+                    ? "bg-[var(--hm-accent)] text-white shadow-sm"
+                    : "text-[var(--hm-text-secondary)] hover:text-[var(--hm-text)] hover:bg-[var(--hm-surface)]",
+                )}
+              >
+                {label}
+                {key !== "all" && filterCounts[key] > 0 && (
+                  <span className="ml-0.5 opacity-70">({filterCounts[key]})</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Range indicator */}
+          {rangeStats && (
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--hm-accent)]/20 bg-[var(--hm-accent)]/5 px-2.5 py-1 text-[11px] text-[var(--hm-accent)]">
+              <span className="font-semibold">{rangeStats.days} dager</span>
+              <span>{formatHoursMinutes(rangeStats.hours)}</span>
+              <span>{rangeStats.entryCount} reg.</span>
+              <button type="button" onClick={() => setRangeAnchor(null)} className="ml-1 text-[var(--hm-text-muted)] hover:text-[var(--hm-text)]">✕</button>
+            </div>
+          )}
+
+          <div className="ml-auto">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => setShowWeekDays(prev => !prev)}
+                  className="rounded-md p-1 text-[var(--hm-text-muted)] hover:text-[var(--hm-text)] hover:bg-[var(--hm-surface-panel)] transition-colors"
+                >
+                  {showWeekDays ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>{showWeekDays ? "Skjul ukedager" : "Vis ukedager"}</TooltipContent>
+            </Tooltip>
+          </div>
+        </div>
+
+        {/* Weekday labels (toggleable) */}
+        <AnimatePresence initial={false}>
+          {showWeekDays && (
+            <motion.div
+              initial={reduceMotion ? { opacity: 1 } : { opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, height: 0 }}
+              transition={{ duration: 0.15 }}
+              className="grid grid-cols-7 gap-2 mb-2 overflow-hidden"
+            >
+              {weekDays.map((day) => (
+                <div key={day} className="py-1 text-center text-[11px] font-medium tracking-wide text-[var(--hm-text-muted)]">
+                  {day}
+                </div>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Day grid */}
         <motion.div
           ref={gridRef}
           key={monthKey}
@@ -462,25 +725,41 @@ export function CalendarHeatmap({
           {Array.from({ length: startDayOffset }).map((_, i) => (
             <div key={`empty-${monthKey}-${i}`} className="aspect-square opacity-30" />
           ))}
-          {monthDays.map((day) => {
+          {monthDays.map((day, dayIndex) => {
             const dateStr = format(day, "yyyy-MM-dd");
             const dayHours = heatmapHoursByDate.get(dateStr) ?? 0;
             const dayEntries = entriesByDate.get(dateStr) ?? [];
-            const dayEntryCount = dayEntries.length;
+            const filteredDayEntries = filteredEntriesByDate.get(dateStr) ?? [];
+            const dayEntryCount = filteredDayEntries.length;
+            const totalEntryCount = dayEntries.length;
             const dayCaseCount = new Set(dayEntries.map(e => e.caseNumber).filter(Boolean)).size;
+            const dayPendingCount = dayEntries.filter(e => e.status === "pending").length;
             const isSelected = effectiveSelectedDate === dateStr;
             const isCurrentDay = isToday(day);
             const markers = markersByDate.get(dateStr) ?? [];
             const hasHoliday = markers.some((marker) => marker.kind === "holiday");
             const hasVacation = markers.some((marker) => marker.kind === "vacation");
             const intensity = getIntensityIndex(dayHours);
+            const isRecent = day >= recentCutoff && day <= today;
+            const dayWeekRow = Math.floor((dayIndex + startDayOffset) / 7);
+            const isSelectedRow = dayWeekRow === selectedWeekRow;
+            const inRange = isInRange(dateStr);
+
+            // Dim cells when a non-"all" filter is active and day has no matching entries
+            const isDimmed = statusFilter !== "all" && dayEntryCount === 0 && totalEntryCount > 0;
 
             // Build accessible aria-label
             const parts: string[] = [format(day, "EEEE d. MMMM", { locale: nb })];
-            if (dayHours > 0) parts.push(`${dayHours.toFixed(1)} timer`);
-            if (dayEntryCount > 0) parts.push(`${dayEntryCount} registrering${dayEntryCount !== 1 ? "er" : ""}`);
+            if (dayHours > 0) parts.push(`Totalt: ${formatHoursMinutes(dayHours)}`);
+            if (totalEntryCount > 0) parts.push(`${totalEntryCount} registrering${totalEntryCount !== 1 ? "er" : ""}`);
+            if (dayCaseCount > 0) parts.push(`${dayCaseCount} sak${dayCaseCount !== 1 ? "er" : ""}`);
+            if (dayPendingCount > 0) parts.push(`${dayPendingCount} til godkjenning`);
             markers.forEach(m => parts.push(m.label));
+            if (dayHours === 0 && totalEntryCount === 0) parts.push("Klikk for å legge til");
             const ariaLabel = parts.join(" – ");
+
+            // Entry count dots (1–4 dots for registration count)
+            const dotCount = Math.min(totalEntryCount, 4);
 
             return (
               <Tooltip key={dateStr}>
@@ -488,18 +767,25 @@ export function CalendarHeatmap({
                   <button
                     type="button"
                     role="gridcell"
-                    onClick={() => onDateSelect(dateStr)}
+                    onClick={(e) => handleDayClick(dateStr, e)}
                     className={cn(
                       "relative aspect-square rounded-[10px] border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
                       isCurrentDay && !isSelected && "ring-2 ring-[var(--hm-accent)]/40 border-[var(--hm-accent)]/50",
                       isSelected
                         ? "border-[var(--hm-accent)] ring-2 ring-[var(--hm-accent)]/40 shadow-[inset_0_0_0_1.5px_var(--hm-accent-muted)]"
                         : !isCurrentDay && "border-transparent hover:border-[var(--hm-accent)]/30",
-                      // Text color: high intensity uses white, low uses normal text
                       intensity >= 4 ? "text-white" : "text-[var(--hm-text)]",
+                      // Row highlight for selected week
+                      isSelectedRow && !isSelected && "bg-[var(--hm-accent)]/[0.03]",
+                      // Range highlight
+                      inRange && !isSelected && "ring-1 ring-[var(--hm-accent)]/30 bg-[var(--hm-accent)]/[0.06]",
+                      // Recent 7-day glow
+                      isRecent && !isSelected && !isCurrentDay && "ring-1 ring-[var(--hm-accent)]/15",
+                      // Dimmed when filter doesn't match
+                      isDimmed && "opacity-40",
                     )}
                     style={{
-                      backgroundColor: getIntensityColor(dayHours),
+                      backgroundColor: !isSelectedRow || isSelected ? getIntensityColor(dayHours) : undefined,
                       boxShadow: dayHours > 0 && !isSelected ? "var(--hm-cell-active-shadow)" : undefined,
                     }}
                     data-testid={`heatmap-day-${dateStr}`}
@@ -508,46 +794,62 @@ export function CalendarHeatmap({
                     tabIndex={isSelected ? 0 : -1}
                   >
                     {format(day, "d")}
-                    {/* Holiday marker */}
+                    {/* Holiday corner badge */}
                     {hasHoliday && (
-                      <span className="absolute left-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-marker-holiday)]" />
+                      <span className="absolute -top-px -left-px w-0 h-0 border-l-[8px] border-t-[8px] border-l-[var(--hm-marker-holiday)] border-t-[var(--hm-marker-holiday)] border-r-[8px] border-b-[8px] border-r-transparent border-b-transparent rounded-tl-[9px]" />
                     )}
-                    {/* Vacation marker */}
+                    {/* Vacation corner badge */}
                     {hasVacation && (
-                      <span className="absolute left-1 top-3.5 h-1.5 w-1.5 rounded-full bg-[var(--hm-marker-vacation)]" />
+                      <span className="absolute -bottom-px -right-px w-0 h-0 border-r-[8px] border-b-[8px] border-r-[var(--hm-marker-vacation)] border-b-[var(--hm-marker-vacation)] border-l-[8px] border-t-[8px] border-l-transparent border-t-transparent rounded-br-[9px]" />
                     )}
                     {/* Today indicator */}
                     {isCurrentDay && (
                       <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-today-dot)]" />
                     )}
-                    {/* Entry count badge */}
-                    {dayEntryCount > 0 && (
-                      <span className="absolute bottom-0.5 right-0.5 flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[var(--hm-accent)]/80 text-[7px] font-bold leading-none text-white px-0.5">
-                        {dayEntryCount}
+                    {/* Registration dots (1–4) at bottom */}
+                    {dotCount > 0 && (
+                      <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 flex gap-[2px]">
+                        {Array.from({ length: dotCount }).map((_, di) => (
+                          <span
+                            key={di}
+                            className={cn(
+                              "h-[3px] w-[3px] rounded-full",
+                              intensity >= 4 ? "bg-white/70" : "bg-[var(--hm-accent)]/60",
+                            )}
+                          />
+                        ))}
                       </span>
                     )}
                   </button>
                 </TooltipTrigger>
-                <TooltipContent className="space-y-0.5">
-                  <p className="font-medium">{format(day, "d. MMMM", { locale: nb })}</p>
-                  <p className="text-muted-foreground">{dayHours.toFixed(1)} timer</p>
-                  {dayEntryCount > 0 && (
-                    <p className="text-muted-foreground">{dayEntryCount} registrering{dayEntryCount !== 1 ? "er" : ""}</p>
+                {/* Rich tooltip */}
+                <TooltipContent className="space-y-1 min-w-[140px]">
+                  <p className="font-semibold text-sm">{format(day, "EEEE d. MMM", { locale: nb })}</p>
+                  <div className="h-px bg-border my-1" />
+                  <p className="text-muted-foreground">Totalt: <span className="font-medium text-foreground">{formatHoursMinutes(dayHours)}</span></p>
+                  {totalEntryCount > 0 && (
+                    <p className="text-muted-foreground">Registreringer: <span className="font-medium text-foreground">{totalEntryCount}</span></p>
                   )}
                   {dayCaseCount > 0 && (
-                    <p className="text-muted-foreground">{dayCaseCount} sak{dayCaseCount !== 1 ? "er" : ""}</p>
+                    <p className="text-muted-foreground">Saker: <span className="font-medium text-foreground">{dayCaseCount}</span></p>
+                  )}
+                  {dayPendingCount > 0 && (
+                    <p className="text-amber-500">{dayPendingCount} til godkjenning</p>
                   )}
                   {markers.map((marker) => (
                     <p
                       key={`${dateStr}-${marker.label}`}
                       className={cn(
-                        "text-xs",
+                        "text-xs font-medium",
                         marker.kind === "holiday" ? "text-[var(--hm-marker-holiday)]" : "text-[var(--hm-marker-vacation)]",
                       )}
                     >
-                      {"● "}{marker.label}
+                      {marker.kind === "holiday" ? "🔴 " : "🟡 "}{marker.label}
                     </p>
                   ))}
+                  {dayHours === 0 && totalEntryCount === 0 && (
+                    <p className="text-xs text-muted-foreground italic">Klikk for å legge til</p>
+                  )}
                 </TooltipContent>
               </Tooltip>
             );
@@ -574,7 +876,6 @@ export function CalendarHeatmap({
 
         {/* Legend */}
         <div className="mt-4 flex flex-col gap-2">
-          {/* Color scale with tick labels */}
           <div className="flex items-end justify-end gap-0">
             <span className="text-[10px] text-[var(--hm-text-muted)] mr-1.5">Mindre</span>
             <div className="flex">
@@ -587,15 +888,30 @@ export function CalendarHeatmap({
             </div>
             <span className="text-[10px] text-[var(--hm-text-muted)] ml-1.5">Mer</span>
           </div>
-          {/* Marker key */}
           <div className="flex items-center justify-end gap-3 text-[10px] text-[var(--hm-text-muted)]">
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-marker-holiday)]" />Helligdag</span>
-            <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-marker-vacation)]" />Ferie</span>
+            <span className="inline-flex items-center gap-1">
+              <span className="relative h-3 w-3 rounded-[3px] border border-[var(--hm-border-subtle)] overflow-hidden">
+                <span className="absolute -top-px -left-px w-0 h-0 border-l-[5px] border-t-[5px] border-l-[var(--hm-marker-holiday)] border-t-[var(--hm-marker-holiday)] border-r-[5px] border-b-[5px] border-r-transparent border-b-transparent" />
+              </span>
+              Helligdag
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <span className="relative h-3 w-3 rounded-[3px] border border-[var(--hm-border-subtle)] overflow-hidden">
+                <span className="absolute -bottom-px -right-px w-0 h-0 border-r-[5px] border-b-[5px] border-r-[var(--hm-marker-vacation)] border-b-[var(--hm-marker-vacation)] border-l-[5px] border-t-[5px] border-l-transparent border-t-transparent" />
+              </span>
+              Ferie
+            </span>
             <span className="inline-flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-[var(--hm-today-dot)]" />I dag</span>
-            <span className="inline-flex items-center gap-1"><span className="flex h-3 min-w-[12px] items-center justify-center rounded-full bg-[var(--hm-accent)]/80 text-[7px] font-bold text-white px-0.5">2</span>Antall</span>
+            <span className="inline-flex items-center gap-1">
+              <span className="flex gap-[1.5px] items-end">
+                {[1,2,3].map(n => <span key={n} className="h-[3px] w-[3px] rounded-full bg-[var(--hm-accent)]/60" />)}
+              </span>
+              Registreringer
+            </span>
           </div>
         </div>
 
+        {/* Detail panel */}
         <div className="mt-5 rounded-xl border border-[var(--hm-border)] bg-[var(--hm-surface)]/85 p-4">
           <AnimatePresence initial={false} mode="wait">
             <motion.div
@@ -606,14 +922,13 @@ export function CalendarHeatmap({
               transition={reduceMotion ? { duration: 0 } : { duration: 0.14, ease: "easeOut" }}
               className="transform-gpu"
             >
-              {/* Panel header: date label + quick actions */}
+              {/* Panel header */}
               <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <CalendarDays className="h-4 w-4 text-[var(--hm-accent)]" />
                   <h4 className="text-base font-semibold capitalize text-[var(--hm-text)]">{selectedDateLabel}</h4>
                 </div>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  {/* Quick actions */}
                   {onAddEntry && (
                     <Button
                       type="button"
@@ -657,7 +972,7 @@ export function CalendarHeatmap({
                   </Badge>
                 ))}
                 <Badge className="border border-[var(--hm-border)] bg-[var(--hm-surface-panel)] text-[var(--hm-accent)]">
-                  {selectedHours.toFixed(1)} timer totalt
+                  {formatHoursMinutes(selectedHours)} totalt
                 </Badge>
               </div>
 
@@ -717,6 +1032,23 @@ export function CalendarHeatmap({
                           {draftCount} utkast
                         </Badge>
                       )}
+                    </div>
+                  )}
+
+                  {/* Empty day CTA */}
+                  {selectedEntries.length === 0 && selectedHours === 0 && onAddEntry && (
+                    <div className="mt-3 flex items-center gap-2 rounded-lg border border-dashed border-[var(--hm-border)] bg-[var(--hm-surface-panel)] px-3 py-2">
+                      <Plus className="h-4 w-4 text-[var(--hm-accent)]/60" />
+                      <p className="text-sm text-[var(--hm-text-secondary)]">Ingen data denne dagen.</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="ml-auto h-7 text-xs text-[var(--hm-accent)] hover:bg-[var(--hm-accent)]/5"
+                        onClick={() => onAddEntry(effectiveSelectedDate)}
+                      >
+                        Legg til registrering
+                      </Button>
                     </div>
                   )}
 
