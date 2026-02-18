@@ -16,6 +16,9 @@ import {
   ChevronDown,
   Bookmark,
   Archive,
+  Plus,
+  Lock,
+  MessageCircle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -541,26 +544,97 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
             );
           })}
 
-          {filteredReports.length === 0 && (
+          {filteredReports.length === 0 && reports.length > 0 && (
             <Card>
               <CardContent className="py-12 text-center">
                 <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">
-                  {reports.length === 0 ? "Ingen rapporter ennå" : "Ingen rapporter funnet"}
-                </h3>
+                <h3 className="text-lg font-semibold mb-2">Ingen rapporter funnet</h3>
                 <p className="text-muted-foreground mb-4">
-                  {reports.length === 0
-                    ? "Opprett din første saksrapport for å komme i gang med dokumentasjon og oppfølging."
-                    : "Juster filtrene eller opprett en ny rapport for å komme i gang."}
+                  Juster filtrene eller opprett en ny rapport for å komme i gang.
                 </p>
-                {onCreateNew && (
-                  <Button onClick={onCreateNew} className="gap-2">
-                    <FileText className="h-4 w-4" />
-                    Opprett første rapport
-                  </Button>
-                )}
               </CardContent>
             </Card>
+          )}
+
+          {reports.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-16 px-4">
+              {/* Illustrated empty state */}
+              <div className="relative w-full max-w-lg mx-auto mb-8">
+                {/* Background shape */}
+                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 -z-10" />
+
+                <div className="flex items-start gap-4 p-8">
+                  {/* Left: case card mock */}
+                  <div className="flex-1 space-y-4">
+                    {/* Case header card */}
+                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-4 space-y-2">
+                      <p className="text-xs text-muted-foreground font-medium">Sak</p>
+                      <p className="text-sm font-semibold">SAK-2024-001</p>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Calendar className="h-3 w-3" />
+                        <span>Februar 2028</span>
+                      </div>
+                    </div>
+
+                    {/* Section checkmarks */}
+                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-4 space-y-2.5">
+                      {["Bakgrunn", "Tiltak", "Vurdering"].map((s) => (
+                        <div key={s} className="flex items-center gap-2">
+                          <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          <span className="text-sm font-medium">{s}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Right: report + badges */}
+                  <div className="flex-1 space-y-4 pt-2">
+                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-5 text-center">
+                      <h3 className="text-lg font-bold mb-1">Saksrapport</h3>
+                      <div className="flex justify-center">
+                        <div className="h-px w-16 bg-border" />
+                      </div>
+                      <div className="mt-3 flex justify-center">
+                        <div className="rounded-full bg-primary/10 p-2">
+                          <Plus className="h-5 w-5 text-primary" />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* GDPR badge */}
+                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-3 space-y-2">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Lock className="h-4 w-4 text-slate-600 dark:text-slate-400" />
+                        GDPR-sikkert
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Ingen persondata
+                      </div>
+                    </div>
+
+                    {/* Chat hint */}
+                    <div className="flex justify-end">
+                      <div className="rounded-full bg-primary/10 p-2">
+                        <MessageCircle className="h-4 w-4 text-primary" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Text + CTA */}
+              <h3 className="text-xl font-semibold mb-2">Ingen rapporter ennå</h3>
+              <p className="text-muted-foreground text-center max-w-md mb-6">
+                Opprett din første saksrapport for å komme i gang med dokumentasjon og oppfølging.
+              </p>
+              {onCreateNew && (
+                <Button onClick={onCreateNew} size="lg" className="gap-2">
+                  <Plus className="h-5 w-5" />
+                  Opprett første saksrapport
+                </Button>
+              )}
+            </div>
           )}
         </div>
       )}
