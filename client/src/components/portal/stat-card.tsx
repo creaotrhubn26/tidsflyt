@@ -4,9 +4,16 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMemo } from "react";
 import type { ReactNode } from "react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+} from "recharts";
 
 /* ═══════════════════════════════════════════════════
    Types
@@ -21,7 +28,8 @@ interface TrendData {
   previousValue?: number;
 }
 
-type StatVariant = "primary" | "success" | "warning" | "info" | "neutral";
+type StatVariant = "primary" | "success" | "warning" | "danger" | "info" | "neutral";
+type TrendDirection = "goodUp" | "goodDown";
 
 interface StatCardProps {
   /** Stable ID for tests – falls back to title slug */
@@ -31,6 +39,8 @@ interface StatCardProps {
   value: string | number;
   icon: ReactNode;
   trend?: TrendData;
+  /** Semantic direction: "goodUp" = increase is green, "goodDown" = decrease is green */
+  trendDirection?: TrendDirection;
   /** Colour variant controlling icon capsule tint */
   variant?: StatVariant;
   /** @deprecated — use `variant` instead. Kept for backwards compat */
@@ -47,22 +57,63 @@ interface StatCardProps {
   onClick?: () => void;
   /** Text displayed when trend data doesn't exist yet */
   noTrendLabel?: string;
+  /** Show skeleton loader inside the card */
+  loading?: boolean;
+  /** If true or string, show an empty-data state instead of 0 */
+  emptyLabel?: string | boolean;
+  /** Sparkline data points (12–30 numeric values), rendered as a subtle line chart */
+  sparkline?: number[];
 }
 
 /* ═══════════════════════════════════════════════════
-   Variant → icon capsule styles
+   Variant → icon capsule styles + sparkline stroke
    ═══════════════════════════════════════════════════ */
 
-const VARIANT_STYLES: Record<StatVariant, string> = {
-  primary:
-    "bg-[#1F6B73]/10 dark:bg-[#51C2D0]/10 text-[#1F6B73] dark:text-[#51C2D0] border-[#1F6B73]/15 dark:border-[#51C2D0]/15",
-  success:
-    "bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/15 dark:border-emerald-400/15",
-  warning:
-    "bg-amber-500/10 dark:bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-500/15 dark:border-amber-400/15",
-  info: "bg-sky-500/10 dark:bg-sky-400/10 text-sky-600 dark:text-sky-400 border-sky-500/15 dark:border-sky-400/15",
-  neutral:
-    "bg-[#5d6d72]/10 dark:bg-muted text-[#5d6d72] dark:text-muted-foreground border-[#5d6d72]/10 dark:border-border",
+interface VariantStyle {
+  capsule: string;
+  /** Sparkline stroke colour (light mode) */
+  spark: string;
+  /** Sparkline stroke colour (dark mode) */
+  sparkDark: string;
+}
+
+const VARIANT_STYLES: Record<StatVariant, VariantStyle> = {
+  primary: {
+    capsule:
+      "bg-[#1F6B73]/10 dark:bg-[#51C2D0]/10 text-[#1F6B73] dark:text-[#51C2D0] border-[#1F6B73]/15 dark:border-[#51C2D0]/15",
+    spark: "#1F6B73",
+    sparkDark: "#51C2D0",
+  },
+  success: {
+    capsule:
+      "bg-emerald-500/10 dark:bg-emerald-400/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/15 dark:border-emerald-400/15",
+    spark: "#059669",
+    sparkDark: "#34d399",
+  },
+  warning: {
+    capsule:
+      "bg-amber-500/10 dark:bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-500/15 dark:border-amber-400/15",
+    spark: "#d97706",
+    sparkDark: "#fbbf24",
+  },
+  danger: {
+    capsule:
+      "bg-red-500/10 dark:bg-red-400/10 text-red-600 dark:text-red-400 border-red-500/15 dark:border-red-400/15",
+    spark: "#dc2626",
+    sparkDark: "#f87171",
+  },
+  info: {
+    capsule:
+      "bg-sky-500/10 dark:bg-sky-400/10 text-sky-600 dark:text-sky-400 border-sky-500/15 dark:border-sky-400/15",
+    spark: "#0284c7",
+    sparkDark: "#38bdf8",
+  },
+  neutral: {
+    capsule:
+      "bg-[#5d6d72]/10 dark:bg-muted text-[#5d6d72] dark:text-muted-foreground border-[#5d6d72]/10 dark:border-border",
+    spark: "#5d6d72",
+    sparkDark: "#94a3b8",
+  },
 };
 
 /* ═══════════════════════════════════════════════════
@@ -75,7 +126,6 @@ const VARIANT_STYLES: Record<StatVariant, string> = {
  */
 function formatValue(value: string | number, unit?: string): string {
   if (typeof value === "string") return value;
-  // Thousands-separated with space (nb-NO convention)
   const formatted = Number.isInteger(value)
     ? value.toLocaleString("nb-NO")
     : value.toLocaleString("nb-NO", {
@@ -89,6 +139,7 @@ function formatValue(value: string | number, unit?: string): string {
 function computeDelta(
   currentValue: string | number,
   previousValue: number | undefined,
+  unit?: string,
 ): string | null {
   if (previousValue === undefined) return null;
   const current =
@@ -98,14 +149,43 @@ function computeDelta(
   if (isNaN(current)) return null;
   if (previousValue === 0) return "ny";
   const delta = current - previousValue;
-  const sign = delta >= 0 ? "+" : "";
-  // Format with same precision as value
   const abs = Math.abs(delta);
   const formatted =
     abs >= 100
       ? Math.round(abs).toLocaleString("nb-NO")
       : abs.toFixed(1).replace(".", ",");
-  return `${sign}${delta < 0 ? "-" : ""}${formatted}`;
+  const sign = delta >= 0 ? "+" : "\u2212";
+  return `${sign}${formatted}${unit ?? ""}`;
+}
+
+/* ═══════════════════════════════════════════════════
+   Sparkline sub-component
+   ═══════════════════════════════════════════════════ */
+
+function Sparkline({
+  data,
+  stroke,
+}: {
+  data: number[];
+  stroke: string;
+}) {
+  const chartData = useMemo(() => data.map((v) => ({ v })), [data]);
+  return (
+    <div className="h-8 w-[72px] shrink-0 opacity-60">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 2, right: 1, bottom: 2, left: 1 }}>
+          <Line
+            type="monotone"
+            dataKey="v"
+            stroke={stroke}
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 /* ═══════════════════════════════════════════════════
@@ -118,6 +198,7 @@ export function StatCard({
   value,
   icon,
   trend,
+  trendDirection,
   variant = "primary",
   colorClass,
   unit,
@@ -126,6 +207,9 @@ export function StatCard({
   subtitle,
   onClick,
   noTrendLabel,
+  loading,
+  emptyLabel,
+  sparkline,
 }: StatCardProps) {
   const testId =
     statId ??
@@ -138,20 +222,69 @@ export function StatCard({
       .replace(/[^a-z0-9-]/g, "")}`;
 
   const clickable = !!onClick;
+  const vs = VARIANT_STYLES[variant];
   const capsuleStyle = colorClass
     ? cn(
         "border bg-[#e7f3ee] dark:bg-muted border-[#d5e5df] dark:border-border",
         colorClass,
       )
-    : cn("border", VARIANT_STYLES[variant]);
+    : cn("border", vs.capsule);
+
+  // Detect dark mode for sparkline colour
+  const isDark =
+    typeof document !== "undefined" &&
+    document.documentElement.classList.contains("dark");
+  const sparkStroke = isDark ? vs.sparkDark : vs.spark;
+
+  // Resolve trend isPositive via trendDirection if provided
+  const resolvedIsPositive = useMemo(() => {
+    if (!trend) return false;
+    if (trendDirection === "goodDown") return trend.value <= 0;
+    if (trendDirection === "goodUp") return trend.value >= 0;
+    return trend.isPositive;
+  }, [trend, trendDirection]);
+
+  /* ── Empty check ── */
+  const showEmpty =
+    emptyLabel !== undefined &&
+    emptyLabel !== false &&
+    (value === 0 || value === "" || value === null || value === undefined);
+  const emptyText =
+    typeof emptyLabel === "string" ? emptyLabel : "Ingen data ennå";
+
+  /* ── Loading skeleton ── */
+  if (loading) {
+    return (
+      <Card
+        className={cn(
+          "overflow-visible rounded-2xl border-[#d8e4e0] dark:border-border",
+          "bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card",
+          "shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none",
+          "ring-1 ring-black/[0.04] dark:ring-white/[0.04]",
+        )}
+        data-testid={testId}
+        aria-busy="true"
+      >
+        <CardContent className="p-5 sm:p-6">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0 flex-1 min-h-[88px]">
+              <Skeleton className="h-4 w-24 mb-3" />
+              <Skeleton className="h-8 w-20 mb-2" />
+              <Skeleton className="h-[22px] w-32 rounded-full" />
+            </div>
+            <Skeleton className="h-11 w-11 shrink-0 rounded-xl" />
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
 
   /* ── Trend rendering ── */
   const trendPill = (() => {
     if (!trend) {
-      // No trend data at all
       if (noTrendLabel) {
         return (
-          <span className="mt-2 inline-flex items-center gap-1 rounded-full border border-[#dbe6e2] dark:border-border bg-[#f7fbf9] dark:bg-muted px-2 py-0.5 text-[11px] font-medium text-[#5d6d72] dark:text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded-full border border-[#dbe6e2] dark:border-border bg-[#f7fbf9] dark:bg-muted px-2 py-0.5 text-[11px] font-medium text-[#5d6d72] dark:text-muted-foreground tabular-nums">
             <Minus className="h-3 w-3 opacity-50" />
             {noTrendLabel}
           </span>
@@ -163,26 +296,26 @@ export function StatCard({
     const isZero = trend.value === 0;
     const pillColor = isZero
       ? "border-[#dbe6e2] dark:border-border bg-[#f7fbf9] dark:bg-muted text-[#5d6d72] dark:text-muted-foreground"
-      : trend.isPositive
+      : resolvedIsPositive
         ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400"
         : "border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400";
 
     const TrendIcon = isZero
       ? Minus
-      : trend.isPositive
+      : trend.value >= 0
         ? TrendingUp
         : TrendingDown;
 
     const pctLabel = `${trend.value > 0 ? "+" : ""}${trend.value.toFixed(1)}%`;
-    const delta = computeDelta(value, trend.previousValue);
+    const delta = computeDelta(value, trend.previousValue, unit);
     const periodText = periodLabel ?? "vs forrige periode";
 
     return (
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         {/* Pill */}
         <span
           className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-none",
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold leading-none tabular-nums",
             pillColor,
           )}
         >
@@ -191,9 +324,8 @@ export function StatCard({
         </span>
         {/* Absolute delta */}
         {delta && (
-          <span className="text-[11px] font-medium text-[#5d6d72] dark:text-muted-foreground">
-            ({delta}
-            {unit ? unit : ""})
+          <span className="text-[11px] font-medium text-[#5d6d72] dark:text-muted-foreground tabular-nums">
+            ({delta})
           </span>
         )}
         {/* Period label */}
@@ -208,7 +340,7 @@ export function StatCard({
   const content = (
     <CardContent className="p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 min-h-[88px]">
           {/* Title + info tooltip */}
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-medium text-[#5f7075] dark:text-muted-foreground">
@@ -229,10 +361,22 @@ export function StatCard({
             )}
           </div>
 
-          {/* Value — responsive typography */}
-          <p className="mt-2 text-2xl font-semibold tracking-tight text-[#153c46] dark:text-foreground md:text-3xl">
-            {formatValue(value, unit)}
-          </p>
+          {/* Value — responsive, tabular nums */}
+          {showEmpty ? (
+            <p className="mt-2 text-sm font-medium text-[#5d6d72] dark:text-muted-foreground italic">
+              {emptyText}
+            </p>
+          ) : (
+            <div className="mt-2 flex items-end gap-3">
+              <p className="text-2xl font-semibold tracking-tight text-[#153c46] dark:text-foreground md:text-3xl tabular-nums">
+                {formatValue(value, unit)}
+              </p>
+              {/* Sparkline sits next to the value */}
+              {sparkline && sparkline.length >= 4 && (
+                <Sparkline data={sparkline} stroke={sparkStroke} />
+              )}
+            </div>
+          )}
 
           {/* Optional subtitle */}
           {subtitle && (
@@ -241,8 +385,8 @@ export function StatCard({
             </p>
           )}
 
-          {/* Trend pill */}
-          {trendPill}
+          {/* Trend pill — always reserves vertical space for stable layout */}
+          <div className="mt-2 min-h-[22px]">{trendPill}</div>
         </div>
 
         {/* Icon capsule — variant-driven */}
@@ -273,7 +417,7 @@ export function StatCard({
       onClick={onClick}
       onKeyDown={
         clickable
-          ? (e) => {
+          ? (e: React.KeyboardEvent) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onClick?.();

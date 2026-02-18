@@ -438,74 +438,75 @@ export default function DashboardPage() {
               {statsLoading ? (
                 <>
                   {[1, 2, 3, 4].map(i => (
-                    <Card key={i} className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/90 dark:bg-card">
-                      <CardContent className="p-6">
-                        <Skeleton className="mb-4 h-4 w-24" />
-                        <Skeleton className="mb-2 h-8 w-16" />
-                        <Skeleton className="h-3 w-20" />
-                      </CardContent>
-                    </Card>
+                    <StatCard
+                      key={i}
+                      statId={`skeleton-${i}`}
+                      title=""
+                      value=""
+                      icon={null}
+                      loading
+                    />
                   ))}
                 </>
               ) : stats ? (
                 <>
-                  <div onClick={() => navigate("/users")} className="cursor-pointer transition-transform hover:scale-105">
-                    <StatCard
-                      statId="active-users"
-                      title="Aktive brukere"
-                      value={stats.activeUsers}
-                      icon={<Users className="h-5 w-5" />}
-                      trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
-                      variant="primary"
-                      periodLabel="Siste 7 dager"
-                      description="Antall brukere som har vært aktive i perioden"
-                      noTrendLabel="Samler data…"
-                      data-testid="stat-active-users"
-                    />
-                  </div>
-                  <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
-                    <StatCard
-                      statId="pending-approvals"
-                      title="Ventende godkjenninger"
-                      value={stats.pendingApprovals}
-                      icon={<AlertCircle className="h-5 w-5" />}
-                      trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
-                      variant="warning"
-                      periodLabel="Siste 7 dager"
-                      description="Timelister som venter på godkjenning"
-                      noTrendLabel="Ingen historikk ennå"
-                      data-testid="stat-pending-approvals"
-                    />
-                  </div>
-                  <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
-                    <StatCard
-                      statId="total-hours"
-                      title="Registrerte timer"
-                      value={stats.totalHours}
-                      unit="t"
-                      icon={<Clock className="h-5 w-5" />}
-                      trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
-                      variant="success"
-                      periodLabel="Denne uken"
-                      description="Totalt registrerte timer i perioden"
-                      noTrendLabel="Samler data…"
-                      data-testid="stat-total-hours"
-                    />
-                  </div>
-                  <div onClick={() => navigate("/cases")} className="cursor-pointer transition-transform hover:scale-105">
-                    <StatCard
-                      statId="cases-week"
-                      title="Saker denne uken"
-                      value={stats.casesThisWeek}
-                      icon={<FileText className="h-5 w-5" />}
-                      trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
-                      variant="info"
-                      periodLabel="Denne uken"
-                      description="Antall saker opprettet denne uken"
-                      noTrendLabel="Ingen historikk ennå"
-                      data-testid="stat-cases"
-                    />
-                  </div>
+                  <StatCard
+                    statId="active-users"
+                    title="Aktive brukere"
+                    value={stats.activeUsers}
+                    icon={<Users className="h-5 w-5" />}
+                    trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
+                    trendDirection="goodUp"
+                    variant="primary"
+                    periodLabel="Siste 7 dager"
+                    description="Antall brukere som har vært aktive i perioden"
+                    noTrendLabel="Samler data…"
+                    emptyLabel="Ingen brukere ennå"
+                    onClick={() => navigate("/users")}
+                  />
+                  <StatCard
+                    statId="pending-approvals"
+                    title="Ventende godkjenninger"
+                    value={stats.pendingApprovals}
+                    icon={<AlertCircle className="h-5 w-5" />}
+                    trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
+                    trendDirection="goodDown"
+                    variant="warning"
+                    periodLabel="Siste 7 dager"
+                    description="Timelister som venter på godkjenning"
+                    noTrendLabel="Ingen historikk ennå"
+                    emptyLabel="Ingen ventende"
+                    onClick={() => navigate("/time-tracking")}
+                  />
+                  <StatCard
+                    statId="total-hours"
+                    title="Registrerte timer"
+                    value={stats.totalHours}
+                    unit="t"
+                    icon={<Clock className="h-5 w-5" />}
+                    trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
+                    trendDirection="goodUp"
+                    variant="success"
+                    periodLabel="Denne uken"
+                    description="Totalt registrerte timer i perioden"
+                    noTrendLabel="Samler data…"
+                    emptyLabel="Ingen timer registrert"
+                    onClick={() => navigate("/time-tracking")}
+                  />
+                  <StatCard
+                    statId="cases-week"
+                    title="Saker denne uken"
+                    value={stats.casesThisWeek}
+                    icon={<FileText className="h-5 w-5" />}
+                    trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
+                    trendDirection="goodUp"
+                    variant="info"
+                    periodLabel="Denne uken"
+                    description="Antall saker opprettet denne uken"
+                    noTrendLabel="Ingen historikk ennå"
+                    emptyLabel="Ingen saker denne uken"
+                    onClick={() => navigate("/cases")}
+                  />
                 </>
               ) : null}
             </div>
