@@ -451,37 +451,58 @@ export default function DashboardPage() {
                 <>
                   <div onClick={() => navigate("/users")} className="cursor-pointer transition-transform hover:scale-105">
                     <StatCard
+                      statId="active-users"
                       title="Aktive brukere"
                       value={stats.activeUsers}
                       icon={<Users className="h-5 w-5" />}
                       trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
+                      variant="primary"
+                      periodLabel="Siste 7 dager"
+                      description="Antall brukere som har vært aktive i perioden"
+                      noTrendLabel="Samler data…"
                       data-testid="stat-active-users"
                     />
                   </div>
                   <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
                     <StatCard
+                      statId="pending-approvals"
                       title="Ventende godkjenninger"
                       value={stats.pendingApprovals}
                       icon={<AlertCircle className="h-5 w-5" />}
                       trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
+                      variant="warning"
+                      periodLabel="Siste 7 dager"
+                      description="Timelister som venter på godkjenning"
+                      noTrendLabel="Ingen historikk ennå"
                       data-testid="stat-pending-approvals"
                     />
                   </div>
                   <div onClick={() => navigate("/time-tracking")} className="cursor-pointer transition-transform hover:scale-105">
                     <StatCard
+                      statId="total-hours"
                       title="Registrerte timer"
-                      value={`${stats.totalHours.toFixed(1)}t`}
+                      value={stats.totalHours}
+                      unit="t"
                       icon={<Clock className="h-5 w-5" />}
                       trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
+                      variant="success"
+                      periodLabel="Denne uken"
+                      description="Totalt registrerte timer i perioden"
+                      noTrendLabel="Samler data…"
                       data-testid="stat-total-hours"
                     />
                   </div>
                   <div onClick={() => navigate("/cases")} className="cursor-pointer transition-transform hover:scale-105">
                     <StatCard
+                      statId="cases-week"
                       title="Saker denne uken"
                       value={stats.casesThisWeek}
                       icon={<FileText className="h-5 w-5" />}
                       trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
+                      variant="info"
+                      periodLabel="Denne uken"
+                      description="Antall saker opprettet denne uken"
+                      noTrendLabel="Ingen historikk ennå"
                       data-testid="stat-cases"
                     />
                   </div>
