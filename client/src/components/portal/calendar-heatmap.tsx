@@ -440,9 +440,9 @@ export function CalendarHeatmap({
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-7 gap-1.5 mb-2">
+        <div className="grid grid-cols-7 gap-2 mb-2">
           {weekDays.map((day) => (
-            <div key={day} className="py-1 text-center text-xs font-semibold text-[var(--hm-text-muted)]">
+            <div key={day} className="py-1 text-center text-[11px] font-medium tracking-wide text-[var(--hm-text-muted)]">
               {day}
             </div>
           ))}
@@ -451,7 +451,7 @@ export function CalendarHeatmap({
         <motion.div
           ref={gridRef}
           key={monthKey}
-          className="grid grid-cols-7 gap-1.5 transform-gpu"
+          className="grid grid-cols-7 gap-2 transform-gpu"
           role="grid"
           aria-label={`Kalender for ${format(monthStart, "MMMM yyyy", { locale: nb })}`}
           initial={reduceMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: monthDirection >= 0 ? 14 : -14 }}
@@ -490,15 +490,18 @@ export function CalendarHeatmap({
                     role="gridcell"
                     onClick={() => onDateSelect(dateStr)}
                     className={cn(
-                      "relative aspect-square rounded-md border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
+                      "relative aspect-square rounded-[10px] border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
                       isCurrentDay && !isSelected && "ring-2 ring-[var(--hm-accent)]/40 border-[var(--hm-accent)]/50",
                       isSelected
                         ? "border-[var(--hm-accent)] ring-2 ring-[var(--hm-accent)]/40 shadow-[inset_0_0_0_1.5px_var(--hm-accent-muted)]"
-                        : !isCurrentDay && "border-[var(--hm-border-subtle)] hover:border-[var(--hm-accent)]/40",
+                        : !isCurrentDay && "border-transparent hover:border-[var(--hm-accent)]/30",
                       // Text color: high intensity uses white, low uses normal text
                       intensity >= 4 ? "text-white" : "text-[var(--hm-text)]",
                     )}
-                    style={{ backgroundColor: getIntensityColor(dayHours) }}
+                    style={{
+                      backgroundColor: getIntensityColor(dayHours),
+                      boxShadow: dayHours > 0 && !isSelected ? "var(--hm-cell-active-shadow)" : undefined,
+                    }}
                     data-testid={`heatmap-day-${dateStr}`}
                     aria-label={ariaLabel}
                     aria-selected={isSelected}
@@ -577,7 +580,7 @@ export function CalendarHeatmap({
             <div className="flex">
               {palette.map((color, i) => (
                 <div key={`pal-${i}`} className="flex flex-col items-center">
-                  <div className="h-3 w-5 border border-[var(--hm-border-subtle)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '3px 0 0 3px' : i === palette.length - 1 ? '0 3px 3px 0' : 0 }} />
+                  <div className="h-3 w-5 border border-[var(--hm-border-subtle)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '4px 0 0 4px' : i === palette.length - 1 ? '0 4px 4px 0' : 0 }} />
                   <span className="text-[8px] leading-tight mt-0.5 text-[var(--hm-text-muted)]">{legendTicks[i]}</span>
                 </div>
               ))}
