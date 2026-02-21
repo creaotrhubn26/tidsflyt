@@ -422,15 +422,20 @@ export function CalendarHeatmap({
     });
   }, [monthMaxHours]);
 
-  const getIntensityColor = (hours: number) => {
-    if (hours <= 0) return palette[0];
-    const ratio = hours / monthMaxHours;
-    if (ratio < 0.2) return palette[1];
-    if (ratio < 0.4) return palette[2];
-    if (ratio < 0.6) return palette[3];
-    if (ratio < 0.8) return palette[4];
-    return palette[5];
-  };
+  // Compute days since last entry across all month days (uses differenceInCalendarDays)
+  const daysSinceLastEntry = useMemo(() => {
+    let lastEntryDate: Date | null = null;
+    for (const day of [...monthDays].reverse()) {
+      const k = format(day, "yyyy-MM-dd");
+      if ((heatmapHoursByDate.get(k) ?? 0) > 0 || (entriesByDate.get(k) ?? []).length > 0) {
+        lastEntryDate = day;
+        break;
+      }
+    }
+    if (!lastEntryDate) return null;
+    const diff = differenceInCalendarDays(today, lastEntryDate);
+    return diff;
+  }, [monthDays, heatmapHoursByDate, entriesByDate, today]);
 
   const getIntensityIndex = (hours: number): number => {
     if (hours <= 0) return 0;
@@ -614,6 +619,16 @@ export function CalendarHeatmap({
           <span className="font-medium">Totalt: <span className="text-[var(--hm-text)] font-semibold">{formatHoursMinutes(monthTotalHours)}</span></span>
           <span>Snitt: <span className="text-[var(--hm-text)] font-semibold">{avgHoursPerDay.toFixed(1)}t/dag</span></span>
           <span>{monthTotalEntries} registrering{monthTotalEntries !== 1 ? "er" : ""}</span>
+          {daysSinceLastEntry !== null && (
+            <span title="Dager siden siste registrering denne måneden">
+              {daysSinceLastEntry === 0
+                ? <span className="text-[var(--hm-accent)] font-semibold">Registrert i dag</span>
+                : <span className={daysSinceLastEntry > 7 ? "text-amber-600 dark:text-amber-400" : ""}>
+                    {daysSinceLastEntry} dag{daysSinceLastEntry !== 1 ? "er" : ""} siden siste reg.
+                  </span>
+              }
+            </span>
+          )}
           {lastUpdatedLabel && (
             <span className="ml-auto text-[11px] text-[var(--hm-text-muted)]">Oppdatert {lastUpdatedLabel}</span>
           )}
@@ -626,12 +641,11 @@ export function CalendarHeatmap({
               <span>Mål: {monthlyGoalHours}t</span>
               <span>{Math.min(100, Math.round((monthTotalHours / monthlyGoalHours) * 100))}%</span>
             </div>
-            <div className="h-1.5 w-full rounded-full bg-[var(--hm-palette-0)]">
-              <div
-                className="h-full rounded-full bg-[var(--hm-accent)] transition-all duration-300"
-                style={{ width: `${Math.min(100, (monthTotalHours / monthlyGoalHours) * 100)}%` }}
-              />
-            </div>
+            <progress
+              value={Math.round(Math.min(100, (monthTotalHours / monthlyGoalHours) * 100))}
+              max={100}
+              className="hm-progress-bar h-1.5 w-full rounded-full"
+            />
           </div>
         )}
       </CardHeader>
@@ -715,113 +729,112 @@ export function CalendarHeatmap({
           ref={gridRef}
           key={monthKey}
           className="grid grid-cols-7 gap-2 transform-gpu"
-          role="grid"
+          role="region"
           aria-label={`Kalender for ${format(monthStart, "MMMM yyyy", { locale: nb })}`}
           initial={reduceMotion ? { opacity: 1, x: 0 } : { opacity: 0, x: monthDirection >= 0 ? 14 : -14 }}
           animate={{ opacity: 1, x: 0 }}
           transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: "easeOut" }}
           onKeyDown={handleGridKeyDown}
         >
-          {Array.from({ length: startDayOffset }).map((_, i) => (
-            <div key={`empty-${monthKey}-${i}`} className="aspect-square opacity-30" />
-          ))}
-          {monthDays.map((day, dayIndex) => {
-            const dateStr = format(day, "yyyy-MM-dd");
-            const dayHours = heatmapHoursByDate.get(dateStr) ?? 0;
-            const dayEntries = entriesByDate.get(dateStr) ?? [];
-            const filteredDayEntries = filteredEntriesByDate.get(dateStr) ?? [];
-            const dayEntryCount = filteredDayEntries.length;
-            const totalEntryCount = dayEntries.length;
-            const dayCaseCount = new Set(dayEntries.map(e => e.caseNumber).filter(Boolean)).size;
-            const dayPendingCount = dayEntries.filter(e => e.status === "pending").length;
-            const isSelected = effectiveSelectedDate === dateStr;
-            const isCurrentDay = isToday(day);
-            const markers = markersByDate.get(dateStr) ?? [];
-            const hasHoliday = markers.some((marker) => marker.kind === "holiday");
-            const hasVacation = markers.some((marker) => marker.kind === "vacation");
-            const intensity = getIntensityIndex(dayHours);
-            const isRecent = day >= recentCutoff && day <= today;
-            const dayWeekRow = Math.floor((dayIndex + startDayOffset) / 7);
-            const isSelectedRow = dayWeekRow === selectedWeekRow;
-            const inRange = isInRange(dateStr);
+          {(() => {
+            // Build all cells (empty offset + actual days) into a flat list, then group into weeks
+            const allCells: React.ReactNode[] = [];
 
-            // Dim cells when a non-"all" filter is active and day has no matching entries
-            const isDimmed = statusFilter !== "all" && dayEntryCount === 0 && totalEntryCount > 0;
+            // Empty offset cells
+            for (let i = 0; i < startDayOffset; i++) {
+              allCells.push(
+                <div
+                  key={`empty-${monthKey}-${i}`}
+                  aria-hidden="true"
+                  className="aspect-square opacity-30"
+                />
+              );
+            }
 
-            // Build accessible aria-label
-            const parts: string[] = [format(day, "EEEE d. MMMM", { locale: nb })];
-            if (dayHours > 0) parts.push(`Totalt: ${formatHoursMinutes(dayHours)}`);
-            if (totalEntryCount > 0) parts.push(`${totalEntryCount} registrering${totalEntryCount !== 1 ? "er" : ""}`);
-            if (dayCaseCount > 0) parts.push(`${dayCaseCount} sak${dayCaseCount !== 1 ? "er" : ""}`);
-            if (dayPendingCount > 0) parts.push(`${dayPendingCount} til godkjenning`);
-            markers.forEach(m => parts.push(m.label));
-            if (dayHours === 0 && totalEntryCount === 0) parts.push("Klikk for å legge til");
-            const ariaLabel = parts.join(" – ");
+            // Actual day cells
+            monthDays.forEach((day, dayIndex) => {
+              const dateStr = format(day, "yyyy-MM-dd");
+              const dayHours = heatmapHoursByDate.get(dateStr) ?? 0;
+              const dayEntries = entriesByDate.get(dateStr) ?? [];
+              const filteredDayEntries = filteredEntriesByDate.get(dateStr) ?? [];
+              const dayEntryCount = filteredDayEntries.length;
+              const totalEntryCount = dayEntries.length;
+              const dayCaseCount = new Set(dayEntries.map(e => e.caseNumber).filter(Boolean)).size;
+              const dayPendingCount = dayEntries.filter(e => e.status === "pending").length;
+              const isSelected = effectiveSelectedDate === dateStr;
+              const isCurrentDay = isToday(day);
+              const markers = markersByDate.get(dateStr) ?? [];
+              const hasHoliday = markers.some((marker) => marker.kind === "holiday");
+              const hasVacation = markers.some((marker) => marker.kind === "vacation");
+              const intensity = getIntensityIndex(dayHours);
+              const isRecent = day >= recentCutoff && day <= today;
+              const dayWeekRow = Math.floor((dayIndex + startDayOffset) / 7);
+              const isSelectedRow = dayWeekRow === selectedWeekRow;
+              const inRange = isInRange(dateStr);
 
-            // Entry count dots (1–4 dots for registration count)
-            const dotCount = Math.min(totalEntryCount, 4);
+              const isDimmed = statusFilter !== "all" && dayEntryCount === 0 && totalEntryCount > 0;
 
-            return (
-              <Tooltip key={dateStr}>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="gridcell"
-                    onClick={(e) => handleDayClick(dateStr, e)}
-                    className={cn(
-                      "relative aspect-square rounded-[10px] border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
-                      isCurrentDay && !isSelected && "ring-2 ring-[var(--hm-accent)]/40 border-[var(--hm-accent)]/50",
-                      isSelected
-                        ? "border-[var(--hm-accent)] ring-2 ring-[var(--hm-accent)]/40 shadow-[inset_0_0_0_1.5px_var(--hm-accent-muted)]"
-                        : !isCurrentDay && "border-transparent hover:border-[var(--hm-accent)]/30",
-                      intensity >= 4 ? "text-white" : "text-[var(--hm-text)]",
-                      // Row highlight for selected week
-                      isSelectedRow && !isSelected && "bg-[var(--hm-accent)]/[0.03]",
-                      // Range highlight
-                      inRange && !isSelected && "ring-1 ring-[var(--hm-accent)]/30 bg-[var(--hm-accent)]/[0.06]",
-                      // Recent 7-day glow
-                      isRecent && !isSelected && !isCurrentDay && "ring-1 ring-[var(--hm-accent)]/15",
-                      // Dimmed when filter doesn't match
-                      isDimmed && "opacity-40",
-                    )}
-                    style={{
-                      backgroundColor: !isSelectedRow || isSelected ? getIntensityColor(dayHours) : undefined,
-                      boxShadow: dayHours > 0 && !isSelected ? "var(--hm-cell-active-shadow)" : undefined,
-                    }}
-                    data-testid={`heatmap-day-${dateStr}`}
-                    aria-label={ariaLabel}
-                    aria-selected={isSelected}
-                    tabIndex={isSelected ? 0 : -1}
-                  >
-                    {format(day, "d")}
-                    {/* Holiday corner badge */}
-                    {hasHoliday && (
-                      <span className="absolute -top-px -left-px w-0 h-0 border-l-[8px] border-t-[8px] border-l-[var(--hm-marker-holiday)] border-t-[var(--hm-marker-holiday)] border-r-[8px] border-b-[8px] border-r-transparent border-b-transparent rounded-tl-[9px]" />
-                    )}
-                    {/* Vacation corner badge */}
-                    {hasVacation && (
-                      <span className="absolute -bottom-px -right-px w-0 h-0 border-r-[8px] border-b-[8px] border-r-[var(--hm-marker-vacation)] border-b-[var(--hm-marker-vacation)] border-l-[8px] border-t-[8px] border-l-transparent border-t-transparent rounded-br-[9px]" />
-                    )}
-                    {/* Today indicator */}
-                    {isCurrentDay && (
-                      <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-today-dot)]" />
-                    )}
-                    {/* Registration dots (1–4) at bottom */}
-                    {dotCount > 0 && (
-                      <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 flex gap-[2px]">
-                        {Array.from({ length: dotCount }).map((_, di) => (
-                          <span
-                            key={di}
-                            className={cn(
-                              "h-[3px] w-[3px] rounded-full",
-                              intensity >= 4 ? "bg-white/70" : "bg-[var(--hm-accent)]/60",
-                            )}
-                          />
-                        ))}
-                      </span>
-                    )}
-                  </button>
-                </TooltipTrigger>
+              const parts: string[] = [format(day, "EEEE d. MMMM", { locale: nb })];
+              if (dayHours > 0) parts.push(`Totalt: ${formatHoursMinutes(dayHours)}`);
+              if (totalEntryCount > 0) parts.push(`${totalEntryCount} registrering${totalEntryCount !== 1 ? "er" : ""}`);
+              if (dayCaseCount > 0) parts.push(`${dayCaseCount} sak${dayCaseCount !== 1 ? "er" : ""}`);
+              if (dayPendingCount > 0) parts.push(`${dayPendingCount} til godkjenning`);
+              markers.forEach(m => parts.push(m.label));
+              if (dayHours === 0 && totalEntryCount === 0) parts.push("Klikk for å legge til");
+              const ariaLabel = parts.join(" – ");
+
+              const dotCount = Math.min(totalEntryCount, 4);
+
+              allCells.push(
+                <Tooltip key={dateStr}>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={(e) => handleDayClick(dateStr, e)}
+                      className={cn(
+                        "hm-cell relative aspect-square rounded-[10px] border text-xs font-semibold transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--hm-accent)] focus-visible:ring-offset-1",
+                        isCurrentDay && !isSelected && "ring-2 ring-[var(--hm-accent)]/40 border-[var(--hm-accent)]/50",
+                        isSelected
+                          ? "border-[var(--hm-accent)] ring-2 ring-[var(--hm-accent)]/40 shadow-[inset_0_0_0_1.5px_var(--hm-accent-muted)]"
+                          : !isCurrentDay && "border-transparent hover:border-[var(--hm-accent)]/30",
+                        intensity >= 4 ? "text-white" : "text-[var(--hm-text)]",
+                        inRange && !isSelected && "ring-1 ring-[var(--hm-accent)]/30 bg-[var(--hm-accent)]/[0.06]",
+                        isRecent && !isSelected && !isCurrentDay && "ring-1 ring-[var(--hm-accent)]/15",
+                        isDimmed && "opacity-40",
+                      )}
+                      data-intensity={intensity}
+                      data-in-row={isSelectedRow && !isSelected ? "true" : "false"}
+                      data-has-shadow={dayHours > 0 && !isSelected ? "true" : "false"}
+                      data-testid={`heatmap-day-${dateStr}`}
+                      aria-label={ariaLabel}
+                      aria-pressed={isSelected ? "true" : "false"}
+                      tabIndex={isSelected ? 0 : -1}
+                    >
+                      {format(day, "d")}
+                      {hasHoliday && (
+                        <span className="absolute -top-px -left-px w-0 h-0 border-l-[8px] border-t-[8px] border-l-[var(--hm-marker-holiday)] border-t-[var(--hm-marker-holiday)] border-r-[8px] border-b-[8px] border-r-transparent border-b-transparent rounded-tl-[9px]" />
+                      )}
+                      {hasVacation && (
+                        <span className="absolute -bottom-px -right-px w-0 h-0 border-r-[8px] border-b-[8px] border-r-[var(--hm-marker-vacation)] border-b-[var(--hm-marker-vacation)] border-l-[8px] border-t-[8px] border-l-transparent border-t-transparent rounded-br-[9px]" />
+                      )}
+                      {isCurrentDay && (
+                        <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-[var(--hm-today-dot)]" />
+                      )}
+                      {dotCount > 0 && (
+                        <span className="absolute bottom-[3px] left-1/2 -translate-x-1/2 flex gap-[2px]">
+                          {Array.from({ length: dotCount }).map((_, di) => (
+                            <span
+                              key={di}
+                              className={cn(
+                                "h-[3px] w-[3px] rounded-full",
+                                intensity >= 4 ? "bg-white/70" : "bg-[var(--hm-accent)]/60",
+                              )}
+                            />
+                          ))}
+                        </span>
+                      )}
+                    </button>
+                  </TooltipTrigger>
                 {/* Rich tooltip */}
                 <TooltipContent className="space-y-1 min-w-[140px]">
                   <p className="font-semibold text-sm">{format(day, "EEEE d. MMM", { locale: nb })}</p>
@@ -852,8 +865,21 @@ export function CalendarHeatmap({
                   )}
                 </TooltipContent>
               </Tooltip>
-            );
-          })}
+            ); // close allCells.push()
+            }); // close monthDays.forEach
+
+            // Group cells into week rows of 7.
+            // Each row gets role="row" with className="contents" so the CSS grid layout is preserved.
+            const weekRows: React.ReactNode[][] = [];
+            for (let wi = 0; wi < allCells.length; wi += 7) {
+              weekRows.push(allCells.slice(wi, wi + 7));
+            }
+            return weekRows.map((rowCells, rowIndex) => (
+              <div key={rowIndex} className="contents">
+                {rowCells}
+              </div>
+            ));
+          })()}
         </motion.div>
 
         {/* Empty month overlay */}
@@ -879,9 +905,15 @@ export function CalendarHeatmap({
           <div className="flex items-end justify-end gap-0">
             <span className="text-[10px] text-[var(--hm-text-muted)] mr-1.5">Mindre</span>
             <div className="flex">
-              {palette.map((color, i) => (
+              {palette.map((_color, i) => (
                 <div key={`pal-${i}`} className="flex flex-col items-center">
-                  <div className="h-3 w-5 border border-[var(--hm-border-subtle)]" style={{ backgroundColor: color, borderRadius: i === 0 ? '4px 0 0 4px' : i === palette.length - 1 ? '0 4px 4px 0' : 0 }} />
+                  <div
+                    data-palette-idx={i}
+                    className={cn(
+                      "hm-legend-swatch h-3 w-5 border border-[var(--hm-border-subtle)]",
+                      i === 0 ? "rounded-l-[4px]" : i === palette.length - 1 ? "rounded-r-[4px]" : "",
+                    )}
+                  />
                   <span className="text-[8px] leading-tight mt-0.5 text-[var(--hm-text-muted)]">{legendTicks[i]}</span>
                 </div>
               ))}

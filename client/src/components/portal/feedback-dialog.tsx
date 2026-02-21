@@ -415,11 +415,24 @@ export function FeedbackDialog({ userId, vendorId }: FeedbackDialogProps) {
             <motion.div key="step2" {...motionProps} className="px-6 py-5 space-y-5">
               {/* Quick-reason chips */}
               <div className="space-y-2">
-                <p className="text-sm font-medium text-[#24383e] dark:text-foreground">
-                  {isPositive
-                    ? "Hva fungerte spesielt bra?"
-                    : "Hva bør vi forbedre først?"}
-                </p>
+                <div className="flex items-center gap-2">
+                  <p className="text-sm font-medium text-[#24383e] dark:text-foreground">
+                    {isPositive
+                      ? "Hva fungerte spesielt bra?"
+                      : "Hva bør vi forbedre først?"}
+                  </p>
+                  <Badge
+                    variant={isPositive ? "default" : "destructive"}
+                    className={cn(
+                      "text-[10px] px-1.5 py-0",
+                      isPositive
+                        ? "bg-[#1F6B73]/10 text-[#1F6B73] dark:bg-[#51C2D0]/10 dark:text-[#51C2D0] border-0"
+                        : "",
+                    )}
+                  >
+                    {isPositive ? "Positiv" : "Negativ"}
+                  </Badge>
+                </div>
                 <div className="flex flex-wrap gap-1.5">
                   {chips.map((chip) => {
                     const selected = selectedChips.includes(chip);

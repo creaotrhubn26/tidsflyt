@@ -274,6 +274,7 @@ export function ImageUploader({ onUpload }: ImageUploaderProps) {
         type="file"
         accept="image/*"
         className="hidden"
+        aria-label="Last opp bilde"
         onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
       />
 
@@ -839,6 +840,7 @@ export function ImportExport({ sections, pageTitle, pageSlug, themeKey, onImport
         type="file"
         accept=".json"
         className="hidden"
+        aria-label="Importer JSON-fil"
         onChange={handleImport}
       />
 
@@ -1050,9 +1052,11 @@ export function AnalyticsPanel({ pageId, pageSlug }: AnalyticsPanelProps) {
                       <span className="capitalize">{device}</span>
                       <div className="flex items-center gap-2">
                         <div className="w-24 h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary rounded-full"
-                            style={{ width: `${Math.round((count / data.totalViews) * 100)}%` }}
+                          <progress
+                            value={Math.round((count / data.totalViews) * 100)}
+                            max={100}
+                            aria-label={`${device} andel`}
+                            className="h-full w-full bar-pct"
                           />
                         </div>
                         <span className="text-xs text-muted-foreground w-8 text-right">{count}</span>

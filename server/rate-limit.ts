@@ -60,8 +60,22 @@ export const authRateLimit = rateLimit({
   message: "Too many login attempts, please try again later.",
 });
 
-// General API rate limit
+// General API rate limit (authenticated routes)
 export const apiRateLimit = rateLimit({
   windowMs: 15 * 60 * 1000,
   maxRequests: 200,
+});
+
+// Tight rate limit for unauthenticated public write endpoints
+// (access requests, contact forms, analytics pixel)
+export const publicWriteRateLimit = rateLimit({
+  windowMs: 60 * 1000,       // 1 minute window
+  maxRequests: 10,
+  message: "For many requests. Please wait a moment before trying again.",
+});
+
+// Light read-rate limit for public CMS pages (slug + builder-pages GET)
+export const publicReadRateLimit = rateLimit({
+  windowMs: 60 * 1000,
+  maxRequests: 120,
 });

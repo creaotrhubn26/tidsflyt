@@ -53,7 +53,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       path: "/cases",
       highlight: tasks.pendingApprovals > 0,
       highlightClass: "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20",
-      countColor: "text-[#1F6B73]",
+      countColor: "text-primary",
     },
     {
       key: "drafts",
@@ -65,7 +65,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       path: "/cases",
       highlight: false,
       highlightClass: "",
-      countColor: "text-[#1F6B73]",
+      countColor: "text-primary",
     },
     {
       key: "assigned",
@@ -77,14 +77,14 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       path: "/cases",
       highlight: false,
       highlightClass: "",
-      countColor: "text-[#1F6B73]",
+      countColor: "text-primary",
     },
   ];
 
   const visibleTiles = isTiltaksleder ? tiles.filter((tile) => tile.count > 0) : tiles;
 
   return (
-    <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card shadow-sm">
+    <Card className="rounded-2xl border-border bg-card shadow-sm">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CardHeader className="pb-3">
           <CollapsibleTrigger asChild>
@@ -93,7 +93,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
               className="flex w-full items-center justify-between text-left"
             >
               <CardTitle className="flex items-center gap-2 text-lg">
-                <CheckCircle className="h-5 w-5 text-[#1F6B73]" />
+                <CheckCircle className="h-5 w-5 text-primary" />
                 {isTiltaksleder ? "Tiltak som krever oppfølging" : "Mine oppgaver"}
               </CardTitle>
               <ChevronDown

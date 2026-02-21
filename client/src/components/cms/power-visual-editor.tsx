@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from '@dnd-kit/core';
@@ -1010,22 +1010,26 @@ function SortableSection({ section, isSelected, onSelect, onUpdate, onDelete, on
   onDuplicate: () => void;
   onCopy: () => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: section.id });
+  const { attributes, listeners, setNodeRef: setSortableRef, transform, transition, isDragging } = useSortable({ id: section.id });
   const [isEditing, setIsEditing] = useState<string | null>(null);
 
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const setNodeRef = useCallback((el: HTMLDivElement | null) => {
+    nodeRef.current = el;
+    setSortableRef(el);
+  }, [setSortableRef]);
+  useLayoutEffect(() => {
+    if (!nodeRef.current) return;
+    nodeRef.current.style.transform = CSS.Transform.toString(transform) || '';
+    nodeRef.current.style.transition = transition || '';
+  }, [transform, transition]);
 
   return (
     <div
       ref={setNodeRef}
-      style={style}
       className={`relative group border rounded-lg transition-all ${
         isSelected ? 'border-primary ring-2 ring-primary/20' : 'border-border hover:border-primary/50'
-      } ${isDragging ? 'shadow-lg' : ''}`}
+      } ${isDragging ? 'shadow-lg opacity-50' : ''}`}
       onClick={onSelect}
     >
       {/* Drag Handle */}
@@ -1074,16 +1078,18 @@ function SortableSection({ section, isSelected, onSelect, onUpdate, onDelete, on
       </div>
 
       {/* Section Preview */}
+      <style dangerouslySetInnerHTML={{ __html:
+        `[data-sp="${section.id}"]{` +
+        `padding-top:${section.spacing.paddingTop}px;` +
+        `padding-bottom:${section.spacing.paddingBottom}px;` +
+        `padding-left:${section.spacing.paddingX}px;` +
+        `padding-right:${section.spacing.paddingX}px;` +
+        `background:${section.background.gradient || section.background.color};` +
+        `background-image:${section.background.image ? `url(${section.background.image})` : 'none'}}`
+      }} />
       <div
+        data-sp={section.id}
         className="p-8"
-        style={{
-          paddingTop: `${section.spacing.paddingTop}px`,
-          paddingBottom: `${section.spacing.paddingBottom}px`,
-          paddingLeft: `${section.spacing.paddingX}px`,
-          paddingRight: `${section.spacing.paddingX}px`,
-          background: section.background.gradient || section.background.color,
-          backgroundImage: section.background.image ? `url(${section.background.image})` : undefined,
-        }}
       >
         <Badge variant="outline" className="mb-4">{section.type}</Badge>
         
@@ -1522,6 +1528,50 @@ export function PowerVisualEditor() {
 
   const viewportWidth = viewMode === 'mobile' ? '375px' : viewMode === 'tablet' ? '768px' : '100%';
 
+  const canvasDynamicCss = useMemo(() => {
+    const lines: string[] = [`#pve-canvas-vp{width:${viewportWidth};max-width:100%}`];
+    for (const sec of sections) {
+      const id = sec.id;
+      const sp = sec.spacing;
+      const bg = sec.background;
+      const c = (sec.content || {}) as Record<string, any>;
+      lines.push(
+        `[data-sec="${id}"]{` +
+        `padding-top:${sp.paddingTop}px;` +
+        `padding-bottom:${sp.paddingBottom}px;` +
+        `padding-left:${sp.paddingX}px;` +
+        `padding-right:${sp.paddingX}px;` +
+        `background:${bg.gradient || bg.color}}`,
+      );
+      if (Array.isArray(c.cards) && c.cards.length)
+        lines.push(`[data-sec="${id}"] .sec-cards-grid{grid-template-columns:repeat(${Math.min(c.cards.length, 3)},1fr)}`);
+      if (Array.isArray(c.benefits) && c.benefits.length)
+        lines.push(`[data-sec="${id}"] .sec-benefits-grid{grid-template-columns:repeat(${Math.min(c.benefits.length, 3)},1fr)}`);
+      if (Array.isArray(c.stats) && c.stats.length)
+        lines.push(`[data-sec="${id}"] .sec-stats-grid{grid-template-columns:repeat(${c.stats.length},1fr)}`);
+      if (Array.isArray(c.columns) && c.columns.length)
+        lines.push(`[data-sec="${id}"] .sec-cols-grid{grid-template-columns:repeat(${c.columns.length},1fr)}`);
+      if (Array.isArray(c.plans) && c.plans.length) {
+        lines.push(`[data-sec="${id}"] .sec-plans-grid{grid-template-columns:repeat(${Math.min(c.plans.length, 3)},1fr)}`);
+        (c.plans as any[]).forEach((plan, i) => {
+          lines.push(`[data-sec="${id}"] .plan-${i}{border-color:${plan.highlighted ? 'var(--color-primary)' : 'var(--color-border)'}}`);
+        });
+      }
+      if (Array.isArray(c.members) && c.members.length)
+        lines.push(`[data-sec="${id}"] .sec-members-grid{grid-template-columns:repeat(${Math.min(c.members.length, 3)},1fr)}`);
+      if (Array.isArray(c.images) && c.images.length)
+        lines.push(`[data-sec="${id}"] .sec-images-grid{grid-template-columns:repeat(${c.cols || 3},1fr)}`);
+      if (c.videoUrl) {
+        const ar = c.aspectRatio === '4:3' ? '4/3' : c.aspectRatio === '1:1' ? '1/1' : '16/9';
+        lines.push(`[data-sec="${id}"] .sec-video{aspect-ratio:${ar}}`);
+      }
+      const onPrimary = bg.color === TIDUM_TOKENS.colorPrimary;
+      lines.push(`[data-sec="${id}"] .sec-btn-primary{color:${onPrimary ? TIDUM_TOKENS.colorPrimary : '#fff'}}`);
+      lines.push(`[data-sec="${id}"] .sec-btn-secondary{color:${onPrimary ? '#fff' : 'inherit'}}`);
+    }
+    return lines.join('\n');
+  }, [sections, viewportWidth]);
+
   return (
     <div className="h-screen flex flex-col bg-background">
       {/* Top Toolbar */}
@@ -1637,9 +1687,14 @@ export function PowerVisualEditor() {
                     onClick={() => applyTheme(key)}
                   >
                     <div className="flex gap-0.5">
-                      <div className="h-4 w-4 rounded-full border" style={{ backgroundColor: theme.primary }} />
-                      <div className="h-4 w-4 rounded-full border" style={{ backgroundColor: theme.bg }} />
-                      <div className="h-4 w-4 rounded-full border" style={{ backgroundColor: theme.bgSection }} />
+                      <style dangerouslySetInnerHTML={{ __html:
+                        `.ts-p-${key}{background-color:${theme.primary}}` +
+                        `.ts-b-${key}{background-color:${theme.bg}}` +
+                        `.ts-bs-${key}{background-color:${theme.bgSection}}`
+                      }} />
+                      <div className={`h-4 w-4 rounded-full border ts-p-${key}`} />
+                      <div className={`h-4 w-4 rounded-full border ts-b-${key}`} />
+                      <div className={`h-4 w-4 rounded-full border ts-bs-${key}`} />
                     </div>
                     <span>{theme.label}</span>
                   </button>
@@ -1893,23 +1948,19 @@ export function PowerVisualEditor() {
         <div className="flex-1 overflow-auto bg-muted/30 p-8">
           {/* Inject Tidum live CSS */}
           <style dangerouslySetInnerHTML={{ __html: tidumPageStyles }} />
-          <div className="mx-auto transition-all" style={{ width: viewportWidth, maxWidth: '100%' }}>
+          <style dangerouslySetInnerHTML={{ __html: canvasDynamicCss }} />
+          <div
+            id="pve-canvas-vp"
+            className="mx-auto transition-all max-w-full"
+          >
             <div className="tidum-page bg-background rounded-lg shadow-xl overflow-hidden min-h-screen">
               {sections.length > 0 ? (
                 sections.map((section) => (
                   <div
                     key={section.id}
-                    className={`relative cursor-pointer transition-all ${
-                      section.id === selectedSectionId ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/50'
-                    }`}
+                    data-sec={section.id}
+                    className={`relative cursor-pointer transition-all ${section.id === selectedSectionId ? 'ring-2 ring-primary' : 'hover:ring-1 hover:ring-primary/50'}`}
                     onClick={() => setSelectedSectionId(section.id)}
-                    style={{
-                      paddingTop: `${section.spacing.paddingTop}px`,
-                      paddingBottom: `${section.spacing.paddingBottom}px`,
-                      paddingLeft: `${section.spacing.paddingX}px`,
-                      paddingRight: `${section.spacing.paddingX}px`,
-                      background: section.background.gradient || section.background.color,
-                    }}
                   >
                     <Badge variant="secondary" className="absolute top-2 left-2 text-xs z-10">
                       {section.templateId || section.type}
@@ -1920,7 +1971,9 @@ export function PowerVisualEditor() {
                       <p className="text-sm text-muted-foreground mt-2 max-w-xl">{section.content.subtitle}</p>
                     )}
                     {section.content?.cards && Array.isArray(section.content.cards) && (
-                      <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(section.content.cards.length, 3)}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-2 sec-cards-grid"
+                      >
                         {section.content.cards.map((card: any, i: number) => (
                           <div key={i} className="rounded-lg border bg-white/80 p-3 text-sm">
                             <span className="font-medium">{card.title || card.label || `Kort ${i + 1}`}</span>
@@ -1929,7 +1982,9 @@ export function PowerVisualEditor() {
                       </div>
                     )}
                     {section.content?.benefits && Array.isArray(section.content.benefits) && (
-                      <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.min(section.content.benefits.length, 3)}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-2 sec-benefits-grid"
+                      >
                         {section.content.benefits.map((b: any, i: number) => (
                           <div key={i} className="rounded-lg border bg-white/80 p-3 text-sm">
                             <span className="font-medium">{b.title}</span>
@@ -1948,10 +2003,12 @@ export function PowerVisualEditor() {
                       </div>
                     )}
                     {section.content?.stats && Array.isArray(section.content.stats) && (
-                      <div className="mt-4 grid gap-4" style={{ gridTemplateColumns: `repeat(${section.content.stats.length}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-4 sec-stats-grid"
+                      >
                         {section.content.stats.map((s: any, i: number) => (
                           <div key={i} className="text-center">
-                            <div className="text-2xl font-bold" style={{ color: TIDUM_TOKENS.colorPrimary }}>{s.value}</div>
+                            <div className="text-2xl font-bold [color:var(--color-primary)]">{s.value}</div>
                             <div className="text-xs text-muted-foreground">{s.label}</div>
                           </div>
                         ))}
@@ -1988,7 +2045,9 @@ export function PowerVisualEditor() {
                       </div>
                     )}
                     {section.content?.columns && Array.isArray(section.content.columns) && (
-                      <div className="mt-4 grid gap-4" style={{ gridTemplateColumns: `repeat(${section.content.columns.length}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-4 sec-cols-grid"
+                      >
                         {section.content.columns.map((col: any, i: number) => (
                           <div key={i} className="text-sm">
                             <span className="font-medium block mb-1">{col.heading}</span>
@@ -2002,11 +2061,15 @@ export function PowerVisualEditor() {
                     )}
                     {section.content?.primaryButton && (
                       <div className="mt-3 flex gap-2">
-                        <div className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium" style={{ color: section.background.color === TIDUM_TOKENS.colorPrimary ? TIDUM_TOKENS.colorPrimary : '#fff' }}>
+                        <div
+                          className="rounded-lg bg-white/90 px-4 py-2 text-sm font-medium sec-btn-primary"
+                        >
                           {section.content.primaryButton.text}
                         </div>
                         {section.content?.secondaryButton && (
-                          <div className="rounded-lg border border-white/40 px-4 py-2 text-sm font-medium" style={{ color: section.background.color === TIDUM_TOKENS.colorPrimary ? '#fff' : undefined }}>
+                          <div
+                            className="rounded-lg border border-white/40 px-4 py-2 text-sm font-medium sec-btn-secondary"
+                          >
                             {section.content.secondaryButton.text}
                           </div>
                         )}
@@ -2015,7 +2078,7 @@ export function PowerVisualEditor() {
                     {section.content?.fields && Array.isArray(section.content.fields) && (
                       <div className="mt-4 grid gap-2 grid-cols-2">
                         {section.content.fields.slice(0, 4).map((f: any, i: number) => (
-                          <div key={i} className="rounded-xl border bg-white/80 p-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--color-border, #E1E4E3)' }}>
+                          <div key={i} className="rounded-xl border bg-white/80 p-2 text-xs text-muted-foreground [border-color:var(--color-border)]">
                             {f.label}
                           </div>
                         ))}
@@ -2026,11 +2089,13 @@ export function PowerVisualEditor() {
                     )}
                     {/* Pricing plans */}
                     {section.content?.plans && Array.isArray(section.content.plans) && (
-                      <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(section.content.plans.length, 3)}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-3 sec-plans-grid"
+                      >
                         {section.content.plans.map((plan: any, i: number) => (
-                          <div key={i} className={`rounded-2xl border p-4 text-sm ${plan.highlighted ? 'border-primary ring-2 ring-primary/20 bg-primary/5' : 'bg-white/80'}`} style={{ borderColor: plan.highlighted ? TIDUM_TOKENS.colorPrimary : 'var(--color-border, #E1E4E3)' }}>
+                          <div key={i} className={`rounded-2xl border p-4 text-sm plan-${i} ${plan.highlighted ? 'ring-2 ring-primary/20 bg-primary/5' : 'bg-white/80'}`}>
                             <div className="font-semibold text-base">{plan.name}</div>
-                            <div className="text-2xl font-bold mt-1" style={{ color: TIDUM_TOKENS.colorPrimary }}>{plan.price}<span className="text-xs font-normal text-muted-foreground">{plan.period}</span></div>
+                            <div className="text-2xl font-bold mt-1 [color:var(--color-primary)]">{plan.price}<span className="text-xs font-normal text-muted-foreground">{plan.period}</span></div>
                             <div className="mt-2 space-y-1">
                               {(plan.features || []).slice(0, 3).map((f: string, fi: number) => (
                                 <div key={fi} className="text-xs text-muted-foreground flex items-center gap-1">✓ {f}</div>
@@ -2042,10 +2107,12 @@ export function PowerVisualEditor() {
                     )}
                     {/* Team members */}
                     {section.content?.members && Array.isArray(section.content.members) && (
-                      <div className="mt-4 grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(section.content.members.length, 3)}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-3 sec-members-grid"
+                      >
                         {section.content.members.map((m: any, i: number) => (
-                          <div key={i} className="rounded-2xl border bg-white/80 p-4 text-center" style={{ borderColor: 'var(--color-border, #E1E4E3)' }}>
-                            <div className="h-14 w-14 rounded-full mx-auto mb-2 flex items-center justify-center text-2xl" style={{ backgroundColor: TIDUM_TOKENS.colorBgSection }}>
+                          <div key={i} className="rounded-2xl border [border-color:var(--color-border)] bg-white/80 p-4 text-center">
+                            <div className="h-14 w-14 rounded-full mx-auto mb-2 flex items-center justify-center text-2xl [background-color:var(--color-bg-section)]">
                               {m.name?.[0] || '?'}
                             </div>
                             <div className="font-semibold text-sm">{m.name}</div>
@@ -2058,7 +2125,7 @@ export function PowerVisualEditor() {
                     {section.content?.logos && Array.isArray(section.content.logos) && (
                       <div className="mt-4 flex flex-wrap gap-6 justify-center items-center">
                         {section.content.logos.map((logo: any, i: number) => (
-                          <div key={i} className="rounded-xl border bg-white/80 px-6 py-3 text-sm font-medium" style={{ borderColor: 'var(--color-border, #E1E4E3)' }}>
+                          <div key={i} className="rounded-xl border [border-color:var(--color-border)] bg-white/80 px-6 py-3 text-sm font-medium">
                             {logo.name}
                           </div>
                         ))}
@@ -2066,9 +2133,11 @@ export function PowerVisualEditor() {
                     )}
                     {/* Image gallery */}
                     {section.content?.images && Array.isArray(section.content.images) && (
-                      <div className="mt-4 grid gap-2" style={{ gridTemplateColumns: `repeat(${section.content.cols || 3}, 1fr)` }}>
+                      <div
+                        className="mt-4 grid gap-2 sec-images-grid"
+                      >
                         {section.content.images.map((img: any, i: number) => (
-                          <div key={i} className="rounded-xl border bg-muted/40 aspect-[4/3] flex items-center justify-center text-xs text-muted-foreground" style={{ borderColor: 'var(--color-border, #E1E4E3)' }}>
+                          <div key={i} className="rounded-xl border [border-color:var(--color-border)] bg-muted/40 aspect-[4/3] flex items-center justify-center text-xs text-muted-foreground">
                             {img.caption || img.alt || 'Bilde'}
                           </div>
                         ))}
@@ -2076,7 +2145,9 @@ export function PowerVisualEditor() {
                     )}
                     {/* Video embed */}
                     {section.content?.videoUrl && (
-                      <div className="mt-4 rounded-xl border overflow-hidden" style={{ aspectRatio: section.content.aspectRatio === '4:3' ? '4/3' : section.content.aspectRatio === '1:1' ? '1/1' : '16/9', borderColor: 'var(--color-border, #E1E4E3)' }}>
+                      <div
+                        className="mt-4 rounded-xl border [border-color:var(--color-border)] overflow-hidden sec-video"
+                      >
                         <div className="w-full h-full flex items-center justify-center bg-muted/40 text-muted-foreground">
                           <div className="text-center">
                             <div className="text-3xl mb-2">▶️</div>
@@ -2091,11 +2162,11 @@ export function PowerVisualEditor() {
                         {section.content.events.map((ev: any, i: number) => (
                           <div key={i} className="flex gap-4 items-start">
                             <div className="shrink-0 flex flex-col items-center">
-                              <div className="h-3 w-3 rounded-full" style={{ backgroundColor: TIDUM_TOKENS.colorPrimary }} />
-                              {i < section.content.events.length - 1 && <div className="w-0.5 h-8" style={{ backgroundColor: TIDUM_TOKENS.colorBorder }} />}
+                              <div className="h-3 w-3 rounded-full [background-color:var(--color-primary)]" />
+                              {i < section.content.events.length - 1 && <div className="w-0.5 h-8 [background-color:var(--color-border)]" />}
                             </div>
                             <div className="pb-2">
-                              <div className="text-xs font-semibold" style={{ color: TIDUM_TOKENS.colorPrimary }}>{ev.date}</div>
+                              <div className="text-xs font-semibold [color:var(--color-primary)]">{ev.date}</div>
                               <div className="font-medium text-sm">{ev.title}</div>
                               <div className="text-xs text-muted-foreground">{ev.description}</div>
                             </div>
@@ -2106,8 +2177,8 @@ export function PowerVisualEditor() {
                     {/* Newsletter */}
                     {section.content?.buttonText && section.content?.placeholder && (
                       <div className="mt-4 flex gap-2 max-w-md mx-auto">
-                        <div className="flex-1 rounded-xl border bg-white/80 px-4 py-2 text-xs text-muted-foreground" style={{ borderColor: 'var(--color-border, #E1E4E3)' }}>{section.content.placeholder}</div>
-                        <div className="rounded-xl px-5 py-2 text-xs font-medium text-white" style={{ backgroundColor: TIDUM_TOKENS.colorPrimary }}>{section.content.buttonText}</div>
+                        <div className="flex-1 rounded-xl border [border-color:var(--color-border)] bg-white/80 px-4 py-2 text-xs text-muted-foreground">{section.content.placeholder}</div>
+                        <div className="rounded-xl px-5 py-2 text-xs font-medium text-white [background-color:var(--color-primary)]">{section.content.buttonText}</div>
                       </div>
                     )}
                   </div>
@@ -2191,6 +2262,8 @@ export function PowerVisualEditor() {
                         background: { ...selectedSection.background, color: e.target.value }
                       })}
                       className="h-10 w-20 rounded border"
+                      aria-label="Velg bakgrunnsfarge"
+                      title="Bakgrunnsfarge"
                     />
                     <Input
                       value={selectedSection.background.color}
@@ -2312,6 +2385,8 @@ export function PowerVisualEditor() {
                       value={selectedSection.textColor || '#1a1a1a'}
                       onChange={(e) => updateSection(selectedSection.id, { textColor: e.target.value })}
                       className="h-10 w-20 rounded border"
+                      aria-label="Velg tekstfarge"
+                      title="Tekstfarge"
                     />
                     <Input
                       value={selectedSection.textColor || ''}
@@ -2357,6 +2432,8 @@ export function PowerVisualEditor() {
                         value={selectedSection.borderColor || '#E1E4E3'}
                         onChange={(e) => updateSection(selectedSection.id, { borderColor: e.target.value })}
                         className="h-8 w-14 rounded border"
+                        aria-label="Velg kantlinjefarge"
+                        title="Kantlinjefarge"
                       />
                       <Input
                         value={selectedSection.borderColor || ''}

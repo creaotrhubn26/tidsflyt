@@ -80,18 +80,18 @@ export function DashboardHero({
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h1
-            className="text-3xl font-semibold tracking-tight text-[#153c46] dark:text-foreground md:text-4xl"
+            className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl"
             data-testid="dashboard-title"
           >
             {title}
           </h1>
-          <p className="mt-1 text-[#4e646b] dark:text-muted-foreground">
+          <p className="mt-1 text-muted-foreground">
             {subtitle ? `${subtitle} · ` : ""}
             Viser: {periodLabel}
           </p>
           {/* "Sist oppdatert" when not fetching */}
           {!statsFetching && lastUpdated && (
-            <p className="mt-0.5 text-xs text-[#4e646b]/60 dark:text-muted-foreground/50">
+            <p className="mt-0.5 text-xs text-muted-foreground/70">
               Sist oppdatert: {format(lastUpdated, "HH:mm")}
             </p>
           )}
@@ -102,7 +102,7 @@ export function DashboardHero({
           <div className="flex">
             <Button
               onClick={() => navigate(isTiltaksleder || isMiljoarbeider ? "/cases" : "/time-tracking")}
-              className="gap-2 rounded-r-none bg-gradient-to-r from-[#1F6B73] to-[#195c63] hover:from-[#195c63] hover:to-[#14494f] shadow-lg"
+              className="gap-2 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg"
             >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">{isTiltaksleder ? "Gå til tiltak" : isMiljoarbeider ? "Ny oppfølging" : "Ny tidsregistrering"}</span>
@@ -110,7 +110,7 @@ export function DashboardHero({
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button className="rounded-l-none border-l border-white/20 bg-gradient-to-r from-[#195c63] to-[#14494f] hover:from-[#14494f] hover:to-[#103d43] px-2 shadow-lg">
+                <Button aria-label="Flere handlinger" title="Flere handlinger" className="rounded-l-none border-l border-primary-foreground/20 bg-primary text-primary-foreground hover:bg-primary/90 px-2 shadow-lg">
                   <ChevronDown className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
@@ -137,7 +137,7 @@ export function DashboardHero({
               onClick={() => navigate("/time-tracking")}
               variant="outline"
               size="sm"
-              className="gap-1.5 border-[#d8e4e0] dark:border-border text-[#5f7075] dark:text-muted-foreground hover:bg-accent"
+              className="gap-1.5 border-border text-muted-foreground hover:bg-accent"
             >
               <CheckCircle className="h-4 w-4" />
               Godkjenn
@@ -152,7 +152,7 @@ export function DashboardHero({
             onClick={() => navigate("/cases")}
             variant="ghost"
             size="sm"
-            className="gap-1.5 text-[#5f7075] dark:text-muted-foreground"
+            className="gap-1.5 text-muted-foreground"
           >
             <FileText className="h-4 w-4" />
             <span className="hidden sm:inline">{isTiltaksleder || isMiljoarbeider ? "Tiltaksrapporter" : "Rapporter"}</span>
@@ -170,9 +170,9 @@ export function DashboardHero({
               animate={reduceMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
               exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -4 }}
               transition={reduceMotion ? { duration: 0 } : { duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
-              className="inline-flex items-center gap-2 rounded-full border border-[#cde0d9] dark:border-border bg-white/85 dark:bg-muted px-3 py-1 text-xs font-medium text-[#2f555e] dark:text-muted-foreground"
+              className="inline-flex items-center gap-2 rounded-full border border-border bg-background/85 px-3 py-1 text-xs font-medium text-muted-foreground"
             >
-              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#1F6B73]" />
+              <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
               Oppdaterer tall&hellip;
             </motion.div>
           ) : (
@@ -181,7 +181,7 @@ export function DashboardHero({
         </AnimatePresence>
 
         <div
-          className="relative inline-flex w-fit gap-1 rounded-xl border border-[#d8e4e0] dark:border-border bg-[#edf3f1] dark:bg-muted p-1"
+          className="relative inline-flex w-fit gap-1 rounded-xl border border-border bg-muted p-1"
           data-testid="time-range-selector"
         >
           {TIME_RANGE_BUTTONS.map((btn) => {
@@ -193,17 +193,17 @@ export function DashboardHero({
                 key={btn.value}
                 onClick={() => onTimeRangeChange(btn.value)}
                 className={cn(
-                  "relative z-10 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3.5 text-xs font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1F6B73] focus-visible:ring-offset-2 focus-visible:ring-offset-[#edf3f1] motion-reduce:transition-none",
+                  "relative z-10 inline-flex min-h-8 items-center justify-center gap-1.5 rounded-lg border border-transparent px-3.5 text-xs font-medium transition-colors duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-reduce:transition-none",
                   selected
                     ? "text-white"
-                    : "text-[#4e646b] dark:text-muted-foreground hover:text-[#153c46] dark:hover:text-foreground",
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 data-testid={`time-range-${btn.value}`}
               >
                 {selected ? (
                   <motion.span
                     layoutId="dashboard-time-range-active-pill"
-                    className="absolute inset-0 transform-gpu rounded-lg border border-[#195c63] bg-[#1F6B73] shadow-[0_8px_18px_rgba(21,92,99,0.26)]"
+                    className="absolute inset-0 transform-gpu rounded-lg border border-primary bg-primary shadow-[0_8px_18px_rgba(21,92,99,0.26)]"
                     transition={
                       reduceMotion
                         ? { duration: 0 }

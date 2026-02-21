@@ -304,6 +304,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           size="icon"
           className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-[#cbd9d6] bg-white text-[#335159] shadow-sm"
           onClick={toggleSidebar}
+          aria-label={collapsed ? "Utvid sidepanel" : "Skjul sidepanel"}
+          title={collapsed ? "Utvid sidepanel" : "Skjul sidepanel"}
           data-testid="sidebar-toggle"
         >
           {collapsed ? (

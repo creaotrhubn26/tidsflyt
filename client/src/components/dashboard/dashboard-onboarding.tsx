@@ -68,7 +68,7 @@ export function DashboardOnboarding({
   if (completedCount === steps.length) return null;
 
   return (
-    <Card className="rounded-2xl border-[#1F6B73]/20 dark:border-[#51C2D0]/20 bg-gradient-to-br from-[#1F6B73]/5 to-transparent dark:from-[#51C2D0]/5 shadow-sm">
+    <Card className="rounded-2xl border-primary/20 bg-gradient-to-br from-primary/5 to-transparent shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
           <img src={tidumWordmark} alt="Tidum" className="h-6 w-auto object-contain" />
@@ -105,7 +105,7 @@ export function DashboardOnboarding({
                   {step.done ? (
                     <CheckCircle2 className="h-4 w-4 text-emerald-500 shrink-0" />
                   ) : (
-                    <Icon className="h-4 w-4 text-[#1F6B73] dark:text-[#51C2D0] shrink-0" />
+                    <Icon className="h-4 w-4 text-primary shrink-0" />
                   )}
                   <span
                     className={cn(

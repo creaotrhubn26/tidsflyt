@@ -94,9 +94,9 @@ export function DashboardActivity({
 
   if (activitiesLoading) {
     return (
-      <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
+      <Card className="rounded-2xl border-border bg-card">
         <CardHeader className="pb-2">
-          <CardTitle className="text-lg text-[#153c46] dark:text-foreground">
+          <CardTitle className="text-lg text-foreground">
             Aktivitet
           </CardTitle>
         </CardHeader>
@@ -118,16 +118,18 @@ export function DashboardActivity({
   }
 
   return (
-    <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
+    <Card className="rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-lg flex items-center gap-2">
-            <Bell className="h-5 w-5 text-[#1F6B73]" />
+            <Bell className="h-5 w-5 text-primary" />
             {isTiltaksleder ? "Faglig logg" : "Aktivitet"}
           </CardTitle>
           <Button
             variant="ghost"
             size="sm"
+            aria-label="Åpne timeføring"
+            title="Åpne timeføring"
             onClick={() => navigate("/time-tracking")}
             className="text-xs text-muted-foreground"
           >

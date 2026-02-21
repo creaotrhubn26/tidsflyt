@@ -100,7 +100,7 @@ export function DashboardAlerts({ alerts }: DashboardAlertsProps) {
         <Button
           variant="ghost"
           size="sm"
-          className="text-xs text-[#5f7075] dark:text-muted-foreground"
+          className="text-xs text-muted-foreground"
           onClick={() => setShowAll(true)}
         >
           <ChevronDown className="mr-1 h-3.5 w-3.5" />

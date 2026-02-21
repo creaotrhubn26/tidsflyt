@@ -176,6 +176,19 @@ export default function BlogPost() {
     }
   };
 
+  // Prefetch a related blog post on hover so navigation feels instant
+  const prefetchRelatedPost = (relatedSlug: string) => {
+    queryClient.prefetchQuery({
+      queryKey: ["/api/blog", relatedSlug],
+      queryFn: async () => {
+        const res = await fetch(`/api/blog/${relatedSlug}`);
+        if (!res.ok) throw new Error("Post not found");
+        return res.json();
+      },
+      staleTime: 60 * 1000, // 1 minute
+    });
+  };
+
   if (isLoading) {
     return (
       <main className="min-h-screen bg-background flex items-center justify-center">
@@ -322,7 +335,7 @@ export default function BlogPost() {
             <h2 className="text-xl font-semibold mb-4">Relaterte artikler</h2>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               {relatedPosts.map((rp) => (
-                <Link key={rp.id} href={`/blog/${rp.slug}`}>
+                <Link key={rp.id} href={`/blog/${rp.slug}`} onMouseEnter={() => prefetchRelatedPost(rp.slug)}>
                   <Card className="overflow-hidden h-full cursor-pointer hover:shadow-md transition-shadow group">
                     {rp.featured_image && (
                       <div className="aspect-video overflow-hidden bg-muted">
@@ -334,11 +347,13 @@ export default function BlogPost() {
                         />
                       </div>
                     )}
-                    <CardContent className="p-4">
-                      <h3 className="font-medium line-clamp-2 group-hover:text-primary transition-colors">
+                    <CardHeader className="p-4 pb-1">
+                      <CardTitle className="text-sm font-medium line-clamp-2 group-hover:text-primary transition-colors">
                         {rp.title}
-                      </h3>
-                      <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="p-4 pt-1">
+                      <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                         {rp.reading_time && (
                           <span className="inline-flex items-center gap-1">
                             <Clock className="h-3 w-3" />

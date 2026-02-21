@@ -350,9 +350,11 @@ export default function ReportsPage() {
                           <span className="font-mono">{dept.hours.toFixed(1)}t</span>
                         </div>
                         <div className="h-2 bg-slate-200/60 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all"
-                            style={{ width: `${dept.percentage}%` }}
+                          <progress
+                            value={dept.percentage}
+                            max={100}
+                            aria-label={`${dept.department} andel`}
+                            className="h-full w-full bar-pct bar-pct-purple-pink"
                           />
                         </div>
                       </div>

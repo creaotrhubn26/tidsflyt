@@ -56,12 +56,12 @@ export function DashboardAnalytics({
       {/* Analytics section header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <BarChart3 className="h-5 w-5 text-[#1F6B73]" />
+          <BarChart3 className="h-5 w-5 text-primary" />
           <div>
-            <h2 className="text-lg font-semibold text-[#153c46] dark:text-foreground">
+            <h2 className="text-lg font-semibold text-foreground">
               Analyse
             </h2>
-            <p className="text-xs text-[#5f7075] dark:text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {isTiltaksleder ? "Oppfølging og aktivitet i perioden" : "Timer og aktivitet i perioden"}
             </p>
           </div>
@@ -78,9 +78,9 @@ export function DashboardAnalytics({
 
       {/* Hours Chart */}
       {chartLoading ? (
-        <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
+        <Card className="rounded-2xl border-border bg-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-[#153c46] dark:text-foreground">
+            <CardTitle className="text-lg text-foreground">
               {isTiltaksleder ? "Oppfølgingstid per dag" : "Timer per dag"}
             </CardTitle>
           </CardHeader>
@@ -94,9 +94,9 @@ export function DashboardAnalytics({
 
       {/* Calendar Heatmap */}
       {showHeatmapSkeleton ? (
-        <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card">
+        <Card className="rounded-2xl border-border bg-card">
           <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-[#153c46] dark:text-foreground">
+            <CardTitle className="text-lg text-foreground">
               {isTiltaksleder ? "Oppfølgingsmønster" : "Aktivitetsoversikt"}
             </CardTitle>
           </CardHeader>

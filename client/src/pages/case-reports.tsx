@@ -48,9 +48,10 @@ import { AdvancedCaseReportBuilder } from "@/components/cms/advanced-case-report
 import { CaseAnalyticsDashboard } from "@/components/cms/case-analytics-dashboard";
 import { CaseReportExport } from "@/components/cms/case-report-export";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { usePiiDetection } from "@/hooks/use-pii-detection";
 import { useDraft } from "@/hooks/use-draft";
-import { getPiiTypeLabel, getPiiSeverity, ANONYMOUS_ALTERNATIVES, type PiiWarning } from "@/lib/pii-detector";
+import { getPiiTypeLabel, getPiiSeverity, ANONYMOUS_ALTERNATIVES, type PiiWarning, type PiiScanResult } from "@/lib/pii-detector";
 import { PiiSummaryBanner, PiiSummaryDrawer, type PiiIssue } from "@/components/pii-summary-drawer";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { REPORT_TEMPLATES } from "@/lib/report-templates";
@@ -189,7 +190,7 @@ function PiiFieldWrapper({
   label: string; 
   /** Soft writing guidance shown below the editor */
   hint?: string;
-  fieldResults: Record<string, import('@/lib/pii-detector').PiiScanResult>; 
+  fieldResults: Record<string, PiiScanResult>; 
   children: React.ReactNode;
 }) {
   const result = fieldResults[fieldName];
@@ -229,7 +230,7 @@ function PiiFieldWrapper({
               const order = { high: 0, medium: 1, low: 2 };
               return order[a.confidence] - order[b.confidence];
             })
-            .map((w, i) => {
+            .map((w: PiiWarning, i: number) => {
               const isHigh = w.confidence === 'high';
               const bgClass = isHigh
                 ? 'bg-destructive/5 text-destructive'
@@ -240,14 +241,19 @@ function PiiFieldWrapper({
                 <div key={i} className={`flex items-start gap-2 text-xs rounded px-2 py-1.5 ${bgClass}`}>
                   <AlertTriangle className={`h-3 w-3 mt-0.5 flex-shrink-0 ${iconColor}`} />
                   <div className="flex-1">
-                    <span className="font-medium">{w.message}</span>
+                    <span className="font-medium">{getPiiTypeLabel(w.type)}: {w.message}</span>
                     <span className={`ml-1.5 inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
                       isHigh ? 'bg-destructive/10 text-destructive' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
                     }`}>
-                      {w.confidence === 'high' ? 'Kritisk' : w.confidence === 'medium' ? 'Gjennomgå' : 'Til info'}
+                      {getPiiSeverity(w.type) === 'critical' ? 'Kritisk' : getPiiSeverity(w.type) === 'high' ? 'Høy' : 'Middels'}
                     </span>
                     <br />
-                    <span className="text-muted-foreground">{w.suggestion}</span>
+                    <span className="text-muted-foreground">Forslag: {w.suggestion}</span>
+                    {(getPiiSeverity(w.type) === 'critical' || getPiiSeverity(w.type) === 'high') && (
+                      <span className="block mt-0.5 text-muted-foreground/70">
+                        Alternativer: {ANONYMOUS_ALTERNATIVES.general.slice(0, 3).join(', ')}
+                      </span>
+                    )}
                   </div>
                 </div>
               );
@@ -295,11 +301,11 @@ function SectionProgress({ formData }: { formData: typeof emptyFormData }) {
       {/* Progress bar */}
       <div className="flex items-center gap-3">
         <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-300 ${
-              pct === 100 ? "bg-green-500" : pct >= 50 ? "bg-primary" : "bg-amber-500"
-            }`}
-            style={{ width: `${pct}%` }}
+          <progress
+            value={pct}
+            max={100}
+            aria-label="Rapportfremdrift"
+            className={`h-full w-full bar-pct ${pct === 100 ? 'bar-pct-form-complete' : pct < 50 ? 'bar-pct-form-low' : ''}`}
           />
         </div>
         <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap">
@@ -359,7 +365,8 @@ export default function CaseReportsPage() {
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitConfirmReportId, setSubmitConfirmReportId] = useState<number | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
-  const currentUserId = "default"; // TODO: Get from auth context
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? "default";
 
   // PII Detection — scan on blur / save, not every keystroke
   const { fieldResults, totalWarnings, hasPii, scanFields, scanFieldsNow, isPending: piiScanning } = usePiiDetection({ debounceMs: 1500 });
@@ -549,7 +556,7 @@ export default function CaseReportsPage() {
       if (editingReport) {
         return apiRequest("PUT", `/api/case-reports/${editingReport.id}`, data);
       } else {
-        return apiRequest("POST", "/api/case-reports", { ...data, user_id: "default" });
+        return apiRequest("POST", "/api/case-reports", { ...data, user_id: currentUserId });
       }
     },
     onSuccess: () => {

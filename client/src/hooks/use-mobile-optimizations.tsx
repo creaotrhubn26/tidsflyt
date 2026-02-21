@@ -55,17 +55,28 @@ export function MobileCard({
   className?: string;
   interactive?: boolean;
 }) {
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`
+          rounded-lg border bg-card text-card-foreground shadow-sm
+          transition-all duration-300 active:scale-95 cursor-pointer
+          ${className}
+        `}
+      >
+        {children}
+      </button>
+    );
+  }
   return (
     <div
-      onClick={onClick}
       className={`
         rounded-lg border bg-card text-card-foreground shadow-sm
         transition-all duration-300
-        ${interactive ? "active:scale-95 cursor-pointer" : ""}
         ${className}
       `}
-      role={interactive ? "button" : undefined}
-      tabIndex={interactive ? 0 : undefined}
     >
       {children}
     </div>
@@ -165,12 +176,25 @@ export function MobileTableCard({
   children: React.ReactNode;
   onClick?: () => void;
 }) {
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        className="border rounded-lg p-4 mb-3 space-y-3 bg-card w-full text-left"
+        onClick={onClick}
+      >
+        <div className="font-semibold text-base border-b pb-3">
+          {header}
+        </div>
+        <div className="space-y-2 text-sm">
+          {children}
+        </div>
+      </button>
+    );
+  }
   return (
     <div
       className="border rounded-lg p-4 mb-3 space-y-3 bg-card"
-      onClick={onClick}
-      role={onClick ? "button" : undefined}
-      tabIndex={onClick ? 0 : undefined}
     >
       <div className="font-semibold text-base border-b pb-3">
         {header}
@@ -263,14 +287,9 @@ export function SafeAreaContainer({
       className={`
         max-w-full
         md:max-w-7xl md:mx-auto
+        safe-area-padding
         ${className}
       `}
-      style={{
-        paddingLeft: "max(1rem, env(safe-area-inset-left))",
-        paddingRight: "max(1rem, env(safe-area-inset-right))",
-        paddingTop: "max(1rem, env(safe-area-inset-top))",
-        paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
-      }}
     >
       {children}
     </div>

@@ -1,4 +1,4 @@
-import { useState, createContext, useContext, useEffect, useCallback, useRef } from "react";
+import React, { useState, createContext, useContext, useEffect, useCallback, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from "@/components/ui/resizable";
@@ -216,10 +216,8 @@ function LayerItem({ label, icon: Icon, type, id, isVisible = true, children, de
   return (
     <div className="select-none">
       <div
-        className={`flex items-center gap-1 px-2 py-1.5 cursor-pointer rounded-md transition-colors ${
-          isSelected ? 'bg-primary/10 text-primary' : 'hover-elevate'
-        }`}
-        style={{ paddingLeft: `${8 + depth * 16}px` }}
+        data-depth={depth}
+        className={`flex items-center gap-1 py-1.5 cursor-pointer rounded-md transition-colors ${isSelected ? 'bg-primary/10 text-primary' : 'hover-elevate'}`}
         onClick={() => setSelectedElement({ type, id })}
         data-testid={`layer-${type}${id ? `-${id}` : ''}`}
       >
@@ -431,9 +429,10 @@ function PreviewPanel() {
   return (
     <div className="h-full flex flex-col bg-muted/30">
       <div className="flex-1 overflow-auto p-4 flex justify-center">
+        <style dangerouslySetInnerHTML={{ __html: `#vb-zoom-content{transform:scale(${zoom / 100});transform-origin:top center}` }} />
         <div 
+          id="vb-zoom-content"
           className={`bg-background shadow-lg rounded-lg overflow-hidden transition-all ${deviceStyles[deviceMode]}`}
-          style={{ transform: `scale(${zoom / 100})`, transformOrigin: 'top center' }}
         >
           <div className="relative">
             <div
@@ -585,14 +584,16 @@ function StylePanel() {
             <Label className="text-xs">Bakgrunnsfarge</Label>
             <div className="flex gap-2 flex-wrap">
               {colorPresets.map((color) => (
-                <button
-                  key={color.name}
-                  className={`w-6 h-6 rounded border-2 ${bgColor === color.value ? 'border-primary' : 'border-transparent'}`}
-                  style={{ backgroundColor: color.value }}
-                  onClick={() => setBgColor(color.value)}
-                  title={color.name}
-                  data-testid={`color-${color.name.toLowerCase()}`}
-                />
+                <React.Fragment key={color.name}>
+                  <style dangerouslySetInnerHTML={{ __html: `[data-swatch="${color.name}"]{background-color:${color.value.replace(/[^a-z0-9#(). ,%/]/gi, '')}}` }} />
+                  <button
+                    data-swatch={color.name}
+                    className={`w-6 h-6 rounded border-2 ${bgColor === color.value ? 'border-primary' : 'border-transparent'}`}
+                    onClick={() => setBgColor(color.value)}
+                    title={color.name}
+                    data-testid={`color-${color.name.toLowerCase()}`}
+                  />
+                </React.Fragment>
               ))}
               <Input
                 type="color"
@@ -2035,9 +2036,10 @@ function DesignSystemPanel() {
         <div className="grid gap-3">
           {Object.entries(colors).map(([key, value]) => (
             <div key={key} className="flex items-center gap-3">
+              <style dangerouslySetInnerHTML={{ __html: `[data-cp="${key}"]{background-color:${String(value).replace(/[^a-z0-9#(). ,%/]/gi, '')}}` }} />
               <div 
-                className="w-10 h-10 rounded-md border cursor-pointer" 
-                style={{ backgroundColor: value }}
+                data-cp={key}
+                className="w-10 h-10 rounded-md border cursor-pointer"
               />
               <div className="flex-1">
                 <Label className="text-xs capitalize">{key === 'foreground' ? 'Tekst' : key === 'background' ? 'Bakgrunn' : key}</Label>
@@ -2235,6 +2237,7 @@ function MediaLibraryPanel() {
         onChange={handleFileChange}
         accept="image/*"
         className="hidden"
+        aria-label="Last opp mediefil"
         data-testid="input-file-upload"
       />
       <div className="flex items-center gap-2">
@@ -2248,9 +2251,11 @@ function MediaLibraryPanel() {
       {isUploading && (
         <div className="space-y-1" data-testid="upload-progress">
           <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${uploadProgress}%` }}
+            <progress
+              value={uploadProgress}
+              max={100}
+              aria-label="Opplastingsfremdrift"
+              className="h-full w-full bar-pct"
             />
           </div>
           <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>

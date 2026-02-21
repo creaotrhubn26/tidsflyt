@@ -8,6 +8,7 @@
     "build": "tsx script/build.ts",
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
+    "check:design": "node scripts/check-design-tokens.mjs",
     "db:push": "drizzle-kit push",
     "test:e2e": "playwright test"
   },

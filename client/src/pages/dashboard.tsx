@@ -30,6 +30,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { normalizeRole } from "@shared/roles";
 import type { Activity, TimeEntry } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 /* ═══════════════════════════════════════════════════
    Constants
@@ -58,6 +60,8 @@ const TIME_RANGE_LABELS: Record<TimeRange, string> = {
 interface DashboardPrefs {
   showTasks: boolean;
   showGoals: boolean;
+  showInsights: boolean;
+  compactMode: boolean;
 }
 
 const PREFS_KEY = "tidum-dashboard-prefs";
@@ -65,9 +69,17 @@ const PREFS_KEY = "tidum-dashboard-prefs";
 function loadPrefs(): DashboardPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) return { showTasks: true, showGoals: true, ...JSON.parse(raw) };
+    if (raw) {
+      return {
+        showTasks: true,
+        showGoals: true,
+        showInsights: true,
+        compactMode: false,
+        ...JSON.parse(raw),
+      };
+    }
   } catch { /* ignore */ }
-  return { showTasks: true, showGoals: true };
+  return { showTasks: true, showGoals: true, showInsights: true, compactMode: false };
 }
 
 function savePrefs(prefs: DashboardPrefs) {
@@ -93,6 +105,11 @@ export default function DashboardPage() {
   const normalizedRole = rolePreview || normalizeRole(user?.role);
   const isTiltakslederView = ["tiltaksleder", "teamleder", "case_manager"].includes(normalizedRole);
   const isMiljoarbeiderView = normalizedRole === "miljoarbeider";
+
+  const updatePrefs = useCallback((nextPrefs: DashboardPrefs) => {
+    setPrefs(nextPrefs);
+    savePrefs(nextPrefs);
+  }, []);
 
   /* ── Calendar state ── */
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()));
@@ -544,7 +561,7 @@ export default function DashboardPage() {
 
   return (
     <PortalLayout>
-      <div className="space-y-6">
+      <div className={cn("space-y-6", prefs.compactMode && "space-y-4") }>
         {/* ─────────── HERO (header + stat cards + alerts) ─────────── */}
         <section className="relative overflow-hidden rounded-[26px] border border-[#d4dfdb] dark:border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(247,251,249,0.95))] dark:bg-card p-5 shadow-[0_20px_44px_rgba(22,43,49,0.08)] dark:shadow-none md:p-6">
           <div className="pointer-events-none absolute -left-20 top-8 h-48 w-80 rounded-[999px] bg-[rgba(78,154,111,0.13)] blur-3xl" />
@@ -563,10 +580,45 @@ export default function DashboardPage() {
               navigate={navigate}
             />
 
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-background/75 p-2">
+              <Button
+                size="sm"
+                variant={prefs.compactMode ? "default" : "outline"}
+                onClick={() => updatePrefs({ ...prefs, compactMode: !prefs.compactMode })}
+                aria-pressed={prefs.compactMode}
+              >
+                Kompakt visning
+              </Button>
+              <Button
+                size="sm"
+                variant={prefs.showTasks ? "default" : "outline"}
+                onClick={() => updatePrefs({ ...prefs, showTasks: !prefs.showTasks })}
+                aria-pressed={prefs.showTasks}
+              >
+                Oppgaver
+              </Button>
+              <Button
+                size="sm"
+                variant={prefs.showGoals ? "default" : "outline"}
+                onClick={() => updatePrefs({ ...prefs, showGoals: !prefs.showGoals })}
+                aria-pressed={prefs.showGoals}
+              >
+                Mål
+              </Button>
+              <Button
+                size="sm"
+                variant={prefs.showInsights ? "default" : "outline"}
+                onClick={() => updatePrefs({ ...prefs, showInsights: !prefs.showInsights })}
+                aria-pressed={prefs.showInsights}
+              >
+                Innsikt
+              </Button>
+            </div>
+
             {isTiltakslederView && <DashboardStatusToday signals={statusSignals} />}
 
             {/* Alerts – max 2 visible, severity pills */}
-            <DashboardAlerts alerts={alerts} />
+            <DashboardAlerts alerts={prefs.compactMode ? alerts.slice(0, 1) : alerts} />
 
             {/* "Neste beste handling" – contextual single CTA */}
             {!statsLoading && stats && (
@@ -806,8 +858,29 @@ export default function DashboardPage() {
           />
         )}
 
+        {isMiljoarbeiderView && prefs.showTasks && workerTaskList.length > 0 && (
+          <Card className="rounded-2xl border-border bg-card shadow-sm md:hidden">
+            <CardHeader className="pb-3">
+              <CardTitle className="flex items-center gap-2 text-base">
+                <FileText className="h-4 w-4 text-primary" />
+                Dagens gjøremål
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0">
+              <ul className="space-y-2">
+                {workerTaskList.map((task, i) => (
+                  <li key={i} className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <span className="h-1.5 w-1.5 rounded-full bg-primary flex-shrink-0" />
+                    {task}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
         {/* ─────────── TASKS + GOALS (collapsible, below hero) ─────────── */}
-        <section className={cn("grid gap-6 md:grid-cols-2", isMiljoarbeiderView && "hidden md:grid")}>
+        <section className={cn("grid gap-6 md:grid-cols-2", prefs.compactMode && "gap-4", isMiljoarbeiderView && "hidden md:grid")}>
           {prefs.showTasks && (
             <DashboardTasks tasks={myTasks} navigate={navigate} mode={isTiltakslederView ? "tiltaksleder" : "default"} />
           )}
@@ -822,7 +895,8 @@ export default function DashboardPage() {
         <div ref={analyticsSentinelRef} className="h-0 w-0" aria-hidden />
 
         {/* ─────────── ANALYTICS + ACTIVITY (two-column) ─────────── */}
-        <section className={cn("grid gap-6 xl:grid-cols-[1.75fr,1fr]", isMiljoarbeiderView && "hidden md:grid")}>
+        {prefs.showInsights && (
+          <section className={cn("grid gap-6 xl:grid-cols-[1.75fr,1fr]", prefs.compactMode && "gap-4", isMiljoarbeiderView && "hidden md:grid")}>
           <DashboardAnalytics
             mode={isTiltakslederView ? "tiltaksleder" : "default"}
             hoursData={hoursData}
@@ -849,7 +923,8 @@ export default function DashboardPage() {
             currentUserId={user?.id}
             navigate={navigate}
           />
-        </section>
+          </section>
+        )}
       </div>
     </PortalLayout>
   );

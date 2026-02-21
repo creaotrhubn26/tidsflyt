@@ -39,10 +39,10 @@ const toneStyles = {
 
 export function DashboardStatusToday({ signals }: DashboardStatusTodayProps) {
   return (
-    <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card shadow-sm">
+    <Card className="rounded-2xl border-border bg-card shadow-sm">
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-lg">
-          <Clock className="h-5 w-5 text-[#1F6B73]" />
+          <Clock className="h-5 w-5 text-primary" />
           Status i dag
         </CardTitle>
         <CardDescription>Rød/gul/grønn oversikt over oppfølging og avvik</CardDescription>
@@ -63,7 +63,7 @@ export function DashboardStatusToday({ signals }: DashboardStatusTodayProps) {
                   </span>
                   <Icon className={cn("h-4 w-4 shrink-0", tone.icon)} />
                 </div>
-                <p className="mt-2 text-sm font-semibold text-[#153c46] dark:text-foreground">
+                <p className="mt-2 text-sm font-semibold text-foreground">
                   {signal.label}
                 </p>
                 <p className="mt-0.5 text-xs text-muted-foreground">

@@ -2650,8 +2650,9 @@ export function registerSmartTimingRoutes(app: Express) {
   // Create new case report
   app.post("/api/case-reports", requireAuth, async (req, res) => {
     try {
+      const authUserId: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
       const { 
-        user_id, user_cases_id, case_id, month, background, actions, 
+        user_cases_id, case_id, month, background, actions, 
         progress, challenges, factors, assessment, recommendations, notes 
       } = req.body;
 
@@ -2663,7 +2664,7 @@ export function registerSmartTimingRoutes(app: Express) {
          (user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
          RETURNING *`,
-        [user_id || 'default', user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
+        [authUserId, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
       );
 
       const response: any = result.rows[0];
@@ -2846,7 +2847,8 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { author_id, author_name, author_role, content, is_internal, parent_id } = req.body;
+      const { author_name, author_role, content, is_internal, parent_id } = req.body;
+      const author_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
       
       if (!content || !author_id) {
         return res.status(400).json({ error: 'Content and author_id are required' });
@@ -2884,7 +2886,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { reader_id } = req.body;
+      const reader_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
 
       if (!reader_id) {
         return res.status(400).json({ error: 'reader_id required' });
@@ -2909,10 +2911,10 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  // Get unread comment count for a user
+  // Get unread comment count for authenticated user
   app.get("/api/case-reports/unread-count", requireAuth, async (req, res) => {
     try {
-      const { user_id } = req.query;
+      const user_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
       if (!user_id) {
         return res.status(400).json({ error: 'user_id required' });
       }
@@ -4202,7 +4204,7 @@ export function registerSmartTimingRoutes(app: Express) {
         'SELECT page_path, priority, change_frequency, updated_at FROM seo_pages WHERE is_active = true AND robots_index = true'
       );
 
-      const baseUrl = 'https://tidum.no';
+      const baseUrl = `${req.protocol || 'https'}://${req.get('host') || 'tidum.no'}`;
       
       let sitemap = '<?xml version="1.0" encoding="UTF-8"?>\n';
       sitemap += '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
@@ -4309,6 +4311,7 @@ export function registerSmartTimingRoutes(app: Express) {
         robotsTxt = result.rows[0].robots_txt;
       } else {
         // Default robots.txt
+        const sitemapBase = `${req.protocol || 'https'}://${req.get('host') || 'tidum.no'}`;
         robotsTxt = `User-agent: *
 Allow: /
 Disallow: /api/
@@ -4318,7 +4321,7 @@ Disallow: /dashboard/
 Disallow: /login
 Disallow: /register
 
-Sitemap: https://tidum.no/sitemap.xml`;
+Sitemap: ${sitemapBase}/sitemap.xml`;
       }
 
       res.set('Content-Type', 'text/plain');

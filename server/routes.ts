@@ -17,6 +17,8 @@ import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
 import { canAccessVendorApiAdmin } from "@shared/roles";
+import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
+import { cache } from "./micro-cache";
 
 
 // Zod schema for bulk time entry validation
@@ -28,13 +30,13 @@ const bulkTimeEntrySchema = z.object({
 });
 
 const bulkRequestSchema = z.object({
-  userId: z.string().min(1, "userId is required"),
+  userId: z.string().optional(),
   entries: z.array(bulkTimeEntrySchema).min(1, "At least one entry required").max(31, "Maximum 31 entries"),
   overwrite: z.boolean().optional().default(false),
 });
 
 const timerSessionSchema = z.object({
-  userId: z.string().min(1, "userId is required"),
+  userId: z.string().optional(),
   elapsedSeconds: z.number().int().min(0),
   pausedSeconds: z.number().int().min(0),
   isRunning: z.boolean(),
@@ -274,7 +276,7 @@ export async function registerRoutes(
   });
 
   // Access request routes (public - for new user registration)
-  app.post("/api/access-requests", async (req, res) => {
+  app.post("/api/access-requests", publicWriteRateLimit, async (req, res) => {
     try {
       const parsed = insertAccessRequestSchema.safeParse({
         fullName: req.body.full_name,
@@ -393,10 +395,18 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats", isAuthenticated, async (req, res) => {
+  app.get("/api/stats", isAuthenticated, apiRateLimit, async (req, res) => {
     try {
       const { range } = req.query;
+      const cacheKey = `stats:${range || 'default'}`;
+      const cached = cache.get<object>(cacheKey);
+      if (cached) {
+        res.setHeader("Cache-Control", "private, max-age=30");
+        return res.json(cached);
+      }
       const stats = await storage.getStats(range as string);
+      cache.set(cacheKey, stats, 30_000);
+      res.setHeader("Cache-Control", "private, max-age=30");
       res.json(stats);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -426,6 +436,7 @@ export async function registerRoutes(
     try {
       const user = await storage.updateUser(req.params.id, req.body);
       if (!user) return res.status(404).json({ error: "User not found" });
+      cache.del("userMap"); // invalidate enrichment cache
       res.json({ ...user, password: undefined });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -449,7 +460,8 @@ export async function registerRoutes(
 
   app.post("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
-      const { userId, caseNumber, description, hours, date, status, createdAt } = req.body;
+      const { caseNumber, description, hours, date, status, createdAt } = req.body;
+      const userId = (req.user as any)?.id as string;
       const entry = await storage.createTimeEntry({
         userId,
         caseNumber,
@@ -465,6 +477,9 @@ export async function registerRoutes(
         description: `Registrerte ${hours} timer: ${description}`,
         timestamp: new Date().toISOString(),
       });
+      // Invalidate aggregation caches after new time data
+      cache.delByPrefix("stats:");
+      cache.del("chart-data");
       res.status(201).json(entry);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -493,7 +508,7 @@ export async function registerRoutes(
 
   app.get("/api/timer-session", isAuthenticated, async (req, res) => {
     try {
-      const userId = String(req.query.userId || "").trim();
+      const userId = String((req.user as any)?.id || "").trim();
       if (!userId) return res.status(400).json({ error: "userId is required" });
       const session = await storage.getTimerSession(userId);
       res.json(session || null);
@@ -510,8 +525,9 @@ export async function registerRoutes(
       }
 
       const payload = parsed.data;
+      const userId = (req.user as any)?.id as string;
       const session = await storage.upsertTimerSession({
-        userId: payload.userId,
+        userId,
         elapsedSeconds: payload.elapsedSeconds,
         pausedSeconds: payload.pausedSeconds,
         isRunning: payload.isRunning,
@@ -526,7 +542,7 @@ export async function registerRoutes(
 
   app.delete("/api/timer-session/:userId", isAuthenticated, async (req, res) => {
     try {
-      const userId = String(req.params.userId || "").trim();
+      const userId = String((req.user as any)?.id || "").trim();
       if (!userId) return res.status(400).json({ error: "userId is required" });
       await storage.deleteTimerSession(userId);
       res.status(204).send();
@@ -551,7 +567,8 @@ export async function registerRoutes(
         });
       }
 
-      const { userId, entries, overwrite } = parseResult.data;
+      const { entries, overwrite } = parseResult.data;
+      const userId = (req.user as any)?.id as string;
 
       const results = {
         created: 0,
@@ -560,20 +577,25 @@ export async function registerRoutes(
         processedDates: [] as string[],
       };
 
+      // ── Batch pre-fetch to avoid N+1 queries ──────────────────────────────
+      const dates = entries.map(e => e.date);
+      const minDate = dates.reduce((a, b) => (a < b ? a : b));
+      const maxDate = dates.reduce((a, b) => (a > b ? a : b));
+      const existingInRange = await storage.getTimeEntries({
+        userId,
+        startDate: minDate,
+        endDate: maxDate,
+      });
+      // Map date → first matching entry for O(1) lookups inside the loop
+      const existingByDate = new Map(existingInRange.map(e => [e.date, e]));
+
       for (const entry of entries) {
         const { date, hours, description, caseNumber } = entry;
+        const existing = existingByDate.get(date);
 
-        // Check for existing entry on this date
-        const existing = await storage.getTimeEntries({
-          userId,
-          startDate: date,
-          endDate: date,
-        });
-
-        if (existing.length > 0) {
+        if (existing) {
           if (overwrite) {
-            // Update existing entry with all relevant fields
-            await storage.updateTimeEntry(existing[0].id, {
+            await storage.updateTimeEntry(existing.id, {
               description: description.trim(),
               hours,
               caseNumber: caseNumber || null,
@@ -585,7 +607,7 @@ export async function registerRoutes(
             results.skipped++;
           }
         } else {
-          await storage.createTimeEntry({
+          const created = await storage.createTimeEntry({
             userId,
             caseNumber: caseNumber || null,
             description: description.trim(),
@@ -594,6 +616,9 @@ export async function registerRoutes(
             status: 'pending',
             createdAt: new Date().toISOString(),
           });
+          // Keep map consistent so duplicate dates in the same batch don't
+          // produce two inserts
+          existingByDate.set(date, created);
           results.created++;
           results.processedDates.push(date);
         }
@@ -608,6 +633,9 @@ export async function registerRoutes(
           description: `Bulk-registrerte ${totalEntries} dager med timer`,
           timestamp: new Date().toISOString(),
         });
+        // Invalidate aggregation caches
+        cache.delByPrefix("stats:");
+        cache.del("chart-data");
       }
 
       res.status(201).json(results);
@@ -638,7 +666,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/activities", isAuthenticated, async (req, res) => {
+  app.get("/api/activities", isAuthenticated, apiRateLimit, async (req, res) => {
     try {
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
@@ -652,19 +680,23 @@ export async function registerRoutes(
           const parsed = new Date(activity.timestamp);
           if (Number.isNaN(parsed.getTime())) return false;
           const activityDate = parsed.toISOString().split("T")[0];
-
           if (startDate && activityDate < startDate) return false;
           if (endDate && activityDate > endDate) return false;
           return true;
         });
       }
 
-      const users = await storage.getAllUsers();
-      const userMap = new Map(users.map(u => [u.id, u]));
-      
+      // Cache the user-name map for 60 s to avoid getAllUsers() on every hit
+      let userMap = cache.get<Map<string, { name: string; department?: string | null }>>("userMap");
+      if (!userMap) {
+        const users = await storage.getAllUsers();
+        userMap = new Map(users.map(u => [u.id, u]));
+        cache.set("userMap", userMap, 60_000);
+      }
+
       const enriched = activities.map(a => ({
         ...a,
-        userName: userMap.get(a.userId)?.name || "Ukjent bruker",
+        userName: userMap!.get(a.userId)?.name || "Ukjent bruker",
       }));
       res.json(enriched);
     } catch (error: any) {
@@ -672,7 +704,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/reports", isAuthenticated, async (req, res) => {
+  app.get("/api/reports", isAuthenticated, apiRateLimit, async (req, res) => {
     try {
       const { startDate, endDate, userId, status } = req.query;
       const entries = await storage.getTimeEntries({
@@ -681,24 +713,39 @@ export async function registerRoutes(
         endDate: endDate as string,
         status: status as string,
       });
-      const users = await storage.getAllUsers();
-      const userMap = new Map(users.map(u => [u.id, u]));
-      
+
+      // Reuse cached user-map (shared with /api/activities)
+      let userMap = cache.get<Map<string, { name: string; department?: string | null }>>("userMap");
+      if (!userMap) {
+        const users = await storage.getAllUsers();
+        userMap = new Map(users.map(u => [u.id, u]));
+        cache.set("userMap", userMap, 60_000);
+      }
+
       const reports = entries.map(e => ({
         ...e,
-        userName: userMap.get(e.userId)?.name || "Ukjent",
-        department: userMap.get(e.userId)?.department || "-",
+        userName: userMap!.get(e.userId)?.name || "Ukjent",
+        department: (userMap!.get(e.userId) as any)?.department || "-",
       }));
-      
+
       res.json(reports);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  app.get("/api/chart-data", isAuthenticated, async (_req, res) => {
+  app.get("/api/chart-data", isAuthenticated, apiRateLimit, async (_req, res) => {
     try {
-      const entries = await storage.getTimeEntries({});
+      const cached = cache.get<object>("chart-data");
+      if (cached) {
+        res.setHeader("Cache-Control", "private, max-age=30");
+        return res.json(cached);
+      }
+      // Limit to last 30 days to avoid a full-table scan on every request
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 30);
+      const startDate = cutoff.toISOString().split("T")[0];
+      const entries = await storage.getTimeEntries({ startDate });
       const users = await storage.getAllUsers();
       
       const dayNames = ["Son", "Man", "Tir", "Ons", "Tor", "Fre", "Lor"];
@@ -726,7 +773,10 @@ export async function registerRoutes(
         return acc;
       }, [] as { date: string; hours: number }[]);
       
-      res.json({ hoursPerDay, heatmapData, totalUsers: users.length });
+      const payload = { hoursPerDay, heatmapData, totalUsers: users.length };
+      cache.set("chart-data", payload, 30_000);
+      res.setHeader("Cache-Control", "private, max-age=30");
+      res.json(payload);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -840,7 +890,7 @@ export async function registerRoutes(
   });
 
   // Get a builder page by slug (for public rendering)
-  app.get("/api/cms/builder-pages/slug/:slug", async (req, res) => {
+  app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
     try {
       const [page] = await db.select().from(builderPages).where(eq(builderPages.slug, req.params.slug));
       if (!page) return res.status(404).json({ error: "Page not found" });
@@ -1039,7 +1089,7 @@ export async function registerRoutes(
   });
 
   // Public form submission endpoint (no auth needed)
-  app.post("/api/cms/form-submissions", async (req, res) => {
+  app.post("/api/cms/form-submissions", publicWriteRateLimit, async (req, res) => {
     try {
       const { pageId, pageSlug, formName, data } = req.body;
       const [submission] = await db.insert(formSubmissions).values({
@@ -1074,7 +1124,7 @@ export async function registerRoutes(
   // ═══════════════════════════════════════════
 
   // Track a page view (public, no auth)
-  app.post("/api/cms/page-analytics/track", async (req, res) => {
+  app.post("/api/cms/page-analytics/track", publicWriteRateLimit, async (req, res) => {
     try {
       const { pageId, pageSlug, duration, referrer, device } = req.body;
       await db.insert(pageAnalytics).values({
@@ -1235,8 +1285,8 @@ export async function registerRoutes(
     }
   });
 
-  // Serve CMS uploads
-  app.use('/uploads/cms', express.static(cmsUploadDir));
+  // Serve CMS uploads (1 hour browser cache)
+  app.use('/uploads/cms', express.static(cmsUploadDir, { maxAge: '1h' }));
 
   // ═══════════════════════════════════════════
   // Scheduled Publishing Cron (check on each request)

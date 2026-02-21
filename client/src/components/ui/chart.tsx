@@ -206,24 +206,21 @@ const ChartTooltipContent = React.forwardRef<
                       <itemConfig.icon />
                     ) : (
                       !hideIndicator && (
-                        <div
-                          className={cn(
-                            "shrink-0 rounded-[2px] border-[--color-border] bg-[--color-bg]",
-                            {
-                              "h-2.5 w-2.5": indicator === "dot",
-                              "w-1": indicator === "line",
-                              "w-0 border-[1.5px] border-dashed bg-transparent":
-                                indicator === "dashed",
-                              "my-0.5": nestLabel && indicator === "dashed",
-                            }
-                          )}
-                          style={
-                            {
-                              "--color-bg": indicatorColor,
-                              "--color-border": indicatorColor,
-                            } as React.CSSProperties
-                          }
-                        />
+                        <React.Fragment>
+                          <style dangerouslySetInnerHTML={{ __html: `.chi-${index}{background-color:${indicatorColor};border-color:${indicatorColor}}` }} />
+                          <div
+                            className={cn(
+                              `shrink-0 rounded-[2px] chi-${index}`,
+                              {
+                                "h-2.5 w-2.5": indicator === "dot",
+                                "w-1": indicator === "line",
+                                "w-0 border-[1.5px] border-dashed bg-transparent":
+                                  indicator === "dashed",
+                                "my-0.5": nestLabel && indicator === "dashed",
+                              }
+                            )}
+                          />
+                        </React.Fragment>
                       )
                     )}
                     <div
@@ -299,10 +296,10 @@ const ChartLegendContent = React.forwardRef<
               {itemConfig?.icon && !hideIcon ? (
                 <itemConfig.icon />
               ) : (
-                <div
-                  className="h-2 w-2 shrink-0 rounded-[2px] bg-[--chart-legend-color]"
-                  style={{ "--chart-legend-color": item.color } as React.CSSProperties}
-                />
+                <React.Fragment>
+                  <style dangerouslySetInnerHTML={{ __html: `.chl-${String(item.value).replace(/[^a-z0-9]/gi, '-')}{background-color:${item.color}}` }} />
+                  <div className={`h-2 w-2 shrink-0 rounded-[2px] chl-${String(item.value).replace(/[^a-z0-9]/gi, '-')}`} />
+                </React.Fragment>
               )}
               {itemConfig?.label}
             </div>

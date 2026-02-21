@@ -122,6 +122,29 @@ export function CrawlerDashboard() {
   const [activeView, setActiveView] = useState<"jobs" | "new" | "results" | "issues" | "duplicates" | "redirects" | "compare" | "schedules">("jobs");
   const [selectedJobId, setSelectedJobId] = useState<number | null>(null);
   const [compareJobId, setCompareJobId] = useState<number | null>(null);
+  const [selectedJobUrl, setSelectedJobUrl] = useState<string | null>(null);
+
+  // Auto-navigate to jobs list when no job is selected but user is on a job-specific view
+  useEffect(() => {
+    if (!selectedJobId && ["results", "issues", "duplicates", "redirects", "compare"].includes(activeView)) {
+      setActiveView("jobs");
+    }
+  }, [selectedJobId, activeView]);
+
+  const handleSelectJob = useCallback((id: number, targetUrl?: string) => {
+    setSelectedJobId(id);
+    if (targetUrl) setSelectedJobUrl(targetUrl);
+    setActiveView("results");
+  }, []);
+
+  const handleCopyJobUrl = useCallback(() => {
+    if (!selectedJobUrl) return;
+    navigator.clipboard.writeText(selectedJobUrl).then(() => {
+      toast({ title: "Kopiert", description: "URL kopiert til utklippstavlen." });
+    }).catch(() => {
+      toast({ title: "Feil", description: "Kunne ikke kopiere URL.", variant: "destructive" });
+    });
+  }, [selectedJobUrl, toast]);
 
   return (
     <div className="space-y-6">
@@ -135,73 +158,84 @@ export function CrawlerDashboard() {
             Komplett nettstedscrawler for SEO-analyse, feilsøking og overvåking
           </p>
         </div>
-        <Button onClick={() => setActiveView("new")}>
-          <Plus className="h-4 w-4 mr-2" /> Ny crawl
-        </Button>
+        <div className="flex items-center gap-2">
+          {selectedJobUrl && (
+            <Button variant="outline" size="sm" onClick={handleCopyJobUrl} title={`Åpne: ${selectedJobUrl}`}>
+              <ExternalLink className="h-4 w-4 mr-1" />
+              <a href={selectedJobUrl} target="_blank" rel="noreferrer" className="text-inherit no-underline" onClick={(e) => e.stopPropagation()}>
+                Åpne nettsted
+              </a>
+            </Button>
+          )}
+          <Button onClick={() => setActiveView("new")}>
+            <Plus className="h-4 w-4 mr-2" /> Ny crawl
+          </Button>
+        </div>
       </div>
 
       {/* Navigation */}
-      <div className="flex flex-wrap gap-2">
-        {[
-          { key: "jobs", label: "Crawl-jobber", icon: Activity },
-          { key: "new", label: "Ny crawl", icon: Plus },
-          ...(selectedJobId ? [
-            { key: "results", label: "Resultater", icon: FileText },
-            { key: "issues", label: "Problemer", icon: AlertTriangle },
-            { key: "duplicates", label: "Duplikater", icon: RefreshCw },
-            { key: "redirects", label: "Omdirigeringer", icon: Link2 },
-            { key: "compare", label: "Sammenlign", icon: BarChart3 },
-          ] : []),
-          { key: "schedules", label: "Tidsplaner", icon: Clock },
-        ].map(({ key, label, icon: Icon }) => (
-          <Button
-            key={key}
-            variant={activeView === key ? "default" : "outline"}
-            size="sm"
-            onClick={() => setActiveView(key as any)}
-          >
-            <Icon className="h-4 w-4 mr-1" /> {label}
-          </Button>
-        ))}
-      </div>
+      <Tabs value={activeView} onValueChange={(v) => setActiveView(v as typeof activeView)}>
+        <TabsList className="flex flex-wrap h-auto gap-1">
+          {[
+            { key: "jobs", label: "Crawl-jobber", icon: Activity },
+            { key: "new", label: "Ny crawl", icon: Plus },
+            ...(selectedJobId ? [
+              { key: "results", label: "Resultater", icon: FileText },
+              { key: "issues", label: "Problemer", icon: AlertTriangle },
+              { key: "duplicates", label: "Duplikater", icon: RefreshCw },
+              { key: "redirects", label: "Omdirigeringer", icon: Link2 },
+              { key: "compare", label: "Sammenlign", icon: BarChart3 },
+            ] : []),
+            { key: "schedules", label: "Tidsplaner", icon: Clock },
+          ].map(({ key, label, icon: Icon }) => (
+            <TabsTrigger key={key} value={key} className="flex items-center gap-1 text-sm">
+              <Icon className="h-4 w-4" /> {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
 
-      {activeView === "jobs" && (
-        <JobsList
-          onSelectJob={(id) => { setSelectedJobId(id); setActiveView("results"); }}
-          onNewCrawl={() => setActiveView("new")}
-        />
-      )}
-      {activeView === "new" && (
-        <NewCrawlForm
-          onCreated={(id) => { setSelectedJobId(id); setActiveView("results"); }}
-        />
-      )}
-      {activeView === "results" && selectedJobId && (
-        <CrawlResults jobId={selectedJobId} />
-      )}
-      {activeView === "issues" && selectedJobId && (
-        <IssuesSummary jobId={selectedJobId} />
-      )}
-      {activeView === "duplicates" && selectedJobId && (
-        <DuplicatesReport jobId={selectedJobId} />
-      )}
-      {activeView === "redirects" && selectedJobId && (
-        <RedirectsReport jobId={selectedJobId} />
-      )}
-      {activeView === "compare" && selectedJobId && (
-        <CompareView
-          jobId={selectedJobId}
-          compareJobId={compareJobId}
-          onSelectCompare={setCompareJobId}
-        />
-      )}
-      {activeView === "schedules" && <ScheduleManager />}
+        <TabsContent value="jobs">
+          <JobsList
+            onSelectJob={(id, url) => handleSelectJob(id, url)}
+            onNewCrawl={() => setActiveView("new")}
+          />
+        </TabsContent>
+        <TabsContent value="new">
+          <NewCrawlForm
+            onCreated={(id) => { setSelectedJobId(id); setActiveView("results"); }}
+          />
+        </TabsContent>
+        <TabsContent value="results">
+          {selectedJobId && <CrawlResults jobId={selectedJobId} />}
+        </TabsContent>
+        <TabsContent value="issues">
+          {selectedJobId && <IssuesSummary jobId={selectedJobId} />}
+        </TabsContent>
+        <TabsContent value="duplicates">
+          {selectedJobId && <DuplicatesReport jobId={selectedJobId} />}
+        </TabsContent>
+        <TabsContent value="redirects">
+          {selectedJobId && <RedirectsReport jobId={selectedJobId} />}
+        </TabsContent>
+        <TabsContent value="compare">
+          {selectedJobId && (
+            <CompareView
+              jobId={selectedJobId}
+              compareJobId={compareJobId}
+              onSelectCompare={setCompareJobId}
+            />
+          )}
+        </TabsContent>
+        <TabsContent value="schedules">
+          <ScheduleManager />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
 
 // ── Jobs List ────────────────────────────────────────────────────────
-function JobsList({ onSelectJob, onNewCrawl }: { onSelectJob: (id: number) => void; onNewCrawl: () => void }) {
+function JobsList({ onSelectJob, onNewCrawl }: { onSelectJob: (id: number, targetUrl?: string) => void; onNewCrawl: () => void }) {
   const { toast } = useToast();
 
   const { data: jobs = [], isLoading, refetch } = useQuery<CrawlJob[]>({
@@ -248,8 +282,17 @@ function JobsList({ onSelectJob, onNewCrawl }: { onSelectJob: (id: number) => vo
 
   return (
     <div className="space-y-3">
+      {/* Alert for running jobs */}
+      {jobs.some(j => j.status === "running") && (
+        <Alert className="border-blue-200 bg-blue-50 dark:border-blue-800 dark:bg-blue-950/30">
+          <AlertDescription className="text-blue-700 dark:text-blue-300 flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin flex-shrink-0" />
+            {jobs.filter(j => j.status === "running").length} crawl-jobb(er) kjører nå. Siden oppdateres automatisk.
+          </AlertDescription>
+        </Alert>
+      )}
       {jobs.map((job) => (
-        <Card key={job.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onSelectJob(job.id)}>
+        <Card key={job.id} className="cursor-pointer hover:shadow-md transition-shadow" onClick={() => onSelectJob(job.id, job.target_url)}>
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
               <div className="flex-1 min-w-0">
@@ -270,15 +313,50 @@ function JobsList({ onSelectJob, onNewCrawl }: { onSelectJob: (id: number) => vo
                 {job.status === "running" && (
                   <div className="mt-2">
                     <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <style dangerouslySetInnerHTML={{ __html: `.cpb-${String(job.id).replace(/\W/g,'')}{width:${job.pages_total > 0 ? ((job.pages_crawled / job.pages_total) * 100).toFixed(2) : 0}%}` }} />
                       <div
-                        className="h-full bg-blue-500 rounded-full transition-all"
-                        style={{ width: `${job.pages_total > 0 ? (job.pages_crawled / job.pages_total) * 100 : 0}%` }}
+                        className={`h-full bg-blue-500 rounded-full transition-all cpb-${String(job.id).replace(/\W/g,'')}`}
                       />
                     </div>
                   </div>
                 )}
               </div>
               <div className="flex items-center gap-2 ml-4" onClick={(e) => e.stopPropagation()}>
+                {/* Job details dialog */}
+                <Dialog>
+                  <DialogTrigger asChild>
+                    <Button size="sm" variant="outline" title="Vis detaljer">
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent className="max-w-lg">
+                    <DialogHeader>
+                      <DialogTitle>{job.name}</DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-3 text-sm">
+                      <div className="grid grid-cols-2 gap-2">
+                        <span className="text-muted-foreground">URL:</span>
+                        <a href={job.target_url} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline truncate flex items-center gap-1">
+                          {job.target_url} <ExternalLink className="h-3 w-3 flex-shrink-0" />
+                        </a>
+                        <span className="text-muted-foreground">Status:</span>
+                        <span>{job.status}</span>
+                        <span className="text-muted-foreground">Type:</span>
+                        <span>{job.crawl_type}</span>
+                        <span className="text-muted-foreground">Sider:</span>
+                        <span>{job.pages_crawled} / {job.pages_total || "?"}</span>
+                        <span className="text-muted-foreground">Feil:</span>
+                        <span className={job.errors_count > 0 ? "text-red-600" : ""}>{job.errors_count}</span>
+                        <span className="text-muted-foreground">Advarsler:</span>
+                        <span className={job.warnings_count > 0 ? "text-yellow-600" : ""}>{job.warnings_count}</span>
+                        {job.duration_ms && (<><span className="text-muted-foreground">Varighet:</span><span>{(job.duration_ms / 1000).toFixed(1)}s</span></>)}
+                        <span className="text-muted-foreground">Opprettet:</span>
+                        <span>{new Date(job.created_at).toLocaleString("nb-NO")}</span>
+                        {job.completed_at && (<><span className="text-muted-foreground">Fullført:</span><span>{new Date(job.completed_at).toLocaleString("nb-NO")}</span></>)}
+                      </div>
+                    </div>
+                  </DialogContent>
+                </Dialog>
                 {job.status === "running" && (
                   <Button size="sm" variant="outline" onClick={() => cancelMutation.mutate(job.id)}>
                     <X className="h-4 w-4" />
@@ -568,7 +646,8 @@ function CrawlResults({ jobId }: { jobId: number }) {
             {job.status === "running" && (
               <div className="mt-3">
                 <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 rounded-full transition-all animate-pulse" style={{ width: `${job.pages_total > 0 ? (job.pages_crawled / job.pages_total) * 100 : 10}%` }} />
+                  <style dangerouslySetInnerHTML={{ __html: `.cpbd-${String(job.id).replace(/\W/g,'')}{width:${job.pages_total > 0 ? ((job.pages_crawled / job.pages_total) * 100).toFixed(2) : 10}%}` }} />
+                  <div className={`h-full bg-blue-500 rounded-full transition-all animate-pulse cpbd-${String(job.id).replace(/\W/g,'')}`} />
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">{job.pages_crawled} av ~{job.pages_total} sider crawlet...</p>
               </div>

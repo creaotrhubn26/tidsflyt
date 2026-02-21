@@ -294,6 +294,7 @@ function ActivityFeedComponent({
           type="button"
           role="article"
           tabIndex={0}
+          aria-label={`${activity.user ? activity.user + ': ' : ''}${activity.message || activity.type}`}
           onClick={() => {
             markRead(activity.id);
             onActivityClick?.(activity);
@@ -394,6 +395,7 @@ function ActivityFeedComponent({
                   <span
                     role="button"
                     tabIndex={-1}
+                    aria-label="Handlinger"
                     onClick={(e) => {
                       e.stopPropagation();
                       onAction?.(activity, "menu");

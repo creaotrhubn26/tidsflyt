@@ -214,6 +214,8 @@ export function DesignTokenEditor() {
           value={value || '#000000'}
           onChange={(e) => updateToken(tokenKey, e.target.value)}
           className="h-10 w-16 rounded border cursor-pointer"
+          aria-label={label}
+          title={label}
         />
         <Input
           value={value || ''}
@@ -221,9 +223,10 @@ export function DesignTokenEditor() {
           className="flex-1 font-mono text-sm"
           placeholder="#000000"
         />
+        <style dangerouslySetInnerHTML={{ __html: `[data-pc="${String(value || '').replace(/[^a-z0-9#(). ,%/]/gi, '')}"]{background-color:${String(value || '').replace(/[^a-z0-9#(). ,%/]/gi, '')}}` }} />
         <div 
           className="h-10 w-10 rounded border flex-shrink-0"
-          style={{ backgroundColor: value }}
+          data-pc={String(value || '').replace(/[^a-z0-9#(). ,%/]/gi, '')}
           title={value}
         />
       </div>
@@ -623,7 +626,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_none"
                   placeholder="0"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_none }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="none"]{border-radius:${String(effectiveTokens.border_radius_none)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="none" />
               </div>
               <div>
                 <TextInput 
@@ -632,7 +636,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_sm"
                   placeholder="4px"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_sm }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="sm"]{border-radius:${String(effectiveTokens.border_radius_sm)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="sm" />
               </div>
               <div>
                 <TextInput 
@@ -641,7 +646,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_md"
                   placeholder="8px"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_md }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="md"]{border-radius:${String(effectiveTokens.border_radius_md)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="md" />
               </div>
               <div>
                 <TextInput 
@@ -650,7 +656,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_lg"
                   placeholder="12px"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_lg }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="lg"]{border-radius:${String(effectiveTokens.border_radius_lg)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="lg" />
               </div>
               <div>
                 <TextInput 
@@ -659,7 +666,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_xl"
                   placeholder="16px"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_xl }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="xl"]{border-radius:${String(effectiveTokens.border_radius_xl)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="xl" />
               </div>
               <div>
                 <TextInput 
@@ -668,7 +676,8 @@ export function DesignTokenEditor() {
                   tokenKey="border_radius_full"
                   placeholder="9999px"
                 />
-                <div className="mt-2 h-16 bg-primary" style={{ borderRadius: effectiveTokens.border_radius_full }} />
+                <style dangerouslySetInnerHTML={{ __html: `[data-br="full"]{border-radius:${String(effectiveTokens.border_radius_full)}}` }} />
+                <div className="mt-2 h-16 bg-primary" data-br="full" />
               </div>
             </CardContent>
           </Card>
@@ -690,9 +699,10 @@ export function DesignTokenEditor() {
                     value={effectiveTokens[key as keyof DesignTokens] as string} 
                     tokenKey={key as keyof DesignTokens}
                   />
+                  <style dangerouslySetInnerHTML={{ __html: `[data-sh="${key}"]{box-shadow:${effectiveTokens[key as keyof DesignTokens] as string}}` }} />
                   <div 
-                    className="mt-2 h-16 bg-white border rounded-lg" 
-                    style={{ boxShadow: effectiveTokens[key as keyof DesignTokens] as string }}
+                    className="mt-2 h-16 bg-white border rounded-lg"
+                    data-sh={key}
                   />
                 </div>
               ))}

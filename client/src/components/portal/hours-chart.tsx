@@ -149,29 +149,23 @@ export function HoursChart({
 
       return (
         <div
-          className="rounded-[10px] border px-3 py-2.5 shadow-[0_8px_24px_rgba(15,34,41,0.18)]"
-          style={{
-            backgroundColor: chartColors.tooltip.bg,
-            borderColor: chartColors.tooltip.border,
-          }}
+          className="rounded-[10px] border px-3 py-2.5 shadow-[0_8px_24px_rgba(15,34,41,0.18)] bg-[var(--hc-tt-bg)] border-[var(--hc-tt-border)]"
         >
-          <p className="text-sm font-bold" style={{ color: chartColors.tooltip.text }}>
+          <p className="text-sm font-bold text-[var(--hc-tt-text)]">
             {entry.day}
             {isWeekend && (
               <span className="ml-1 text-[10px] font-medium opacity-60">(helg)</span>
             )}
           </p>
           <div
-            className="mt-1 space-y-0.5 text-[12px]"
-            style={{ color: chartColors.textMuted }}
+            className="mt-1 space-y-0.5 text-[12px] [color:var(--hc-text-muted)]"
           >
             {entry.hours > 0 ? (
               <>
                 <p>
                   Totalt:{" "}
                   <span
-                    className="font-semibold"
-                    style={{ color: chartColors.tooltip.text }}
+                    className="font-semibold text-[var(--hc-tt-text)]"
                   >
                     {entry.hours.toFixed(1)}t
                   </span>
@@ -179,8 +173,7 @@ export function HoursChart({
                 <p>
                   Andel:{" "}
                   <span
-                    className="font-semibold"
-                    style={{ color: chartColors.tooltip.text }}
+                    className="font-semibold text-[var(--hc-tt-text)]"
                   >
                     {pct}%
                   </span>
@@ -267,6 +260,9 @@ export function HoursChart({
           "--hc-panel-border": chartColors.panelBorder,
           "--hc-empty-bg": chartColors.emptyBg,
           "--hc-empty-border": chartColors.emptyBorder,
+          "--hc-tt-bg": chartColors.tooltip.bg,
+          "--hc-tt-border": chartColors.tooltip.border,
+          "--hc-tt-text": chartColors.tooltip.text,
         } as React.CSSProperties
       }
       data-testid="hours-chart"

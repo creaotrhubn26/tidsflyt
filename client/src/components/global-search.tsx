@@ -171,6 +171,8 @@ export function GlobalSearch() {
                 <button
                   onClick={() => setQuery("")}
                   className="text-muted-foreground hover:text-foreground"
+                  aria-label="Tøm søk"
+                  title="Tøm søk"
                 >
                   <X className="h-4 w-4" />
                 </button>

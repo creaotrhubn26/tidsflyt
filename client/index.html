@@ -2,7 +2,7 @@
 <html lang="nb">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -88,6 +88,17 @@
       .skip-link:focus {
         top: 0;
       }
+      #seo-h1 {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0,0,0,0);
+        white-space: nowrap;
+        border: 0;
+      }
     </style>
   </head>
   <body>
@@ -95,7 +106,7 @@
     <a href="#main-content" class="skip-link">Hopp til hovedinnhold</a>
 
     <!-- SEO: H1 visible to crawlers, hidden visually when JS renders the app -->
-    <h1 id="seo-h1" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0">
+    <h1 id="seo-h1">
       Tidum – Profesjonell timeføring for norske bedrifter
     </h1>
 

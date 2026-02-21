@@ -31,15 +31,15 @@ interface NextAction {
 const VARIANT_STYLES: Record<NextAction["variant"], string> = {
   critical: "border-red-200 dark:border-red-800 bg-red-50/60 dark:bg-red-950/30",
   warning: "border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-950/30",
-  info: "border-[#1F6B73]/20 dark:border-[#51C2D0]/20 bg-[#1F6B73]/5 dark:bg-[#51C2D0]/5",
-  neutral: "border-[#d8e4e0] dark:border-border bg-white/80 dark:bg-card",
+  info: "border-primary/20 bg-primary/5",
+  neutral: "border-border bg-card",
 };
 
 const ICON_STYLES: Record<NextAction["variant"], string> = {
   critical: "text-red-600 dark:text-red-400",
   warning: "text-amber-600 dark:text-amber-400",
-  info: "text-[#1F6B73] dark:text-[#51C2D0]",
-  neutral: "text-[#1F6B73] dark:text-[#51C2D0]",
+  info: "text-primary",
+  neutral: "text-primary",
 };
 
 export function DashboardNextAction({
@@ -150,17 +150,17 @@ export function DashboardNextAction({
           <Icon className="h-6 w-6" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-[#153c46] dark:text-foreground">
+          <p className="text-sm font-semibold text-foreground">
             {action.label}
           </p>
-          <p className="text-xs text-[#5f7075] dark:text-muted-foreground truncate">
+          <p className="text-xs text-muted-foreground truncate">
             {action.description}
           </p>
         </div>
         <Button
           size="sm"
           variant="ghost"
-          className="shrink-0 gap-1 text-xs font-medium text-[#1F6B73] dark:text-[#51C2D0] hover:text-[#153c46] dark:hover:text-foreground"
+          className="shrink-0 gap-1 text-xs font-medium text-primary hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
             navigate(action.path);

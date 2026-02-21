@@ -310,12 +310,14 @@ export async function startCrawl(config: CrawlConfig): Promise<void> {
 
         // Discover new URLs from the page's internal links — only enqueue HTML pages
         if (result.statusCode && result.statusCode >= 200 && result.statusCode < 400 && result.contentType?.includes("text/html")) {
-          // We need to re-fetch the page to extract links? No — we stored internal/external counts but need actual URLs.
-          // The crawlPage function should return discovered links. Let me adjust the approach:
-          // Actually, we discover links inside crawlPage and return them in the result.
-          // But we don't have a discoveredLinks array yet — let me include it.
-          // For now, the crawlPage already stores internal/external counts and brokenLinks
-          // We need actual discovered URLs. Let me handle this through a different mechanism...
+          for (const disc of result.discoveredUrls) {
+            if (visited.has(disc.url)) continue;
+            if (disc.depth > config.maxDepth) continue;
+            if (!shouldCrawl(disc.url)) continue;
+            visited.add(disc.url);
+            queue.push({ url: disc.url, parentUrl: item.url, depth: disc.depth });
+            totalCount++;
+          }
         }
 
       } catch (err: any) {

@@ -22,6 +22,7 @@ import { format, startOfISOWeek, endOfISOWeek, eachDayOfInterval, isSameDay } fr
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useAuth } from "@/hooks/use-auth";
 import { BulkTimeEntryModal } from "@/components/bulk-time-entry-modal";
 
 interface TimeEntry {
@@ -63,7 +64,8 @@ export default function TimeTrackingPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
   const clockIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
-  const currentUserId = "default";
+  const { user } = useAuth();
+  const currentUserId = user?.id ?? "default";
   const today = format(new Date(), "yyyy-MM-dd");
 
   useEffect(() => {
@@ -335,11 +337,13 @@ export default function TimeTrackingPage() {
                   className="text-center p-3 rounded-lg bg-white/60 dark:bg-card/60 hover:bg-white dark:hover:bg-card transition-colors cursor-pointer group"
                 >
                   <p className="text-xs font-medium text-slate-600 mb-1">{day.day.slice(0, 3)}</p>
-                  <div className="h-1.5 bg-slate-200/60 rounded-full mb-2 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-blue-500 to-cyan-500 transition-all"
-                      style={{ width: `${day.percentage}%` }}
-                    />
+                    <div className="h-1.5 bg-slate-200/60 rounded-full mb-2 overflow-hidden">
+                      <progress
+                        value={day.percentage}
+                        max={100}
+                        aria-label={`${day.day} andel`}
+                        className="h-full w-full bar-pct bar-pct-blue-cyan"
+                      />
                   </div>
                   <p className="text-sm font-mono font-medium">{day.hours.toFixed(1)}t</p>
                 </div>
@@ -671,9 +675,11 @@ export default function TimeTrackingPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         <div className="flex-1 h-2 bg-slate-200/60 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-gradient-to-r from-purple-500 to-pink-500 transition-all"
-                            style={{ width: `${day.percentage}%` }}
+                          <progress
+                            value={day.percentage}
+                            max={100}
+                            aria-label={`${day.day} andel`}
+                            className="h-full w-full bar-pct bar-pct-purple-pink"
                           />
                         </div>
                         <span className="text-xs text-muted-foreground w-8 text-right">{day.percentage.toFixed(0)}%</span>
@@ -714,9 +720,11 @@ export default function TimeTrackingPage() {
                             <span className="font-mono">{p.hours.toFixed(1)}t</span>
                           </div>
                           <div className="h-2 bg-slate-200/60 rounded-full overflow-hidden">
-                            <div
-                              className="h-full bg-gradient-to-r from-emerald-500 to-teal-500"
-                              style={{ width: `${p.percentage}%` }}
+                            <progress
+                              value={p.percentage}
+                              max={100}
+                              aria-label={`${p.name} andel`}
+                              className="h-full w-full bar-pct bar-pct-emerald-teal"
                             />
                           </div>
                         </div>

@@ -418,9 +418,9 @@ function ImageUploader({
       {isUploading && (
         <div className="space-y-1" data-testid="upload-progress">
           <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+            <style dangerouslySetInnerHTML={{ __html: `.upload-pb{width:${uploadProgress}%}` }} />
             <div
-              className="h-full bg-primary rounded-full transition-all duration-300"
-              style={{ width: `${uploadProgress}%` }}
+              className="h-full bg-primary rounded-full transition-all duration-300 upload-pb"
             />
           </div>
           <p className="text-xs text-muted-foreground text-right">{uploadProgress}%</p>
@@ -1163,15 +1163,10 @@ function HeroEditor({ hero }: { hero: LandingHero | null }) {
               {(formData.background_image || formData.background_gradient) && (
                 <div className="border rounded-lg p-4">
                   <p className="text-sm text-muted-foreground mb-2">Forhåndsvisning:</p>
+                  <style dangerouslySetInnerHTML={{ __html: `#cms-bg-preview{background-image:${formData.background_image ? `url(${formData.background_image})` : formData.background_gradient};background-size:cover;background-position:center}` }} />
                   <div 
+                    id="cms-bg-preview"
                     className="h-24 rounded-md flex items-center justify-center text-white font-medium"
-                    style={{
-                      backgroundImage: formData.background_image 
-                        ? `url(${formData.background_image})`
-                        : formData.background_gradient,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                    }}
                   >
                     {formData.background_overlay && (
                       <div className="absolute inset-0 bg-black/50 rounded-md" />
@@ -1210,16 +1205,16 @@ function SortableFeatureItem({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: feature.id });
   
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const dndTransform = transform ? CSS.Transform.toString(transform) : 'none';
+  const dndTransition = transition ?? '';
+  const dndOpacity = isDragging ? 0.5 : 1;
 
   return (
+    <>
+    <style dangerouslySetInnerHTML={{ __html: `[data-fi="${feature.id}"]{transform:${dndTransform};transition:${dndTransition};opacity:${dndOpacity}}` }} />
     <div 
       ref={setNodeRef} 
-      style={style} 
+      data-fi={feature.id}
       className="flex items-center gap-4 p-4 border rounded-lg bg-background" 
       data-testid={`feature-item-${index}`}
     >
@@ -1269,6 +1264,7 @@ function SortableFeatureItem({
         </>
       )}
     </div>
+    </>
   );
 }
 
@@ -2247,8 +2243,9 @@ function ColorPicker({ value, onChange, label }: { value: string; onChange: (val
     <div className="flex items-center gap-3">
       <div 
         className="w-10 h-10 rounded-md border cursor-pointer relative overflow-hidden"
-        style={{ backgroundColor: value }}
+        data-cpbg={String(value).replace(/[^a-z0-9]/gi, '')}
       >
+        <style dangerouslySetInnerHTML={{ __html: `[data-cpbg="${String(value).replace(/[^a-z0-9]/gi, '')}"]{background-color:${value}}` }} />
         <input
           type="color"
           value={value}
@@ -2417,15 +2414,18 @@ function DesignEditor() {
                       data-testid={`preset-card-${index}`}
                     >
                       <CardContent className="p-4">
+                        <style dangerouslySetInnerHTML={{ __html:
+                          `[data-bip-bg="${index}"]{background:linear-gradient(135deg,${preset.tokens.primary_color} 0%,${preset.tokens.primary_color_dark} 100%)}` +
+                          `[data-bip-sw1="${index}"]{background-color:${preset.tokens.accent_color}}` +
+                          `[data-bip-sw2="${index}"]{background-color:${preset.tokens.secondary_color}}`
+                        }} />
                         <div 
                           className="h-20 rounded-md mb-3 flex items-end p-2"
-                          style={{ 
-                            background: `linear-gradient(135deg, ${preset.tokens.primary_color} 0%, ${preset.tokens.primary_color_dark} 100%)` 
-                          }}
+                          data-bip-bg={index}
                         >
                           <div className="flex gap-1">
-                            <div className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: preset.tokens.accent_color }} />
-                            <div className="w-4 h-4 rounded-full border border-white/30" style={{ backgroundColor: preset.tokens.secondary_color }} />
+                            <div className="w-4 h-4 rounded-full border border-white/30" data-bip-sw1={index} />
+                            <div className="w-4 h-4 rounded-full border border-white/30" data-bip-sw2={index} />
                           </div>
                         </div>
                         <h4 className="font-medium text-sm">{preset.name}</h4>
@@ -2448,11 +2448,12 @@ function DesignEditor() {
                         data-testid={`saved-preset-${preset.id}`}
                       >
                         <CardContent className="p-4">
+                          <style dangerouslySetInnerHTML={{ __html:
+                            `[data-spc="${preset.id}"]{background:linear-gradient(135deg,${preset.tokens.primary_color || '#2563eb'} 0%,${preset.tokens.primary_color_dark || '#1d4ed8'} 100%)}`
+                          }} />
                           <div 
                             className="h-20 rounded-md mb-3"
-                            style={{ 
-                              background: `linear-gradient(135deg, ${preset.tokens.primary_color || '#2563eb'} 0%, ${preset.tokens.primary_color_dark || '#1d4ed8'} 100%)` 
-                            }}
+                            data-spc={preset.id}
                           />
                           <h4 className="font-medium text-sm">{preset.name}</h4>
                           {preset.description && (
@@ -2704,12 +2705,10 @@ function DesignEditor() {
                       { key: 'spacing_3xl', label: '3XL' },
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center gap-3">
+                        <style dangerouslySetInnerHTML={{ __html: `[data-sp-prev="${key}"]{width:${(tokens[key as keyof DesignTokens] as string) || '8px'};height:24px}` }} />
                         <div 
-                          className="bg-primary/20 rounded" 
-                          style={{ 
-                            width: tokens[key as keyof DesignTokens] as string || '8px', 
-                            height: '24px' 
-                          }} 
+                          className="bg-primary/20 rounded"
+                          data-sp-prev={key}
                         />
                         <div className="flex-1">
                           <Label className="text-xs">{label}</Label>
@@ -2737,11 +2736,10 @@ function DesignEditor() {
                       { key: 'border_radius_full', label: 'Full (sirkel)' },
                     ].map(({ key, label }) => (
                       <div key={key} className="flex items-center gap-3">
+                        <style dangerouslySetInnerHTML={{ __html: `[data-br-prev="${key}"]{border-radius:${(tokens[key as keyof DesignTokens] as string) || '4px'}}` }} />
                         <div 
                           className="w-10 h-10 bg-primary/20 border border-primary/40"
-                          style={{ 
-                            borderRadius: (tokens[key as keyof DesignTokens] as string) || '4px'
-                          }} 
+                          data-br-prev={key}
                         />
                         <div className="flex-1">
                           <Label className="text-xs">{label}</Label>
@@ -2793,10 +2791,11 @@ function DesignEditor() {
                     <div key={key}>
                       <Label className="text-xs">{label}</Label>
                       <div className="flex gap-3 items-center">
-                        <div 
-                          className="w-16 h-10 bg-card rounded-md"
-                          style={{ boxShadow: (tokens[key as keyof DesignTokens] as string) || 'none' }}
-                        />
+                          <style dangerouslySetInnerHTML={{ __html: `[data-sh-prev="${key}"]{box-shadow:${(tokens[key as keyof DesignTokens] as string) || 'none'}}` }} />
+                          <div 
+                            className="w-16 h-10 bg-card rounded-md"
+                            data-sh-prev={key}
+                          />
                         <Input
                           value={(tokens[key as keyof DesignTokens] as string) || ''}
                           onChange={(e) => updateToken(key as keyof DesignTokens, e.target.value)}
@@ -2863,7 +2862,7 @@ function DesignEditor() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={tokens.enable_animations !== false ? "true" : "false"}
+                      aria-checked={tokens.enable_animations !== false}
                       aria-label="Aktiver animasjoner"
                       onClick={() => updateToken('enable_animations', !tokens.enable_animations)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -2885,7 +2884,7 @@ function DesignEditor() {
                     <button
                       type="button"
                       role="switch"
-                      aria-checked={tokens.enable_hover_effects !== false ? "true" : "false"}
+                      aria-checked={tokens.enable_hover_effects !== false}
                       aria-label="Hover-effekter"
                       onClick={() => updateToken('enable_hover_effects', !tokens.enable_hover_effects)}
                       className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
@@ -7952,15 +7951,16 @@ function ReportDesigner() {
                   <CardTitle className="text-sm">Forhåndsvisning</CardTitle>
                 </CardHeader>
                 <CardContent>
+                  <style dangerouslySetInnerHTML={{ __html:
+                    `#tpl-form-preview{font-family:${templateForm.font_family};aspect-ratio:${templateForm.orientation === 'portrait' ? '210/297' : '297/210'}}` +
+                    `.tpl-primary-col{color:${templateForm.primary_color}}`
+                  }} />
                   <div 
+                    id="tpl-form-preview"
                     className="border rounded-md p-4 bg-white text-black min-h-[400px] text-xs"
-                    style={{ 
-                      fontFamily: templateForm.font_family,
-                      aspectRatio: templateForm.orientation === 'portrait' ? '210/297' : '297/210'
-                    }}
                   >
                     {templateForm.header_enabled && (
-                      <div className="border-b pb-2 mb-3" style={{ color: templateForm.primary_color }}>
+                      <div className="border-b pb-2 mb-3 tpl-primary-col">
                         <div className="font-bold text-sm">{templateForm.header_title || 'Tittel'}</div>
                         <div className="text-muted-foreground">{templateForm.header_subtitle}</div>
                         {templateForm.header_show_date && (
@@ -7972,13 +7972,13 @@ function ReportDesigner() {
                       {blocks.map((block) => (
                         <div key={block.id}>
                           {block.type === 'section' && (
-                            <div className="font-semibold" style={{ color: templateForm.primary_color }}>
+                            <div className="font-semibold tpl-primary-col">
                               {block.config.title || 'Seksjon'}
                             </div>
                           )}
                           {block.type === 'field' && (
                             <div>
-                              <div className="font-medium" style={{ color: templateForm.primary_color }}>
+                              <div className="font-medium tpl-primary-col">
                                 {block.config.label || fieldLabels[block.config.field] || 'Felt'}
                               </div>
                               <div className="text-muted-foreground italic">[Innhold fra rapport]</div>
@@ -7991,7 +7991,10 @@ function ReportDesigner() {
                             <hr className="border-muted" />
                           )}
                           {block.type === 'spacer' && (
-                            <div style={{ height: `${block.config.height || 10}px` }} />
+                            <>
+                              <style dangerouslySetInnerHTML={{ __html: `[data-sph="${block.id}"]{height:${block.config.height || 10}px}` }} />
+                              <div data-sph={block.id} />
+                            </>
                           )}
                           {block.type === 'signature' && (
                             <div className="mt-4">
@@ -8934,27 +8937,37 @@ function PortalDesigner() {
                 </div>
               </CardHeader>
               <CardContent className="p-4">
+                <style dangerouslySetInnerHTML={{ __html: [
+                  `#pv-outer{font-family:${settings.tokens.typography.fontFamily};font-size:${settings.tokens.typography.baseFontSize};max-width:${previewMode === 'desktop' ? '100%' : previewMode === 'tablet' ? '768px' : '375px'}}`,
+                  `#pv-header{background-color:${settings.header_bg || '#ffffff'};height:${settings.tokens.spacing.headerHeight};border-bottom:${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}}`,
+                  `#pv-logo-text{color:${settings.primary_color};font-family:${settings.tokens.typography.headingFont}}`,
+                  `#pv-bell{color:${settings.tokens.colors.textSecondary}}`,
+                  `#pv-sidebar{width:${previewMode === 'mobile' ? '100%' : previewMode === 'tablet' ? '200px' : settings.tokens.spacing.sidebarWidth};background-color:${settings.sidebar_bg || '#1f2937'};order:${settings.layout.sidebarPosition === 'right' && previewMode !== 'mobile' ? 1 : 0}${previewMode === 'mobile' ? `;height:auto;border-bottom:${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}` : ''}}`,
+                  `#pv-content{background-color:${settings.content_bg || '#f9fafb'};padding:${settings.tokens.spacing.contentPadding}}`,
+                  `#pv-card{border-radius:${settings.tokens.borders.cardRadius};box-shadow:${settings.tokens.shadows.cardShadow};padding:${settings.tokens.spacing.cardPadding}}`,
+                  `#pv-card-h3{font-weight:${settings.tokens.typography.headingWeight}}`,
+                  `#pv-card-p{color:${settings.tokens.colors.textSecondary};line-height:${settings.tokens.typography.lineHeight}}`,
+                  `#pv-btn-primary{background-color:${settings.primary_color};border-radius:${settings.tokens.borders.buttonRadius}}`,
+                  `#pv-btn-secondary{border-radius:${settings.tokens.borders.buttonRadius};color:${settings.tokens.colors.text}}`,
+                  `[data-si="0"]{background-color:${settings.tokens.colors.success};border-radius:${settings.tokens.borders.radius}}`,
+                  `[data-si="1"]{background-color:${settings.tokens.colors.warning};border-radius:${settings.tokens.borders.radius}}`,
+                  `[data-si="2"]{background-color:${settings.tokens.colors.error};border-radius:${settings.tokens.borders.radius}}`,
+                  `#pv-footer{background-color:${settings.footer_bg || '#ffffff'};border-top:${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}}`,
+                  `#pv-footer-text{color:${settings.tokens.colors.textMuted}}`,
+                ].join('') }} />
                 <div 
+                  id="pv-outer"
                   className="border-2 rounded-lg overflow-hidden transition-all mx-auto"
-                  style={{ 
-                    fontFamily: settings.tokens.typography.fontFamily,
-                    fontSize: settings.tokens.typography.baseFontSize,
-                    maxWidth: previewMode === 'desktop' ? '100%' : previewMode === 'tablet' ? '768px' : '375px',
-                  }}
                   role="region"
                   aria-label={`Forhåndsvisning av portal (${previewMode})`}
                 >
                   {/* Header Region */}
                   <div 
+                    id="pv-header"
                     onClick={() => { setSelectedRegion('header'); setSelectedNavIndex(null); }}
                     className={`relative cursor-pointer transition-all ${
                       selectedRegion === 'header' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
                     }`}
-                    style={{ 
-                      backgroundColor: settings.header_bg || '#ffffff',
-                      height: settings.tokens.spacing.headerHeight,
-                      borderBottom: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
-                    }}
                   >
                     <RegionLabel region="header" label="Header" />
                     <div className="flex items-center justify-between h-full px-4">
@@ -8962,21 +8975,22 @@ function PortalDesigner() {
                         {settings.logo_url ? (
                           <img src={settings.logo_url} alt="Logo" className="h-8" />
                         ) : (
-                          <span className="font-bold" style={{ color: settings.primary_color, fontFamily: settings.tokens.typography.headingFont }}>
+                          <span id="pv-logo-text" className="font-bold">
                             {settings.logo_text}
                           </span>
                         )}
                       </div>
                       <div className="flex items-center gap-2">
-                        <Bell className="h-5 w-5" style={{ color: settings.tokens.colors.textSecondary }} />
+                        <Bell id="pv-bell" className="h-5 w-5" />
                         <div className="h-8 w-8 rounded-full bg-muted" />
                       </div>
                     </div>
                   </div>
 
-                  <div className={`flex ${previewMode === 'mobile' ? 'flex-col' : ''}`} style={{ minHeight: '400px' }}>
+                  <div className={`flex ${previewMode === 'mobile' ? 'flex-col' : ''} min-h-[400px]`}>
                     {/* Sidebar Region - responsive based on previewMode */}
                     <div 
+                      id="pv-sidebar"
                       onClick={(e) => { 
                         if ((e.target as HTMLElement).closest('[data-nav-item]')) return;
                         setSelectedRegion('sidebar'); 
@@ -8985,15 +8999,6 @@ function PortalDesigner() {
                       className={`relative cursor-pointer transition-all ${
                         selectedRegion === 'sidebar' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
                       }`}
-                      style={{ 
-                        width: previewMode === 'mobile' ? '100%' : previewMode === 'tablet' ? '200px' : settings.tokens.spacing.sidebarWidth,
-                        backgroundColor: settings.sidebar_bg || '#1f2937',
-                        order: settings.layout.sidebarPosition === 'right' && previewMode !== 'mobile' ? 1 : 0,
-                        ...(previewMode === 'mobile' && { 
-                          height: 'auto',
-                          borderBottom: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
-                        }),
-                      }}
                     >
                       <RegionLabel region="sidebar" label="Sidebar" />
                       <div className="p-3 pt-8 space-y-1">
@@ -9020,47 +9025,34 @@ function PortalDesigner() {
 
                     {/* Content Region */}
                     <div 
+                      id="pv-content"
                       onClick={() => { setSelectedRegion('content'); setSelectedNavIndex(null); }}
                       className={`flex-1 relative cursor-pointer transition-all ${
                         selectedRegion === 'content' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
                       }`}
-                      style={{ 
-                        backgroundColor: settings.content_bg || '#f9fafb',
-                        padding: settings.tokens.spacing.contentPadding,
-                      }}
                     >
                       <RegionLabel region="content" label="Innhold" />
                       <div className="pt-6 space-y-4">
                         <div 
+                          id="pv-card"
                           className="p-4 bg-white dark:bg-gray-800 border"
-                          style={{ 
-                            borderRadius: settings.tokens.borders.cardRadius,
-                            boxShadow: settings.tokens.shadows.cardShadow,
-                            padding: settings.tokens.spacing.cardPadding,
-                          }}
                         >
-                          <h3 className="font-semibold mb-2" style={{ fontWeight: settings.tokens.typography.headingWeight }}>
+                          <h3 id="pv-card-h3" className="font-semibold mb-2">
                             Eksempel på kort
                           </h3>
-                          <p style={{ color: settings.tokens.colors.textSecondary, lineHeight: settings.tokens.typography.lineHeight }}>
+                          <p id="pv-card-p">
                             Dette er innholdsområdet hvor hovedinnholdet vises.
                           </p>
                           <div className="flex gap-2 mt-3">
                             <button 
+                              id="pv-btn-primary"
                               className="px-3 py-1.5 text-sm text-white"
-                              style={{ 
-                                backgroundColor: settings.primary_color,
-                                borderRadius: settings.tokens.borders.buttonRadius,
-                              }}
                             >
                               Primær
                             </button>
                             <button 
+                              id="pv-btn-secondary"
                               className="px-3 py-1.5 text-sm border"
-                              style={{ 
-                                borderRadius: settings.tokens.borders.buttonRadius,
-                                color: settings.tokens.colors.text,
-                              }}
                             >
                               Sekundær
                             </button>
@@ -9070,8 +9062,8 @@ function PortalDesigner() {
                           {[settings.tokens.colors.success, settings.tokens.colors.warning, settings.tokens.colors.error].map((color, i) => (
                             <div 
                               key={i}
+                              data-si={String(i)}
                               className="p-3 text-white text-center text-sm"
-                              style={{ backgroundColor: color, borderRadius: settings.tokens.borders.radius }}
                             >
                               {['Suksess', 'Advarsel', 'Feil'][i]}
                             </div>
@@ -9084,17 +9076,14 @@ function PortalDesigner() {
                   {/* Footer Region */}
                   {settings.layout.footerEnabled && (
                     <div 
+                      id="pv-footer"
                       onClick={() => { setSelectedRegion('footer'); setSelectedNavIndex(null); }}
                       className={`relative cursor-pointer transition-all ${
                         selectedRegion === 'footer' ? 'ring-2 ring-primary ring-inset' : 'hover:ring-2 hover:ring-primary/50 hover:ring-inset'
                       }`}
-                      style={{ 
-                        backgroundColor: settings.footer_bg || '#ffffff',
-                        borderTop: `${settings.tokens.borders.borderWidth} solid ${settings.tokens.borders.borderColor}`,
-                      }}
                     >
                       <RegionLabel region="footer" label="Footer" />
-                      <div className="py-3 px-4 text-center" style={{ color: settings.tokens.colors.textMuted }}>
+                      <div id="pv-footer-text" className="py-3 px-4 text-center">
                         <p className="text-sm">{settings.footer_text || '© 2025 Bedriftsnavn'}</p>
                         {settings.show_branding && (
                           <p className="text-xs mt-1">Powered by Tidum</p>
@@ -9885,16 +9874,22 @@ function SortableNavItem({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.5 : 1,
-  };
+  const nidTransform = transform ? CSS.Transform.toString(transform) : 'none';
+  const nidTransition = transition ?? '';
+  const nidOpacity = isDragging ? 0.5 : 1;
+  const nidIconColor = index === 0 ? primaryColor : 'rgba(255,255,255,0.7)';
+  const nidTextColor = index === 0 ? primaryColor : 'rgba(255,255,255,0.9)';
 
   return (
+    <>
+    <style dangerouslySetInnerHTML={{ __html:
+      `[data-nid="${id}"]{transform:${nidTransform};transition:${nidTransition};opacity:${nidOpacity}}` +
+      `[data-nid="${id}"] .nv-icon{color:${nidIconColor}}` +
+      `[data-nid="${id}"] .nv-text{color:${nidTextColor}}`
+    }} />
     <div
       ref={setNodeRef}
-      style={style}
+      data-nid={id}
       {...attributes}
       {...listeners}
       data-nav-item
@@ -9915,8 +9910,9 @@ function SortableNavItem({
       data-testid={`nav-item-${index}`}
     >
       <GripVertical className="h-3 w-3 text-white/50" aria-hidden="true" />
-      <LayoutDashboard className="h-4 w-4" style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.7)' }} aria-hidden="true" />
-      <span style={{ color: index === 0 ? primaryColor : 'rgba(255,255,255,0.9)' }}>{item.label}</span>
+      <LayoutDashboard className="h-4 w-4 nv-icon" aria-hidden="true" />
+      <span className="nv-text">{item.label}</span>
     </div>
+    </>
   );
 }

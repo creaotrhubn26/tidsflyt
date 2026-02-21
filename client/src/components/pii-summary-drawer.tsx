@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   Sheet,
   SheetContent,
@@ -150,6 +150,10 @@ export function PiiSummaryDrawer({
 
   // Reset replaced state when results change
   const issuesFingerprint = issues.map(issueKey).join("|");
+  // Reset replaced issues whenever the underlying scan results change (new fields scanned etc.)
+  useEffect(() => {
+    setReplacedIssues(new Set());
+  }, [issuesFingerprint]);
   // We need to reset when the drawer opens with new data
   // Using a simple approach: reset on open
   const handleOpenChange = (v: boolean) => {

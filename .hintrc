@@ -1,0 +1,8 @@
+{
+  "extends": ["web-recommended"],
+  "hints": {
+    "compat-api/html": ["hint", {
+      "ignore": ["meta[name=theme-color]"]
+    }]
+  }
+}

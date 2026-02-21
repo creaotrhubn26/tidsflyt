@@ -634,3 +634,63 @@
   color: hsl(var(--primary));
   text-decoration: underline;
 }
+/* ── Layer tree depth padding (replaces inline-style padding-left) ──────── */
+[data-depth="0"] { padding-left: 8px; }
+[data-depth="1"] { padding-left: 24px; }
+[data-depth="2"] { padding-left: 40px; }
+[data-depth="3"] { padding-left: 56px; }
+[data-depth="4"] { padding-left: 72px; }
+[data-depth="5"] { padding-left: 88px; }
+
+/* ── Dynamic percentage bars (replaces inline-style width divs) ─────────── */
+/* Usage: <progress value={n} max={100} className="h-full w-full bar-pct bar-pct-*"> inside a bg+rounded container */
+.bar-pct { display: block; width: 100%; height: 100%; appearance: none; background: transparent; border: none; }
+.bar-pct::-webkit-progress-bar { background: transparent; }
+.bar-pct::-webkit-progress-value { background: hsl(var(--primary)); border-radius: 9999px; transition: all 300ms ease; }
+.bar-pct::-moz-progress-bar   { background: hsl(var(--primary)); border-radius: 9999px; transition: all 300ms ease; }
+
+.bar-pct-blue-cyan::-webkit-progress-value { background: linear-gradient(to right, #3b82f6, #06b6d4); }
+.bar-pct-blue-cyan::-moz-progress-bar      { background: linear-gradient(to right, #3b82f6, #06b6d4); }
+
+.bar-pct-purple-pink::-webkit-progress-value { background: linear-gradient(to right, #a855f7, #ec4899); }
+.bar-pct-purple-pink::-moz-progress-bar      { background: linear-gradient(to right, #a855f7, #ec4899); }
+
+.bar-pct-emerald-teal::-webkit-progress-value { background: linear-gradient(to right, #10b981, #14b8a6); }
+.bar-pct-emerald-teal::-moz-progress-bar      { background: linear-gradient(to right, #10b981, #14b8a6); }
+
+.bar-pct-form-complete::-webkit-progress-value { background: #22c55e; }
+.bar-pct-form-complete::-moz-progress-bar      { background: #22c55e; }
+.bar-pct-form-low::-webkit-progress-value { background: #f59e0b; }
+.bar-pct-form-low::-moz-progress-bar      { background: #f59e0b; }
+
+/* ── Heatmap calendar cells ─────────────────────────────────────────────── */
+.hm-cell { background-color: var(--hm-palette-0); box-shadow: none; }
+.hm-cell[data-intensity="1"] { background-color: var(--hm-palette-1); }
+.hm-cell[data-intensity="2"] { background-color: var(--hm-palette-2); }
+.hm-cell[data-intensity="3"] { background-color: var(--hm-palette-3); }
+.hm-cell[data-intensity="4"] { background-color: var(--hm-palette-4); }
+.hm-cell[data-intensity="5"] { background-color: var(--hm-palette-5); }
+.hm-cell[data-in-row="true"]  { background-color: transparent; }
+.hm-cell[data-has-shadow="true"] { box-shadow: var(--hm-cell-active-shadow); }
+
+/* ── Heatmap legend swatches ─────────────────────────────────────────────── */
+.hm-legend-swatch[data-palette-idx="0"] { background-color: var(--hm-palette-0); }
+.hm-legend-swatch[data-palette-idx="1"] { background-color: var(--hm-palette-1); }
+.hm-legend-swatch[data-palette-idx="2"] { background-color: var(--hm-palette-2); }
+.hm-legend-swatch[data-palette-idx="3"] { background-color: var(--hm-palette-3); }
+.hm-legend-swatch[data-palette-idx="4"] { background-color: var(--hm-palette-4); }
+.hm-legend-swatch[data-palette-idx="5"] { background-color: var(--hm-palette-5); }
+
+/* ── Heatmap goal progress bar ───────────────────────────────────────────── */
+.hm-progress-bar { appearance: none; display: block; overflow: hidden; }
+.hm-progress-bar::-webkit-progress-bar { background-color: var(--hm-palette-0); border-radius: 9999px; }
+.hm-progress-bar::-webkit-progress-value { background-color: var(--hm-accent); border-radius: 9999px; transition: width 300ms ease; }
+.hm-progress-bar::-moz-progress-bar { background-color: var(--hm-accent); border-radius: 9999px; }
+
+/* Safe area insets for notched/rounded devices (iOS home indicator, camera cutouts) */
+.safe-area-padding {
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+  padding-top: max(1rem, env(safe-area-inset-top));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}

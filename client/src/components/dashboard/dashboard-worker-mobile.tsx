@@ -2,6 +2,7 @@ import { CheckCircle2, ChevronRight, FileText, Clock3, CalendarClock, Check } fr
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -104,10 +105,23 @@ export function DashboardWorkerMobile({
   const [nowSeconds, setNowSeconds] = useState(() => Math.floor(Date.now() / 1000));
   const [isSaving, setIsSaving] = useState(false);
   const [sessionHydrated, setSessionHydrated] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
 
   // Refs for requestAnimationFrame smooth clock hand
   const clockHandRef = useRef<SVGLineElement>(null);
   const rafRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+
+    updatePreference();
+    mediaQuery.addEventListener("change", updatePreference);
+
+    return () => mediaQuery.removeEventListener("change", updatePreference);
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -129,7 +143,7 @@ export function DashboardWorkerMobile({
       // When paused: freeze at current position
       if (clockHandRef.current) {
         const deg = (elapsedSeconds % 3600) / 3600 * 360;
-        clockHandRef.current.style.transform = `rotate(${deg}deg)`;
+        clockHandRef.current.setAttribute("transform", `rotate(${deg} 100 100)`);
       }
       return;
     }
@@ -143,7 +157,7 @@ export function DashboardWorkerMobile({
       const totalElapsed = elapsedStart + dt;
       const deg = (totalElapsed % 3600) / 3600 * 360;
       if (clockHandRef.current) {
-        clockHandRef.current.style.transform = `rotate(${deg}deg)`;
+        clockHandRef.current.setAttribute("transform", `rotate(${deg} 100 100)`);
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -340,21 +354,31 @@ export function DashboardWorkerMobile({
           0%, 100% { opacity: 0.98; }
           50% { opacity: 1; }
         }
+        @media (prefers-reduced-motion: reduce) {
+          .tidum-animated-card {
+            animation: none !important;
+          }
+          .tidum-transition {
+            transition: none !important;
+          }
+        }
       `}</style>
 
       <div className="px-0.5">
-        <h2 className="text-[28px] leading-none font-semibold tracking-tight text-[#2f3f45] dark:text-foreground">
+        <h2 className="text-[28px] leading-none font-semibold tracking-tight text-foreground">
           Hei, {userName}!
         </h2>
       </div>
 
       <Card
         data-testid="worker-top-card"
-        className="overflow-hidden rounded-[24px] border border-[#dce6e2] dark:border-border bg-white/95 dark:bg-card shadow-[0_10px_26px_rgba(26,52,59,0.07)]"
-        style={isRunning ? { animation: 'tidum-breathe 4s cubic-bezier(0.4,0,0.2,1) infinite' } : undefined}
+        className={cn(
+          "tidum-animated-card overflow-hidden rounded-[24px] border border-border bg-card shadow-[0_10px_26px_rgba(26,52,59,0.07)]",
+          isRunning && !prefersReducedMotion && "animate-[tidum-breathe_4s_cubic-bezier(0.4,0,0.2,1)_infinite]",
+        )}
       >
-        <div className="flex items-center gap-2 border-b border-[#e6efec] dark:border-border bg-[#f2f6f4] dark:bg-muted px-4 py-2 text-[#4d666e] dark:text-muted-foreground">
-          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-[#6b9f8f]/20 text-[#4f7f72] dark:text-emerald-400">✓</span>
+        <div className="flex items-center gap-2 border-b border-border bg-muted px-4 py-2 text-muted-foreground">
+          <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary">✓</span>
           <p className="text-[15px] font-medium">
             {isRunning ? "Du er i gang! Registreringen pågår" : "Registrering pauset"}
           </p>
@@ -363,67 +387,65 @@ export function DashboardWorkerMobile({
           <div className="flex items-center gap-4">
             <svg
               viewBox="0 0 200 200"
-              className="h-[150px] w-[150px] shrink-0"
+                className={cn(
+                  "h-[150px] w-[150px] shrink-0 motion-reduce:transition-none",
+                  isFinished ? "opacity-40" : !isRunning ? "opacity-70" : "opacity-100",
+                  !prefersReducedMotion && "transition-opacity duration-500",
+                )}
+                role="img"
               aria-label="Analog klokke"
-              style={{
-                opacity: isFinished ? 0.4 : !isRunning ? 0.7 : 1,
-                transition: 'opacity 0.6s cubic-bezier(0.4,0,0.2,1)',
-              }}
             >
               {/* Track ring */}
-              <circle cx="100" cy="100" r="88" fill="none" stroke="#e8efec" strokeWidth="6" />
+              <circle cx="100" cy="100" r="88" fill="none" stroke="hsl(var(--muted))" strokeWidth="6" />
               {/* Progress arc — smooth 1s linear transition */}
               <circle
                 cx="100" cy="100" r="88"
                 fill="none"
-                stroke="#88b2a5"
+                stroke="hsl(var(--primary))"
                 strokeWidth="6"
                 strokeLinecap="round"
                 strokeDasharray={`${progressArc} ${circumference}`}
                 transform="rotate(-90 100 100)"
-                style={{ transition: 'stroke-dasharray 1s linear' }}
+                className="tidum-transition"
               />
               {/* Clock face */}
               <circle cx="100" cy="100" r="82" className="fill-white dark:fill-[hsl(var(--card))]" />
               {/* Tick marks at 12, 3, 6, 9 */}
-              <line x1="100" y1="22" x2="100" y2="34" stroke="#d6dfdb" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="100" y1="166" x2="100" y2="178" stroke="#d6dfdb" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="22" y1="100" x2="34" y2="100" stroke="#d6dfdb" strokeWidth="1.5" strokeLinecap="round" />
-              <line x1="166" y1="100" x2="178" y2="100" stroke="#d6dfdb" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="100" y1="22" x2="100" y2="34" stroke="hsl(var(--border))" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="100" y1="166" x2="100" y2="178" stroke="hsl(var(--border))" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="22" y1="100" x2="34" y2="100" stroke="hsl(var(--border))" strokeWidth="1.5" strokeLinecap="round" />
+              <line x1="166" y1="100" x2="178" y2="100" stroke="hsl(var(--border))" strokeWidth="1.5" strokeLinecap="round" />
               {/* Clock hand — positioned via requestAnimationFrame for continuous smooth rotation */}
               <line
                 ref={clockHandRef}
                 data-testid="worker-clock-hand"
                 x1="100" y1="100" x2="100" y2="32"
-                stroke="#5d9d8f"
+                stroke="hsl(var(--primary))"
                 strokeWidth="2.5"
                 strokeLinecap="round"
-                style={{
-                  transformOrigin: '100px 100px',
-                  transform: `rotate(${(elapsedSeconds % 3600) / 3600 * 360}deg)`,
-                }}
+                transform={`rotate(${(elapsedSeconds % 3600) / 3600 * 360} 100 100)`}
               />
               {/* Center dot */}
-              <circle cx="100" cy="100" r="5" fill="#5d9d8f" />
+              <circle cx="100" cy="100" r="5" fill="hsl(var(--primary))" />
             </svg>
             <div className="min-w-0 flex-1">
-              <p className="text-[32px] leading-none font-semibold tracking-tight text-[#34484f] dark:text-foreground tabular-nums">
+              <p role="timer" aria-live="polite" className="text-[32px] leading-none font-semibold tracking-tight text-foreground tabular-nums">
                 {elapsed.hours} t {String(elapsed.minutes).padStart(2, "0")}
-                <span className="ml-1 text-[22px] font-medium text-[#5f7075] dark:text-muted-foreground">min</span>
+                <span className="ml-1 text-[22px] font-medium text-muted-foreground">min</span>
               </p>
-              <div className="mt-2 border-t border-[#edf2f0] pt-2">
+              <div className="mt-2 border-t border-border pt-2">
                 <Button
                   variant="outline"
-                  className="h-11 w-full rounded-[12px] border-[#dce6e2] bg-[#f8fbfa] text-[#4a5f66] hover:bg-[#f3f8f6]"
+                  className="h-11 w-full rounded-[12px] border-border bg-muted text-foreground hover:bg-muted/80"
                   onClick={handleTogglePause}
                 >
                   <span className="text-lg font-semibold">{isRunning ? "Pause" : "Fortsett"}</span>
-                  <span className="mx-3 h-5 w-px bg-[#d4dfdb]" />
-                  <span className="text-[15px] leading-none font-medium tabular-nums text-[#5f7075]">{pauseText} min</span>
-                  <ChevronRight className="ml-2 h-4 w-4 text-[#7a8f95]" />
+                  <span className="mx-3 h-5 w-px bg-border" />
+                  <span className="text-[15px] leading-none font-medium tabular-nums text-muted-foreground">{pauseText} min</span>
+                  <ChevronRight className="ml-2 h-4 w-4 text-muted-foreground" />
                 </Button>
                 <Button
-                  className="mt-2 h-11 w-full rounded-[12px] bg-[#5a8d86] hover:bg-[#507d77] text-white text-lg leading-none font-semibold"
+                  className="mt-2 h-11 w-full rounded-[12px] bg-primary hover:bg-primary/90 text-primary-foreground text-lg leading-none font-semibold"
                   onClick={handleFinish}
                   disabled={isSaving}
                 >
@@ -435,55 +457,50 @@ export function DashboardWorkerMobile({
         </CardContent>
       </Card>
 
-      <Card className="overflow-hidden rounded-2xl border border-[#e1e9e6] dark:border-border bg-white/95 dark:bg-card shadow-sm">
-        <div className="px-4 py-2 border-b border-[#edf2f0] dark:border-border bg-[#f8fbfa] dark:bg-muted">
-          <p className="flex items-center gap-2 text-[18px] font-medium text-[#4a6269] dark:text-foreground">
-            <span className="inline-block h-2.5 w-2.5 rounded-full bg-[#6b9f8f]" />
+      <Card className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="px-4 py-2 border-b border-border bg-muted">
+          <p className="flex items-center gap-2 text-[18px] font-medium text-foreground">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-primary" />
             {isRunning ? "Registrering pågår…" : "Registrering pauset"}
           </p>
         </div>
         <CardContent className="p-4">
-          <div className="flex items-center justify-between text-sm text-[#586d73] dark:text-muted-foreground">
+          <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span className="tabular-nums">{elapsed.hours} t {String(elapsed.minutes).padStart(2, "0")} min registrert</span>
             <span className="tabular-nums">8 t mål</span>
           </div>
-          <div className="mt-2 h-2 w-full rounded-full bg-[#e4ece9] dark:bg-muted">
-            <div
-              className="h-2 rounded-full bg-[#7aaea0]"
-              style={{ width: `${progressPercent}%`, transition: 'width 1s linear' }}
-            />
-          </div>
+          <Progress value={progressPercent} className="mt-2 h-2 bg-muted" />
         </CardContent>
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
         <Card className={cn("rounded-2xl border p-0", toneStyles.yellow)}>
           <CardContent className="p-3.5">
-            <div className="flex items-center gap-2 text-[#4d666e] dark:text-foreground">
+            <div className="flex items-center gap-2 text-foreground">
               <Clock3 className="h-4 w-4" />
               <p className="font-semibold">I dag</p>
             </div>
-            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-[#33474e] dark:text-foreground">08:00 – 16:00</p>
+            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">08:00 – 16:00</p>
             <p className="mt-1 text-xs text-muted-foreground">Registrert i dag</p>
           </CardContent>
         </Card>
         <Card className={cn("rounded-2xl border p-0", toneStyles.green)}>
           <CardContent className="p-3.5">
-            <div className="flex items-center gap-2 text-[#4d666e] dark:text-foreground">
+            <div className="flex items-center gap-2 text-foreground">
               <CalendarClock className="h-4 w-4" />
               <p className="font-semibold">Sist uke</p>
             </div>
-            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-[#33474e] dark:text-foreground">{totalWeekHours} t {String(totalWeekMinutes).padStart(2, "0")} min</p>
+            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">{totalWeekHours} t {String(totalWeekMinutes).padStart(2, "0")} min</p>
             <p className="mt-1 text-xs text-muted-foreground">Total arbeidstid</p>
           </CardContent>
         </Card>
       </div>
 
-      <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card shadow-sm">
+      <Card className="rounded-2xl border-border bg-card shadow-sm">
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="text-xl leading-none font-semibold tracking-tight text-[#33474e] dark:text-foreground">Aktivitet</h3>
-            <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate("/cases")}>
+            <h3 className="text-xl leading-none font-semibold tracking-tight text-foreground">Aktivitet</h3>
+            <Button aria-label="Gå til saker" title="Gå til saker" variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate("/cases")}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -494,14 +511,14 @@ export function DashboardWorkerMobile({
                 key={row.id}
                 type="button"
                 onClick={() => navigate("/cases")}
-                className="w-full rounded-xl border border-[#e8efec] dark:border-border px-3 py-2.5"
+                className="w-full rounded-xl border border-border px-3 py-2.5"
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2 min-w-0">
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#ecf2ef] dark:bg-muted">
-                      <FileText className="h-3.5 w-3.5 text-[#7b8e94]" />
+                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted">
+                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
                     </span>
-                    <span className="text-[15px] leading-none font-medium text-[#445b62] dark:text-foreground truncate">{row.day}</span>
+                    <span className="text-[15px] leading-none font-medium text-foreground truncate">{row.day}</span>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
                     <span>{row.from} – {row.to}</span>
@@ -518,7 +535,7 @@ export function DashboardWorkerMobile({
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => navigate("/cases")} className="w-full rounded-xl bg-[#5a8d86] hover:bg-[#507d77]">
+            <Button onClick={() => navigate("/cases")} className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
               Ny oppfølging
             </Button>
             <Button variant="outline" onClick={() => navigate("/case-reports")} className="w-full rounded-xl">
@@ -531,7 +548,7 @@ export function DashboardWorkerMobile({
             <span>{nearDeadline} nær frist</span>
           </div>
 
-          <Button variant="ghost" className="mt-1.5 w-full text-[#1F6B73] dark:text-[#51C2D0]" onClick={() => navigate("/cases")}>
+          <Button variant="ghost" className="mt-1.5 w-full text-primary" onClick={() => navigate("/cases")}>
             <CheckCircle2 className="h-4 w-4 mr-1.5" />
             Trenger støtte
           </Button>

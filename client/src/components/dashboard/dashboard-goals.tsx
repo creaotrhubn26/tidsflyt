@@ -152,7 +152,7 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
   }, [stats, isTiltaksleder]);
 
   return (
-    <Card className="rounded-2xl border-[#d8e4e0] dark:border-border bg-white/95 dark:bg-card shadow-sm">
+    <Card className="rounded-2xl border-border bg-card shadow-sm">
       <Collapsible open={open} onOpenChange={setOpen}>
         <CardHeader className="pb-3">
           <CollapsibleTrigger asChild>
@@ -161,7 +161,7 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
               className="flex w-full items-center justify-between text-left"
             >
               <CardTitle className="flex items-center gap-2 text-lg">
-                <Target className="h-5 w-5 text-[#1F6B73]" />
+                <Target className="h-5 w-5 text-primary" />
                 {isTiltaksleder ? "Kvalitet og kontinuitet" : "Mål og fremdrift"}
               </CardTitle>
               <ChevronDown

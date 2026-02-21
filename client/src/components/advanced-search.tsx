@@ -154,6 +154,8 @@ export function AdvancedSearch({
           <button
             onClick={() => handleSearchChange("")}
             className="absolute right-3 top-3 text-muted-foreground hover:text-foreground"
+            aria-label="Tøm søk"
+            title="Tøm søk"
           >
             <X className="h-4 w-4" />
           </button>
