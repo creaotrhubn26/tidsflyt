@@ -27,9 +27,9 @@ import {
 } from "@/components/cms/editor-extensions";
 import {
   GripVertical, Save, Undo2, Redo2, Monitor, Tablet, Smartphone,
-  Plus, Trash2, Copy, Palette, Sparkles, Play,
+  Plus, Trash2, Copy, Palette, Sparkles, Play, Clock, CheckCircle,
   Code2, Loader2,
-  Keyboard, Layers, Box, Grid3X3, X, Users,
+  Keyboard, Layers, Box, Grid3X3, X, Users, MapPin, MessageCircle,
   FileText, LayoutTemplate, Search, Calendar, Upload, LayoutPanelTop,
   ClipboardCopy, ClipboardPaste, BookmarkPlus, History, FileDown, 
   Accessibility, BarChart3, Gauge, Languages, Globe, PanelRightOpen, Target,
@@ -361,6 +361,43 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
       background: { color: TIDUM_TOKENS.colorBgSection },
       layout: { type: 'grid', direction: 'row', justify: 'start', align: 'start', wrap: false, gridCols: 2, gap: 24 },
       animations: { enabled: true, type: 'fade', duration: 500, delay: 100, trigger: 'scroll', scrollOffset: 15 },
+    },
+  },
+  {
+    id: 'tidum-time-tracking-mock',
+    name: 'Timeføring Timer (Mock)',
+    category: 'tidum-content',
+    thumbnail: 'clock',
+    config: {
+      type: 'container',
+      title: 'Hei, Maria!',
+      content: {
+        timerMock: true,
+        dateLabel: 'Mandag 23. februar 2026',
+        status: 'Registreringen pågår',
+        duration: '2 t 15 min',
+        pauseLabel: 'Pause / avbrudd',
+        pauseValue: '00:30 min',
+        startCta: 'Pause',
+        doneCta: 'Ferdig',
+        client: 'Sak 1024 - Solsiden institusjon',
+        tiltak: 'Arbeidsforberedende trening',
+        todayTitle: 'Oppfølging i dag',
+        todayValue: '08:00 - 16:00',
+        todayDetail: 'Registrert i dag 2 t 15 min',
+        weekTitle: 'Oppfølging sist uke',
+        weekValue: '37 t 20 min',
+        weekDetail: 'Total arbeidstid',
+        noteTitle: 'Husk kort notat hvis noe viktig skjedde i dag',
+        notePlaceholder: 'Skriv kort notat her...',
+      },
+      spacing: { paddingTop: 20, paddingBottom: 28, paddingX: 24, gap: 16 },
+      background: {
+        color: TIDUM_TOKENS.colorBgMain,
+        gradient: 'radial-gradient(circle at 86% 17%, rgba(154,186,190,0.16), transparent 42%), radial-gradient(circle at 95% 90%, rgba(166,203,194,0.18), transparent 34%), linear-gradient(180deg, rgba(247,251,249,0.96), rgba(238,245,242,0.92))',
+      },
+      layout: { type: 'stack', direction: 'column', justify: 'start', align: 'stretch', wrap: false, gap: 16 },
+      animations: { enabled: true, type: 'fade', duration: 550, delay: 60, trigger: 'scroll', scrollOffset: 15 },
     },
   },
   {
@@ -1560,14 +1597,47 @@ export function PowerVisualEditor() {
       const sp = sec.spacing;
       const bg = sec.background;
       const c = (sec.content || {}) as Record<string, any>;
-      lines.push(
-        `[data-sec="${id}"]{` +
-        `padding-top:${sp.paddingTop}px;` +
-        `padding-bottom:${sp.paddingBottom}px;` +
-        `padding-left:${sp.paddingX}px;` +
-        `padding-right:${sp.paddingX}px;` +
-        `background:${bg.gradient || bg.color}}`,
-      );
+      const sectionStyleParts: string[] = [
+        `padding-top:${sp.paddingTop}px`,
+        `padding-bottom:${sp.paddingBottom}px`,
+        `padding-left:${sp.paddingX}px`,
+        `padding-right:${sp.paddingX}px`,
+      ];
+
+      if (bg.image) {
+        const safeBgImage = String(bg.image).replace(/"/g, '\\"');
+        const backgroundLayers: string[] = [];
+        if (bg.overlay) backgroundLayers.push(bg.overlay);
+        if (bg.gradient) backgroundLayers.push(bg.gradient);
+        backgroundLayers.push(`url("${safeBgImage}")`);
+        sectionStyleParts.push(`background-image:${backgroundLayers.join(',')}`);
+        sectionStyleParts.push(`background-color:${bg.color || 'transparent'}`);
+        sectionStyleParts.push('background-size:cover');
+        sectionStyleParts.push('background-position:center');
+        sectionStyleParts.push('background-repeat:no-repeat');
+      } else {
+        sectionStyleParts.push(`background:${bg.gradient || bg.color}`);
+      }
+
+      if (sec.textColor) {
+        sectionStyleParts.push(`color:${sec.textColor}`);
+      }
+
+      if (typeof sec.borderRadius === 'number' && sec.borderRadius > 0) {
+        sectionStyleParts.push(`border-radius:${sec.borderRadius}px`);
+      }
+
+      if (typeof sec.borderWidth === 'number' && sec.borderWidth > 0) {
+        sectionStyleParts.push('border-style:solid');
+        sectionStyleParts.push(`border-width:${sec.borderWidth}px`);
+        sectionStyleParts.push(`border-color:${sec.borderColor || 'var(--color-border)'}`);
+      }
+
+      if (sec.boxShadow) {
+        sectionStyleParts.push(`box-shadow:${sec.boxShadow}`);
+      }
+
+      lines.push(`[data-sec="${id}"]{${sectionStyleParts.join(';')}}`);
       if (Array.isArray(c.cards) && c.cards.length)
         lines.push(`[data-sec="${id}"] .sec-cards-grid{grid-template-columns:repeat(${Math.min(c.cards.length, 3)},1fr)}`);
       if (Array.isArray(c.benefits) && c.benefits.length)
@@ -1999,6 +2069,82 @@ export function PowerVisualEditor() {
                     {/* Rich preview for content-aware sections */}
                     {section.content?.subtitle && (
                       <p className="text-sm text-muted-foreground mt-2 max-w-xl">{section.content.subtitle}</p>
+                    )}
+                    {section.content?.timerMock && (
+                      <div className="ttv-shell mt-4 rounded-[20px] border bg-white/85 p-4 shadow-sm [border-color:var(--color-border)]">
+                        <p className="ttv-date text-xs text-muted-foreground">{section.content.dateLabel}</p>
+
+                        <div className="mt-2 inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium [border-color:var(--color-border)] [background-color:var(--color-bg-section)] [color:var(--color-primary)]">
+                          <CheckCircle className="h-3.5 w-3.5" />
+                          <span>{section.content.status}</span>
+                        </div>
+
+                        <div className="mt-3 grid gap-3 lg:grid-cols-[1.6fr_1fr]">
+                          <div className="ttv-main rounded-2xl border bg-white/85 p-3 [border-color:var(--color-border)]">
+                            <div className="grid gap-3 sm:grid-cols-[96px_1fr] sm:items-start">
+                              <div className="ttv-clock-wrap flex justify-center sm:justify-start">
+                                <div className="ttv-clock h-24 w-24 rounded-full border-[6px] [border-color:var(--color-border)] [background-color:var(--color-bg-main)] flex items-center justify-center [color:var(--color-primary)]">
+                                  <Clock className="h-9 w-9" />
+                                </div>
+                              </div>
+
+                              <div className="space-y-2">
+                                <p className="ttv-duration text-2xl font-semibold leading-tight">{section.content.duration}</p>
+
+                                <div className="ttv-pause flex items-center justify-between rounded-xl border px-3 py-2 text-xs [border-color:var(--color-border)] [background-color:var(--color-bg-main)]">
+                                  <span className="font-medium">{section.content.pauseLabel}</span>
+                                  <span className="text-muted-foreground">{section.content.pauseValue}</span>
+                                </div>
+
+                                <div className="ttv-actions grid grid-cols-2 gap-2">
+                                  <div className="rounded-xl border px-3 py-2 text-center text-xs font-semibold [border-color:var(--color-border)] [background-color:var(--color-bg-section)]">
+                                    {section.content.startCta}
+                                  </div>
+                                  <div className="rounded-xl px-3 py-2 text-center text-xs font-semibold text-white [background-color:var(--color-primary)]">
+                                    {section.content.doneCta}
+                                  </div>
+                                </div>
+
+                                <div className="ttv-meta border-t pt-2 text-xs [border-color:var(--color-border)]">
+                                  <div className="flex items-center gap-1.5">
+                                    <Users className="h-3.5 w-3.5 text-muted-foreground" />
+                                    <span>Klient: {section.content.client || section.content.participant}</span>
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1.5 text-muted-foreground">
+                                    <MapPin className="h-3.5 w-3.5" />
+                                    <span>{section.content.tiltak}</span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="ttv-side space-y-2">
+                            <div className="rounded-2xl border bg-white/85 p-3 [border-color:var(--color-border)]">
+                              <p className="text-xs font-semibold text-muted-foreground">{section.content.todayTitle}</p>
+                              <p className="mt-1 text-xl font-semibold leading-tight">{section.content.todayValue}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{section.content.todayDetail}</p>
+                            </div>
+                            <div className="rounded-2xl border bg-white/85 p-3 [border-color:var(--color-border)]">
+                              <p className="text-xs font-semibold text-muted-foreground">{section.content.weekTitle}</p>
+                              <p className="mt-1 text-xl font-semibold leading-tight">{section.content.weekValue}</p>
+                              <p className="mt-1 text-xs text-muted-foreground">{section.content.weekDetail}</p>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="ttv-note mt-3 rounded-2xl border bg-white/85 p-3 [border-color:var(--color-border)]">
+                          <div className="flex items-start gap-2">
+                            <MessageCircle className="mt-0.5 h-4 w-4 [color:var(--color-primary)]" />
+                            <div className="w-full space-y-2">
+                              <p className="text-sm font-medium">{section.content.noteTitle}</p>
+                              <div className="rounded-lg border px-3 py-2 text-xs text-muted-foreground [border-color:var(--color-border)] [background-color:var(--color-bg-main)]">
+                                {section.content.notePlaceholder}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     )}
                     {section.content?.cards && Array.isArray(section.content.cards) && (
                       <div

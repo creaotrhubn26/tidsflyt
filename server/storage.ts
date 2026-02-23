@@ -541,6 +541,18 @@ export class ExternalDbStorage implements IStorage {
     const updateData: any = {};
     if (updates.description) updateData.title = updates.description;
     if (updates.caseNumber) updateData.project = updates.caseNumber;
+    if (updates.date) updateData.date = updates.date;
+    if (updates.hours !== undefined && updates.hours !== null) {
+      // Recalculate endTime from hours (assume 09:00 start if not set)
+      const totalMinutes = Math.round(updates.hours * 60);
+      const startHour = 9;
+      const endHour = startHour + Math.floor(totalMinutes / 60);
+      const endMin = totalMinutes % 60;
+      updateData.startTime = '09:00';
+      updateData.endTime = `${endHour}:${endMin.toString().padStart(2, '0')}`;
+    }
+    if (updates.status) updateData.activity = updates.status === 'approved' ? 'Approved' : (updates.status === 'submitted' ? 'Submitted' : updateData.activity);
+    updateData.updatedAt = new Date();
     
     const result = await db.update(logRow).set(updateData).where(eq(logRow.id, id)).returning();
     if (!result[0]) return undefined;

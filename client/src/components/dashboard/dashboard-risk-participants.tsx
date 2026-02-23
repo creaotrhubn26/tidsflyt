@@ -25,7 +25,7 @@ export function DashboardRiskParticipants({ participants, navigate }: DashboardR
       <CardHeader className="pb-2">
         <CardTitle className="flex items-center gap-2 text-lg">
           <AlertTriangle className="h-5 w-5 text-amber-500" />
-          Deltakere i risiko
+          Klientsaker i risiko
         </CardTitle>
         <CardDescription>Behov for rask oppfølging basert på nylig aktivitet</CardDescription>
       </CardHeader>

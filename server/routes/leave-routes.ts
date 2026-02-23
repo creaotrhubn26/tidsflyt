@@ -249,8 +249,8 @@ export function registerLeaveRoutes(app: Express) {
         .returning();
 
       // Update balance
-      const year = new Date(request.startDate as any).getFullYear();
-      const days = parseFloat(request.days);
+      const year = new Date(request.startDate as string).getFullYear();
+      const days = parseFloat(request.days || '0');
 
       if (status === 'approved') {
         // Move from pending to used
@@ -263,7 +263,7 @@ export function registerLeaveRoutes(app: Express) {
           })
           .where(
             and(
-              eq(leaveBalances.userId, request.userId),
+              eq(leaveBalances.userId, request.userId!),
               eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
               eq(leaveBalances.year, year)
             )
@@ -278,7 +278,7 @@ export function registerLeaveRoutes(app: Express) {
           })
           .where(
             and(
-              eq(leaveBalances.userId, request.userId),
+              eq(leaveBalances.userId, request.userId!),
               eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
               eq(leaveBalances.year, year)
             )

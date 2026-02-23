@@ -193,7 +193,7 @@ export function registerSmartTimingRoutes(app: Express) {
     'vil','bli','var','men','dag','tid','liv','tur','ble','min',
     'din','vår','alle','noen','andre','hele','mange','bare','også',
     'etter','mellom','gjennom','dette','disse','denne','mitt','ditt',
-    'gutten','jenta','brukeren','deltakeren','klienten','personen',
+    'gutten','jenta','brukeren','klienten','personen',
     'ungdom','ungdommen','barnet','eleven','pasienten','beboeren',
     'foreldrene','foresatte','familien','søsken','venner','læreren',
     'may','møte','møter','møtet','tak','mark','tone','toner','tonet',
@@ -1038,6 +1038,33 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY PORTAL ==========
+
+  // Resolve the current user's company_id from company_users table
+  app.get("/api/me/company", requireAuth, async (req, res) => {
+    try {
+      const email = (req.user as any)?.email || (req as any).admin?.email;
+      if (!email) return res.json({ companyId: null });
+
+      const result = await pool.query(
+        `SELECT company_id FROM company_users WHERE user_email = $1 LIMIT 1`,
+        [email]
+      );
+
+      if (result.rows.length === 0) {
+        // If no company_users row exists, auto-create one for the first vendor/company
+        const vendorId = (req.user as any)?.vendorId;
+        if (vendorId) {
+          return res.json({ companyId: vendorId });
+        }
+        return res.json({ companyId: null });
+      }
+
+      res.json({ companyId: result.rows[0].company_id });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/company/users", requireAuth, async (req, res) => {
     try {
       const companyId = req.query.company_id || 1;
@@ -2490,27 +2517,8 @@ export function registerSmartTimingRoutes(app: Express) {
   }
   ensureAccessRequestsTable();
 
-  // Submit access request (public endpoint)
-  app.post("/api/access-requests", async (req, res) => {
-    try {
-      const { full_name, email, org_number, company, phone, message, brreg_verified } = req.body;
-      
-      if (!full_name || !email) {
-        return res.status(400).json({ error: 'Navn og e-post er påkrevd' });
-      }
-      
-      const result = await pool.query(
-        `INSERT INTO access_requests (full_name, email, org_number, company, phone, message, brreg_verified)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING *`,
-        [full_name, email, org_number || null, company || null, phone || null, message || null, brreg_verified || false]
-      );
-      
-      res.status(201).json({ success: true, request: result.rows[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // Access request POST handled in routes.ts (with rate limiting and Drizzle validation)
+  // Only admin endpoints here
 
   // Get all access requests (admin only)
   app.get("/api/admin/access-requests", authenticateAdmin, async (_req, res) => {
@@ -2670,7 +2678,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const response: any = result.rows[0];
       if (piiWarnings.length > 0) {
         response.pii_warnings = piiWarnings;
-        response.pii_warning_message = `Advarsel: ${piiWarnings.length} mulige personopplysninger oppdaget. Vennligst gjennomgå rapporten.`;
+        response.pii_warning_message = `Advarsel: ${piiWarnings.length} mulige personopplysninger oppdaget. Navn og personlig informasjon er ikke tillatt i Tidum. Vennligst gjennomgå rapporten.`;
       }
       res.status(201).json(response);
     } catch (err: any) {
@@ -2962,14 +2970,14 @@ export function registerSmartTimingRoutes(app: Express) {
 
       if (piiWarnings.length > 0) {
         return res.status(400).json({
-          error: 'Rapporten inneholder mulige personopplysninger og kan ikke sendes inn.',
+          error: 'Rapporten inneholder mulige personopplysninger. Navn og personlig informasjon er ikke tillatt i Tidum, og rapporten kan ikke sendes inn.',
           pii_warnings: piiWarnings,
-          message: `${piiWarnings.length} mulige personopplysninger funnet. Fjern disse før innsending.`,
+          message: `${piiWarnings.length} mulige personopplysninger funnet. Navn og personlig informasjon er ikke tillatt i Tidum. Fjern disse før innsending.`,
         });
       }
 
       const result = await pool.query(
-        `UPDATE case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected') RETURNING *`,
+        `UPDATE case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
         [id]
       );
       if (result.rows.length === 0) {
@@ -4990,7 +4998,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (template_type === 'miljoarbeider') {
         finalPrivacyEnabled = true;
         if (!finalPrivacyText) {
-          finalPrivacyText = 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.';
+          finalPrivacyText = 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.';
         }
       }
 
@@ -5034,7 +5042,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (updates.template_type === 'miljoarbeider') {
         updates.privacy_notice_enabled = true;
         if (!updates.privacy_notice_text) {
-          updates.privacy_notice_text = 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.';
+          updates.privacy_notice_text = 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.';
         }
       }
       
@@ -5106,7 +5114,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const defaultBlocks = [
         { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
-        { type: 'privacy_notice', name: 'Personvernmerknad', description: 'GDPR-merknad for miljøarbeider-rapporter', icon: 'Shield', available_fields: ['text'], default_config: { text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.' } },
+        { type: 'privacy_notice', name: 'Personvernmerknad', description: 'GDPR-merknad for miljøarbeider-rapporter', icon: 'Shield', available_fields: ['text'], default_config: { text: 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.' } },
         { type: 'project_info', name: 'Prosjektinformasjon', description: 'Konsulent, bedrift, oppdragsgiver, tiltak, klient-ID, periode', icon: 'Briefcase', available_fields: ['consultant', 'company', 'client', 'initiative', 'client_id', 'period'], default_config: { showAllFields: true } },
         { type: 'statistics', name: 'Statistikk', description: 'Totale timer, arbeidsdager, aktiviteter', icon: 'BarChart3', available_fields: ['total_hours', 'work_days', 'activities'], default_config: { showAllStats: true } },
         { type: 'section', name: 'Seksjon', description: 'Innholdseksjon med overskrift', icon: 'LayoutList', available_fields: ['title', 'content'], default_config: { titleSize: 'h2' } },
@@ -5273,7 +5281,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       for (const block of blocks) {
         switch (block.type) {
           case 'privacy_notice':
-            const privacyText = block.config?.text || 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav.';
+            const privacyText = block.config?.text || 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav.';
             doc.fontSize(9).fillColor('#0369a1').text(privacyText, { oblique: true });
             doc.moveDown();
             break;
@@ -6701,6 +6709,203 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       // Ignore errors - table might not exist yet
     }
   })();
+
+  // ========== TIMESHEET SUBMISSIONS (Monthly timeliste workflow) ==========
+
+  // Ensure timesheet_submissions table
+  async function ensureTimesheetSubmissionsTable() {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS timesheet_submissions (
+          id SERIAL PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          vendor_id INTEGER,
+          month TEXT NOT NULL,
+          total_hours NUMERIC(10,2) DEFAULT 0,
+          entry_count INTEGER DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'draft',
+          submitted_at TIMESTAMP,
+          approved_by TEXT,
+          approved_at TIMESTAMP,
+          rejected_by TEXT,
+          rejected_at TIMESTAMP,
+          rejection_reason TEXT,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          UNIQUE(user_id, month)
+        )
+      `);
+    } catch (err) {
+      console.error('Error creating timesheet_submissions table:', err);
+    }
+  }
+  ensureTimesheetSubmissionsTable();
+
+  // Miljøarbeider: Submit monthly timesheet
+  app.post("/api/timesheets/submit", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.userId || 'default';
+      const { month, notes } = req.body;
+
+      if (!month || !/^\d{4}-\d{2}$/.test(month)) {
+        return res.status(400).json({ error: 'Ugyldig måned. Bruk YYYY-MM format.' });
+      }
+
+      // Calculate total hours for the month
+      const startDate = `${month}-01`;
+      const endDate = `${month}-31`;
+      const hoursResult = await pool.query(
+        `SELECT COUNT(*) as entry_count,
+                COALESCE(SUM(
+                  EXTRACT(EPOCH FROM (end_time::time - start_time::time)) / 3600 -
+                  COALESCE(break_hours::numeric, 0)
+                ), 0) as total_hours
+         FROM log_row
+         WHERE user_id = $1 AND date >= $2 AND date <= $3`,
+        [userId, startDate, endDate]
+      );
+
+      const totalHours = parseFloat(hoursResult.rows[0]?.total_hours || '0');
+      const entryCount = parseInt(hoursResult.rows[0]?.entry_count || '0');
+
+      if (entryCount === 0) {
+        return res.status(400).json({ error: 'Ingen timeføringer funnet for denne måneden.' });
+      }
+
+      // Upsert the submission
+      const result = await pool.query(
+        `INSERT INTO timesheet_submissions (user_id, vendor_id, month, total_hours, entry_count, status, submitted_at, notes, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 'submitted', NOW(), $6, NOW())
+         ON CONFLICT (user_id, month)
+         DO UPDATE SET status = 'submitted', total_hours = $4, entry_count = $5, submitted_at = NOW(), notes = $6, updated_at = NOW()
+         RETURNING *`,
+        [userId, req.user?.vendorId || null, month, totalHours.toFixed(2), entryCount, notes || null]
+      );
+
+      // Log activity
+      try {
+        await pool.query(
+          `INSERT INTO activities (user_id, action, description, timestamp) VALUES ($1, 'timesheet_submitted', $2, NOW())`,
+          [userId, `Timeliste for ${month} sendt inn (${totalHours.toFixed(1)} timer, ${entryCount} oppføringer)`]
+        );
+      } catch (_) { /* activity logging is best-effort */ }
+
+      res.json({ success: true, submission: result.rows[0] });
+    } catch (err: any) {
+      console.error('Timesheet submit error:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Get timesheet submissions for current user
+  app.get("/api/timesheets/submissions", requireAuth, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.userId || 'default';
+      const result = await pool.query(
+        `SELECT * FROM timesheet_submissions WHERE user_id = $1 ORDER BY month DESC`,
+        [userId]
+      );
+      res.json({ submissions: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Tiltaksleder: Get all submitted timesheets (for approval)
+  app.get("/api/admin/timesheets", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const status = req.query.status || 'submitted';
+      const vendorId = req.admin?.vendorId;
+
+      let query = `SELECT ts.*, cu.user_email, cu.role as user_role
+                    FROM timesheet_submissions ts
+                    LEFT JOIN company_users cu ON ts.user_id = cu.user_email`;
+      const params: any[] = [];
+
+      if (vendorId) {
+        query += ` WHERE ts.vendor_id = $1 AND ts.status = $2`;
+        params.push(vendorId, status);
+      } else {
+        query += ` WHERE ts.status = $1`;
+        params.push(status);
+      }
+
+      query += ` ORDER BY ts.month DESC, ts.submitted_at DESC`;
+
+      const result = await pool.query(query, params);
+      res.json({ timesheets: result.rows });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Tiltaksleder: Approve timesheet
+  app.post("/api/admin/timesheets/:id/approve", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const approvedBy = req.admin?.username || 'admin';
+
+      const result = await pool.query(
+        `UPDATE timesheet_submissions
+         SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
+         WHERE id = $2 AND status = 'submitted'
+         RETURNING *`,
+        [approvedBy, id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Timeliste ikke funnet eller kan ikke godkjennes.' });
+      }
+
+      // Log activity
+      const ts = result.rows[0];
+      try {
+        await pool.query(
+          `INSERT INTO activities (user_id, action, description, timestamp) VALUES ($1, 'time_approved', $2, NOW())`,
+          [ts.user_id, `Timeliste for ${ts.month} godkjent av ${approvedBy}`]
+        );
+      } catch (_) { /* best-effort */ }
+
+      res.json({ success: true, submission: result.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Tiltaksleder: Reject timesheet
+  app.post("/api/admin/timesheets/:id/reject", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { id } = req.params;
+      const { reason } = req.body;
+      const rejectedBy = req.admin?.username || 'admin';
+
+      const result = await pool.query(
+        `UPDATE timesheet_submissions
+         SET status = 'rejected', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
+         WHERE id = $3 AND status = 'submitted'
+         RETURNING *`,
+        [rejectedBy, reason || null, id]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: 'Timeliste ikke funnet eller kan ikke avvises.' });
+      }
+
+      // Log activity
+      const ts = result.rows[0];
+      try {
+        await pool.query(
+          `INSERT INTO activities (user_id, action, description, timestamp) VALUES ($1, 'timesheet_rejected', $2, NOW())`,
+          [ts.user_id, `Timeliste for ${ts.month} avvist: ${reason || 'Ingen begrunnelse'}`]
+        );
+      } catch (_) { /* best-effort */ }
+
+      res.json({ success: true, submission: result.rows[0] });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
   console.log("Smart Timing API routes registered");
 }

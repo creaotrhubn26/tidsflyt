@@ -29,6 +29,12 @@ const AdminCaseReviews = lazy(() => import("@/pages/admin-case-reviews"));
 const ApiDocs = lazy(() => import("@/pages/api-docs"));
 const VendorApiAdmin = lazy(() => import("@/pages/vendor-api-admin"));
 const AccessRequests = lazy(() => import("@/pages/access-requests"));
+const LeavePage = lazy(() => import("@/pages/leave"));
+const InvoicesPage = lazy(() => import("@/pages/invoices"));
+const OvertimePage = lazy(() => import("@/pages/overtime"));
+const RecurringPage = lazy(() => import("@/pages/recurring"));
+const TimesheetsPage = lazy(() => import("@/pages/timesheets"));
+const ForwardPage = lazy(() => import("@/pages/forward"));
 const WhyTidum = lazy(() => import("@/pages/why-tidum"));
 const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 const BuilderPage = lazy(() => import("@/pages/builder-page"));
@@ -73,6 +79,12 @@ function Router() {
         <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/invites">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Users /></AuthGuard>}</Route>
         <Route path="/users">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Redirect to="/invites" /></AuthGuard>}</Route>
+        <Route path="/leave">{() => <AuthGuard><LeavePage /></AuthGuard>}</Route>
+        <Route path="/invoices">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><InvoicesPage /></AuthGuard>}</Route>
+        <Route path="/overtime">{() => <AuthGuard><OvertimePage /></AuthGuard>}</Route>
+        <Route path="/recurring">{() => <AuthGuard><RecurringPage /></AuthGuard>}</Route>
+        <Route path="/timesheets">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
+        <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
 
         {/* Admin routes */}
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>
@@ -81,7 +93,7 @@ function Router() {
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
         <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
-        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
 
         <Route component={NotFound} />
       </Switch>

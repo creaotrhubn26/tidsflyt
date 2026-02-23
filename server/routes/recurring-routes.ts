@@ -165,7 +165,7 @@ export async function generateRecurringEntries(): Promise<number> {
           .from(logRow)
           .where(
             and(
-              eq(logRow.userId, entry.userId),
+              eq(logRow.userId, entry.userId!),
               eq(logRow.date, today),
               eq(logRow.title, entry.title)
             )
@@ -174,7 +174,7 @@ export async function generateRecurringEntries(): Promise<number> {
 
         if (existing.length === 0) {
           // Calculate time slots
-          const hours = parseFloat(entry.hours);
+          const hours = parseFloat(entry.hours || '0');
           const startTime = '09:00'; // Default start time
           const startMinutes = 9 * 60;
           const endMinutes = startMinutes + hours * 60;

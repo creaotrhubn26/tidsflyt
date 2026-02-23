@@ -33,6 +33,17 @@ export const companyUsers = pgTable("company_users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+export const userCases = pgTable("user_cases", {
+  id: serial("id").primaryKey(),
+  companyUserId: integer("company_user_id"),
+  caseId: text("case_id"),
+  caseTitle: text("case_title"),
+  status: text("status").default("active"),
+  assignedAt: timestamp("assigned_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
 // Access requests table (pending user registrations)
 export const accessRequests = pgTable("access_requests", {
   id: serial("id").primaryKey(),
@@ -43,6 +54,7 @@ export const accessRequests = pgTable("access_requests", {
   phone: text("phone"),
   message: text("message"),
   brregVerified: boolean("brreg_verified").default(false),
+  institutionType: text("institution_type"), // privat, offentlig, nav
   status: text("status").default("pending"), // pending, approved, rejected
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
@@ -1297,6 +1309,40 @@ export type InsertUser = Omit<User, 'id' | 'hoursThisWeek' | 'pendingApprovals'>
 export type InsertTimeEntry = Omit<TimeEntry, 'id'>;
 export type InsertActivity = Omit<Activity, 'id'>;
 
+// Monthly timesheet submissions
+export const timesheetSubmissions = pgTable("timesheet_submissions", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  vendorId: integer("vendor_id"),
+  month: text("month").notNull(), // YYYY-MM format
+  totalHours: numeric("total_hours", { precision: 10, scale: 2 }).default("0"),
+  entryCount: integer("entry_count").default(0),
+  status: text("status").default("draft").notNull(), // draft, submitted, approved, rejected
+  submittedAt: timestamp("submitted_at"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+  rejectedBy: text("rejected_by"),
+  rejectedAt: timestamp("rejected_at"),
+  rejectionReason: text("rejection_reason"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertTimesheetSubmissionSchema = createInsertSchema(timesheetSubmissions).omit({
+  id: true,
+  approvedBy: true,
+  approvedAt: true,
+  rejectedBy: true,
+  rejectedAt: true,
+  rejectionReason: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type TimesheetSubmission = typeof timesheetSubmissions.$inferSelect;
+export type InsertTimesheetSubmission = typeof timesheetSubmissions.$inferInsert;
+
 // Dashboard tasks
 export const dashboardTasks = pgTable("dashboard_tasks", {
   id: serial("id").primaryKey(),
@@ -1323,6 +1369,127 @@ export const userTaskPrefs = pgTable("user_task_prefs", {
 });
 
 export type UserTaskPrefs = typeof userTaskPrefs.$inferSelect;
+
+// ========== INVOICES ==========
+
+export const invoices = pgTable("invoices", {
+  id: serial("id").primaryKey(),
+  invoiceNumber: text("invoice_number").notNull(),
+  userId: text("user_id").notNull().default("default"),
+  clientName: text("client_name").notNull(),
+  clientEmail: text("client_email"),
+  clientAddress: text("client_address"),
+  invoiceDate: text("invoice_date").notNull(),
+  dueDate: text("due_date").notNull(),
+  periodStart: text("period_start"),
+  periodEnd: text("period_end"),
+  subtotal: text("subtotal").default("0"),
+  taxRate: text("tax_rate").default("25"),
+  taxAmount: text("tax_amount").default("0"),
+  totalAmount: text("total_amount").default("0"),
+  currency: text("currency").default("NOK"),
+  status: text("status").default("draft"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const invoiceLineItems = pgTable("invoice_line_items", {
+  id: serial("id").primaryKey(),
+  invoiceId: integer("invoice_id").notNull(),
+  description: text("description").notNull(),
+  quantity: text("quantity").default("0"),
+  unitPrice: text("unit_price").default("0"),
+  amount: text("amount").default("0"),
+  displayOrder: integer("display_order").default(0),
+});
+
+// ========== LEAVE MANAGEMENT ==========
+
+export const leaveTypes = pgTable("leave_types", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  slug: text("slug"),
+  color: text("color"),
+  icon: text("icon"),
+  isActive: boolean("is_active").default(true),
+  displayOrder: integer("display_order").default(0),
+  maxDaysPerYear: integer("max_days_per_year"),
+});
+
+export const leaveRequests = pgTable("leave_requests", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  leaveTypeId: integer("leave_type_id").notNull(),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date").notNull(),
+  days: text("days").default("0"),
+  reason: text("reason"),
+  status: text("status").default("pending"),
+  reviewedBy: text("reviewed_by"),
+  reviewedAt: timestamp("reviewed_at"),
+  reviewComment: text("review_comment"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const leaveBalances = pgTable("leave_balances", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  leaveTypeId: integer("leave_type_id").notNull(),
+  year: integer("year").notNull(),
+  totalDays: text("total_days").default("0"),
+  usedDays: text("used_days").default("0"),
+  pendingDays: text("pending_days").default("0"),
+  remainingDays: text("remaining_days").default("0"),
+});
+
+// ========== OVERTIME ==========
+
+export const overtimeSettings = pgTable("overtime_settings", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  standardHoursPerDay: text("standard_hours_per_day").default("7.5"),
+  standardHoursPerWeek: text("standard_hours_per_week").default("37.5"),
+  overtimeRateMultiplier: text("overtime_rate_multiplier").default("1.5"),
+  doubleTimeThreshold: text("double_time_threshold"),
+  trackOvertime: boolean("track_overtime").default(true),
+  requireApproval: boolean("require_approval").default(false),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const overtimeEntries = pgTable("overtime_entries", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  date: text("date").notNull(),
+  regularHours: text("regular_hours").default("0"),
+  overtimeHours: text("overtime_hours").default("0"),
+  doubleTimeHours: text("double_time_hours").default("0"),
+  status: text("status").default("pending"),
+  approvedBy: text("approved_by"),
+  approvedAt: timestamp("approved_at"),
+});
+
+// ========== RECURRING ENTRIES ==========
+
+export const recurringEntries = pgTable("recurring_entries", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().default("default"),
+  title: text("title").notNull(),
+  description: text("description"),
+  activity: text("activity"),
+  project: text("project"),
+  place: text("place"),
+  hours: text("hours").default("0"),
+  recurrenceType: text("recurrence_type").notNull(), // daily, weekly, monthly
+  recurrenceDays: text("recurrence_days"), // JSON array string
+  recurrenceDayOfMonth: integer("recurrence_day_of_month"),
+  startDate: text("start_date").notNull(),
+  endDate: text("end_date"),
+  isActive: boolean("is_active").default(true),
+  lastGeneratedDate: text("last_generated_date"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
 
 // Export auth models (required for Replit Auth)
 export * from "./models/auth";

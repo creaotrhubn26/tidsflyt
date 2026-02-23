@@ -703,7 +703,7 @@ export default function DashboardPage() {
       {
         id: "missing-followup",
         tone: missingFollowup > 0 ? (missingFollowup >= 3 ? "red" : "yellow") : "green",
-        label: `${missingFollowup} deltakere uten oppfølging siste 7 dager`,
+        label: `${missingFollowup} klientsaker uten oppfølging siste 7 dager`,
         detail: "Prioriter kontakt og oppdatering av tiltak i dag",
       },
       {
@@ -734,10 +734,10 @@ export default function DashboardPage() {
     const inRoute = Math.max(0, participantsToday - nearDeadline);
 
     return [
-      { id: "participants-today", label: "deltakere å følge opp", value: participantsToday, tone: participantsToday > 0 ? "green" : "yellow" },
+      { id: "participants-today", label: "klientsaker å følge opp", value: participantsToday, tone: participantsToday > 0 ? "green" : "yellow" },
       { id: "missing-notes", label: "notater gjenstår", value: missingNotes, tone: missingNotes > 1 ? "yellow" : "green" },
       { id: "near-deadline", label: "oppfølging nær frist", value: nearDeadline, tone: nearDeadline > 0 ? "yellow" : "green" },
-      { id: "in-route", label: "deltakere i rute", value: inRoute, tone: "green" },
+      { id: "in-route", label: "klientsaker i rute", value: inRoute, tone: "green" },
     ];
   }, [stats]);
 
@@ -757,7 +757,7 @@ export default function DashboardPage() {
         id: 11,
         type: "info",
         title: "Lav oppfølgingsaktivitet i perioden",
-        description: "Viktig fordi lange hull kan gi svakere oppfølging. Neste steg: gjennomgå deltakere uten kontakt.",
+        description: "Viktig fordi lange hull kan gi svakere oppfølging. Neste steg: gjennomgå klientsaker uten kontakt.",
         action: () => navigate("/cases"),
       });
     }
@@ -864,21 +864,21 @@ export default function DashboardPage() {
     return [
       {
         id: "worker-fallback-1",
-        name: "Deltaker A",
+        name: "Sak A",
         tiltak: "Arbeidsrettet oppfølging",
         lastFollowupLabel: "2 dager siden",
         status: "snart-frist",
       },
       {
         id: "worker-fallback-2",
-        name: "Deltaker B",
+        name: "Sak B",
         tiltak: "Hverdagsmestring",
         lastFollowupLabel: "7 dager siden",
         status: "trenger-oppfolging",
       },
       {
         id: "worker-fallback-3",
-        name: "Deltaker C",
+        name: "Sak C",
         tiltak: "Skole- og arbeidstiltak",
         lastFollowupLabel: "1 dag siden",
         status: "i-rute",
@@ -890,7 +890,7 @@ export default function DashboardPage() {
     const list = [
       "Skriv oppfølgingsnotat",
       "Registrer aktivitet",
-      workerParticipants.length > 0 ? `Følg opp ${workerParticipants[0].name}` : "Følg opp deltaker",
+      workerParticipants.length > 0 ? `Følg opp ${workerParticipants[0].name}` : "Følg opp sak",
       "Fullfør påbegynt rapport",
     ];
     return list;
@@ -1004,7 +1004,7 @@ export default function DashboardPage() {
             slim
             mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
             title={isTiltakslederView ? "Oppfølgingsoversikt" : isMiljoarbeiderView ? "Min arbeidsdag" : "Dashboard"}
-            subtitle={isTiltakslederView ? "Status på tiltak, deltakere og dokumentasjon" : isMiljoarbeiderView ? "Oversikt over dine deltakere og oppfølging i dag" : undefined}
+            subtitle={isTiltakslederView ? "Status på tiltak, klientsaker og dokumentasjon" : isMiljoarbeiderView ? "Oversikt over dine klientsaker og oppfølging i dag" : undefined}
             timeRange={timeRange}
             onTimeRangeChange={handleTimeRangeChange}
             statsFetching={statsFetching}
@@ -1189,16 +1189,16 @@ export default function DashboardPage() {
                       />
                       <StatCard
                         statId="participants-without-followup"
-                        title="Deltakere uten oppfølging"
+                        title="Klientsaker uten oppfølging"
                         value={Math.max(0, Math.round(stats.pendingApprovals * 0.6))}
                         icon={<Users className="h-5 w-5" />}
                         trend={{ value: stats.usersTrend, isPositive: stats.usersTrend <= 0 }}
                         trendDirection="goodDown"
                         variant="danger"
                         periodLabel="Siste 7 dager"
-                        description="Deltakere med svakt oppfølgingsmønster i perioden"
+                        description="Klientsaker med svakt oppfølgingsmønster i perioden"
                         noTrendLabel="Ingen historikk ennå"
-                        emptyLabel="Alle deltakere fulgt opp"
+                        emptyLabel="Alle klientsaker fulgt opp"
                         onClick={() => navigate("/cases")}
                       />
                     </>
@@ -1206,16 +1206,16 @@ export default function DashboardPage() {
                     <>
                       <StatCard
                         statId="worker-participants"
-                        title="Deltakere i dag"
+                        title="Klientsaker i dag"
                         value={workerTodaySignals[0]?.value ?? 0}
                         icon={<Users className="h-5 w-5" />}
                         trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
                         trendDirection="goodUp"
                         variant="primary"
                         periodLabel={TIME_RANGE_LABELS[timeRange]}
-                        description="Deltakere du følger opp i perioden"
+                        description="Klientsaker du følger opp i perioden"
                         noTrendLabel="Samler data…"
-                        emptyLabel="Ingen deltakere i dag"
+                        emptyLabel="Ingen klientsaker i dag"
                         onClick={() => navigate("/case-reports")}
                       />
                       <StatCard
@@ -1255,7 +1255,7 @@ export default function DashboardPage() {
                         trendDirection="goodUp"
                         variant="success"
                         periodLabel={TIME_RANGE_LABELS[timeRange]}
-                        description="Deltakere med oppfølging som planlagt"
+                        description="Klientsaker med oppfølging som planlagt"
                         noTrendLabel="Ingen historikk ennå"
                         emptyLabel="Ingen i rute ennå"
                         onClick={() => navigate("/case-reports")}

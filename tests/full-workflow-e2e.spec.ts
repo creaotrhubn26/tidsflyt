@@ -110,10 +110,14 @@ async function mockPortalSettings(page: Page) {
  */
 async function mockApiFallback(page: Page) {
   await page.route(/\/api\//, async (route) => {
+    const url = route.request().url();
+    // Return arrays for endpoints that expect arrays
+    const arrayEndpoints = ['activities', 'company/users', 'timesheets', 'case-reports'];
+    const isArrayEndpoint = arrayEndpoints.some(ep => url.includes(ep));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({}),
+      body: JSON.stringify(isArrayEndpoint ? [] : {}),
     });
   });
 }
@@ -196,6 +200,10 @@ test.describe.serial("Tidum full workflow", () => {
     await page.getByTestId("input-contact-name").fill("Thomas Friskus");
     await page.getByTestId("input-contact-email").fill("thomas@friskus.no");
     await page.getByTestId("input-contact-phone").fill("99887766");
+
+    // Select institution type
+    await page.getByTestId("select-institution-type").selectOption("privat");
+
     await page.getByTestId("input-contact-subject").fill("Ønsker tilgang til Tidum");
     await page.getByTestId("textarea-contact-message").fill(
       "Vi er en tiltaksbedrift som ønsker å bruke Tidum for oppfølging av ungdom."
@@ -366,7 +374,7 @@ test.describe.serial("Tidum full workflow", () => {
       }
     });
 
-    await page.goto("/users", { waitUntil: "domcontentloaded" });
+    await page.goto("/invites", { waitUntil: "domcontentloaded" });
     await expect(page.getByTestId("users-title")).toBeVisible({ timeout: 10000 });
 
     // Click invite button

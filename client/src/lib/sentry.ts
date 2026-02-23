@@ -1,5 +1,13 @@
 import * as Sentry from '@sentry/react';
 
+declare global {
+  interface Window {
+    Sentry?: {
+      captureException: typeof Sentry.captureException;
+    };
+  }
+}
+
 export function initSentry() {
   if (import.meta.env.PROD && import.meta.env.VITE_SENTRY_DSN) {
     Sentry.init({
@@ -15,7 +23,7 @@ export function initSentry() {
       tracesSampleRate: 0.1,
       replaysSessionSampleRate: 0.1,
       replaysOnErrorSampleRate: 1.0,
-      beforeSend(event, hint) {
+      beforeSend(event: Sentry.ErrorEvent, hint: Sentry.EventHint): Sentry.ErrorEvent | null {
         // Filter out errors from browser extensions
         if (event.exception) {
           const error = hint.originalException;

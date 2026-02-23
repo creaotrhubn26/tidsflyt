@@ -5,6 +5,12 @@ import { storage } from "./storage";
 
 import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
+import { registerLeaveRoutes } from "./routes/leave-routes";
+import { registerInvoiceRoutes } from "./routes/invoice-routes";
+import { registerOvertimeRoutes } from "./routes/overtime-routes";
+import { registerRecurringRoutes } from "./routes/recurring-routes";
+import { registerExportRoutes } from "./routes/export-routes";
+import { registerForwardRoutes } from "./routes/forward-routes";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
@@ -1313,9 +1319,21 @@ export async function registerRoutes(
     }
   });
 
-  // Access request routes (public - for new user registration)
+  // Access request routes (public - for new user registration and demo requests)
   app.post("/api/access-requests", publicWriteRateLimit, async (req, res) => {
     try {
+      // Spam protection: honeypot check
+      if (req.body._honeypot && req.body._honeypot.length > 0) {
+        return res.json({ success: true, id: 0 }); // Fool bots
+      }
+
+      // Spam protection: time-based (min 3 seconds to fill form)
+      const now = Date.now();
+      const submissionTime = parseInt(req.body._timestamp) || 0;
+      if (submissionTime && (now - submissionTime) < 3000) {
+        return res.json({ success: true, id: 0 });
+      }
+
       const parsed = insertAccessRequestSchema.safeParse({
         fullName: req.body.full_name,
         email: req.body.email,
@@ -1324,6 +1342,7 @@ export async function registerRoutes(
         phone: req.body.phone,
         message: req.body.message,
         brregVerified: req.body.brreg_verified,
+        institutionType: req.body.institution_type,
       });
 
       if (!parsed.success) {
@@ -3784,6 +3803,14 @@ export async function registerRoutes(
 
   // Check every minute
   setInterval(checkScheduledPages, 60 * 1000);
+
+  // Register feature routes
+  registerLeaveRoutes(app);
+  registerInvoiceRoutes(app);
+  registerOvertimeRoutes(app);
+  registerRecurringRoutes(app);
+  registerExportRoutes(app);
+  registerForwardRoutes(app);
 
   return httpServer;
 }

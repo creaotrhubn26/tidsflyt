@@ -93,12 +93,12 @@ Rapporten genereres automatisk med:
 ## Personvernretningslinjer for Miljøarbeider
 
 ### 🔒 GDPR-krav
-Rapporter for miljøarbeidere **skal ikke** inneholde personidentifiserbar informasjon.
+Rapporter for miljøarbeidere **skal ikke** inneholde navn eller personidentifiserbar informasjon. Dette er ikke tillatt i Tidum.
 
 ### Retningslinjer
 
 #### ❌ IKKE bruk:
-- **Navn** på klienter
+- **Navn** på personer
 - **Fødselsdato** eller eksakt alder
 - **Adresser** eller spesifikke steder
 - **Unike detaljer** som kan identifisere personer
@@ -107,9 +107,9 @@ Rapporter for miljøarbeidere **skal ikke** inneholde personidentifiserbar infor
 #### ✅ BRUK i stedet:
 - **Generelle betegnelser**:
   - "Gutten" / "Jenta"
-  - "Brukeren" / "Deltakeren"
-  - "Klienten"
-  - "Personen"
+  - "Brukeren" / "Personen"
+  - "Ungdommen"
+  - "Vedkommende"
   
 - **Aldersgrupper** (hvis nødvendig):
   - "Ung person"
@@ -138,7 +138,7 @@ Rapporter for miljøarbeidere **skal ikke** inneholde personidentifiserbar infor
 ### Automatisk personvernmerknader
 Miljøarbeider-rapporter inkluderer automatisk følgende tekst øverst:
 
-> **PERSONVERN**: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.
+> **PERSONVERN**: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.
 
 ## Brukergrensesnitt
 

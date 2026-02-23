@@ -61,7 +61,7 @@ export const REPORT_TEMPLATES: SectionTemplate[] = [
     description: "Oppsummering fra ansvarsgruppemøte eller samarbeidsmøte",
     content: {
       background:
-        "<p>Samarbeidsmøte ble avholdt [dato]. Deltakere: [roller, ikke navn — f.eks. kontaktperson, lærer, helsesykepleier].</p>",
+        "<p>Samarbeidsmøte ble avholdt [dato]. Personer til stede: [roller, ikke navn — f.eks. kontaktperson, lærer, helsesykepleier].</p>",
       actions:
         "<p>Følgende ble gjennomgått og besluttet i møtet:</p><ul><li>Gjennomgang av [tema]</li><li>Avtalt: [ny avtale/tiltak]</li><li>Ansvar fordelt: [rolle → oppgave]</li></ul>",
       progress:

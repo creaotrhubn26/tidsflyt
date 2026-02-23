@@ -426,9 +426,9 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
     {
       key: "assigned",
       count: tasks.assignedCases,
-      label: isTiltaksleder ? "Deltakere uten kontakt" : "Tildelte saker",
+      label: isTiltaksleder ? "Klientsaker uten kontakt" : "Tildelte saker",
       sublabel: isTiltaksleder ? "Krever oppfølging" : "Aktive",
-      taskLabel: isTiltaksleder ? "Kontakt deltakere uten oppfølging" : "Følg opp tildelte saker",
+      taskLabel: isTiltaksleder ? "Kontakt klientsaker uten oppfølging" : "Følg opp tildelte saker",
       icon: Briefcase,
       iconColor: "text-blue-500",
       path: "/cases",

@@ -111,7 +111,7 @@ const SAFE_WORDS = new Set<string>([
   'etter','mellom','gjennom','rundt','langs','siden','slik','både',
   'dette','disse','denne','mitt','ditt','hans','hennes','deres',
   // Allowed anonymous references
-  'gutten','jenta','brukeren','deltakeren','klienten','personen',
+  'gutten','jenta','brukeren','klienten','personen',
   'ungdom','ungdommen','barnet','eleven','pasienten','beboeren',
   'foreldrene','foresatte','familien','søsken','venner','læreren',
   'kontaktpersonen','saksbehandler','rådgiver','veileder','terapeut',
@@ -573,7 +573,7 @@ function deduplicateWarnings(warnings: PiiWarning[]): PiiWarning[] {
 }
 
 export const ANONYMOUS_ALTERNATIVES = {
-  general: ['gutten', 'jenta', 'brukeren', 'deltakeren', 'klienten', 'personen'],
+  general: ['gutten', 'jenta', 'brukeren', 'klienten', 'personen'],
   ageGroups: ['ung person', 'ungdom', 'ungdommen', 'tenåring', 'voksen', 'barnet'],
   roles: ['eleven', 'pasienten', 'beboeren'],
   family: ['foresatte', 'foreldrene', 'mor til brukeren', 'far til brukeren', 'søsken'],

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Play, Pause, Square, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays, UserX, BarChart3, Lightbulb, Calendar as CalendarIcon, Sparkles } from "lucide-react";
+import { Play, Plus, Clock, Trash2, Edit2, Save, X, CalendarDays, UserX, BarChart3, Lightbulb, Calendar as CalendarIcon, Sparkles, CheckCircle2, ChevronDown, ChevronRight, User, MapPin, MessageSquare, Circle } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,17 +18,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import { cn } from "@/lib/utils";
 import { format, startOfISOWeek, endOfISOWeek, eachDayOfInterval, isSameDay, subDays } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -127,7 +117,6 @@ export default function TimeTrackingPage() {
   const [showClientSickDialog, setShowClientSickDialog] = useState(false);
   const [clientSickNote, setClientSickNote] = useState("");
   const [selectedDay, setSelectedDay] = useState<{ date: Date; day: string; hours: number; entries: TimeEntry[]; percentage: number } | null>(null);
-  const [calendarTimelineMode, setCalendarTimelineMode] = useState<"daily" | "cumulative">("daily");
   
   const timerStartRef = useRef<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -145,7 +134,7 @@ export default function TimeTrackingPage() {
   useEffect(() => {
     clockIntervalRef.current = setInterval(() => {
       setCurrentTime(new Date());
-    }, 1000);
+    }, 200);
 
     return () => {
       if (clockIntervalRef.current) {
@@ -360,13 +349,6 @@ export default function TimeTrackingPage() {
       }
     };
   }, [isRunning]);
-
-  const formatTime = (seconds: number) => {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-    return `${h.toString().padStart(2, "0")}:${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
 
   const formatDuration = (hours: number) => {
     const h = Math.floor(hours);
@@ -738,49 +720,12 @@ export default function TimeTrackingPage() {
 
   const calendarActivityRate = useMemo(() => (activeDaysLast30 / 30) * 100, [activeDaysLast30]);
 
-  const timeline30ChartData = useMemo(() => {
-    let cumulativeHours = 0;
-
-    return last30DailySeries.map((day, index) => {
-      const date = new Date(`${day.dayKey}T00:00:00`);
-      cumulativeHours += day.hours;
-
-      return {
-        ...day,
-        shortLabel: format(date, "d. MMM", { locale: nb }),
-        fullLabel: format(date, "EEEE d. MMMM", { locale: nb }),
-        cumulativeHours: Number(cumulativeHours.toFixed(2)),
-        expectedCumulative: Number((averageLast30Days * (index + 1)).toFixed(2)),
-      };
-    });
-  }, [last30DailySeries, averageLast30Days]);
-
-  const peakDayLast30 = useMemo(() => {
-    if (timeline30ChartData.length === 0) return null;
-    return timeline30ChartData.reduce((peak, day) => (day.hours > peak.hours ? day : peak), timeline30ChartData[0]);
-  }, [timeline30ChartData]);
-
-  const currentActiveStreak = useMemo(() => {
-    let streak = 0;
-    for (let index = last30DailySeries.length - 1; index >= 0; index -= 1) {
-      if (last30DailySeries[index].hours > 0) {
-        streak += 1;
-      } else {
-        break;
-      }
-    }
-    return streak;
-  }, [last30DailySeries]);
-
-  const last7DaysTotal = useMemo(
-    () => last30DailySeries.slice(-7).reduce((sum, day) => sum + day.hours, 0),
-    [last30DailySeries],
-  );
-
   // View modes
-  const [viewMode, setViewMode] = useState<"today" | "weekly" | "calendar" | "analytics">("today");
+  const [viewMode, setViewMode] = useState<"today" | "calendar" | "analytics">("today");
+  const [calendarViewMode, setCalendarViewMode] = useState<"week" | "month">("month");
   const [dateFilter, setDateFilter] = useState<{ from?: Date; to?: Date }>({});
   const [projectFilter, setProjectFilter] = useState<string>("");
+  const [showWeeklySummaryDialog, setShowWeeklySummaryDialog] = useState(false);
   
   // Weekly data computation
   const weeklyData = useMemo(() => {
@@ -807,6 +752,44 @@ export default function TimeTrackingPage() {
   // Weekly totals
   const weeklyTotal = useMemo(() => weeklyData.reduce((sum, d) => sum + d.hours, 0), [weeklyData]);
   const weeklyAverage = useMemo(() => weeklyTotal / 5, [weeklyTotal]); // 5 work days
+  const currentWeekLabel = format(new Date(), "w");
+
+  const weeklySummaryDetails = (
+    <>
+      <div className="grid grid-cols-5 gap-2">
+        {weeklyData.map((day) => (
+          <div
+            key={day.date.toISOString()}
+            className="text-center p-3 rounded-lg bg-white/60 dark:bg-card/60 hover:bg-white dark:hover:bg-card transition-colors cursor-pointer group"
+            onClick={() => {
+              setSelectedDay(day);
+              setShowWeeklySummaryDialog(false);
+            }}
+          >
+            <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">{day.day.slice(0, 3)}</p>
+            <div className="h-1.5 bg-slate-200/60 dark:bg-slate-700/40 rounded-full mb-2 overflow-hidden">
+              <progress
+                value={day.percentage}
+                max={100}
+                aria-label={`${day.day} andel`}
+                className="h-full w-full bar-pct bar-pct-blue-cyan"
+              />
+            </div>
+            <p className="text-sm font-mono font-medium">{day.hours.toFixed(1)}t</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 pt-4 border-t border-slate-200/60 dark:border-border flex items-center justify-between text-sm">
+        <div>
+          <p className="text-slate-600 dark:text-muted-foreground">Gjennomsnitt per dag:</p>
+          <p className="font-mono font-medium">{weeklyAverage.toFixed(2)} timer</p>
+        </div>
+        <Badge variant="outline" className={weeklyTotal >= 40 ? "bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800/50 dark:text-green-400" : "bg-orange-50 border-orange-200 dark:bg-orange-950/40 dark:border-orange-800/50 dark:text-orange-400"}>
+          {weeklyTotal >= 40 ? "✓ Mål nådd" : `${(40 - weeklyTotal).toFixed(1)}t igjen`}
+        </Badge>
+      </div>
+    </>
+  );
   
   // Project breakdown
   const projectBreakdown = useMemo(() => {
@@ -899,6 +882,115 @@ export default function TimeTrackingPage() {
     return hours.toFixed(1);
   }, []);
 
+  const formatHoursWithMinutes = useCallback((hours: number) => {
+    const totalMinutes = Math.round(Math.max(hours, 0) * 60);
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    return `${h} t ${m.toString().padStart(2, "0")} min`;
+  }, []);
+
+  const workerLabel = useMemo(() => {
+    const firstName = user?.firstName?.trim() || "";
+    const lastName = user?.lastName?.trim() || "";
+    const fullName = `${firstName} ${lastName}`.trim();
+    if (fullName) return fullName;
+    if (user?.email) return user.email.split("@")[0];
+    return "Maria L.";
+  }, [user?.email, user?.firstName, user?.lastName]);
+
+  const greetingName = useMemo(() => {
+    const [firstName] = workerLabel.split(" ");
+    return firstName || "Maria";
+  }, [workerLabel]);
+  const selectedClientLabel = selectedProject ? resolveCaseLabel(selectedProject) : "Velg case i feltet over";
+  const sessionHours = elapsedSeconds > 0 ? elapsedSeconds / 3600 : totalToday;
+  const sessionDurationLabel = formatHoursWithMinutes(sessionHours);
+
+  const previousWeekTotal = useMemo(() => {
+    const previousWeekAnchor = subDays(new Date(), 7);
+    const previousWeekStart = startOfISOWeek(previousWeekAnchor);
+    const previousWeekEnd = endOfISOWeek(previousWeekAnchor);
+
+    return last30DaysEntries.reduce((sum, entry) => {
+      if (entry.caseNumber === "client_sick") return sum;
+
+      const sourceDate = entry.date || entry.createdAt;
+      if (!sourceDate) return sum;
+
+      const entryDate = new Date(sourceDate);
+      if (Number.isNaN(entryDate.getTime())) return sum;
+      if (entryDate < previousWeekStart || entryDate > previousWeekEnd) return sum;
+
+      return sum + entry.hours;
+    }, 0);
+  }, [last30DaysEntries]);
+
+  const followUpHistoryRows = useMemo(() => {
+    const groupedEntries = new Map<string, TimeEntry[]>();
+
+    last30DaysEntries.forEach((entry) => {
+      if (entry.caseNumber === "client_sick") return;
+      const dayKey = (entry.date || entry.createdAt || "").slice(0, 10);
+      if (!dayKey) return;
+
+      const rows = groupedEntries.get(dayKey) || [];
+      rows.push(entry);
+      groupedEntries.set(dayKey, rows);
+    });
+
+    return Array.from(groupedEntries.entries())
+      .map(([dayKey, entries]) => {
+        const sortedEntries = entries
+          .slice()
+          .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+
+        const firstEntry = sortedEntries[0];
+        const lastEntry = sortedEntries[sortedEntries.length - 1];
+        const startTime = firstEntry ? format(new Date(firstEntry.createdAt), "HH:mm", { locale: nb }) : "--:--";
+        const endTime = lastEntry ? format(new Date(lastEntry.createdAt), "HH:mm", { locale: nb }) : "--:--";
+        const totalHours = entries.reduce((sum, item) => sum + item.hours, 0);
+        const dayLabelRaw = format(new Date(`${dayKey}T00:00:00`), "EEEE", { locale: nb });
+        const dayLabel = dayLabelRaw.charAt(0).toUpperCase() + dayLabelRaw.slice(1);
+
+        return {
+          dayKey,
+          dayLabel,
+          timeRange: `${startTime} - ${endTime}`,
+          completed: totalHours >= 7.5,
+          totalHours,
+        };
+      })
+      .sort((a, b) => b.dayKey.localeCompare(a.dayKey))
+      .slice(0, 4);
+  }, [last30DaysEntries]);
+
+  const analogHourRotation = useMemo(
+    () =>
+      (
+        (currentTime.getHours() % 12)
+        + (
+          currentTime.getMinutes()
+          + currentTime.getSeconds() / 60
+          + currentTime.getMilliseconds() / 60000
+        ) / 60
+      ) * 30,
+    [currentTime],
+  );
+
+  const analogMinuteRotation = useMemo(
+    () => (
+      currentTime.getMinutes()
+      + currentTime.getSeconds() / 60
+      + currentTime.getMilliseconds() / 60000
+    ) * 6,
+    [currentTime],
+  );
+
+  const analogSecondRotation = useMemo(
+    () => (currentTime.getSeconds() + currentTime.getMilliseconds() / 1000) * 6,
+    [currentTime],
+  );
+
   if (!isTimeTrackingEnabledForRole) {
     return (
       <PortalLayout>
@@ -933,55 +1025,307 @@ export default function TimeTrackingPage() {
         </div>
 
         {/* Weekly Summary Overview */}
-        <Card className="bg-gradient-to-br from-slate-50 to-slate-100/50 border-slate-200/60 dark:from-slate-900/40 dark:to-slate-800/20 dark:border-slate-700/40">
+        <div className="md:hidden">
+          <Button
+            type="button"
+            variant="outline"
+            className="h-auto w-full justify-between rounded-xl border-slate-200/70 bg-white/90 px-4 py-3 text-left"
+            onClick={() => setShowWeeklySummaryDialog(true)}
+            data-testid="weekly-summary-trigger"
+          >
+            <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-700">
+              <CalendarIcon className="h-4 w-4 text-slate-600" />
+              Uke {currentWeekLabel} - {weeklyTotal.toFixed(1)}t / 40t
+            </span>
+            <ChevronRight className="h-4 w-4 text-slate-500" />
+          </Button>
+        </div>
+
+        <Card className="hidden md:block bg-gradient-to-br from-slate-50 to-slate-100/50 border-slate-200/60 dark:from-slate-900/40 dark:to-slate-800/20 dark:border-slate-700/40">
           <CardContent className="p-6">
             <h3 className="font-semibold mb-4 flex items-center gap-2">
               <CalendarIcon className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-              Uke {format(new Date(), "w")} - {weeklyTotal.toFixed(1)}t / 40t
+              Uke {currentWeekLabel} - {weeklyTotal.toFixed(1)}t / 40t
             </h3>
-            <div className="grid grid-cols-5 gap-2">
-              {weeklyData.map((day) => (
-                <div
-                  key={day.date.toISOString()}
-                  className="text-center p-3 rounded-lg bg-white/60 dark:bg-card/60 hover:bg-white dark:hover:bg-card transition-colors cursor-pointer group"
-                  onClick={() => setSelectedDay(day)}
-                >
-                  <p className="text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">{day.day.slice(0, 3)}</p>
-                    <div className="h-1.5 bg-slate-200/60 dark:bg-slate-700/40 rounded-full mb-2 overflow-hidden">
-                      <progress
-                        value={day.percentage}
-                        max={100}
-                        aria-label={`${day.day} andel`}
-                        className="h-full w-full bar-pct bar-pct-blue-cyan"
-                      />
-                  </div>
-                  <p className="text-sm font-mono font-medium">{day.hours.toFixed(1)}t</p>
-                </div>
-              ))}
-            </div>
-            <div className="mt-4 pt-4 border-t border-slate-200/60 dark:border-border flex items-center justify-between text-sm">
-              <div>
-                <p className="text-slate-600 dark:text-muted-foreground">Gjennomsnitt per dag:</p>
-                <p className="font-mono font-medium">{weeklyAverage.toFixed(2)} timer</p>
-              </div>
-              <Badge variant="outline" className={weeklyTotal >= 40 ? "bg-green-50 border-green-200 dark:bg-green-950/40 dark:border-green-800/50 dark:text-green-400" : "bg-orange-50 border-orange-200 dark:bg-orange-950/40 dark:border-orange-800/50 dark:text-orange-400"}>
-                {weeklyTotal >= 40 ? "✓ Mål nådd" : `${(40 - weeklyTotal).toFixed(1)}t igjen`}
-              </Badge>
-            </div>
+            {weeklySummaryDetails}
           </CardContent>
         </Card>
 
         {/* View Mode Tabs */}
         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)} className="w-full">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="hidden w-full grid-cols-3 md:grid">
             <TabsTrigger value="today">I dag</TabsTrigger>
-            <TabsTrigger value="weekly">Uke</TabsTrigger>
-            <TabsTrigger value="analytics">Statistikk</TabsTrigger>
             <TabsTrigger value="calendar">Kalender</TabsTrigger>
+            <TabsTrigger value="analytics">Statistikk</TabsTrigger>
           </TabsList>
 
           {/* TODAY VIEW */}
           <TabsContent value="today" className="space-y-6 mt-6">
+            <Card className="overflow-hidden border-[#d8e5e1] bg-[#f5faf8] shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60" data-testid="timer-card">
+              <CardContent className="p-0">
+                <div className="bg-[linear-gradient(180deg,#f7fbf9_0%,#eef5f2_100%)] px-5 py-5 dark:bg-[linear-gradient(180deg,rgba(28,42,50,0.95)_0%,rgba(20,30,36,0.96)_100%)] md:px-8">
+                  <h2 className="text-3xl font-semibold tracking-tight text-[#22353a] dark:text-slate-100 md:text-4xl">Hei, {greetingName}!</h2>
+                  <p className="mt-1 text-sm text-[#5f7277] dark:text-slate-300 md:text-base" data-testid="current-date">
+                    {format(currentTime, "EEEE d. MMMM yyyy", { locale: nb })}
+                  </p>
+                </div>
+
+                <div className="space-y-4 bg-[radial-gradient(circle_at_86%_17%,rgba(154,186,190,0.22),transparent_40%),radial-gradient(circle_at_95%_90%,rgba(166,203,194,0.24),transparent_34%),#f8fcfb] px-4 pb-5 pt-4 dark:bg-[radial-gradient(circle_at_86%_17%,rgba(56,91,102,0.35),transparent_40%),radial-gradient(circle_at_95%_90%,rgba(43,83,76,0.32),transparent_34%),#0f1720] md:px-8 md:pb-7">
+                  <div className="flex items-center gap-2 text-base font-medium text-[#2f7b68] dark:text-emerald-300 md:text-lg">
+                    <CheckCircle2 className="h-6 w-6" />
+                    <span>{isRunning ? "Registreringen pågår" : elapsedSeconds > 0 ? "Registrering pauset" : "Klar for registrering"}</span>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[1.7fr_1fr]">
+                    <div className="rounded-2xl border border-[#d8e5e1] bg-white/95 p-4 shadow-[0_1px_2px_rgba(24,44,52,0.08)] dark:border-slate-700/60 dark:bg-slate-900/75">
+                      <div className="grid gap-4 md:grid-cols-[180px_1fr] md:items-start">
+                        <div className="mx-auto w-full max-w-[180px]">
+                          <svg viewBox="0 0 160 160" className="h-auto w-full" role="img" aria-label="Analog klokke">
+                            <circle cx="80" cy="80" r="72" className="fill-[#f8fcfb] stroke-[#d6e1de] dark:fill-slate-800 dark:stroke-slate-600" strokeWidth="10" />
+                            <circle cx="80" cy="80" r="53" fill="none" className="stroke-[#e5efeb] dark:stroke-slate-600/80" strokeWidth="1.5" />
+                            {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].map((index) => {
+                              const angle = ((index * 30) - 90) * (Math.PI / 180);
+                              const majorTick = index % 3 === 0;
+                              const outerRadius = 63;
+                              const innerRadius = majorTick ? 52 : 56;
+                              const x1 = 80 + Math.cos(angle) * innerRadius;
+                              const y1 = 80 + Math.sin(angle) * innerRadius;
+                              const x2 = 80 + Math.cos(angle) * outerRadius;
+                              const y2 = 80 + Math.sin(angle) * outerRadius;
+                              return (
+                                <line
+                                  key={index}
+                                  x1={x1}
+                                  y1={y1}
+                                  x2={x2}
+                                  y2={y2}
+                                  className={cn(majorTick ? "stroke-[#7b949b] dark:stroke-slate-300" : "stroke-[#a5bbc0] dark:stroke-slate-500")}
+                                  strokeWidth={majorTick ? 2.2 : 1.4}
+                                  strokeLinecap="round"
+                                />
+                              );
+                            })}
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map((hour) => {
+                              const angle = ((hour * 30) - 90) * (Math.PI / 180);
+                              const labelRadius = 43;
+                              const x = 80 + Math.cos(angle) * labelRadius;
+                              const y = 80 + Math.sin(angle) * labelRadius;
+                              return (
+                                <text
+                                  key={`clock-label-${hour}`}
+                                  x={x}
+                                  y={y}
+                                  className="fill-[#7a9298] dark:fill-slate-300"
+                                  fontSize="9"
+                                  fontWeight="500"
+                                  textAnchor="middle"
+                                  dominantBaseline="central"
+                                >
+                                  {hour}
+                                </text>
+                              );
+                            })}
+                            <line
+                              x1="80"
+                              y1="80"
+                              x2="80"
+                              y2="48"
+                              className="stroke-[#4f7380] dark:stroke-cyan-200"
+                              strokeWidth="5"
+                              strokeLinecap="round"
+                              transform={`rotate(${analogHourRotation} 80 80)`}
+                            />
+                            <line
+                              x1="80"
+                              y1="80"
+                              x2="80"
+                              y2="34"
+                              className="stroke-[#6b8a95] dark:stroke-cyan-300"
+                              strokeWidth="3.4"
+                              strokeLinecap="round"
+                              transform={`rotate(${analogMinuteRotation} 80 80)`}
+                            />
+                            <line
+                              x1="80"
+                              y1="82"
+                              x2="80"
+                              y2="24"
+                              className="stroke-[#d56b6b] dark:stroke-rose-300"
+                              strokeWidth="1.8"
+                              strokeLinecap="round"
+                              transform={`rotate(${analogSecondRotation} 80 80)`}
+                            />
+                            <circle cx="80" cy="80" r="5.2" className="fill-[#557b86] dark:fill-cyan-100" />
+                          </svg>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="text-3xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-5xl" data-testid="timer-display">
+                            {sessionDurationLabel}
+                          </p>
+
+                          <div className="flex items-center justify-between rounded-xl border border-[#d8e5e1] bg-[#f8fbfa] px-4 py-3 text-[#30454a] dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-200">
+                            <span className="font-medium">Pause / avbrudd</span>
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm text-muted-foreground">00:30 min</span>
+                              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                            </div>
+                          </div>
+
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <Select value={selectedProject} onValueChange={setSelectedProject} disabled={assignedCaseOptions.length === 0}>
+                              <SelectTrigger className="h-11 border-[#d8e5e1] bg-white text-[#30454a] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" data-testid="project-select">
+                                <SelectValue placeholder="Velg case" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {assignedCaseOptions.map((assignedCase) => (
+                                  <SelectItem key={assignedCase.id} value={assignedCase.id}>
+                                    {assignedCase.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+
+                            <Select value={selectedWorkType} onValueChange={setSelectedWorkType} disabled={workTypeOptions.length === 0}>
+                              <SelectTrigger className="h-11 border-[#d8e5e1] bg-white text-[#30454a] dark:border-slate-700 dark:bg-slate-800 dark:text-slate-100" data-testid="work-type-select">
+                                <SelectValue placeholder={workTypeOptions.length === 0 ? "Ingen arbeidstyper" : "Type arbeid"} />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {workTypeOptions.map((workType) => (
+                                  <SelectItem key={workType.id} value={workType.id}>
+                                    <div className="flex items-center gap-2">
+                                      <div className={cn("w-2 h-2 rounded-full", workType.color)} />
+                                      {workType.name}
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+
+                          {assignedCaseOptions.length === 0 && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Du har ingen tildelte caser ennå. Tiltaksleder må tildele caser før timerstart.
+                            </p>
+                          )}
+                          {workTypeOptions.length === 0 && (
+                            <p className="text-xs text-amber-700 dark:text-amber-400">
+                              Ingen arbeidstyper er satt opp. Be admin konfigurere arbeidstyper i Innstillinger.
+                            </p>
+                          )}
+
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <Button
+                              type="button"
+                              className={cn(
+                                "h-12 rounded-lg text-base font-semibold",
+                                isRunning
+                                  ? "bg-[#d3e6e1] text-[#365a63] hover:bg-[#c8ddd7] dark:bg-emerald-900/55 dark:text-emerald-100 dark:hover:bg-emerald-900/70"
+                                  : "bg-[#b6d6cf] text-[#2e5056] hover:bg-[#a8cbc3] dark:bg-teal-900/55 dark:text-teal-100 dark:hover:bg-teal-900/70",
+                              )}
+                              onClick={() => {
+                                if (isRunning) pauseTimer();
+                                else startTimer();
+                              }}
+                              data-testid={isRunning ? "timer-pause" : "timer-start"}
+                            >
+                              {isRunning ? "Pause" : elapsedSeconds > 0 ? "Fortsett" : "Start nå"}
+                            </Button>
+                            <Button
+                              type="button"
+                              className="h-12 rounded-lg bg-[#3f8682] text-base font-semibold text-white hover:bg-[#357774] dark:bg-cyan-800 dark:hover:bg-cyan-700"
+                              onClick={stopTimer}
+                              disabled={createMutation.isPending || elapsedSeconds === 0}
+                              data-testid="timer-stop"
+                            >
+                              Ferdig
+                            </Button>
+                          </div>
+
+                          <div className="space-y-2 border-t border-[#e5efeb] pt-3 text-[#2e4449] dark:border-slate-700 dark:text-slate-200">
+                            <div className="flex items-center gap-2 text-base">
+                              <User className="h-4 w-4 text-[#85a2a7] dark:text-slate-400" />
+                              <span>Miljøarbeider: {workerLabel}</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-sm text-[#4d6469] dark:text-slate-300">
+                              <MapPin className="h-4 w-4 text-[#8ea8ad] dark:text-slate-400" />
+                              <span>Klient: {selectedClientLabel}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-3">
+                      <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
+                        <p className="text-2xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-3xl">Oppfølging i dag</p>
+                        <p className="mt-2 text-3xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-4xl">08:00 - 16:00</p>
+                        <p className="mt-1 text-sm text-[#53666b] dark:text-slate-300 md:text-base">Registrert i dag {formatHoursWithMinutes(totalToday)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
+                        <p className="text-2xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-3xl">Oppfølging sist uke</p>
+                        <p className="mt-2 text-3xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-4xl">{formatHoursWithMinutes(previousWeekTotal)}</p>
+                        <p className="mt-1 text-sm text-[#53666b] dark:text-slate-300 md:text-base">Total arbeidstid</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 xl:grid-cols-[1.7fr_1fr]">
+                    <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
+                      <h3 className="mb-3 text-2xl font-semibold tracking-tight text-[#23363b] dark:text-slate-100 md:text-3xl">Oppfølgingshistorikk</h3>
+                      <div className="space-y-1.5">
+                        {followUpHistoryRows.length === 0 ? (
+                          <p className="rounded-xl border border-dashed border-[#d8e5e1] bg-[#f8fbfa] px-4 py-6 text-sm text-muted-foreground dark:border-slate-700 dark:bg-slate-800/60 dark:text-slate-300">
+                            Ingen registreringer ennå.
+                          </p>
+                        ) : (
+                          followUpHistoryRows.map((row) => (
+                            <div key={row.dayKey} className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[#e1ebe8] bg-white px-3 py-2.5 text-[#2e4348] dark:border-slate-700 dark:bg-slate-800/65 dark:text-slate-100">
+                              <div className="mr-auto flex items-center gap-2">
+                                {row.completed ? (
+                                  <CheckCircle2 className="h-4 w-4 text-[#5f8f80] dark:text-emerald-300" />
+                                ) : (
+                                  <Circle className="h-4 w-4 text-[#8ba2a8] dark:text-slate-400" />
+                                )}
+                                <span className="font-medium">{row.dayLabel}</span>
+                              </div>
+                              <span className="font-mono text-sm">{row.timeRange}</span>
+                              <span className={cn("text-sm", row.completed ? "text-[#4b7c6f] dark:text-emerald-300" : "text-[#5f6f74] dark:text-slate-400")}>
+                                {row.completed ? "Ferdig dokument" : "Ferdiggjør"}
+                              </span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
+                      <div className="flex items-start gap-3 text-[#2e4449] dark:text-slate-200">
+                        <div className="rounded-xl border border-[#dce7e3] bg-[#f7fbf9] p-2 dark:border-slate-700 dark:bg-slate-800/60">
+                          <MessageSquare className="h-5 w-5 text-[#7f9ba1] dark:text-slate-300" />
+                        </div>
+                        <div className="w-full space-y-2">
+                          <p className="text-lg font-medium leading-snug md:text-xl">
+                            Husk kort notat hvis noe viktig skjedde i dag
+                          </p>
+                          <Textarea
+                            value={taskDescription}
+                            onChange={(e) => setTaskDescription(e.target.value)}
+                            placeholder="Skriv kort notat her..."
+                            className="min-h-[96px] resize-y border-[#d8e5e1] bg-[#f9fcfb] text-sm dark:border-slate-700 dark:bg-slate-800/65 dark:text-slate-100 dark:placeholder:text-slate-400"
+                            data-testid="task-input"
+                          />
+                          <p className="text-xs text-[#5d7176] dark:text-slate-400">
+                            Notatet brukes som beskrivelse når du lagrer timer.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             {timeSuggestionVisibility.isVisible && smartSuggestions && projectSuggestion && descriptionSuggestion && hoursSuggestion && bulkCopySuggestion && (
               <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent" data-testid="time-suggestions-card">
                 <CardContent className="p-5 space-y-4">
@@ -1137,132 +1481,6 @@ export default function TimeTrackingPage() {
                 </CardContent>
               </Card>
             )}
-
-            <Card className="overflow-visible" data-testid="timer-card">
-          <CardContent className="p-6 md:p-8">
-            <div className="flex flex-col items-center gap-6">
-              <div className="text-center">
-                <p className="text-sm text-muted-foreground mb-1" data-testid="current-date">
-                  {format(currentTime, "EEEE d. MMMM yyyy", { locale: nb })}
-                </p>
-                <div 
-                  className="text-5xl md:text-6xl font-mono font-bold tracking-tight text-foreground" 
-                  data-testid="live-clock"
-                >
-                  {format(currentTime, "HH:mm:ss", { locale: nb })}
-                </div>
-              </div>
-
-              {(isRunning || elapsedSeconds > 0) && (
-                <div className="text-center">
-                  <p className="text-xs text-muted-foreground mb-1">Arbeidstid</p>
-                  <div 
-                    className={cn(
-                      "text-3xl md:text-4xl font-mono font-bold tracking-tight transition-colors",
-                      isRunning && "text-success"
-                    )} 
-                    data-testid="timer-display"
-                  >
-                    {formatTime(elapsedSeconds)}
-                  </div>
-                </div>
-              )}
-
-              <div className="w-full max-w-3xl space-y-3">
-                <div className="grid gap-3 md:grid-cols-3">
-                  <Select value={selectedProject} onValueChange={setSelectedProject} disabled={assignedCaseOptions.length === 0}>
-                    <SelectTrigger className="w-full" data-testid="project-select">
-                      <SelectValue placeholder="Velg case" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {assignedCaseOptions.map((assignedCase) => (
-                        <SelectItem key={assignedCase.id} value={assignedCase.id}>
-                          {assignedCase.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Select value={selectedWorkType} onValueChange={setSelectedWorkType} disabled={workTypeOptions.length === 0}>
-                    <SelectTrigger className="w-full" data-testid="work-type-select">
-                      <SelectValue placeholder={workTypeOptions.length === 0 ? "Ingen arbeidstyper" : "Type arbeid"} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {workTypeOptions.map((workType) => (
-                        <SelectItem key={workType.id} value={workType.id}>
-                          <div className="flex items-center gap-2">
-                            <div className={cn("w-2 h-2 rounded-full", workType.color)} />
-                            {workType.name}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-
-                  <Input
-                    placeholder="Hva jobber du med?"
-                    value={taskDescription}
-                    onChange={(e) => setTaskDescription(e.target.value)}
-                    className="w-full"
-                    data-testid="task-input"
-                  />
-                </div>
-
-                {assignedCaseOptions.length === 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Du har ingen tildelte caser ennå. Tiltaksleder må tildele caser før timerstart.
-                  </p>
-                )}
-                {workTypeOptions.length === 0 && (
-                  <p className="text-xs text-amber-700 dark:text-amber-400">
-                    Ingen arbeidstyper er satt opp. Be admin konfigurere arbeidstyper i Innstillinger.
-                  </p>
-                )}
-              </div>
-
-              <div className="flex gap-3">
-                {!isRunning ? (
-                  <Button
-                    size="lg"
-                    className="w-16 h-16 rounded-full bg-success hover:bg-success/90"
-                    onClick={startTimer}
-                    data-testid="timer-start"
-                  >
-                    <Play className="h-6 w-6 ml-1" />
-                  </Button>
-                ) : (
-                  <>
-                    <Button
-                      size="lg"
-                      className="w-16 h-16 rounded-full bg-warning hover:bg-warning/90"
-                      onClick={pauseTimer}
-                      data-testid="timer-pause"
-                    >
-                      <Pause className="h-6 w-6" />
-                    </Button>
-                    <Button
-                      size="lg"
-                      variant="destructive"
-                      className="w-16 h-16 rounded-full"
-                      onClick={stopTimer}
-                      disabled={createMutation.isPending}
-                      data-testid="timer-stop"
-                    >
-                      <Square className="h-5 w-5" />
-                    </Button>
-                  </>
-                )}
-              </div>
-
-              {isRunning && (
-                <Badge variant="outline" className="text-sm py-1 px-3">
-                  <Clock className="h-3 w-3 mr-1" />
-                  Timer kjører - {resolveCaseLabel(selectedProject)} ({selectedWorkTypeName})
-                </Badge>
-              )}
-            </div>
-          </CardContent>
-            </Card>
 
             <div className="flex items-center justify-between gap-2 flex-wrap">
           <div>
@@ -1487,46 +1705,6 @@ export default function TimeTrackingPage() {
               </div>
             </TabsContent>
 
-          {/* WEEKLY VIEW */}
-          <TabsContent value="weekly" className="space-y-6 mt-6">
-            <Card className="bg-gradient-to-br from-blue-50 to-cyan-50/50 border-blue-200/60 dark:from-blue-950/40 dark:to-cyan-950/20 dark:border-blue-800/40">
-              <CardContent className="p-6">
-                <h3 className="font-semibold mb-4">Ukeoversikt</h3>
-                <div className="space-y-3">
-                  {weeklyData.map((day) => (
-                    <div key={day.date.toISOString()} className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <p className="font-medium">{format(day.date, "EEEE d. MMMM", { locale: nb })}</p>
-                        <span className="text-sm font-mono font-medium">{day.hours.toFixed(1)}t</span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-2 bg-slate-200/60 dark:bg-slate-700/40 rounded-full overflow-hidden">
-                          <progress
-                            value={day.percentage}
-                            max={100}
-                            aria-label={`${day.day} andel`}
-                            className="h-full w-full bar-pct bar-pct-purple-pink"
-                          />
-                        </div>
-                        <span className="text-xs text-muted-foreground w-8 text-right">{day.percentage.toFixed(0)}%</span>
-                      </div>
-                      {day.entries.length > 0 && (
-                        <div className="text-xs text-muted-foreground space-y-1 mt-2">
-                          {day.entries.map((e) => (
-                            <div key={e.id} className="flex justify-between">
-                              <span>{e.description}</span>
-                              <span className="font-mono">{formatDuration(e.hours)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          </TabsContent>
-
           {/* ANALYTICS VIEW */}
           <TabsContent value="analytics" className="space-y-6 mt-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1601,235 +1779,198 @@ export default function TimeTrackingPage() {
 
           {/* CALENDAR VIEW */}
           <TabsContent value="calendar" className="space-y-6 mt-6">
-            {calendarSuggestionVisibility.isVisible && smartSuggestions?.suggestion.bulkCopyPrevMonth && (
-              <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent">
-                <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm font-semibold">Månedsforslag</p>
-                    <p className="text-xs text-muted-foreground">{smartSuggestions.suggestion.bulkCopyPrevMonth.reason}</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Sikkerhet: {Math.round(smartSuggestions.suggestion.bulkCopyPrevMonth.confidence * 100)}%
-                    </p>
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">Kalendervisning</h3>
+                <p className="text-xs text-muted-foreground">Bytt mellom uke- og månedsvisning</p>
+              </div>
+              <div className="flex items-center gap-1 rounded-md border border-slate-200/70 dark:border-slate-700/70 bg-white/60 dark:bg-slate-900/40 p-1">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={calendarViewMode === "week" ? "default" : "ghost"}
+                  className="h-8 px-3 text-xs"
+                  onClick={() => setCalendarViewMode("week")}
+                  data-testid="calendar-view-week"
+                >
+                  Uke
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={calendarViewMode === "month" ? "default" : "ghost"}
+                  className="h-8 px-3 text-xs"
+                  onClick={() => setCalendarViewMode("month")}
+                  data-testid="calendar-view-month"
+                >
+                  Måned
+                </Button>
+              </div>
+            </div>
+
+            {calendarViewMode === "week" ? (
+              <Card className="bg-gradient-to-br from-blue-50 to-cyan-50/50 border-blue-200/60 dark:from-blue-950/40 dark:to-cyan-950/20 dark:border-blue-800/40">
+                <CardContent className="p-6">
+                  <h3 className="font-semibold mb-4">Ukeoversikt</h3>
+                  <div className="space-y-3">
+                    {weeklyData.map((day) => (
+                      <div key={day.date.toISOString()} className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="font-medium">{format(day.date, "EEEE d. MMMM", { locale: nb })}</p>
+                          <span className="text-sm font-mono font-medium">{day.hours.toFixed(1)}t</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-slate-200/60 dark:bg-slate-700/40 rounded-full overflow-hidden">
+                            <progress
+                              value={day.percentage}
+                              max={100}
+                              aria-label={`${day.day} andel`}
+                              className="h-full w-full bar-pct bar-pct-purple-pink"
+                            />
+                          </div>
+                          <span className="text-xs text-muted-foreground w-8 text-right">{day.percentage.toFixed(0)}%</span>
+                        </div>
+                        {day.entries.length > 0 && (
+                          <div className="text-xs text-muted-foreground space-y-1 mt-2">
+                            {day.entries.map((e) => (
+                              <div key={e.id} className="flex justify-between">
+                                <span>{e.description}</span>
+                                <span className="font-mono">{formatDuration(e.hours)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      setBulkGenerationMode("copy_previous_month");
-                      setShowBulkDialog(true);
-                      sendSuggestionFeedback("bulk_copy_prev_month", "accepted", "open_bulk_modal", "open_bulk_modal", {
-                        source: "calendar_tab",
-                      });
-                    }}
-                    data-testid="calendar-suggestion-open-bulk-copy"
-                  >
-                    Kopier og tilpass måned
-                  </Button>
                 </CardContent>
               </Card>
-            )}
-            <Card className="bg-gradient-to-br from-sky-50 via-cyan-50/80 to-emerald-50/60 dark:from-slate-900/70 dark:via-cyan-950/20 dark:to-emerald-950/10 border-sky-200/70 dark:border-cyan-900/40">
-              <CardContent className="p-6 space-y-5">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div>
-                    <h3 className="font-semibold flex items-center gap-2">
-                      <CalendarDays className="h-4 w-4 text-sky-600 dark:text-sky-400" />
-                      Kalender (30 siste dager)
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-1">
-                      Gjennomsnittlig timer per dag de siste 30 dagene
-                    </p>
-                  </div>
-                  {!isLoadingLast30Days && (
-                    <Badge variant="secondary" className="bg-white/70 dark:bg-card/60">
-                      {activeDaysLast30}/30 aktive dager
-                    </Badge>
-                  )}
-                </div>
-
-                {isLoadingLast30Days ? (
-                  <div className="space-y-3">
-                    <div className="h-16 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
-                    <div className="h-24 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                      <div className="rounded-lg border border-sky-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
-                        <p className="text-xs text-muted-foreground">Snitt per dag</p>
-                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{averageLast30Days.toFixed(1)}t</p>
-                        <p className="text-xs text-muted-foreground mt-1" data-testid="calendar-last-30-metrics">
-                          {averageLast30Days.toFixed(1)}t / dag - Totalt: {formatHoursCompact(totalLast30Days)}t
+            ) : (
+              <>
+                {calendarSuggestionVisibility.isVisible && smartSuggestions?.suggestion.bulkCopyPrevMonth && (
+                  <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent">
+                    <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                      <div className="space-y-1">
+                        <p className="text-sm font-semibold">Månedsforslag</p>
+                        <p className="text-xs text-muted-foreground">{smartSuggestions.suggestion.bulkCopyPrevMonth.reason}</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Sikkerhet: {Math.round(smartSuggestions.suggestion.bulkCopyPrevMonth.confidence * 100)}%
                         </p>
                       </div>
-                      <div className="rounded-lg border border-cyan-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
-                        <p className="text-xs text-muted-foreground">Total tid</p>
-                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{formatHoursCompact(totalLast30Days)}t</p>
-                        <p className="text-xs text-muted-foreground mt-1">Siste 30 dager</p>
-                      </div>
-                      <div className="rounded-lg border border-emerald-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
-                        <p className="text-xs text-muted-foreground">Aktive dager</p>
-                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{activeDaysLast30}</p>
-                        <p className="text-xs text-muted-foreground mt-1">Dager med registrerte timer</p>
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>Aktivitetsgrad</span>
-                        <span>{calendarActivityRate.toFixed(0)}%</span>
-                      </div>
-                      <div className="h-2 bg-slate-200/70 dark:bg-slate-700/50 rounded-full overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all"
-                          style={{ width: `${Math.min(calendarActivityRate, 100)}%` }}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl border border-sky-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 p-4 space-y-4">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div>
-                          <p className="text-sm font-semibold text-foreground">Avansert tidslinjegraf</p>
-                          <p className="text-xs text-muted-foreground mt-1">Detaljvisning av føringer de siste 30 dagene</p>
-                        </div>
-                        <div className="flex items-center gap-1 rounded-md border border-slate-200/70 dark:border-slate-700/70 bg-white/60 dark:bg-slate-900/40 p-1">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={calendarTimelineMode === "daily" ? "default" : "ghost"}
-                            className="h-7 px-3 text-xs"
-                            onClick={() => setCalendarTimelineMode("daily")}
-                          >
-                            Daglig
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={calendarTimelineMode === "cumulative" ? "default" : "ghost"}
-                            className="h-7 px-3 text-xs"
-                            onClick={() => setCalendarTimelineMode("cumulative")}
-                          >
-                            Kumulativ
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="h-64" data-testid="calendar-advanced-timeline">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <AreaChart data={timeline30ChartData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
-                            <defs>
-                              <linearGradient id="calendarDailyFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.35} />
-                                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.05} />
-                              </linearGradient>
-                              <linearGradient id="calendarCumulativeFill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-                                <stop offset="95%" stopColor="#10b981" stopOpacity={0.06} />
-                              </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.3)" />
-                            <XAxis
-                              dataKey="shortLabel"
-                              minTickGap={26}
-                              interval="preserveStartEnd"
-                              tick={{ fontSize: 11, fill: "currentColor" }}
-                              tickLine={false}
-                              axisLine={false}
-                            />
-                            <YAxis
-                              tickFormatter={(value) => `${value}t`}
-                              tick={{ fontSize: 11, fill: "currentColor" }}
-                              tickLine={false}
-                              axisLine={false}
-                              width={42}
-                            />
-                            <RechartsTooltip
-                              cursor={{ stroke: "#0ea5e9", strokeWidth: 1, strokeDasharray: "4 4" }}
-                              contentStyle={{
-                                borderRadius: "10px",
-                                border: "1px solid hsl(var(--border))",
-                                backgroundColor: "hsl(var(--card))",
-                                color: "hsl(var(--foreground))",
-                              }}
-                              labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel || ""}
-                              formatter={(value, name) => {
-                                if (name === "hours") return [`${Number(value).toFixed(1)}t`, "Timer"];
-                                if (name === "cumulativeHours") return [`${Number(value).toFixed(1)}t`, "Kumulativ tid"];
-                                if (name === "expectedCumulative") return [`${Number(value).toFixed(1)}t`, "Forventet progresjon"];
-                                return [`${Number(value).toFixed(1)}t`, name];
-                              }}
-                            />
-
-                            {calendarTimelineMode === "daily" ? (
-                              <>
-                                <ReferenceLine y={8} stroke="#f59e0b" strokeDasharray="5 4" />
-                                <ReferenceLine y={averageLast30Days} stroke="#6366f1" strokeDasharray="5 4" />
-                                <Area
-                                  type="monotone"
-                                  dataKey="hours"
-                                  stroke="#0ea5e9"
-                                  fill="url(#calendarDailyFill)"
-                                  strokeWidth={2.5}
-                                  dot={false}
-                                  activeDot={{ r: 4 }}
-                                />
-                              </>
-                            ) : (
-                              <>
-                                <Area
-                                  type="monotone"
-                                  dataKey="cumulativeHours"
-                                  stroke="#10b981"
-                                  fill="url(#calendarCumulativeFill)"
-                                  strokeWidth={2.5}
-                                  dot={false}
-                                  activeDot={{ r: 4 }}
-                                />
-                                <Line
-                                  type="monotone"
-                                  dataKey="expectedCumulative"
-                                  stroke="#64748b"
-                                  strokeWidth={1.8}
-                                  strokeDasharray="5 4"
-                                  dot={false}
-                                />
-                              </>
-                            )}
-                          </AreaChart>
-                        </ResponsiveContainer>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
-                          <p className="text-[11px] text-muted-foreground">Toppdag</p>
-                          {peakDayLast30 && peakDayLast30.hours > 0 ? (
-                            <>
-                              <p className="text-sm font-mono font-semibold">{peakDayLast30.hours.toFixed(1)}t</p>
-                              <p className="text-[11px] text-muted-foreground">{peakDayLast30.fullLabel}</p>
-                            </>
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground mt-1">Ingen timer registrert ennå</p>
-                          )}
-                        </div>
-                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
-                          <p className="text-[11px] text-muted-foreground">Nåværende streak</p>
-                          <p className="text-sm font-mono font-semibold">{currentActiveStreak} dager</p>
-                          <p className="text-[11px] text-muted-foreground">Sammenhengende dager med føring</p>
-                        </div>
-                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
-                          <p className="text-[11px] text-muted-foreground">Siste 7 dager</p>
-                          <p className="text-sm font-mono font-semibold">{formatHoursCompact(last7DaysTotal)}t</p>
-                          <p className="text-[11px] text-muted-foreground">Rullerende ukesum</p>
-                        </div>
-                      </div>
-                    </div>
-                  </>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          setBulkGenerationMode("copy_previous_month");
+                          setShowBulkDialog(true);
+                          sendSuggestionFeedback("bulk_copy_prev_month", "accepted", "open_bulk_modal", "open_bulk_modal", {
+                            source: "calendar_tab",
+                          });
+                        }}
+                        data-testid="calendar-suggestion-open-bulk-copy"
+                      >
+                        Kopier og tilpass måned
+                      </Button>
+                    </CardContent>
+                  </Card>
                 )}
-              </CardContent>
-            </Card>
+                <Card className="bg-gradient-to-br from-sky-50 via-cyan-50/80 to-emerald-50/60 dark:from-slate-900/70 dark:via-cyan-950/20 dark:to-emerald-950/10 border-sky-200/70 dark:border-cyan-900/40">
+                  <CardContent className="p-6 space-y-5">
+                    <div className="flex items-start justify-between gap-3 flex-wrap">
+                      <div>
+                        <h3 className="font-semibold flex items-center gap-2">
+                          <CalendarDays className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                          Kalender (30 siste dager)
+                        </h3>
+                        <p className="text-sm text-muted-foreground mt-1">
+                          Gjennomsnittlig timer per dag de siste 30 dagene
+                        </p>
+                      </div>
+                      {!isLoadingLast30Days && (
+                        <Badge variant="secondary" className="bg-white/70 dark:bg-card/60">
+                          {activeDaysLast30}/30 aktive dager
+                        </Badge>
+                      )}
+                    </div>
+
+                    {isLoadingLast30Days ? (
+                      <div className="space-y-3">
+                        <div className="h-16 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
+                        <div className="h-24 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                          <div className="rounded-lg border border-sky-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                            <p className="text-xs text-muted-foreground">Snitt per dag</p>
+                            <p className="text-2xl font-mono font-semibold text-foreground mt-1">{averageLast30Days.toFixed(1)}t</p>
+                            <p className="text-xs text-muted-foreground mt-1" data-testid="calendar-last-30-metrics">
+                              {averageLast30Days.toFixed(1)}t / dag - Totalt: {formatHoursCompact(totalLast30Days)}t
+                            </p>
+                          </div>
+                          <div className="rounded-lg border border-cyan-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                            <p className="text-xs text-muted-foreground">Total tid</p>
+                            <p className="text-2xl font-mono font-semibold text-foreground mt-1">{formatHoursCompact(totalLast30Days)}t</p>
+                            <p className="text-xs text-muted-foreground mt-1">Siste 30 dager</p>
+                          </div>
+                          <div className="rounded-lg border border-emerald-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                            <p className="text-xs text-muted-foreground">Aktive dager</p>
+                            <p className="text-2xl font-mono font-semibold text-foreground mt-1">{activeDaysLast30}</p>
+                            <p className="text-xs text-muted-foreground mt-1">Dager med registrerte timer</p>
+                          </div>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs text-muted-foreground">
+                            <span>Aktivitetsgrad</span>
+                            <span>{calendarActivityRate.toFixed(0)}%</span>
+                          </div>
+                          <div className="h-2 bg-slate-200/70 dark:bg-slate-700/50 rounded-full overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all"
+                              style={{ width: `${Math.min(calendarActivityRate, 100)}%` }}
+                            />
+                          </div>
+                        </div>
+
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </>
+            )}
           </TabsContent>
+
+          <TabsList className="grid w-full grid-cols-3 md:hidden">
+            <TabsTrigger value="today">I dag</TabsTrigger>
+            <TabsTrigger value="calendar">Kalender</TabsTrigger>
+            <TabsTrigger value="analytics">Statistikk</TabsTrigger>
+          </TabsList>
         </Tabs>
+
+      <Dialog open={showWeeklySummaryDialog} onOpenChange={setShowWeeklySummaryDialog}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-4 w-4 text-slate-600" />
+              Uke {currentWeekLabel} - {weeklyTotal.toFixed(1)}t / 40t
+            </DialogTitle>
+            <DialogDescription>
+              Trykk på en dag for å se registreringene.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            {weeklySummaryDetails}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowWeeklySummaryDialog(false)}>
+              Lukk
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <BulkTimeEntryModal
         open={showBulkDialog}

@@ -123,13 +123,20 @@ export default function UsersPage() {
     setTab(isInvitesRoute ? "pending" : "all");
   }, [isInvitesRoute]);
 
+  // Resolve current user's company_id dynamically
+  const { data: myCompany } = useQuery<{ companyId: number | null }>({
+    queryKey: ['/api/me/company'],
+  });
+  const companyId = myCompany?.companyId ?? 1;
+
   const { data: companyUsers = [], isLoading } = useQuery<CompanyUser[]>({
-    queryKey: ['/api/company/users', 1],
+    queryKey: ['/api/company/users', companyId],
+    enabled: companyId != null,
   });
 
   const inviteMutation = useMutation({
     mutationFn: async (data: { user_email: string; role: string }) => {
-      return apiRequest('POST', '/api/company/users', { company_id: 1, ...data });
+      return apiRequest('POST', '/api/company/users', { company_id: companyId, ...data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });

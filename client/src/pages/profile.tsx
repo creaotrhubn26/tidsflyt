@@ -49,6 +49,8 @@ interface ProfileData {
   email: string | null;
   firstName: string | null;
   lastName: string | null;
+  companyName?: string | null;
+  displayName?: string | null;
   profileImageUrl: string | null;
   role: string | null;
   vendorId: number | null;
@@ -61,7 +63,7 @@ interface ProfileData {
   notificationWeekly: boolean;
 }
 
-type ProfilePatch = Partial<Omit<ProfileData, "id" | "email" | "profileImageUrl" | "vendorId" | "createdAt" | "updatedAt">>;
+type ProfilePatch = Partial<Omit<ProfileData, "id" | "email" | "companyName" | "displayName" | "profileImageUrl" | "vendorId" | "createdAt" | "updatedAt">>;
 
 interface SuggestionMetrics {
   totalFeedback: number;
@@ -168,12 +170,6 @@ export default function ProfilePage() {
     setPhone(profile.phone ?? "");
   }, [profile]);
 
-  useEffect(() => {
-    if (!workTypesAdminData) return;
-    const seeded = workTypesAdminData.config?.miljoarbeider || [];
-    setMiljoarbeiderWorkTypesDraft(seeded.map((workType) => ({ ...workType })));
-  }, [workTypesAdminData]);
-
   /* ── Mutation ── */
   const mutation = useMutation({
     mutationFn: patchProfile,
@@ -189,18 +185,20 @@ export default function ProfilePage() {
   });
 
   /* ── Helpers ── */
-  const displayName =
-    [profile?.firstName, profile?.lastName].filter(Boolean).join(" ") ||
-    user?.email?.split("@")[0] ||
-    "Bruker";
-
   const email = profile?.email || user?.email || "";
   const role = profile?.role || user?.role || "user";
+  const normalizedRole = normalizeRole(role);
+  const profileDisplayName = typeof profile?.displayName === "string" ? profile.displayName.trim() : "";
+  const displayName =
+    profileDisplayName ||
+    ((normalizedRole === "miljoarbeider" && profile?.companyName?.trim())
+      ? profile.companyName.trim()
+      : ([profile?.firstName, profile?.lastName].filter(Boolean).join(" ") || user?.email?.split("@")[0] || "Bruker"));
+
   const joinedAt = profile?.createdAt
     ? new Date(profile.createdAt).toLocaleDateString("nb-NO")
     : "";
   const totalHours = stats?.totalHours ?? 0;
-  const normalizedRole = normalizeRole(role);
   const isAdminLikeRole = ["super_admin", "hovedadmin", "admin", "vendor_admin", "tiltaksleder", "teamleder"].includes(normalizedRole);
   const canManageTimeTrackingWorkTypes = ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
 
@@ -215,6 +213,12 @@ export default function ProfilePage() {
     enabled: canManageTimeTrackingWorkTypes,
     staleTime: 60_000,
   });
+
+  useEffect(() => {
+    if (!workTypesAdminData) return;
+    const seeded = workTypesAdminData.config?.miljoarbeider || [];
+    setMiljoarbeiderWorkTypesDraft(seeded.map((workType) => ({ ...workType })));
+  }, [workTypesAdminData]);
 
   const initials = displayName
     .split(" ")

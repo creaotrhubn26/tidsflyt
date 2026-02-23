@@ -7257,7 +7257,7 @@ function ReportDesigner() {
     description: '',
     template_type: 'standard',
     privacy_notice_enabled: false,
-    privacy_notice_text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
+    privacy_notice_text: 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.',
     paper_size: 'A4',
     orientation: 'portrait',
     margin_top: '20mm',
@@ -7351,7 +7351,7 @@ function ReportDesigner() {
         description: template.description,
         template_type: template.template_type || 'standard',
         privacy_notice_enabled: template.privacy_notice_enabled || false,
-        privacy_notice_text: template.privacy_notice_text || 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
+        privacy_notice_text: template.privacy_notice_text || 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.',
         paper_size: template.paper_size,
         orientation: template.orientation,
         margin_top: template.margin_top,
@@ -7385,7 +7385,7 @@ function ReportDesigner() {
         description: '',
         template_type: 'standard',
         privacy_notice_enabled: false,
-        privacy_notice_text: 'PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon i tråd med GDPR-krav. Klienter er omtalt med generelle betegnelser.',
+        privacy_notice_text: 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.',
         paper_size: 'A4',
         orientation: 'portrait',
         margin_top: '20mm',
@@ -7648,12 +7648,12 @@ function ReportDesigner() {
                   <AlertTriangle className="h-4 w-4 text-warning" />
                   <AlertTitle className="text-warning">GDPR Personvernkrav</AlertTitle>
                   <AlertDescription className="text-sm space-y-2">
-                    <p>Rapporter for miljøarbeidere skal ikke inneholde personidentifiserbar informasjon.</p>
+                    <p>Rapporter for miljøarbeidere skal ikke inneholde navn eller personidentifiserbar informasjon. Dette er ikke tillatt i Tidum.</p>
                     <div className="grid md:grid-cols-2 gap-4 mt-2">
                       <div>
                         <p className="font-medium text-destructive">Ikke bruk:</p>
                         <ul className="text-xs list-disc ml-4 mt-1 space-y-0.5">
-                          <li>Navn på klienter</li>
+                          <li>Navn på personer</li>
                           <li>Fødselsdato eller eksakt alder</li>
                           <li>Adresser eller spesifikke steder</li>
                           <li>Unike detaljer som kan identifisere</li>
@@ -7679,7 +7679,7 @@ function ReportDesigner() {
                   <Textarea
                     value={templateForm.privacy_notice_text || ''}
                     onChange={(e) => setTemplateForm({ ...templateForm, privacy_notice_text: e.target.value })}
-                    placeholder="PERSONVERN: Denne rapporten inneholder ingen personidentifiserbar informasjon..."
+                    placeholder="PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum..."
                     rows={3}
                   />
                 </div>

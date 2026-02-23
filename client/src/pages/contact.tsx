@@ -62,7 +62,8 @@ export default function Contact() {
     website: "",
     phone: "",
     subject: "",
-    message: ""
+    message: "",
+    institutionType: "" as "" | "privat" | "offentlig" | "nav",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [honeypot, setHoneypot] = useState("");
@@ -166,11 +167,18 @@ export default function Contact() {
     setIsSubmitting(true);
     
     try {
-      const response = await fetch('/api/contact', {
+      const response = await fetch('/api/access-requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...formData,
+          full_name: formData.name,
+          email: formData.email,
+          company: formData.company,
+          org_number: formData.orgNumber,
+          phone: formData.phone,
+          message: formData.message || formData.subject,
+          brreg_verified: brregVerified,
+          institution_type: formData.institutionType || null,
           _honeypot: honeypot,
           _timestamp: formLoadTime,
         }),
@@ -180,10 +188,10 @@ export default function Contact() {
       
       if (response.ok) {
         toast({
-          title: "Melding sendt",
-          description: "Vi har mottatt din melding og vil svare så snart som mulig."
+          title: "Forespørsel sendt",
+          description: "Vi har mottatt din tilgangsforespørsel og vil behandle den så snart som mulig."
         });
-        setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "" });
+        setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "", institutionType: "" });
         setBrregVerified(false);
       } else {
         toast({
@@ -445,6 +453,24 @@ export default function Contact() {
                       </div>
                     </div>
                   )}
+
+                  <div className="space-y-2">
+                    <Label htmlFor="institutionType" className="text-[#223238]">Type institusjon *</Label>
+                    <select
+                      id="institutionType"
+                      title="Type institusjon"
+                      value={formData.institutionType}
+                      onChange={(e) => setFormData({ ...formData, institutionType: e.target.value as any })}
+                      required
+                      className="tidum-input flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background"
+                      data-testid="select-institution-type"
+                    >
+                      <option value="">Velg type...</option>
+                      <option value="privat">Privat institusjon</option>
+                      <option value="offentlig">Offentlig institusjon</option>
+                      <option value="nav">NAV / BUFetat</option>
+                    </select>
+                  </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                     <div className="space-y-2">

@@ -129,11 +129,11 @@ export default function OvertimePage() {
   // Approve mutation
   const approveMutation = useMutation({
     mutationFn: async ({ id, status, notes }: { id: number; status: string; notes?: string }) => {
-      const res = await fetch(`/api/overtime/entries/${id}/approve`, {
+      const res = await fetch(`/api/overtime/entries/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ status, notes }),
+        body: JSON.stringify({ status, approvedBy: notes }),
       });
       if (!res.ok) throw new Error("Kunne ikke oppdatere status");
       return res.json();

@@ -85,12 +85,12 @@ export function DashboardNextAction({
       return {
         icon: AlertTriangle,
         label: isMiljoarbeider
-          ? `${overdueItems} deltakere trenger oppfølging`
+          ? `${overdueItems} klientsaker trenger oppfølging`
           : `${overdueItems} tiltak mangler nylig oppfølging`,
         description: isMiljoarbeider
           ? "Se hvem som bør kontaktes først"
-          : "Prioriter deltakere med lengst opphold",
-        buttonText: isMiljoarbeider ? "Se deltakere" : "Åpne tiltak",
+          : "Prioriter klientsaker med lengst opphold",
+        buttonText: isMiljoarbeider ? "Se klientsaker" : "Åpne tiltak",
         path: followupPath,
         variant: "critical",
       };

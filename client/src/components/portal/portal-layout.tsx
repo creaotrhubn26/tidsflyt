@@ -24,6 +24,10 @@ import {
   Palette,
   ArrowRight,
   Bell,
+  CheckCircle,
+  Upload,
+  UserCheck,
+  Send,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -89,6 +93,12 @@ const baseNavItems: NavItemBase[] = [
   { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/reports", icon: FileText, label: "Rapporter", roles: ["tiltaksleder"] },
+  { path: "/leave", icon: Clock, label: "Fravær" },
+  { path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
+  { path: "/overtime", icon: Clock, label: "Overtid" },
+  { path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
+  { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder"] },
+  { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
   { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
@@ -109,6 +119,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
+  const [onboardingStep, setOnboardingStep] = useState(0); // 0=welcome, 1=profile confirm, 2=role-based steps
+  const [onboardingCompleted, setOnboardingCompleted] = useState(() => {
+    try { return localStorage.getItem("tidum_onboarding_done") === "1"; } catch { return false; }
+  });
   const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
   const { user: authUser } = useAuth();
 
@@ -186,6 +200,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
       user_invited: "user_added",
       case_completed: "report_submitted",
     };
+
+    if (!Array.isArray(headerActivitiesData)) return [];
 
     const mapped = headerActivitiesData.map((activity) => ({
       id: activity.id,
@@ -473,7 +489,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         vendorId={currentUser.vendorId} 
       />
 
-      <Dialog open={isGettingStartedOpen} onOpenChange={setIsGettingStartedOpen}>
+      <Dialog open={isGettingStartedOpen} onOpenChange={(open) => { setIsGettingStartedOpen(open); if (!open) setOnboardingStep(0); }}>
         <DialogContent className="overflow-hidden p-0 sm:max-w-md">
           <DialogHeader className="border-b bg-muted/30 px-6 py-5">
             <div className="mb-2">
@@ -483,75 +499,199 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                 className="block w-[220px] max-w-full h-auto"
               />
             </div>
-            <DialogTitle className="text-xl">Kom i gang med Tidum</DialogTitle>
+            <DialogTitle className="text-xl">
+              {onboardingStep === 0 && "Kom i gang med Tidum"}
+              {onboardingStep === 1 && "Bekreft profil"}
+              {onboardingStep === 2 && "Neste steg"}
+            </DialogTitle>
             <DialogDescription>
-              Velg neste steg for å sette opp arbeidsflyten raskt.
+              {onboardingStep === 0 && "Velkommen! La oss sette opp kontoen din."}
+              {onboardingStep === 1 && "Sjekk at opplysningene stemmer."}
+              {onboardingStep === 2 && "Velg neste steg for å sette opp arbeidsflyten raskt."}
             </DialogDescription>
+            <div className="mt-3 flex gap-1">
+              {[0, 1, 2].map((step) => (
+                <div key={step} className={cn("h-1 flex-1 rounded-full transition-colors", step <= onboardingStep ? "bg-primary" : "bg-muted")} />
+              ))}
+            </div>
           </DialogHeader>
 
-          <div className="space-y-2 px-4 py-4">
-            {normalizedCurrentUserRole === "tiltaksleder" && (
-              <Button
-                variant="outline"
-                className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-                onClick={() => { setIsGettingStartedOpen(false); navigate("/invites"); }}
-              >
-                <Users className="mr-3 h-4 w-4 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">Inviter brukere</p>
-                  <p className="text-xs text-muted-foreground">Legg til teamet ditt og tildel roller</p>
+          <div className="space-y-3 px-4 py-4">
+            {/* Step 0: Welcome */}
+            {onboardingStep === 0 && (
+              <>
+                <div className="rounded-xl border bg-muted/20 p-4 text-center">
+                  <UserCheck className="mx-auto mb-2 h-10 w-10 text-primary" />
+                  <p className="text-sm font-medium">Hei, {currentUser.name}!</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Rolle: <Badge variant="secondary" className="ml-1">{normalizedCurrentUserRole}</Badge>
+                  </p>
                 </div>
-                <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-              </Button>
+                <p className="text-sm text-muted-foreground text-center">
+                  Vi guider deg gjennom oppsettet slik at du kan komme raskt i gang.
+                </p>
+              </>
             )}
 
-            {normalizedCurrentUserRole === "tiltaksleder" && (
-              <Button
-                variant="outline"
-                className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-                onClick={() => { setIsGettingStartedOpen(false); navigate("/cases"); }}
-              >
-                <FolderKanban className="mr-3 h-4 w-4 shrink-0 text-primary" />
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-semibold">Opprett første sak</p>
-                  <p className="text-xs text-muted-foreground">Sett opp deltakere og oppfølging</p>
+            {/* Step 1: Profile confirmation + logo */}
+            {onboardingStep === 1 && (
+              <>
+                <div className="space-y-3 rounded-xl border p-4">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                    <div>
+                      <p className="text-sm font-medium">Navn</p>
+                      <p className="text-xs text-muted-foreground">{currentUser.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                    <div>
+                      <p className="text-sm font-medium">E-post</p>
+                      <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <CheckCircle className="h-5 w-5 text-green-500" />
+                    <div>
+                      <p className="text-sm font-medium">Rolle</p>
+                      <p className="text-xs text-muted-foreground">{normalizedCurrentUserRole}</p>
+                    </div>
+                  </div>
                 </div>
-                <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-              </Button>
+
+                {normalizedCurrentUserRole === "tiltaksleder" && (
+                  <Button
+                    variant="outline"
+                    className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                    onClick={() => { setIsGettingStartedOpen(false); navigate("/profile"); }}
+                  >
+                    <Upload className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">Last opp firmalogo</p>
+                      <p className="text-xs text-muted-foreground">Vises i rapporter og timelister</p>
+                    </div>
+                    <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                  </Button>
+                )}
+
+                <Button
+                  variant="outline"
+                  className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                  onClick={() => { setIsGettingStartedOpen(false); navigate("/profile"); }}
+                >
+                  <Settings className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Rediger profil</p>
+                    <p className="text-xs text-muted-foreground">Oppdater innstillinger og personlig info</p>
+                  </div>
+                  <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                </Button>
+              </>
             )}
 
-            <Button
-              variant="outline"
-              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-              onClick={() => { setIsGettingStartedOpen(false); navigate("/time-tracking"); }}
-            >
-              <Clock className="mr-3 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Start timeføring</p>
-                <p className="text-xs text-muted-foreground">Registrer tid med en gang</p>
-              </div>
-              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-            </Button>
+            {/* Step 2: Role-based next steps */}
+            {onboardingStep === 2 && (
+              <>
+                {normalizedCurrentUserRole === "tiltaksleder" && (
+                  <>
+                    <Button
+                      variant="outline"
+                      className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                      onClick={() => { setIsGettingStartedOpen(false); navigate("/invites"); }}
+                    >
+                      <Users className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold">Inviter miljøarbeidere</p>
+                        <p className="text-xs text-muted-foreground">Legg til teamet ditt og tildel roller</p>
+                      </div>
+                      <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                    </Button>
 
-            <Button
-              variant="outline"
-              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-              onClick={() => { setIsGettingStartedOpen(false); navigate("/guide"); }}
-              data-testid="open-guide"
-            >
-              <Lightbulb className="mr-3 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Hvordan bruke Tidum</p>
-                <p className="text-xs text-muted-foreground">Les veiledningen for smarte forslag og beste praksis</p>
-              </div>
-              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-            </Button>
+                    <Button
+                      variant="outline"
+                      className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                      onClick={() => { setIsGettingStartedOpen(false); navigate("/cases"); }}
+                    >
+                      <FolderKanban className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold">Opprett første sak</p>
+                        <p className="text-xs text-muted-foreground">Sett opp klientsaker og oppfølging</p>
+                      </div>
+                      <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                    </Button>
+                  </>
+                )}
+
+                {normalizedCurrentUserRole === "miljoarbeider" && (
+                  <Button
+                    variant="outline"
+                    className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                    onClick={() => { setIsGettingStartedOpen(false); navigate("/case-reports"); }}
+                  >
+                    <Send className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold">Skriv saksrapport</p>
+                      <p className="text-xs text-muted-foreground">Opprett og send inn månedlig saksrapport</p>
+                    </div>
+                    <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                  </Button>
+                )}
+
+                <Button
+                  variant="outline"
+                  className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                  onClick={() => { setIsGettingStartedOpen(false); navigate("/time-tracking"); }}
+                >
+                  <Clock className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Start timeføring</p>
+                    <p className="text-xs text-muted-foreground">Registrer tid med en gang</p>
+                  </div>
+                  <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                </Button>
+
+                <Button
+                  variant="outline"
+                  className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                  onClick={() => { setIsGettingStartedOpen(false); navigate("/guide"); }}
+                  data-testid="open-guide"
+                >
+                  <Lightbulb className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold">Hvordan bruke Tidum</p>
+                    <p className="text-xs text-muted-foreground">Les veiledningen for smarte forslag og beste praksis</p>
+                  </div>
+                  <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+                </Button>
+              </>
+            )}
           </div>
 
-          <DialogFooter className="border-t px-4 py-3">
-            <Button variant="ghost" onClick={() => setIsGettingStartedOpen(false)}>
-              Lukk
-            </Button>
+          <DialogFooter className="border-t px-4 py-3 flex justify-between">
+            {onboardingStep > 0 ? (
+              <Button variant="ghost" onClick={() => setOnboardingStep(s => s - 1)}>
+                Tilbake
+              </Button>
+            ) : (
+              <Button variant="ghost" onClick={() => setIsGettingStartedOpen(false)}>
+                Lukk
+              </Button>
+            )}
+            {onboardingStep < 2 ? (
+              <Button onClick={() => setOnboardingStep(s => s + 1)}>
+                Neste
+              </Button>
+            ) : (
+              <Button onClick={() => { 
+                setIsGettingStartedOpen(false); 
+                setOnboardingStep(0);
+                setOnboardingCompleted(true);
+                try { localStorage.setItem("tidum_onboarding_done", "1"); } catch {}
+              }}>
+                Fullfør
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
