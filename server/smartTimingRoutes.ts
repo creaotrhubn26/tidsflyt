@@ -2685,13 +2685,16 @@ export function registerSmartTimingRoutes(app: Express) {
       const { 
         background, actions, progress, challenges, factors, 
         assessment, recommendations, notes, status,
-        rejection_reason, rejected_by
+        rejection_reason, rejected_by,
+        case_id, month
       } = req.body;
       
       let query = `UPDATE case_reports SET updated_at = NOW()`;
       const values: any[] = [];
       let paramIndex = 1;
       
+      if (case_id !== undefined) { query += `, case_id = $${paramIndex++}`; values.push(case_id); }
+      if (month !== undefined) { query += `, month = $${paramIndex++}`; values.push(month); }
       if (background !== undefined) { query += `, background = $${paramIndex++}`; values.push(background); }
       if (actions !== undefined) { query += `, actions = $${paramIndex++}`; values.push(actions); }
       if (progress !== undefined) { query += `, progress = $${paramIndex++}`; values.push(progress); }

@@ -8,12 +8,315 @@ import {
   type WhyPageHero, type InsertWhyPageHero, type WhyPageStat, type InsertWhyPageStat,
   type WhyPageBenefit, type InsertWhyPageBenefit, type WhyPageFeature, type InsertWhyPageFeature,
   type WhyPageContent, type InsertWhyPageContent,
+  type DashboardTask, type UserTaskPrefs,
   logRow, companyUsers, timerSessions,
   siteSettings, landingHero, landingFeatures, landingTestimonials, landingCta,
-  whyPageHero, whyPageStats, whyPageBenefits, whyPageFeatures, whyPageContent
+  whyPageHero, whyPageStats, whyPageBenefits, whyPageFeatures, whyPageContent,
+  dashboardTasks, userTaskPrefs
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
+
+// ── Task learning types ──
+export interface TaskPrefsData {
+  keywordLinks: Record<string, Record<string, number>>; // token → { url: count }
+  linkUsage: Record<string, number>;                     // url → total uses
+  totalCreated: number;
+  totalCompleted: number;
+  recentCompletionMs: number[];                          // last 20 task completion durations
+}
+
+export type TaskEvent =
+  | { type: "task_created"; title: string; linkedUrl?: string | null }
+  | { type: "task_completed"; createdAtMs: number };
+
+export interface TimeTrackingFeedbackEvent {
+  suggestionType: "project" | "description" | "hours" | "bulk_copy_prev_month" | "apply_all" | "manual_prefill";
+  outcome: "accepted" | "rejected";
+  date?: string | null;
+  suggestedValue?: string | null;
+  chosenValue?: string | null;
+  metadata?: Record<string, unknown> | null;
+  timestamp?: string;
+}
+
+export interface CaseReportingFeedbackEvent {
+  suggestionType: string;
+  outcome: "accepted" | "rejected";
+  month?: string | null;
+  caseId?: string | null;
+  suggestedValue?: string | null;
+  chosenValue?: string | null;
+  metadata?: Record<string, unknown> | null;
+  timestamp?: string;
+}
+
+export interface TimeTrackingFeedbackCount {
+  accepted: number;
+  rejected: number;
+}
+
+export interface TimeTrackingPrefsData {
+  feedbackByType: Record<string, TimeTrackingFeedbackCount>;
+  recentFeedback: Array<{
+    suggestionType: string;
+    outcome: "accepted" | "rejected";
+    date?: string | null;
+    suggestedValue?: string | null;
+    chosenValue?: string | null;
+    timestamp: string;
+  }>;
+  totalAccepted: number;
+  totalRejected: number;
+}
+
+export interface CaseReportingFeedbackCount {
+  accepted: number;
+  rejected: number;
+}
+
+export interface CaseReportingPrefsData {
+  feedbackByType: Record<string, CaseReportingFeedbackCount>;
+  recentFeedback: Array<{
+    suggestionType: string;
+    outcome: "accepted" | "rejected";
+    month?: string | null;
+    caseId?: string | null;
+    suggestedValue?: string | null;
+    chosenValue?: string | null;
+    timestamp: string;
+  }>;
+  totalAccepted: number;
+  totalRejected: number;
+}
+
+export type SuggestionMode = "off" | "dashboard_only" | "balanced" | "proactive";
+export type SuggestionFrequency = "low" | "normal" | "high";
+export type SuggestionBlockCategory = "project" | "description" | "case_id";
+
+export interface SuggestionBlockedData {
+  projects: string[];
+  descriptions: string[];
+  caseIds: string[];
+}
+
+export interface SuggestionSettingsData {
+  mode: SuggestionMode;
+  frequency: SuggestionFrequency;
+  confidenceThreshold: number;
+  blocked: SuggestionBlockedData;
+  userOverride: boolean;
+  updatedAt: string;
+}
+
+const EMPTY_PREFS: TaskPrefsData = {
+  keywordLinks: {},
+  linkUsage: {},
+  totalCreated: 0,
+  totalCompleted: 0,
+  recentCompletionMs: [],
+};
+
+const EMPTY_TIME_TRACKING_PREFS: TimeTrackingPrefsData = {
+  feedbackByType: {},
+  recentFeedback: [],
+  totalAccepted: 0,
+  totalRejected: 0,
+};
+
+const EMPTY_CASE_REPORTING_PREFS: CaseReportingPrefsData = {
+  feedbackByType: {},
+  recentFeedback: [],
+  totalAccepted: 0,
+  totalRejected: 0,
+};
+
+const EMPTY_SUGGESTION_SETTINGS: SuggestionSettingsData = {
+  mode: "balanced",
+  frequency: "normal",
+  confidenceThreshold: 0.45,
+  blocked: {
+    projects: [],
+    descriptions: [],
+    caseIds: [],
+  },
+  userOverride: false,
+  updatedAt: new Date(0).toISOString(),
+};
+
+function normalizeBlockedValues(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const unique = new Map<string, string>();
+  raw.forEach((value) => {
+    if (typeof value !== "string") return;
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (!unique.has(key)) {
+      unique.set(key, trimmed);
+    }
+  });
+  return Array.from(unique.values()).slice(-120);
+}
+
+function normalizeBlockedSuggestions(raw: unknown): SuggestionBlockedData {
+  if (!raw || typeof raw !== "object") {
+    return {
+      projects: [],
+      descriptions: [],
+      caseIds: [],
+    };
+  }
+
+  const blockedRaw = raw as Record<string, unknown>;
+
+  return {
+    projects: normalizeBlockedValues(blockedRaw.projects),
+    descriptions: normalizeBlockedValues(blockedRaw.descriptions),
+    caseIds: normalizeBlockedValues(blockedRaw.caseIds),
+  };
+}
+
+function normalizeTimeTrackingPrefs(raw: any): TimeTrackingPrefsData {
+  if (!raw || typeof raw !== "object") {
+    return { ...EMPTY_TIME_TRACKING_PREFS };
+  }
+
+  const recentFeedback = Array.isArray(raw.recentFeedback)
+    ? raw.recentFeedback
+        .map((item: any) => ({
+          suggestionType: String(item?.suggestionType || ""),
+          outcome: item?.outcome === "accepted" ? "accepted" : "rejected",
+          date: item?.date ?? null,
+          suggestedValue: item?.suggestedValue ?? null,
+          chosenValue: item?.chosenValue ?? null,
+          timestamp: typeof item?.timestamp === "string" && item.timestamp ? item.timestamp : new Date().toISOString(),
+        }))
+        .filter((item: { suggestionType: string }) => item.suggestionType)
+    : [];
+
+  const feedbackByTypeRaw = raw.feedbackByType && typeof raw.feedbackByType === "object"
+    ? raw.feedbackByType
+    : {};
+
+  const feedbackByType: Record<string, TimeTrackingFeedbackCount> = {};
+  Object.entries(feedbackByTypeRaw as Record<string, any>).forEach(([key, value]) => {
+    feedbackByType[key] = {
+      accepted: Number((value as any)?.accepted || 0),
+      rejected: Number((value as any)?.rejected || 0),
+    };
+  });
+
+  return {
+    feedbackByType,
+    recentFeedback,
+    totalAccepted: Number(raw.totalAccepted || 0),
+    totalRejected: Number(raw.totalRejected || 0),
+  };
+}
+
+function normalizeCaseReportingPrefs(raw: any): CaseReportingPrefsData {
+  if (!raw || typeof raw !== "object") {
+    return { ...EMPTY_CASE_REPORTING_PREFS };
+  }
+
+  const recentFeedback = Array.isArray(raw.recentFeedback)
+    ? raw.recentFeedback
+        .map((item: any) => ({
+          suggestionType: String(item?.suggestionType || ""),
+          outcome: item?.outcome === "accepted" ? "accepted" : "rejected",
+          month: item?.month ?? null,
+          caseId: item?.caseId ?? null,
+          suggestedValue: item?.suggestedValue ?? null,
+          chosenValue: item?.chosenValue ?? null,
+          timestamp: typeof item?.timestamp === "string" && item.timestamp ? item.timestamp : new Date().toISOString(),
+        }))
+        .filter((item: { suggestionType: string }) => item.suggestionType)
+    : [];
+
+  const feedbackByTypeRaw = raw.feedbackByType && typeof raw.feedbackByType === "object"
+    ? raw.feedbackByType
+    : {};
+
+  const feedbackByType: Record<string, CaseReportingFeedbackCount> = {};
+  Object.entries(feedbackByTypeRaw as Record<string, any>).forEach(([key, value]) => {
+    feedbackByType[key] = {
+      accepted: Number((value as any)?.accepted || 0),
+      rejected: Number((value as any)?.rejected || 0),
+    };
+  });
+
+  return {
+    feedbackByType,
+    recentFeedback,
+    totalAccepted: Number(raw.totalAccepted || 0),
+    totalRejected: Number(raw.totalRejected || 0),
+  };
+}
+
+function normalizeSuggestionSettings(raw: any): SuggestionSettingsData {
+  if (!raw || typeof raw !== "object") {
+    return { ...EMPTY_SUGGESTION_SETTINGS };
+  }
+
+  const modeRaw = typeof raw.mode === "string" ? raw.mode : EMPTY_SUGGESTION_SETTINGS.mode;
+  const frequencyRaw = typeof raw.frequency === "string" ? raw.frequency : EMPTY_SUGGESTION_SETTINGS.frequency;
+  const updatedAtRaw = typeof raw.updatedAt === "string" && raw.updatedAt
+    ? raw.updatedAt
+    : EMPTY_SUGGESTION_SETTINGS.updatedAt;
+  const confidenceThresholdRaw = Number(raw.confidenceThreshold);
+  const confidenceThreshold = Number.isFinite(confidenceThresholdRaw)
+    ? Math.max(0.2, Math.min(0.95, confidenceThresholdRaw))
+    : EMPTY_SUGGESTION_SETTINGS.confidenceThreshold;
+  const blocked = normalizeBlockedSuggestions(raw.blocked);
+  const userOverride = typeof raw.userOverride === "boolean"
+    ? raw.userOverride
+    : EMPTY_SUGGESTION_SETTINGS.userOverride;
+
+  const mode: SuggestionMode = (
+    modeRaw === "off" ||
+    modeRaw === "dashboard_only" ||
+    modeRaw === "balanced" ||
+    modeRaw === "proactive"
+  ) ? modeRaw : EMPTY_SUGGESTION_SETTINGS.mode;
+
+  const frequency: SuggestionFrequency = (
+    frequencyRaw === "low" ||
+    frequencyRaw === "normal" ||
+    frequencyRaw === "high"
+  ) ? frequencyRaw : EMPTY_SUGGESTION_SETTINGS.frequency;
+
+  return {
+    mode,
+    frequency,
+    confidenceThreshold,
+    blocked,
+    userOverride,
+    updatedAt: updatedAtRaw,
+  };
+}
+
+function applyEvent(prefs: TaskPrefsData, event: TaskEvent): TaskPrefsData {
+  const p = { ...prefs, keywordLinks: { ...prefs.keywordLinks }, linkUsage: { ...prefs.linkUsage } };
+  if (event.type === "task_created") {
+    p.totalCreated++;
+    if (event.linkedUrl) {
+      p.linkUsage[event.linkedUrl] = (p.linkUsage[event.linkedUrl] ?? 0) + 1;
+      const tokens = event.title.toLowerCase().replace(/[^\w\s]/g, "").split(/\s+/).filter(Boolean);
+      for (const token of tokens) {
+        if (!p.keywordLinks[token]) p.keywordLinks[token] = {};
+        p.keywordLinks[token][event.linkedUrl] = (p.keywordLinks[token][event.linkedUrl] ?? 0) + 1;
+      }
+    }
+  } else if (event.type === "task_completed") {
+    p.totalCompleted++;
+    const ms = Date.now() - event.createdAtMs;
+    if (ms > 0) {
+      p.recentCompletionMs = [...(prefs.recentCompletionMs ?? []).slice(-19), ms];
+    }
+  }
+  return p;
+}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -47,7 +350,25 @@ export interface IStorage {
   }>;
   
   seedData(): Promise<void>;
-  
+
+  // Dashboard tasks
+  getDashboardTasks(userId: string): Promise<DashboardTask[]>;
+  createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string): Promise<DashboardTask>;
+  updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil'>>): Promise<DashboardTask | undefined>;
+  deleteDashboardTask(id: number, userId: string): Promise<boolean>;
+
+  // Task learning
+  getUserTaskPrefs(userId: string): Promise<TaskPrefsData>;
+  recordTaskEvent(userId: string, event: TaskEvent): Promise<void>;
+  getUserTimeTrackingPrefs(userId: string): Promise<TimeTrackingPrefsData>;
+  recordTimeTrackingFeedback(userId: string, event: TimeTrackingFeedbackEvent): Promise<void>;
+  getUserCaseReportingPrefs(userId: string): Promise<CaseReportingPrefsData>;
+  recordCaseReportingFeedback(userId: string, event: CaseReportingFeedbackEvent): Promise<void>;
+  getUserSuggestionSettings(userId: string): Promise<SuggestionSettingsData>;
+  updateUserSuggestionSettings(userId: string, patch: Partial<SuggestionSettingsData>): Promise<SuggestionSettingsData>;
+  addUserSuggestionBlock(userId: string, block: { category: SuggestionBlockCategory; value: string }): Promise<SuggestionSettingsData>;
+  removeUserSuggestionBlock(userId: string, block: { category: SuggestionBlockCategory; value: string }): Promise<SuggestionSettingsData>;
+
   // CMS Methods
   getSiteSettings(): Promise<SiteSetting[]>;
   getSiteSetting(key: string): Promise<SiteSetting | undefined>;
@@ -603,6 +924,361 @@ export class ExternalDbStorage implements IStorage {
     }
     const result = await db.insert(whyPageContent).values({ ...data, sectionId }).returning();
     return result[0];
+  }
+
+  // ── Dashboard tasks ──
+  async getDashboardTasks(userId: string): Promise<DashboardTask[]> {
+    return db.select().from(dashboardTasks)
+      .where(eq(dashboardTasks.userId, userId))
+      .orderBy(dashboardTasks.createdAt);
+  }
+
+  async createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string): Promise<DashboardTask> {
+    const [row] = await db.insert(dashboardTasks)
+      .values({ userId, title, done: false, linkedUrl: linkedUrl ?? null, linkedLabel: linkedLabel ?? null })
+      .returning();
+    return row;
+  }
+
+  async updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil'>>): Promise<DashboardTask | undefined> {
+    const [row] = await db.update(dashboardTasks)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(dashboardTasks.id, id), eq(dashboardTasks.userId, userId)))
+      .returning();
+    return row;
+  }
+
+  async deleteDashboardTask(id: number, userId: string): Promise<boolean> {
+    const result = await db.delete(dashboardTasks)
+      .where(and(eq(dashboardTasks.id, id), eq(dashboardTasks.userId, userId)))
+      .returning();
+    return result.length > 0;
+  }
+
+  // ── Task learning ──
+  async getUserTaskPrefs(userId: string): Promise<TaskPrefsData> {
+    const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+    if (!row) return { ...EMPTY_PREFS };
+    const rawRoot = (row.prefs ?? {}) as Record<string, unknown>;
+    const raw = rawRoot as Partial<TaskPrefsData>;
+
+    // Keep unknown keys in the object so other learning domains (time tracking)
+    // survive task-pref updates that upsert the same JSON blob.
+    return {
+      ...(rawRoot as any),
+      keywordLinks: raw.keywordLinks ?? {},
+      linkUsage: raw.linkUsage ?? {},
+      totalCreated: raw.totalCreated ?? 0,
+      totalCompleted: raw.totalCompleted ?? 0,
+      recentCompletionMs: raw.recentCompletionMs ?? [],
+    };
+  }
+
+  async recordTaskEvent(userId: string, event: TaskEvent): Promise<void> {
+    const current = await this.getUserTaskPrefs(userId);
+    const updated = applyEvent(current, event);
+    await db.insert(userTaskPrefs)
+      .values({ userId, prefs: updated as any, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: userTaskPrefs.userId,
+        set: { prefs: updated as any, updatedAt: new Date() },
+      });
+  }
+
+  async getUserTimeTrackingPrefs(userId: string): Promise<TimeTrackingPrefsData> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      if (!row) return { ...EMPTY_TIME_TRACKING_PREFS };
+      const rawRoot = (row.prefs ?? {}) as Record<string, unknown>;
+      const rawTimeTracking = (rawRoot.timeTracking ?? {}) as Record<string, unknown>;
+      return normalizeTimeTrackingPrefs(rawTimeTracking);
+    } catch (error) {
+      console.error("getUserTimeTrackingPrefs failed:", error);
+      return { ...EMPTY_TIME_TRACKING_PREFS };
+    }
+  }
+
+  async recordTimeTrackingFeedback(userId: string, event: TimeTrackingFeedbackEvent): Promise<void> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      const rawRoot = ((row?.prefs ?? {}) as Record<string, unknown>) || {};
+      const current = normalizeTimeTrackingPrefs((rawRoot.timeTracking ?? {}) as Record<string, unknown>);
+
+      const nextFeedbackByType = { ...current.feedbackByType };
+      const currentTypeStats = nextFeedbackByType[event.suggestionType] || { accepted: 0, rejected: 0 };
+      if (event.outcome === "accepted") {
+        currentTypeStats.accepted += 1;
+      } else {
+        currentTypeStats.rejected += 1;
+      }
+      nextFeedbackByType[event.suggestionType] = currentTypeStats;
+
+      const timestamp = event.timestamp || new Date().toISOString();
+      const nextRecentFeedback = [
+        ...current.recentFeedback,
+        {
+          suggestionType: event.suggestionType,
+          outcome: event.outcome,
+          date: event.date ?? null,
+          suggestedValue: event.suggestedValue ?? null,
+          chosenValue: event.chosenValue ?? null,
+          timestamp,
+        },
+      ].slice(-50);
+
+      const nextTimeTracking: TimeTrackingPrefsData = {
+        feedbackByType: nextFeedbackByType,
+        recentFeedback: nextRecentFeedback,
+        totalAccepted: current.totalAccepted + (event.outcome === "accepted" ? 1 : 0),
+        totalRejected: current.totalRejected + (event.outcome === "rejected" ? 1 : 0),
+      };
+
+      const nextRoot = {
+        ...rawRoot,
+        timeTracking: nextTimeTracking,
+      };
+
+      await db.insert(userTaskPrefs)
+        .values({ userId, prefs: nextRoot as any, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userTaskPrefs.userId,
+          set: { prefs: nextRoot as any, updatedAt: new Date() },
+        });
+    } catch (error) {
+      console.error("recordTimeTrackingFeedback failed:", error);
+    }
+  }
+
+  async getUserCaseReportingPrefs(userId: string): Promise<CaseReportingPrefsData> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      if (!row) return { ...EMPTY_CASE_REPORTING_PREFS };
+      const rawRoot = (row.prefs ?? {}) as Record<string, unknown>;
+      const rawCaseReporting = (rawRoot.caseReporting ?? {}) as Record<string, unknown>;
+      return normalizeCaseReportingPrefs(rawCaseReporting);
+    } catch (error) {
+      console.error("getUserCaseReportingPrefs failed:", error);
+      return { ...EMPTY_CASE_REPORTING_PREFS };
+    }
+  }
+
+  async recordCaseReportingFeedback(userId: string, event: CaseReportingFeedbackEvent): Promise<void> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      const rawRoot = ((row?.prefs ?? {}) as Record<string, unknown>) || {};
+      const current = normalizeCaseReportingPrefs((rawRoot.caseReporting ?? {}) as Record<string, unknown>);
+
+      const nextFeedbackByType = { ...current.feedbackByType };
+      const currentTypeStats = nextFeedbackByType[event.suggestionType] || { accepted: 0, rejected: 0 };
+      if (event.outcome === "accepted") {
+        currentTypeStats.accepted += 1;
+      } else {
+        currentTypeStats.rejected += 1;
+      }
+      nextFeedbackByType[event.suggestionType] = currentTypeStats;
+
+      const timestamp = event.timestamp || new Date().toISOString();
+      const nextRecentFeedback = [
+        ...current.recentFeedback,
+        {
+          suggestionType: event.suggestionType,
+          outcome: event.outcome,
+          month: event.month ?? null,
+          caseId: event.caseId ?? null,
+          suggestedValue: event.suggestedValue ?? null,
+          chosenValue: event.chosenValue ?? null,
+          timestamp,
+        },
+      ].slice(-80);
+
+      const nextCaseReporting: CaseReportingPrefsData = {
+        feedbackByType: nextFeedbackByType,
+        recentFeedback: nextRecentFeedback,
+        totalAccepted: current.totalAccepted + (event.outcome === "accepted" ? 1 : 0),
+        totalRejected: current.totalRejected + (event.outcome === "rejected" ? 1 : 0),
+      };
+
+      const nextRoot = {
+        ...rawRoot,
+        caseReporting: nextCaseReporting,
+      };
+
+      await db.insert(userTaskPrefs)
+        .values({ userId, prefs: nextRoot as any, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userTaskPrefs.userId,
+          set: { prefs: nextRoot as any, updatedAt: new Date() },
+        });
+    } catch (error) {
+      console.error("recordCaseReportingFeedback failed:", error);
+    }
+  }
+
+  async getUserSuggestionSettings(userId: string): Promise<SuggestionSettingsData> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      if (!row) return { ...EMPTY_SUGGESTION_SETTINGS };
+      const rawRoot = (row.prefs ?? {}) as Record<string, unknown>;
+      const rawSuggestionSettings = (rawRoot.suggestionSettings ?? {}) as Record<string, unknown>;
+      return normalizeSuggestionSettings(rawSuggestionSettings);
+    } catch (error) {
+      console.error("getUserSuggestionSettings failed:", error);
+      return { ...EMPTY_SUGGESTION_SETTINGS };
+    }
+  }
+
+  async updateUserSuggestionSettings(userId: string, patch: Partial<SuggestionSettingsData>): Promise<SuggestionSettingsData> {
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      const rawRoot = ((row?.prefs ?? {}) as Record<string, unknown>) || {};
+      const current = normalizeSuggestionSettings((rawRoot.suggestionSettings ?? {}) as Record<string, unknown>);
+
+      const nextSuggestionSettings: SuggestionSettingsData = {
+        mode: (
+          patch.mode === "off" ||
+          patch.mode === "dashboard_only" ||
+          patch.mode === "balanced" ||
+          patch.mode === "proactive"
+        ) ? patch.mode : current.mode,
+        frequency: (
+          patch.frequency === "low" ||
+          patch.frequency === "normal" ||
+          patch.frequency === "high"
+        ) ? patch.frequency : current.frequency,
+        confidenceThreshold: typeof patch.confidenceThreshold === "number" && Number.isFinite(patch.confidenceThreshold)
+          ? Math.max(0.2, Math.min(0.95, patch.confidenceThreshold))
+          : current.confidenceThreshold,
+        blocked: patch.blocked ? normalizeBlockedSuggestions(patch.blocked) : current.blocked,
+        userOverride: typeof patch.userOverride === "boolean" ? patch.userOverride : current.userOverride,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const nextRoot = {
+        ...rawRoot,
+        suggestionSettings: nextSuggestionSettings,
+      };
+
+      await db.insert(userTaskPrefs)
+        .values({ userId, prefs: nextRoot as any, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userTaskPrefs.userId,
+          set: { prefs: nextRoot as any, updatedAt: new Date() },
+        });
+
+      return nextSuggestionSettings;
+    } catch (error) {
+      console.error("updateUserSuggestionSettings failed:", error);
+      return { ...EMPTY_SUGGESTION_SETTINGS };
+    }
+  }
+
+  async addUserSuggestionBlock(
+    userId: string,
+    block: { category: SuggestionBlockCategory; value: string },
+  ): Promise<SuggestionSettingsData> {
+    const value = String(block.value || "").trim();
+    if (!value) {
+      return this.getUserSuggestionSettings(userId);
+    }
+
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      const rawRoot = ((row?.prefs ?? {}) as Record<string, unknown>) || {};
+      const current = normalizeSuggestionSettings((rawRoot.suggestionSettings ?? {}) as Record<string, unknown>);
+      const blocked = {
+        ...current.blocked,
+        projects: [...current.blocked.projects],
+        descriptions: [...current.blocked.descriptions],
+        caseIds: [...current.blocked.caseIds],
+      };
+
+      const addUnique = (target: string[]) => {
+        const key = value.toLowerCase();
+        if (!target.some((item) => item.toLowerCase() === key)) {
+          target.push(value);
+        }
+        return target.slice(-120);
+      };
+
+      if (block.category === "project") {
+        blocked.projects = addUnique(blocked.projects);
+      } else if (block.category === "description") {
+        blocked.descriptions = addUnique(blocked.descriptions);
+      } else {
+        blocked.caseIds = addUnique(blocked.caseIds);
+      }
+
+      const nextSuggestionSettings: SuggestionSettingsData = {
+        ...current,
+        blocked,
+        userOverride: true,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const nextRoot = {
+        ...rawRoot,
+        suggestionSettings: nextSuggestionSettings,
+      };
+
+      await db.insert(userTaskPrefs)
+        .values({ userId, prefs: nextRoot as any, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userTaskPrefs.userId,
+          set: { prefs: nextRoot as any, updatedAt: new Date() },
+        });
+
+      return nextSuggestionSettings;
+    } catch (error) {
+      console.error("addUserSuggestionBlock failed:", error);
+      return this.getUserSuggestionSettings(userId);
+    }
+  }
+
+  async removeUserSuggestionBlock(
+    userId: string,
+    block: { category: SuggestionBlockCategory; value: string },
+  ): Promise<SuggestionSettingsData> {
+    const value = String(block.value || "").trim();
+    if (!value) {
+      return this.getUserSuggestionSettings(userId);
+    }
+
+    try {
+      const [row] = await db.select().from(userTaskPrefs).where(eq(userTaskPrefs.userId, userId)).limit(1);
+      const rawRoot = ((row?.prefs ?? {}) as Record<string, unknown>) || {};
+      const current = normalizeSuggestionSettings((rawRoot.suggestionSettings ?? {}) as Record<string, unknown>);
+      const key = value.toLowerCase();
+
+      const blocked = {
+        ...current.blocked,
+        projects: current.blocked.projects.filter((item) => item.toLowerCase() !== key),
+        descriptions: current.blocked.descriptions.filter((item) => item.toLowerCase() !== key),
+        caseIds: current.blocked.caseIds.filter((item) => item.toLowerCase() !== key),
+      };
+
+      const nextSuggestionSettings: SuggestionSettingsData = {
+        ...current,
+        blocked,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const nextRoot = {
+        ...rawRoot,
+        suggestionSettings: nextSuggestionSettings,
+      };
+
+      await db.insert(userTaskPrefs)
+        .values({ userId, prefs: nextRoot as any, updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: userTaskPrefs.userId,
+          set: { prefs: nextRoot as any, updatedAt: new Date() },
+        });
+
+      return nextSuggestionSettings;
+    } catch (error) {
+      console.error("removeUserSuggestionBlock failed:", error);
+      return this.getUserSuggestionSettings(userId);
+    }
   }
 }
 

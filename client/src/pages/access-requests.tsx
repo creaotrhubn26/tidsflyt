@@ -211,7 +211,7 @@ export default function AccessRequestsPage() {
         <TabsContent value="analytics" className="mt-6 space-y-6">
           {/* Analytics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+            <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 dark:from-blue-950/40 dark:to-blue-900/20 border-blue-200/60 dark:border-blue-800/40">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -222,7 +222,7 @@ export default function AccessRequestsPage() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+            <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 dark:from-orange-950/40 dark:to-orange-900/20 border-orange-200/60 dark:border-orange-800/40">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -233,7 +233,7 @@ export default function AccessRequestsPage() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="bg-gradient-to-br from-green-50 to-green-100/30 border-green-200/60">
+            <Card className="bg-gradient-to-br from-green-50 to-green-100/30 dark:from-green-950/40 dark:to-green-900/20 border-green-200/60 dark:border-green-800/40">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -244,7 +244,7 @@ export default function AccessRequestsPage() {
                 </div>
               </CardContent>
             </Card>
-            <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+            <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 dark:from-purple-950/40 dark:to-purple-900/20 border-purple-200/60 dark:border-purple-800/40">
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -263,12 +263,28 @@ export default function AccessRequestsPage() {
       {isLoading ? (
         <div className="text-center text-muted-foreground py-8">Laster foresporsler...</div>
       ) : !requests?.length ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <UserPlus className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">Ingen foresporsler funnet</p>
-          </CardContent>
-        </Card>
+        <div className="flex flex-col items-center justify-center py-20 px-4">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl scale-150" />
+            <div className="relative flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-indigo-500/20 border border-primary/20 shadow-lg">
+              <UserPlus className="h-9 w-9 text-primary" />
+            </div>
+          </div>
+          <h3 className="text-2xl font-semibold mb-3">Ingen forespørsler ennå</h3>
+          <p className="text-muted-foreground text-center max-w-sm mb-8 leading-relaxed">
+            Tilgangsforespørsler fra vendorer vil vises her når de søker om tilgang.
+          </p>
+          <div className="flex flex-wrap justify-center gap-2">
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-700 dark:text-green-400">
+              <CheckCircle className="h-3.5 w-3.5" />
+              Godkjenning med ett klikk
+            </div>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-700 dark:text-blue-400">
+              <Lock className="h-3.5 w-3.5" />
+              Sikker tilgangsstyring
+            </div>
+          </div>
+        </div>
       ) : (
         <>
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

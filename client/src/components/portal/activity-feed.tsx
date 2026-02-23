@@ -447,7 +447,7 @@ function ActivityFeedComponent({
   if (loading) {
     return (
       <Card
-        className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
+        className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-none dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
         data-testid="activity-feed-skeleton"
         aria-busy="true"
       >
@@ -596,8 +596,7 @@ function ActivityFeedComponent({
   if (variant === "compact") {
     return (
       <Card
-        className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
-        data-testid="activity-feed"
+        className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-none dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
         role="feed"
         aria-busy={false}
       >
@@ -636,7 +635,7 @@ function ActivityFeedComponent({
      ═══════════════════════════════════════════════════ */
   return (
     <Card
-      className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
+      className="rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-none dark:bg-card shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none"
       data-testid="activity-feed"
       role="feed"
       aria-busy={false}

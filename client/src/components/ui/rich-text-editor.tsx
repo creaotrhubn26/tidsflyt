@@ -1,7 +1,7 @@
 import { useMemo } from "react";
-import ReactQuill from "react-quill";
+import ReactQuill from "react-quill-new";
 import DOMPurify from "dompurify";
-import "react-quill/dist/quill.snow.css";
+import "react-quill-new/dist/quill.snow.css";
 import { cn } from "@/lib/utils";
 
 interface RichTextEditorProps {
@@ -49,7 +49,6 @@ export function RichTextEditor({
     "underline",
     "strike",
     "list",
-    "bullet",
     "indent",
     "blockquote",
     "link",

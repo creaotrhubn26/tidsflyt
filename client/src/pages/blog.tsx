@@ -236,18 +236,43 @@ export default function Blog() {
 
         {/* Empty state */}
         {!isLoading && posts.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-20 text-center text-muted-foreground">
-            <Newspaper className="h-16 w-16 mb-4 opacity-30" />
-            <h2 className="text-xl font-medium mb-2">Ingen innlegg funnet</h2>
-            <p className="mb-4">
-              {activeSearch
-                ? `Ingen resultater for "${activeSearch}"`
-                : "Det er ingen publiserte innlegg ennå."}
-            </p>
-            {(activeSearch || selectedCategory) && (
-              <Button variant="outline" onClick={clearFilters}>
-                Vis alle innlegg
-              </Button>
+          <div className="flex flex-col items-center justify-center py-20 px-4">
+            {(activeSearch || selectedCategory) ? (
+              <>
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-muted/60 border border-border mb-4">
+                  <Newspaper className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <h2 className="text-base font-semibold mb-1">Ingen innlegg funnet</h2>
+                <p className="text-sm text-muted-foreground text-center max-w-xs mb-4">
+                  {activeSearch ? `Ingen resultater for "${activeSearch}"` : "Ingen innlegg i denne kategorien."}
+                </p>
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  Vis alle innlegg
+                </Button>
+              </>
+            ) : (
+              <>
+                <div className="relative mb-8">
+                  <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl scale-150" />
+                  <div className="relative flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-indigo-500/20 border border-primary/20 shadow-lg">
+                    <Newspaper className="h-9 w-9 text-primary" />
+                  </div>
+                </div>
+                <h2 className="text-2xl font-semibold mb-3">Ingen innlegg ennå</h2>
+                <p className="text-muted-foreground text-center max-w-sm mb-6 leading-relaxed">
+                  Det er ingen publiserte innlegg ennå. Sjekk tilbake snart.
+                </p>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-700 dark:text-blue-400">
+                    <Rss className="h-3.5 w-3.5" />
+                    Nyheter & oppdateringer
+                  </div>
+                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-medium text-purple-700 dark:text-purple-400">
+                    <Tag className="h-3.5 w-3.5" />
+                    Kategorier & emner
+                  </div>
+                </div>
+              </>
             )}
           </div>
         )}

@@ -11,6 +11,7 @@ import {
   FolderKanban,
   FileText,
   ClipboardList,
+  Lightbulb,
   Settings,
   Clock,
   ChevronLeft,
@@ -97,9 +98,14 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
 
-  const { data: companyUsers = [] } = useQuery<CompanyUser[]>({
+  const { data: companyUsersData } = useQuery<CompanyUser[] | { error?: string }>({
     queryKey: ['/api/company/users', 1],
   });
+
+  const companyUsers = useMemo(
+    () => (Array.isArray(companyUsersData) ? companyUsersData : []),
+    [companyUsersData],
+  );
 
   const pendingCount = useMemo(
     () => companyUsers.filter((companyUser) => !companyUser.approved).length,
@@ -302,7 +308,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         <Button
           variant="ghost"
           size="icon"
-          className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-[#cbd9d6] bg-white text-[#335159] shadow-sm"
+          className="absolute -right-3 top-20 h-6 w-6 rounded-full border border-[#cbd9d6] dark:border-border bg-white dark:bg-card text-[#335159] dark:text-foreground shadow-sm dark:shadow-none"
           onClick={toggleSidebar}
           aria-label={collapsed ? "Utvid sidepanel" : "Skjul sidepanel"}
           title={collapsed ? "Utvid sidepanel" : "Skjul sidepanel"}
@@ -412,6 +418,20 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">Start timeføring</p>
                 <p className="text-xs text-muted-foreground">Registrer tid med en gang</p>
+              </div>
+              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+            </Button>
+
+            <Button
+              variant="outline"
+              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+              onClick={() => { setIsGettingStartedOpen(false); navigate("/guide"); }}
+              data-testid="open-guide"
+            >
+              <Lightbulb className="mr-3 h-4 w-4 shrink-0 text-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold">Hvordan bruke Tidum</p>
+                <p className="text-xs text-muted-foreground">Les veiledningen for smarte forslag og beste praksis</p>
               </div>
               <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
             </Button>

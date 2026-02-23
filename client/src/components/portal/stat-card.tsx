@@ -9,6 +9,7 @@ import { TrendingUp, TrendingDown, Minus, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
+import { useTheme } from "@/components/theme-provider";
 import {
   ResponsiveContainer,
   LineChart,
@@ -230,10 +231,9 @@ export function StatCard({
       )
     : cn("border", vs.capsule);
 
-  // Detect dark mode for sparkline colour
-  const isDark =
-    typeof document !== "undefined" &&
-    document.documentElement.classList.contains("dark");
+  // Detect dark mode for sparkline colour (reactive to theme changes)
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === "dark";
   const sparkStroke = isDark ? vs.sparkDark : vs.spark;
 
   // Resolve trend isPositive via trendDirection if provided
@@ -256,12 +256,8 @@ export function StatCard({
   if (loading) {
     return (
       <Card
-        className={cn(
-          "overflow-visible rounded-2xl border-[#d8e4e0] dark:border-border",
-          "bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card",
-          "shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none",
-          "ring-1 ring-black/[0.04] dark:ring-white/[0.04]",
-        )}
+        className="overflow-visible rounded-2xl border-[var(--dc-card-border,#d8e4e0)] dark:border-border ring-1 ring-black/[0.04] dark:ring-white/[0.04]"
+        style={{ background: 'var(--dc-card-bg)', boxShadow: 'var(--dc-card-shadow)' }}
         data-testid={testId}
         aria-busy="true"
       >
@@ -399,9 +395,7 @@ export function StatCard({
   return (
     <Card
       className={cn(
-        "overflow-visible rounded-2xl border-[#d8e4e0] dark:border-border",
-        "bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card",
-        "shadow-[0_12px_30px_rgba(20,58,65,0.07)] dark:shadow-none",
+        "overflow-visible rounded-2xl border-[var(--dc-card-border,#d8e4e0)] dark:border-border",
         "ring-1 ring-black/[0.04] dark:ring-white/[0.04]",
         clickable && [
           "cursor-pointer transition-all duration-150",
@@ -412,6 +406,7 @@ export function StatCard({
           "active:translate-y-0 active:shadow-[0_12px_30px_rgba(20,58,65,0.07)]",
         ],
       )}
+      style={{ background: 'var(--dc-card-bg)', boxShadow: 'var(--dc-card-shadow)' }}
       tabIndex={clickable ? 0 : undefined}
       role={clickable ? "button" : undefined}
       onClick={onClick}

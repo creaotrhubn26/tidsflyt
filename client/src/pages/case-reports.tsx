@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { 
@@ -25,6 +25,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
+import { MonthPicker } from "@/components/ui/month-picker";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -51,16 +52,63 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { usePiiDetection } from "@/hooks/use-pii-detection";
 import { useDraft } from "@/hooks/use-draft";
+import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { getPiiTypeLabel, getPiiSeverity, ANONYMOUS_ALTERNATIVES, type PiiWarning, type PiiScanResult } from "@/lib/pii-detector";
 import { PiiSummaryBanner, PiiSummaryDrawer, type PiiIssue } from "@/components/pii-summary-drawer";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { REPORT_TEMPLATES } from "@/lib/report-templates";
+import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { CaseReport, ReportStatus } from "@shared/schema";
 
 type CaseReportResponse = {
   reports: CaseReport[];
+};
+
+type SuggestionValue<T> = {
+  value: T;
+  confidence: number;
+  sampleSize: number;
+  reason: string;
+};
+
+type CaseReportSuggestionFieldKey =
+  | "background"
+  | "actions"
+  | "progress"
+  | "challenges"
+  | "factors"
+  | "assessment"
+  | "recommendations"
+  | "notes";
+
+type CaseReportSuggestionsResponse = {
+  month: string;
+  analyzedReports: number;
+  suggestion: {
+    caseId: SuggestionValue<string | null>;
+    template: SuggestionValue<string | null>;
+    copyPreviousMonth: SuggestionValue<boolean>;
+    fields: Record<CaseReportSuggestionFieldKey, SuggestionValue<string | null>>;
+  };
+  previousMonthReport: null | {
+    id: number;
+    caseId: string;
+    month: string;
+    fields: Record<CaseReportSuggestionFieldKey, string | null>;
+  };
+  personalization: {
+    totalFeedback: number;
+    acceptanceRate: number | null;
+    feedbackByType: Record<string, { accepted: number; rejected: number }>;
+  };
+  policy?: {
+    mode: string;
+    confidenceThreshold: number;
+    source: string;
+  };
 };
 
 const statusColors: Record<ReportStatus, string> = {
@@ -277,6 +325,16 @@ const FORM_SECTIONS = [
 ] as const;
 
 const REQUIRED_SECTIONS = FORM_SECTIONS.filter((s) => s.required).map((s) => s.key);
+const REPORT_SUGGESTION_FIELD_KEYS: CaseReportSuggestionFieldKey[] = [
+  "background",
+  "actions",
+  "progress",
+  "challenges",
+  "factors",
+  "assessment",
+  "recommendations",
+  "notes",
+];
 
 function sectionHasContent(html: string): boolean {
   if (!html) return false;
@@ -345,7 +403,24 @@ function SectionProgress({ formData }: { formData: typeof emptyFormData }) {
 
 export default function CaseReportsPage() {
   const [location] = useLocation();
-  const isCasesRoute = location === "/cases";
+  const locationSearch = useMemo(() => {
+    if (typeof window !== "undefined") {
+      return window.location.search || "";
+    }
+    const index = location.indexOf("?");
+    return index >= 0 ? location.slice(index) : "";
+  }, [location]);
+  const [routePath, routeSearchParams] = useMemo(() => {
+    const [pathOnly] = location.split("?");
+    const normalizedSearch = locationSearch.startsWith("?") ? locationSearch.slice(1) : locationSearch;
+    return [pathOnly, new URLSearchParams(normalizedSearch)];
+  }, [location, locationSearch]);
+  const isCasesRoute = routePath === "/cases";
+  const shouldAutoCreateFromDashboard = routeSearchParams.get("create") === "1";
+  const shouldUseDashboardSuggestions = routeSearchParams.get("useSuggestions") === "1";
+  const dashboardPrefillCaseId = (routeSearchParams.get("prefillCaseId") || "").trim();
+  const dashboardPrefillMode = routeSearchParams.get("prefillMode");
+  const dashboardPrefillKey = useMemo(() => `${routePath}?${locationSearch}`, [routePath, locationSearch]);
   const { toast } = useToast();
   const [editingReport, setEditingReport] = useState<CaseReport | null>(null);
   const [formData, setFormData] = useState(emptyFormData);
@@ -365,8 +440,12 @@ export default function CaseReportsPage() {
   const [submitConfirmOpen, setSubmitConfirmOpen] = useState(false);
   const [submitConfirmReportId, setSubmitConfirmReportId] = useState<number | null>(null);
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [reportSuggestionsDismissed, setReportSuggestionsDismissed] = useState(false);
+  const dashboardPrefillAppliedRef = useRef<string | null>(null);
   const { user } = useAuth();
+  const { settings: suggestionSettings, blockSuggestionAsync } = useSuggestionSettings();
   const currentUserId = user?.id ?? "default";
+  const workflowSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "workflow");
 
   // PII Detection — scan on blur / save, not every keystroke
   const { fieldResults, totalWarnings, hasPii, scanFields, scanFieldsNow, isPending: piiScanning } = usePiiDetection({ debounceMs: 1500 });
@@ -470,6 +549,301 @@ export default function CaseReportsPage() {
   });
 
   const reports = reportsData?.reports || [];
+
+  const { data: rawReportSuggestions } = useQuery<CaseReportSuggestionsResponse | Record<string, unknown>>({
+    queryKey: ["/api/case-reports/suggestions", {
+      caseId: formData.case_id || dashboardPrefillCaseId || undefined,
+      month: formData.month || undefined,
+    }],
+    enabled: showForm && !editingReport && (workflowSuggestionsEnabled || shouldUseDashboardSuggestions),
+    staleTime: 45_000,
+  });
+
+  const reportSuggestions = useMemo<CaseReportSuggestionsResponse | null>(() => {
+    if (!rawReportSuggestions || typeof rawReportSuggestions !== "object") return null;
+    if (!("suggestion" in rawReportSuggestions) || typeof rawReportSuggestions.suggestion !== "object") return null;
+    return rawReportSuggestions as CaseReportSuggestionsResponse;
+  }, [rawReportSuggestions]);
+
+  const showReportSuggestionCard = Boolean(
+    !editingReport && workflowSuggestionsEnabled && reportSuggestions && !reportSuggestionsDismissed,
+  );
+
+  const reportSuggestionVisibility = useSuggestionVisibility({
+    surface: "case_reports",
+    enabled: showReportSuggestionCard,
+    frequency: suggestionSettings.frequency,
+    scopeKey: `${formData.month}:${formData.case_id || dashboardPrefillCaseId || "none"}`,
+  });
+
+  const shouldRenderReportSuggestions = showReportSuggestionCard && reportSuggestionVisibility.isVisible;
+
+  const suggestionFeedbackMutation = useMutation({
+    mutationFn: async (payload: {
+      suggestionType: string;
+      outcome: "accepted" | "rejected";
+      month?: string | null;
+      caseId?: string | null;
+      suggestedValue?: string | null;
+      chosenValue?: string | null;
+      metadata?: Record<string, unknown>;
+    }) => {
+      return apiRequest("POST", "/api/case-reports/suggestions/feedback", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/case-reports/suggestions"] });
+    },
+  });
+
+  const sendReportSuggestionFeedback = useCallback((
+    suggestionType: string,
+    outcome: "accepted" | "rejected",
+    suggestedValue?: string | null,
+    chosenValue?: string | null,
+    metadata?: Record<string, unknown>,
+  ) => {
+    suggestionFeedbackMutation.mutate({
+      suggestionType,
+      outcome,
+      month: formData.month || null,
+      caseId: formData.case_id || null,
+      suggestedValue,
+      chosenValue,
+      metadata,
+    });
+  }, [formData.case_id, formData.month, suggestionFeedbackMutation]);
+
+  const hasFormFieldContent = useCallback((key: CaseReportSuggestionFieldKey, value: string | null | undefined) => {
+    if (key === "notes") return (value || "").trim().length > 0;
+    return sectionHasContent(value || "");
+  }, []);
+
+  const applyCaseIdSuggestion = useCallback(() => {
+    const suggestedCaseId = reportSuggestions?.suggestion.caseId.value?.trim() || "";
+    if (!suggestedCaseId) return;
+
+    setFormData((prev) => ({ ...prev, case_id: suggestedCaseId }));
+    setReportSuggestionsDismissed(false);
+    sendReportSuggestionFeedback("case_id", "accepted", suggestedCaseId, suggestedCaseId, { source: "case_reports_form" });
+    toast({ title: "Forslag brukt", description: "Saksnummer er satt fra historikken din." });
+  }, [reportSuggestions, sendReportSuggestionFeedback, toast]);
+
+  const neverSuggestCaseIdAgain = useCallback(async () => {
+    const suggestedCaseId = reportSuggestions?.suggestion.caseId.value?.trim() || "";
+    if (!suggestedCaseId) return;
+
+    try {
+      await blockSuggestionAsync({ category: "case_id", value: suggestedCaseId });
+      sendReportSuggestionFeedback("case_id", "rejected", suggestedCaseId, null, {
+        source: "case_reports_form",
+        neverSuggestAgain: true,
+      });
+      reportSuggestionVisibility.dismiss();
+      setReportSuggestionsDismissed(true);
+      toast({
+        title: "Blokkert",
+        description: "Denne saken blir ikke foreslått igjen før du fjerner blokkeringen i innstillinger.",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Feil",
+        description: error?.message || "Kunne ikke blokkere forslaget.",
+        variant: "destructive",
+      });
+    }
+  }, [blockSuggestionAsync, reportSuggestionVisibility, reportSuggestions, sendReportSuggestionFeedback, toast]);
+
+  const applyFieldSuggestions = useCallback((onlyEmptyFields: boolean) => {
+    if (!reportSuggestions) return;
+
+    const appliedFields: CaseReportSuggestionFieldKey[] = [];
+    let caseIdApplied = false;
+
+    setFormData((previous) => {
+      const next = { ...previous };
+
+      const suggestedCaseId = reportSuggestions.suggestion.caseId.value?.trim();
+      if (suggestedCaseId) {
+        const canApplyCaseId = !onlyEmptyFields || !previous.case_id;
+        if (canApplyCaseId) {
+          next.case_id = suggestedCaseId;
+          caseIdApplied = true;
+        }
+      }
+
+      REPORT_SUGGESTION_FIELD_KEYS.forEach((fieldKey) => {
+        const suggestedValue = reportSuggestions.suggestion.fields[fieldKey]?.value;
+        if (!suggestedValue) return;
+
+        const currentValue = String((previous as any)[fieldKey] ?? "");
+        const hasCurrentContent = hasFormFieldContent(fieldKey, currentValue);
+        if (onlyEmptyFields && hasCurrentContent) return;
+
+        (next as any)[fieldKey] = suggestedValue;
+        appliedFields.push(fieldKey);
+      });
+
+      return next;
+    });
+
+    if (!caseIdApplied && appliedFields.length === 0) {
+      toast({
+        title: "Ingen nye forslag",
+        description: onlyEmptyFields
+          ? "Alle relevante felt er allerede fylt ut."
+          : "Fant ingen forslag å sette inn.",
+      });
+      return;
+    }
+
+    if (caseIdApplied && reportSuggestions.suggestion.caseId.value) {
+      sendReportSuggestionFeedback(
+        "case_id",
+        "accepted",
+        reportSuggestions.suggestion.caseId.value,
+        reportSuggestions.suggestion.caseId.value,
+        { source: "case_reports_form" },
+      );
+    }
+
+    appliedFields.forEach((fieldKey) => {
+      const fieldValue = reportSuggestions.suggestion.fields[fieldKey]?.value || null;
+      sendReportSuggestionFeedback(
+        `field_${fieldKey}`,
+        "accepted",
+        fieldValue,
+        fieldValue,
+        { source: "case_reports_form", onlyEmptyFields },
+      );
+    });
+
+    sendReportSuggestionFeedback(
+      "apply_all",
+      "accepted",
+      null,
+      onlyEmptyFields ? "prefill_empty_fields" : "prefill_all_fields",
+      {
+        source: "case_reports_form",
+        appliedFields,
+        caseIdApplied,
+        onlyEmptyFields,
+      },
+    );
+
+    toast({
+      title: "Forslag brukt",
+      description: `${appliedFields.length + (caseIdApplied ? 1 : 0)} felt ble fylt ut.`,
+    });
+  }, [hasFormFieldContent, reportSuggestions, sendReportSuggestionFeedback, toast]);
+
+  const applyPreviousMonthCopy = useCallback(() => {
+    const previousMonthReport = reportSuggestions?.previousMonthReport;
+    if (!previousMonthReport) {
+      toast({ title: "Ingen rapport å kopiere", description: "Fant ingen rapport i forrige måned." });
+      return;
+    }
+
+    setFormData((previous) => {
+      const next = {
+        ...previous,
+        case_id: previousMonthReport.caseId || previous.case_id,
+      };
+
+      REPORT_SUGGESTION_FIELD_KEYS.forEach((fieldKey) => {
+        const value = previousMonthReport.fields[fieldKey];
+        if (value) {
+          (next as any)[fieldKey] = value;
+        }
+      });
+
+      return next;
+    });
+
+    sendReportSuggestionFeedback(
+      "copy_previous_month",
+      "accepted",
+      previousMonthReport.month,
+      formData.month || null,
+      {
+        source: "case_reports_form",
+        reportId: previousMonthReport.id,
+      },
+    );
+    sendReportSuggestionFeedback(
+      "apply_all",
+      "accepted",
+      null,
+      "copy_previous_month",
+      {
+        source: "case_reports_form",
+        reportId: previousMonthReport.id,
+        sourceMonth: previousMonthReport.month,
+        targetMonth: formData.month,
+      },
+    );
+
+    toast({
+      title: "Kopiert fra forrige måned",
+      description: `Feltene er kopiert fra ${previousMonthReport.month}. Måned er beholdt som ${formData.month}.`,
+    });
+  }, [formData.month, reportSuggestions, sendReportSuggestionFeedback, toast]);
+
+  const dismissReportSuggestions = useCallback(() => {
+    reportSuggestionVisibility.dismiss();
+    setReportSuggestionsDismissed(true);
+    sendReportSuggestionFeedback("apply_all", "rejected", null, null, {
+      source: "case_reports_form",
+    });
+  }, [reportSuggestionVisibility, sendReportSuggestionFeedback]);
+
+  useEffect(() => {
+    if (!showForm || editingReport) return;
+    setReportSuggestionsDismissed(false);
+  }, [showForm, editingReport, formData.case_id, formData.month]);
+
+  useEffect(() => {
+    if (!shouldAutoCreateFromDashboard || editingReport) return;
+    if (!showForm) {
+      setShowForm(true);
+    }
+  }, [editingReport, shouldAutoCreateFromDashboard, showForm]);
+
+  useEffect(() => {
+    if (!shouldAutoCreateFromDashboard || editingReport || !showForm) return;
+    if (dashboardPrefillAppliedRef.current === dashboardPrefillKey) return;
+
+    if (dashboardPrefillCaseId && formData.case_id !== dashboardPrefillCaseId) {
+      setFormData((previous) => ({ ...previous, case_id: dashboardPrefillCaseId }));
+      return;
+    }
+
+    if (!shouldUseDashboardSuggestions) {
+      dashboardPrefillAppliedRef.current = dashboardPrefillKey;
+      return;
+    }
+
+    if (!reportSuggestions) return;
+
+    if (dashboardPrefillMode === "copy_previous_month" && reportSuggestions.previousMonthReport) {
+      applyPreviousMonthCopy();
+    } else {
+      applyFieldSuggestions(true);
+    }
+
+    dashboardPrefillAppliedRef.current = dashboardPrefillKey;
+  }, [
+    applyFieldSuggestions,
+    applyPreviousMonthCopy,
+    dashboardPrefillKey,
+    dashboardPrefillCaseId,
+    dashboardPrefillMode,
+    editingReport,
+    formData.case_id,
+    reportSuggestions,
+    shouldAutoCreateFromDashboard,
+    shouldUseDashboardSuggestions,
+    showForm,
+  ]);
 
   // Duplicate detection: warn if a report already exists for this case_id + month
   const duplicateReport = useMemo(() => {
@@ -842,18 +1216,14 @@ export default function CaseReportsPage() {
                       value={formData.case_id}
                       onChange={(e) => setFormData({ ...formData, case_id: e.target.value })}
                       placeholder="F.eks. SAK-2024-001"
-                      disabled={!!editingReport}
                       data-testid="input-case-id"
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="month">Måned *</Label>
-                    <Input
-                      id="month"
-                      type="month"
+                    <MonthPicker
                       value={formData.month}
-                      onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                      disabled={!!editingReport}
+                      onChange={(v) => setFormData({ ...formData, month: v })}
                       data-testid="input-month"
                     />
                   </div>
@@ -881,6 +1251,98 @@ export default function CaseReportsPage() {
 
                 {/* Section progress indicator */}
                 <SectionProgress formData={formData} />
+
+                {/* Smart suggestions */}
+                {shouldRenderReportSuggestions && reportSuggestions && (
+                  <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent" data-testid="case-report-suggestions-card">
+                    <CardContent className="p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <p className="text-sm font-semibold">Personlige forslag</p>
+                          <p className="text-xs text-muted-foreground">
+                            Basert på {reportSuggestions.analyzedReports} tidligere rapporter.
+                          </p>
+                          {reportSuggestions.policy && (
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                              Kilde: {reportSuggestions.policy.source} · terskel {Math.round(reportSuggestions.policy.confidenceThreshold * 100)}%
+                            </p>
+                          )}
+                        </div>
+                        {reportSuggestions.personalization.totalFeedback > 0 && (
+                          <Badge variant="secondary">
+                            Treffrate: {reportSuggestions.personalization.acceptanceRate != null
+                              ? `${Math.round(reportSuggestions.personalization.acceptanceRate * 100)}%`
+                              : "–"}
+                          </Badge>
+                        )}
+                      </div>
+
+                      <div className="rounded-md border bg-background/70 p-3 space-y-2" data-testid="case-report-suggestion-caseid">
+                        <p className="text-xs text-muted-foreground">Foreslått sak</p>
+                        <p className="font-medium">{reportSuggestions.suggestion.caseId.value || "Ingen forslag ennå"}</p>
+                        <p className="text-xs text-muted-foreground">{reportSuggestions.suggestion.caseId.reason}</p>
+                        <div className="flex items-center justify-between">
+                          <span className="text-[11px] text-muted-foreground">
+                            Sikkerhet: {Math.round(reportSuggestions.suggestion.caseId.confidence * 100)}%
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="secondary"
+                            onClick={applyCaseIdSuggestion}
+                            disabled={!reportSuggestions.suggestion.caseId.value}
+                            data-testid="case-report-suggestion-apply-caseid"
+                          >
+                            Bruk sak
+                          </Button>
+                        </div>
+                        <div className="flex justify-end">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={!reportSuggestions.suggestion.caseId.value}
+                            onClick={() => { void neverSuggestCaseIdAgain(); }}
+                            data-testid="case-report-suggestion-never-caseid"
+                          >
+                            Ikke foreslå igjen
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => applyFieldSuggestions(true)}
+                          data-testid="case-report-suggestion-apply-empty"
+                        >
+                          Bruk forslag i tomme felt
+                        </Button>
+                        {reportSuggestions.suggestion.copyPreviousMonth.value && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={applyPreviousMonthCopy}
+                            data-testid="case-report-suggestion-copy-previous-month"
+                          >
+                            Kopier forrige måned ({Math.round(reportSuggestions.suggestion.copyPreviousMonth.confidence * 100)}%)
+                          </Button>
+                        )}
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          onClick={dismissReportSuggestions}
+                          data-testid="case-report-suggestion-dismiss"
+                        >
+                          Ikke nå
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
 
                 {/* Template selector */}
                 {!editingReport && (

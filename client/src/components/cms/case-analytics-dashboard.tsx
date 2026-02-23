@@ -18,11 +18,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts";
+import { Bar, BarChart, Line, LineChart, Pie, PieChart, Cell, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer, Tooltip } from "recharts";
 import { format, subMonths, eachMonthOfInterval, startOfMonth, endOfMonth } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { CaseReport } from "@shared/schema";
@@ -424,16 +420,16 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
           {insights.map((insight) => {
             const Icon = insight.icon;
             const bgColors = {
-              warning: "bg-gradient-to-br from-orange-50 to-amber-50/50 border-orange-200/40",
-              success: "bg-gradient-to-br from-green-50 to-emerald-50/50 border-green-200/40",
-              info: "bg-gradient-to-br from-blue-50 to-sky-50/50 border-blue-200/40",
-              alert: "bg-gradient-to-br from-red-50 to-rose-50/50 border-red-200/40"
+              warning: "bg-orange-50/60 dark:bg-orange-950/30 border-orange-200/40 dark:border-orange-800/40",
+              success: "bg-green-50/60 dark:bg-green-950/30 border-green-200/40 dark:border-green-800/40",
+              info: "bg-blue-50/60 dark:bg-blue-950/30 border-blue-200/40 dark:border-blue-800/40",
+              alert: "bg-red-50/60 dark:bg-red-950/30 border-red-200/40 dark:border-red-800/40"
             };
             const iconColors = {
-              warning: "text-orange-600 bg-gradient-to-br from-orange-100 to-orange-50",
-              success: "text-green-600 bg-gradient-to-br from-green-100 to-green-50",
-              info: "text-blue-600 bg-gradient-to-br from-blue-100 to-blue-50",
-              alert: "text-red-600 bg-gradient-to-br from-red-100 to-red-50"
+              warning: "text-orange-600 dark:text-orange-400 bg-orange-100/80 dark:bg-orange-900/40",
+              success: "text-green-600 dark:text-green-400 bg-green-100/80 dark:bg-green-900/40",
+              info: "text-blue-600 dark:text-blue-400 bg-blue-100/80 dark:bg-blue-900/40",
+              alert: "text-red-600 dark:text-red-400 bg-red-100/80 dark:bg-red-900/40"
             };
 
             return (
@@ -460,11 +456,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
 
       {/* Workflow Checklist */}
       {workflowItems.length > 0 && (
-        <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+        <Card className="border shadow-sm">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-50 to-violet-50">
-                <CheckCircle2 className="h-4 w-4 text-purple-600" />
+              <div className="p-1.5 rounded-lg bg-purple-100/60 dark:bg-purple-900/30">
+                <CheckCircle2 className="h-4 w-4 text-purple-600 dark:text-purple-400" />
               </div>
               Arbeidsflyt Sjekkliste
             </CardTitle>
@@ -477,11 +473,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
                 return (
                   <div
                     key={item.id}
-                    className="group relative border rounded-lg p-4 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5 cursor-pointer bg-white"
+                    className="group relative border rounded-lg p-4 hover:shadow-md transition-all duration-300 hover:-translate-y-0.5 cursor-pointer bg-card"
                   >
                     <div className="flex items-start justify-between mb-2">
-                      <div className="p-2 rounded-lg bg-gradient-to-br from-slate-50 to-slate-100/50">
-                        <Icon className="h-4 w-4 text-slate-700" />
+                      <div className="p-2 rounded-lg bg-muted">
+                        <Icon className="h-4 w-4 text-foreground" />
                       </div>
                       <Badge variant={item.variant === "warning" ? "destructive" : "default"}>
                         {item.count}
@@ -501,11 +497,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
 
       {/* Key Metrics Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card className="bg-gradient-to-br from-white via-slate-50 to-white border-slate-200/60 hover:shadow-lg hover:shadow-slate-200/50 transition-all duration-300 hover:-translate-y-1">
+        <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Totalt</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-blue-50 to-sky-50">
-              <FileText className="h-4 w-4 text-blue-600" />
+            <div className="p-2 rounded-lg bg-blue-100/60 dark:bg-blue-900/30">
+              <FileText className="h-4 w-4 text-blue-600 dark:text-blue-400" />
             </div>
           </CardHeader>
           <CardContent>
@@ -529,11 +525,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-white via-green-50/30 to-white border-green-200/40 hover:shadow-lg hover:shadow-green-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Godkjent</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-green-50 to-emerald-50">
-              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            <div className="p-2 rounded-lg bg-green-100/60 dark:bg-green-900/30">
+              <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
             </div>
           </CardHeader>
           <CardContent>
@@ -544,11 +540,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-white via-purple-50/30 to-white border-purple-200/40 hover:shadow-lg hover:shadow-purple-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Gj.snittlig tid</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-purple-50 to-violet-50">
-              <Clock className="h-4 w-4 text-purple-600" />
+            <div className="p-2 rounded-lg bg-purple-100/60 dark:bg-purple-900/30">
+              <Clock className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
           </CardHeader>
           <CardContent>
@@ -557,11 +553,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-white via-amber-50/30 to-white border-amber-200/40 hover:shadow-lg hover:shadow-amber-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">SLA overholdelse</CardTitle>
-            <div className="p-2 rounded-lg bg-gradient-to-br from-amber-50 to-yellow-50">
-              <Activity className="h-4 w-4 text-amber-600" />
+            <div className="p-2 rounded-lg bg-amber-100/60 dark:bg-amber-900/30">
+              <Activity className="h-4 w-4 text-amber-600 dark:text-amber-400" />
             </div>
           </CardHeader>
           <CardContent>
@@ -574,11 +570,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
       {/* Charts Row */}
       <div className="grid gap-4 md:grid-cols-2">
         {/* Status Distribution Pie Chart */}
-        <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm hover:shadow-md transition-shadow duration-300">
+        <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-blue-50 to-sky-50">
-                <BarChart3 className="h-4 w-4 text-blue-600" />
+              <div className="p-1.5 rounded-lg bg-blue-100/60 dark:bg-blue-900/30">
+                <BarChart3 className="h-4 w-4 text-blue-600 dark:text-blue-400" />
               </div>
               Statusfordeling
             </CardTitle>
@@ -607,7 +603,7 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
                       />
                     ))}
                   </Pie>
-                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <Tooltip />
                 </PieChart>
               </ResponsiveContainer>
             </div>
@@ -630,11 +626,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
         </Card>
 
         {/* Trend Over Time Line Chart */}
-        <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm hover:shadow-md transition-shadow duration-300">
+        <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <div className="p-1.5 rounded-lg bg-gradient-to-br from-green-50 to-emerald-50">
-                <TrendingUp className="h-4 w-4 text-green-600" />
+              <div className="p-1.5 rounded-lg bg-green-100/60 dark:bg-green-900/30">
+                <TrendingUp className="h-4 w-4 text-green-600 dark:text-green-400" />
               </div>
               Trend over tid
             </CardTitle>
@@ -644,10 +640,18 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
             <div className="h-[300px]">
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={trendData}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                  <XAxis dataKey="month" className="text-xs" />
-                  <YAxis className="text-xs" />
-                  <ChartTooltip content={<ChartTooltipContent />} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.15} />
+                  <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="currentColor" strokeOpacity={0.2} />
+                  <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="currentColor" strokeOpacity={0.2} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'hsl(var(--card))',
+                      border: '1px solid hsl(var(--border))',
+                      borderRadius: '8px',
+                      color: 'hsl(var(--foreground))',
+                      fontSize: '12px',
+                    }}
+                  />
                   <Legend />
                   <Line
                     type="monotone"
@@ -678,11 +682,11 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
       </div>
 
       {/* Stacked Bar Chart - Status Breakdown Over Time */}
-      <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm hover:shadow-md transition-shadow duration-300">
+      <Card className="shadow-sm hover:shadow-md transition-shadow duration-300">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-gradient-to-br from-purple-50 to-violet-50">
-              <BarChart3 className="h-4 w-4 text-purple-600" />
+            <div className="p-1.5 rounded-lg bg-purple-100/60 dark:bg-purple-900/30">
+              <BarChart3 className="h-4 w-4 text-purple-600 dark:text-purple-400" />
             </div>
             Statusfordeling over tid
           </CardTitle>
@@ -692,10 +696,18 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
           <div className="h-[400px]">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={trendData}>
-                <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-                <XAxis dataKey="month" className="text-xs" />
-                <YAxis className="text-xs" />
-                <ChartTooltip content={<ChartTooltipContent />} />
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.15} />
+                <XAxis dataKey="month" tick={{ fontSize: 11, fill: 'currentColor' }} stroke="currentColor" strokeOpacity={0.2} />
+                <YAxis tick={{ fontSize: 11, fill: 'currentColor' }} stroke="currentColor" strokeOpacity={0.2} />
+                <Tooltip
+                  contentStyle={{
+                    background: 'hsl(var(--card))',
+                    border: '1px solid hsl(var(--border))',
+                    borderRadius: '8px',
+                    color: 'hsl(var(--foreground))',
+                    fontSize: '12px',
+                  }}
+                />
                 <Legend />
                 <Bar dataKey="approved" stackId="a" fill={statusColors.approved} name="Godkjent" />
                 <Bar dataKey="pending" stackId="a" fill={statusColors.pending} name="Til behandling" />
@@ -711,47 +723,47 @@ export const CaseAnalyticsDashboard = React.memo(function CaseAnalyticsDashboard
 
       {/* Action Items */}
       <div className="grid gap-4 md:grid-cols-3">
-        <Card className="bg-gradient-to-br from-orange-50 to-red-50/30 border-orange-300/50 hover:shadow-lg hover:shadow-orange-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="border-orange-300/50 dark:border-orange-800/40 bg-orange-50/40 dark:bg-orange-950/20 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Krever handling</CardTitle>
-              <div className="p-2 rounded-lg bg-gradient-to-br from-orange-100 to-orange-50">
-                <AlertTriangle className="h-4 w-4 text-orange-600" />
+              <div className="p-2 rounded-lg bg-orange-100/80 dark:bg-orange-900/40">
+                <AlertTriangle className="h-4 w-4 text-orange-600 dark:text-orange-400" />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-700">{metrics.needsRevision}</div>
+            <div className="text-2xl font-bold text-orange-700 dark:text-orange-400">{metrics.needsRevision}</div>
             <p className="text-xs text-muted-foreground mt-1">rapporter trenger revisjon</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-yellow-50 to-amber-50/30 border-yellow-300/50 hover:shadow-lg hover:shadow-yellow-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="border-yellow-300/50 dark:border-yellow-800/40 bg-yellow-50/40 dark:bg-yellow-950/20 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Venter godkjenning</CardTitle>
-              <div className="p-2 rounded-lg bg-gradient-to-br from-yellow-100 to-yellow-50">
-                <Clock className="h-4 w-4 text-yellow-600" />
+              <div className="p-2 rounded-lg bg-yellow-100/80 dark:bg-yellow-900/40">
+                <Clock className="h-4 w-4 text-yellow-600 dark:text-yellow-400" />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-700">{metrics.pending}</div>
+            <div className="text-2xl font-bold text-yellow-700 dark:text-yellow-400">{metrics.pending}</div>
             <p className="text-xs text-muted-foreground mt-1">rapporter under behandling</p>
           </CardContent>
         </Card>
 
-        <Card className="bg-gradient-to-br from-red-50 to-rose-50/30 border-red-300/50 hover:shadow-lg hover:shadow-red-200/30 transition-all duration-300 hover:-translate-y-1">
+        <Card className="border-red-300/50 dark:border-red-800/40 bg-red-50/40 dark:bg-red-950/20 hover:shadow-lg transition-all duration-300 hover:-translate-y-1">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <CardTitle className="text-sm font-medium">Avslått</CardTitle>
-              <div className="p-2 rounded-lg bg-gradient-to-br from-red-100 to-red-50">
-                <AlertTriangle className="h-4 w-4 text-red-600" />
+              <div className="p-2 rounded-lg bg-red-100/80 dark:bg-red-900/40">
+                <AlertTriangle className="h-4 w-4 text-red-600 dark:text-red-400" />
               </div>
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-700">{metrics.rejected}</div>
+            <div className="text-2xl font-bold text-red-700 dark:text-red-400">{metrics.rejected}</div>
             <p className="text-xs text-muted-foreground mt-1">rapporter avslått</p>
           </CardContent>
         </Card>

@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, getDay } from "date-fns";
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isWeekend, getDay, subMonths } from "date-fns";
 import { nb } from "date-fns/locale";
-import { Calendar, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react";
+import { Calendar, ChevronLeft, ChevronRight, AlertTriangle, Copy } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -25,6 +25,7 @@ interface BulkTimeEntryModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   userId: string;
+  initialGenerationMode?: "default" | "copy_previous_month";
 }
 
 interface DayEntry {
@@ -34,6 +35,13 @@ interface DayEntry {
   hasExisting: boolean;
   isHoliday: boolean;
   holidayName?: string;
+}
+
+interface PreviousMonthTimeEntry {
+  date: string;
+  hours: number;
+  description: string;
+  caseNumber: string | null;
 }
 
 // Norwegian public holidays calculation
@@ -101,7 +109,50 @@ const projectOptions = [
 const WEEKDAY_NAMES = ["Man", "Tir", "Ons", "Tor", "Fre"];
 const NO_PROJECT_VALUE = "no_project";
 
-export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntryModalProps) {
+const getWeekdayTemplateKey = (date: Date) => {
+  const dayOfWeek = getDay(date); // 0 = Sunday, 1 = Monday ... 6 = Saturday
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return null;
+  }
+
+  const occurrence = Math.floor((date.getDate() - 1) / 7) + 1;
+  return `${dayOfWeek}-${occurrence}`;
+};
+
+const getMostFrequentValue = (valueMap: Map<string, number>) => {
+  let bestValue: string | null = null;
+  let bestCount = 0;
+
+  valueMap.forEach((count, value) => {
+    if (count > bestCount) {
+      bestValue = value;
+      bestCount = count;
+    }
+  });
+
+  return bestValue;
+};
+
+const parseLocalDate = (dateStr: string) => {
+  const [yearStr, monthStr, dayStr] = dateStr.split("-");
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  const parsed = new Date(year, month - 1, day);
+  return isNaN(parsed.getTime()) ? null : parsed;
+};
+
+export function BulkTimeEntryModal({
+  open,
+  onOpenChange,
+  userId,
+  initialGenerationMode = "default",
+}: BulkTimeEntryModalProps) {
   const { toast } = useToast();
   const [step, setStep] = useState<1 | 2>(1);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
@@ -110,9 +161,13 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
   const [selectedProject, setSelectedProject] = useState(NO_PROJECT_VALUE);
   const [overwriteExisting, setOverwriteExisting] = useState(false);
   const [dayEntries, setDayEntries] = useState<DayEntry[]>([]);
+  const [entryGenerationMode, setEntryGenerationMode] = useState<"default" | "copy_previous_month">("default");
 
   const monthStart = startOfMonth(selectedMonth);
   const monthEnd = endOfMonth(selectedMonth);
+  const previousMonth = useMemo(() => subMonths(selectedMonth, 1), [selectedMonth]);
+  const previousMonthStart = startOfMonth(previousMonth);
+  const previousMonthEnd = endOfMonth(previousMonth);
 
   // Check for existing entries in the selected month
   const { data: existingData } = useQuery<{ existingDates: string[] }>({
@@ -126,6 +181,77 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
 
   const existingDates = useMemo(() => new Set(existingData?.existingDates || []), [existingData]);
 
+  const { data: previousMonthEntries = [], isFetching: isPreviousMonthLoading } = useQuery<PreviousMonthTimeEntry[]>({
+    queryKey: ["/api/time-entries", {
+      userId,
+      startDate: format(previousMonthStart, "yyyy-MM-dd"),
+      endDate: format(previousMonthEnd, "yyyy-MM-dd"),
+    }],
+    enabled: open,
+  });
+
+  const previousMonthSummary = useMemo(() => {
+    const hoursByWeekdayTemplate = new Map<string, number>();
+    const descriptionCounts = new Map<string, number>();
+    const projectCounts = new Map<string, number>();
+
+    previousMonthEntries.forEach((entry) => {
+      const parsedDate = parseLocalDate(entry.date);
+      if (!parsedDate) {
+        return;
+      }
+
+      const templateKey = getWeekdayTemplateKey(parsedDate);
+      if (templateKey) {
+        const currentHours = hoursByWeekdayTemplate.get(templateKey) || 0;
+        hoursByWeekdayTemplate.set(templateKey, currentHours + (entry.hours || 0));
+      }
+
+      const trimmedDescription = entry.description?.trim();
+      if (trimmedDescription) {
+        descriptionCounts.set(trimmedDescription, (descriptionCounts.get(trimmedDescription) || 0) + 1);
+      }
+
+      const projectKey = entry.caseNumber?.trim() || NO_PROJECT_VALUE;
+      projectCounts.set(projectKey, (projectCounts.get(projectKey) || 0) + 1);
+    });
+
+    const preferredDescription = getMostFrequentValue(descriptionCounts);
+    const preferredProjectRaw = getMostFrequentValue(projectCounts) || NO_PROJECT_VALUE;
+    const preferredProject = projectOptions.some((p) => p.id === preferredProjectRaw)
+      ? preferredProjectRaw
+      : NO_PROJECT_VALUE;
+
+    return {
+      hoursByWeekdayTemplate,
+      preferredDescription,
+      preferredProject,
+      totalEntries: previousMonthEntries.length,
+      mappedTemplateDays: hoursByWeekdayTemplate.size,
+    };
+  }, [previousMonthEntries]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialGenerationMode !== "copy_previous_month") return;
+    if (isPreviousMonthLoading) return;
+    if (previousMonthSummary.mappedTemplateDays === 0) return;
+
+    setEntryGenerationMode("copy_previous_month");
+    setStep(2);
+    if (previousMonthSummary.preferredDescription) {
+      setDescription(previousMonthSummary.preferredDescription);
+    }
+    setSelectedProject(previousMonthSummary.preferredProject || NO_PROJECT_VALUE);
+  }, [
+    initialGenerationMode,
+    isPreviousMonthLoading,
+    open,
+    previousMonthSummary.mappedTemplateDays,
+    previousMonthSummary.preferredDescription,
+    previousMonthSummary.preferredProject,
+  ]);
+
   // Get holidays for the selected month's year
   const holidays = useMemo(() => {
     return getNorwegianHolidays(selectedMonth.getFullYear());
@@ -136,15 +262,31 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     if (step === 2) {
       const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
       const weekdays = days.filter(d => !isWeekend(d));
+      const fallbackHours = parseFloat(defaultHours) || 7.5;
       
       const entries: DayEntry[] = weekdays.map(day => {
         const dateStr = format(day, "yyyy-MM-dd");
         const holidayName = holidays.get(dateStr);
         const isHoliday = !!holidayName;
+
+        let hours = fallbackHours;
+        let enabled = !isHoliday;
+
+        if (entryGenerationMode === "copy_previous_month") {
+          const templateKey = getWeekdayTemplateKey(day);
+          const copiedHours = templateKey ? previousMonthSummary.hoursByWeekdayTemplate.get(templateKey) : undefined;
+          const hasCopiedHours = copiedHours != null && copiedHours > 0;
+
+          if (hasCopiedHours) {
+            hours = copiedHours;
+          }
+          enabled = hasCopiedHours && !isHoliday;
+        }
+
         return {
           date: dateStr,
-          hours: parseFloat(defaultHours) || 7.5,
-          enabled: !isHoliday, // Disable holidays by default
+          hours,
+          enabled,
           hasExisting: existingDates.has(dateStr),
           isHoliday,
           holidayName,
@@ -153,7 +295,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
       
       setDayEntries(entries);
     }
-  }, [step, monthStart, monthEnd, defaultHours, existingDates, holidays]);
+  }, [step, monthStart, monthEnd, defaultHours, existingDates, holidays, entryGenerationMode, previousMonthSummary]);
 
   // Update hasExisting when existingDates changes
   useEffect(() => {
@@ -164,6 +306,11 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
       })));
     }
   }, [existingDates]);
+
+  useEffect(() => {
+    if (!open) return;
+    setEntryGenerationMode(initialGenerationMode);
+  }, [initialGenerationMode, open]);
 
   const bulkMutation = useMutation({
     mutationFn: async (data: { entries: { date: string; hours: number; description: string; caseNumber: string | null }[]; overwrite: boolean }) => {
@@ -176,6 +323,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     onSuccess: async (response) => {
       const result = await response.json();
       queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries/suggestions"] });
       
       const messages = [];
       if (result.created > 0) messages.push(`${result.created} opprettet`);
@@ -199,6 +347,19 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     },
   });
 
+  const suggestionFeedbackMutation = useMutation({
+    mutationFn: async (data: {
+      suggestionType: "bulk_copy_prev_month";
+      outcome: "accepted" | "rejected";
+      suggestedValue?: string | null;
+      chosenValue?: string | null;
+      date?: string | null;
+      metadata?: Record<string, unknown>;
+    }) => {
+      return apiRequest("POST", "/api/time-entries/suggestions/feedback", data);
+    },
+  });
+
   const resetModal = () => {
     setStep(1);
     setDayEntries([]);
@@ -206,6 +367,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     setSelectedProject(NO_PROJECT_VALUE);
     setDescription("Arbeid");
     setDefaultHours("7.5");
+    setEntryGenerationMode(initialGenerationMode);
   };
 
   const handleClose = () => {
@@ -218,6 +380,40 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
       toast({ title: "Mangler beskrivelse", variant: "destructive" });
       return;
     }
+    setStep(2);
+  };
+
+  const handleCopyPreviousMonth = () => {
+    if (isPreviousMonthLoading) {
+      return;
+    }
+
+    if (previousMonthSummary.mappedTemplateDays === 0) {
+      toast({
+        title: "Ingen føringer å kopiere",
+        description: "Fant ingen hverdagsføringer i forrige måned.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (previousMonthSummary.preferredDescription) {
+      setDescription(previousMonthSummary.preferredDescription);
+    }
+
+    setSelectedProject(previousMonthSummary.preferredProject);
+    setEntryGenerationMode("copy_previous_month");
+    suggestionFeedbackMutation.mutate({
+      suggestionType: "bulk_copy_prev_month",
+      outcome: "accepted",
+      suggestedValue: "copy_previous_month",
+      chosenValue: "copy_previous_month",
+      date: format(selectedMonth, "yyyy-MM-dd"),
+      metadata: {
+        previousMonthEntries: previousMonthSummary.totalEntries,
+        mappedTemplateDays: previousMonthSummary.mappedTemplateDays,
+      },
+    });
     setStep(2);
   };
 
@@ -291,7 +487,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
 
   // Find holidays falling on weekends this month (for info display)
   const weekendHolidays = useMemo(() => {
-    const result: { date: string; name: string }[] = [];
+    const result: { date: string; name: string; displayDate: string }[] = [];
     const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
     
     for (const day of days) {
@@ -299,7 +495,11 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
         const dateStr = format(day, "yyyy-MM-dd");
         const holidayName = holidays.get(dateStr);
         if (holidayName) {
-          result.push({ date: dateStr, name: holidayName });
+          result.push({
+            date: dateStr,
+            name: holidayName,
+            displayDate: format(day, "d. MMM", { locale: nb }),
+          });
         }
       }
     }
@@ -314,7 +514,11 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
     let currentWeek: DayEntry[] = [];
     
     dayEntries.forEach((entry, _index) => {
-      const dayOfWeek = getDay(new Date(entry.date));
+      const parsedEntryDate = parseLocalDate(entry.date);
+      if (!parsedEntryDate) {
+        return;
+      }
+      const dayOfWeek = getDay(parsedEntryDate);
       // Monday = 1, so we use dayOfWeek - 1 for Monday-based index
       const mondayIndex = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
       
@@ -415,6 +619,32 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="rounded-md border p-3 bg-muted/20 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm">
+                  <p className="font-medium">Kopier forrige måned</p>
+                  <p className="text-xs text-muted-foreground">
+                    Bruker føringer fra {format(previousMonth, "MMMM yyyy", { locale: nb })} og tilpasser til samme ukedager i valgt måned.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleCopyPreviousMonth}
+                  disabled={isPreviousMonthLoading || previousMonthSummary.mappedTemplateDays === 0}
+                  data-testid="button-copy-previous-month"
+                >
+                  <Copy className="h-4 w-4 mr-2" />
+                  {isPreviousMonthLoading ? "Laster..." : "Kopier"}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {previousMonthSummary.totalEntries > 0
+                  ? `${previousMonthSummary.totalEntries} føringer funnet (${previousMonthSummary.mappedTemplateDays} hverdagsmønstre kan kopieres).`
+                  : "Ingen føringer funnet i forrige måned."}
+              </p>
+            </div>
           </div>
         ) : (
           <div className="space-y-4 py-4">
@@ -447,7 +677,7 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                     <span>Helligdager på helg: </span>
                     {weekendHolidays.map((h, i) => (
                       <span key={h.date}>
-                        {h.name} ({format(new Date(h.date), "d. MMM", { locale: nb })})
+                        {h.name} ({h.displayDate})
                         {i < weekendHolidays.length - 1 ? ", " : ""}
                       </span>
                     ))}
@@ -490,7 +720,8 @@ export function BulkTimeEntryModal({ open, onOpenChange, userId }: BulkTimeEntry
                 <div key={weekIndex} className="grid grid-cols-5 gap-1">
                   {week.map((entry, _dayIndex) => {
                     const entryIndex = dayEntries.findIndex(e => e.date === entry.date);
-                    const dayNum = parseInt(format(new Date(entry.date), "d"));
+                    const parsedEntryDate = parseLocalDate(entry.date);
+                    const dayNum = parsedEntryDate ? parsedEntryDate.getDate() : Number(entry.date.split("-")[2] || "0");
                     
                     const isInvalidHours = entry.enabled && (isNaN(entry.hours) || entry.hours < 0 || entry.hours > 24);
                     

@@ -62,6 +62,7 @@ function Router() {
 
         {/* Protected routes */}
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
+        <Route path="/time-tracking">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/reports">{() => <AuthGuard><Reports /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>

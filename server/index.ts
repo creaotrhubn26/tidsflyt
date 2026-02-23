@@ -23,6 +23,12 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// Allow VS Code Simple Browser (Chrome Private Network Access)
+app.use((_req, res, next) => {
+  res.setHeader("Access-Control-Allow-Private-Network", "true");
+  next();
+});
+
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",

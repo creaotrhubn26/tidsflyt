@@ -138,6 +138,25 @@
   --af-row-hover: rgba(255,255,255,0.8);
   --af-filter-active-bg: #1F6B73;
   --af-filter-active-fg: #ffffff;
+
+  /* ── Dashboard card appearance tokens (light defaults) ── */
+  --dc-card-bg: linear-gradient(180deg, #ffffff, #f7fbf9);
+  --dc-card-shadow: 0 12px 30px rgba(20,58,65,0.07);
+  --dc-card-border: #d8e4e0;
+}
+
+/* ── Dashboard card style variants (data-dash-card on wrapper) ── */
+[data-dash-card="flat"] {
+  --dc-card-bg: hsl(var(--card));
+  --dc-card-shadow: none;
+}
+[data-dash-card="glass"] {
+  --dc-card-bg: rgba(255,255,255,0.65);
+  --dc-card-shadow: 0 4px 16px rgba(20,58,65,0.06);
+}
+[data-dash-card="glass"] .overflow-visible.rounded-2xl {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
 }
 
 .dark {
@@ -270,6 +289,21 @@
   --hm-palette-3: #2D6D7C;
   --hm-palette-4: #3A8D9C;
   --hm-palette-5: #51C2D0;
+
+  /* ── Dashboard card appearance tokens (dark overrides) ── */
+  --dc-card-bg: hsl(var(--card));
+  --dc-card-shadow: none;
+  --dc-card-border: hsl(var(--border));
+}
+
+/* ── Dark mode card style overrides ── */
+.dark [data-dash-card="flat"] {
+  --dc-card-bg: hsl(var(--card));
+  --dc-card-shadow: none;
+}
+.dark [data-dash-card="glass"] {
+  --dc-card-bg: rgba(15,25,30,0.65);
+  --dc-card-shadow: 0 4px 16px rgba(0,0,0,0.25);
 }
 
 :root {

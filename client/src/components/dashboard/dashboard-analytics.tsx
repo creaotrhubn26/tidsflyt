@@ -76,48 +76,51 @@ export function DashboardAnalytics({
         )}
       </div>
 
-      {/* Hours Chart */}
-      {chartLoading ? (
-        <Card className="rounded-2xl border-border bg-card">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-foreground">
-              {isTiltaksleder ? "Oppfølgingstid per dag" : "Timer per dag"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-64 w-full" />
-          </CardContent>
-        </Card>
-      ) : (
-        <HoursChart data={hoursData} title={isTiltaksleder ? "Oppfølgingstid per dag" : "Timer per dag"} />
-      )}
+      {/* Chart + Heatmap side-by-side on xl */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+        {/* Hours Chart */}
+        {chartLoading ? (
+          <Card className="rounded-2xl border-border bg-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg text-foreground">
+                {isTiltaksleder ? "Oppfølgingstid per dag" : "Timer per dag"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-64 w-full" />
+            </CardContent>
+          </Card>
+        ) : (
+          <HoursChart data={hoursData} title={isTiltaksleder ? "Oppfølgingstid per dag" : "Timer per dag"} />
+        )}
 
-      {/* Calendar Heatmap */}
-      {showHeatmapSkeleton ? (
-        <Card className="rounded-2xl border-border bg-card">
-          <CardHeader className="pb-2">
-            <CardTitle className="text-lg text-foreground">
-              {isTiltaksleder ? "Oppfølgingsmønster" : "Aktivitetsoversikt"}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Skeleton className="h-32 w-full" />
-          </CardContent>
-        </Card>
-      ) : (
-        <CalendarHeatmap
-          data={heatmapData}
-          entries={monthEntries}
-          activities={calendarActivities}
-          isRefreshing={isHeatmapRefreshing}
-          selectedDate={selectedCalendarDate}
-          onDateSelect={onDateSelect}
-          currentMonth={currentMonth}
-          onMonthChange={onMonthChange}
-          monthDirection={monthDirection}
-          title={isTiltaksleder ? "Oppfølgingsmønster" : "Aktivitetsoversikt"}
-        />
-      )}
+        {/* Calendar Heatmap */}
+        {showHeatmapSkeleton ? (
+          <Card className="rounded-2xl border-border bg-card">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-lg text-foreground">
+                {isTiltaksleder ? "Oppfølgingsmønster" : "Aktivitetsoversikt"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-32 w-full" />
+            </CardContent>
+          </Card>
+        ) : (
+          <CalendarHeatmap
+            data={heatmapData}
+            entries={monthEntries}
+            activities={calendarActivities}
+            isRefreshing={isHeatmapRefreshing}
+            selectedDate={selectedCalendarDate}
+            onDateSelect={onDateSelect}
+            currentMonth={currentMonth}
+            onMonthChange={onMonthChange}
+            monthDirection={monthDirection}
+            title={isTiltaksleder ? "Oppfølgingsmønster" : "Aktivitetsoversikt"}
+          />
+        )}
+      </div>
     </div>
   );
 }

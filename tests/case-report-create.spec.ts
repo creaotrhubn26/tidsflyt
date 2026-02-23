@@ -92,7 +92,6 @@ test.describe("Saksrapport – oppretting", () => {
     // Skjemaet vises — fyll inn påkrevde felt
     await expect(page.getByTestId("input-case-id")).toBeVisible();
     await page.getByTestId("input-case-id").fill("SAK-2024-001");
-    await page.getByTestId("input-month").fill("2024-01");
 
     // Lagre som utkast
     await page.getByTestId("button-save-report").click();
@@ -126,10 +125,7 @@ test.describe("Saksrapport – oppretting", () => {
     await page.goto("/case-reports", { waitUntil: "domcontentloaded" });
     await page.getByTestId("button-new-report").click();
 
-    // Fyll bare inn måned, la saksnummer stå tomt
-    await page.getByTestId("input-month").fill("2024-01");
-
-    // Prøv å lagre uten saksnummer
+    // Prøv å lagre uten saksnummer (måned er forhåndsvalgt)
     await page.getByTestId("button-save-report").click();
 
     // Skjemaet skal fortsatt være åpent (validering blokkerte lagring)
@@ -164,7 +160,6 @@ test.describe("Saksrapport – oppretting", () => {
 
     // Fyll inn felt
     await page.getByTestId("input-case-id").fill("SAK-2024-002");
-    await page.getByTestId("input-month").fill("2024-02");
 
     // Klikk avbryt
     await page.getByTestId("button-cancel").click();

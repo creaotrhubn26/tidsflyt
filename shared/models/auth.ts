@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, timestamp, varchar } from "drizzle-orm/pg-core";
 
 // Session storage table.
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
@@ -27,6 +27,12 @@ export const users = pgTable("users", {
   vendorId: integer("vendor_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+  // Profile / settings fields
+  phone: varchar("phone", { length: 32 }),
+  language: varchar("language", { length: 8 }).notNull().default("no"),
+  notificationEmail: boolean("notification_email").notNull().default(true),
+  notificationPush: boolean("notification_push").notNull().default(false),
+  notificationWeekly: boolean("notification_weekly").notNull().default(true),
 });
 
 export type UpsertUser = typeof users.$inferInsert;

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { keepPreviousData, useIsFetching, useQuery } from "@tanstack/react-query";
-import { Users, Clock, FileText, AlertCircle, Briefcase, ShieldAlert } from "lucide-react";
+import { keepPreviousData, useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Users, Clock, FileText, AlertCircle, Briefcase, ShieldAlert, Paintbrush, Sun, Moon, Monitor, LayoutGrid, AlignJustify, ListChecks, Target, TrendingUp } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { useTheme } from "@/components/theme-provider";
 import {
+  addDays,
   endOfMonth,
   format,
   getDate,
@@ -10,6 +13,7 @@ import {
   isValid,
   parseISO,
   setDate,
+  startOfWeek,
   startOfMonth,
 } from "date-fns";
 import { PortalLayout } from "@/components/portal/portal-layout";
@@ -21,15 +25,20 @@ import { DashboardTasks, type TaskCounts } from "@/components/dashboard/dashboar
 import { DashboardGoals } from "@/components/dashboard/dashboard-goals";
 import { DashboardAnalytics } from "@/components/dashboard/dashboard-analytics";
 import { DashboardActivity } from "@/components/dashboard/dashboard-activity";
-import { DashboardOnboarding } from "@/components/dashboard/dashboard-onboarding";
 import { DashboardStatusToday, type StatusSignal } from "@/components/dashboard/dashboard-status-today";
 import { DashboardRiskParticipants } from "@/components/dashboard/dashboard-risk-participants";
 import { DashboardWorkerMobile, type WorkerParticipant, type WorkerTodaySignal } from "@/components/dashboard/dashboard-worker-mobile";
+import { DashboardWeekStrip } from "@/components/dashboard/dashboard-week-strip";
+import { DashboardQuickLog } from "@/components/dashboard/dashboard-quick-log";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { normalizeRole } from "@shared/roles";
 import type { Activity, TimeEntry } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { apiRequest } from "@/lib/queryClient";
+import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
@@ -53,6 +62,79 @@ const TIME_RANGE_LABELS: Record<TimeRange, string> = {
   month: "Denne måneden",
 };
 
+const DASHBOARD_PROJECT_LABELS: Record<string, string> = {
+  general: "Generelt arbeid",
+  development: "Utvikling",
+  meeting: "Møte",
+  support: "Kundesupport",
+  admin: "Administrasjon",
+};
+
+interface SuggestionValue<T> {
+  value: T;
+  confidence: number;
+  sampleSize: number;
+  reason: string;
+}
+
+interface TimeEntrySuggestionsResponse {
+  date: string;
+  analyzedEntries: number;
+  suggestion: {
+    project: SuggestionValue<string | null>;
+    description: SuggestionValue<string | null>;
+    hours: SuggestionValue<number | null>;
+    bulkCopyPrevMonth: SuggestionValue<boolean>;
+  };
+  personalization: {
+    totalFeedback: number;
+    acceptanceRate: number | null;
+    feedbackByType: Record<string, { accepted: number; rejected: number }>;
+  };
+  policy?: {
+    mode: string;
+    confidenceThreshold: number;
+    source: string;
+  };
+}
+
+interface CaseReportSuggestionsResponse {
+  month: string;
+  analyzedReports: number;
+  suggestion: {
+    caseId: SuggestionValue<string | null>;
+    template: SuggestionValue<string | null>;
+    copyPreviousMonth: SuggestionValue<boolean>;
+    fields: Record<
+      "background" | "actions" | "progress" | "challenges" | "factors" | "assessment" | "recommendations" | "notes",
+      SuggestionValue<string | null>
+    >;
+  };
+  previousMonthReport: null | {
+    id: number;
+    caseId: string;
+    month: string;
+  };
+  personalization: {
+    totalFeedback: number;
+    acceptanceRate: number | null;
+    feedbackByType: Record<string, { accepted: number; rejected: number }>;
+  };
+  policy?: {
+    mode: string;
+    confidenceThreshold: number;
+    source: string;
+  };
+}
+
+type SuggestionFeedbackType =
+  | "project"
+  | "description"
+  | "hours"
+  | "bulk_copy_prev_month"
+  | "apply_all"
+  | "manual_prefill";
+
 /* ═══════════════════════════════════════════════════
    Dashboard preferences (localStorage)
    ═══════════════════════════════════════════════════ */
@@ -62,6 +144,7 @@ interface DashboardPrefs {
   showGoals: boolean;
   showInsights: boolean;
   compactMode: boolean;
+  cardStyle: 'default' | 'flat' | 'glass';
 }
 
 const PREFS_KEY = "tidum-dashboard-prefs";
@@ -75,11 +158,12 @@ function loadPrefs(): DashboardPrefs {
         showGoals: true,
         showInsights: true,
         compactMode: false,
+        cardStyle: 'default' as const,
         ...JSON.parse(raw),
       };
     }
   } catch { /* ignore */ }
-  return { showTasks: true, showGoals: true, showInsights: true, compactMode: false };
+  return { showTasks: true, showGoals: true, showInsights: true, compactMode: false, cardStyle: 'default' as const };
 }
 
 function savePrefs(prefs: DashboardPrefs) {
@@ -95,8 +179,15 @@ function savePrefs(prefs: DashboardPrefs) {
 export default function DashboardPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const { settings: suggestionSettings } = useSuggestionSettings();
+  const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
   const [prefs, setPrefs] = useState<DashboardPrefs>(loadPrefs);
+  const { theme, setTheme } = useTheme();
+  const [isDashboardSuggestionDismissed, setIsDashboardSuggestionDismissed] = useState(false);
+  const [isDashboardCaseSuggestionDismissed, setIsDashboardCaseSuggestionDismissed] = useState(false);
+  const today = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
+  const currentYearMonth = useMemo(() => format(new Date(), "yyyy-MM"), []);
   const rolePreview = useMemo(() => {
     if (typeof window === "undefined") return null;
     const value = new URLSearchParams(window.location.search).get("role");
@@ -105,6 +196,7 @@ export default function DashboardPage() {
   const normalizedRole = rolePreview || normalizeRole(user?.role);
   const isTiltakslederView = ["tiltaksleder", "teamleder", "case_manager"].includes(normalizedRole);
   const isMiljoarbeiderView = normalizedRole === "miljoarbeider";
+  const dashboardSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "dashboard");
 
   const updatePrefs = useCallback((nextPrefs: DashboardPrefs) => {
     setPrefs(nextPrefs);
@@ -215,7 +307,94 @@ export default function DashboardPage() {
     queryKey: ["/api/chart-data"],
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
-    enabled: analyticsVisible,
+    // Eagerly load — lightweight (7 numbers), powers the week strip near the top
+  });
+
+  const { data: rawTimeSuggestions } = useQuery<TimeEntrySuggestionsResponse | Record<string, unknown>>({
+    queryKey: ["/api/time-entries/suggestions", { date: today }],
+    staleTime: 45_000,
+    enabled: !isTiltakslederView && dashboardSuggestionsEnabled,
+  });
+
+  const { data: rawCaseReportSuggestions } = useQuery<CaseReportSuggestionsResponse | Record<string, unknown>>({
+    queryKey: ["/api/case-reports/suggestions", { month: currentYearMonth }],
+    staleTime: 45_000,
+    enabled: !isTiltakslederView && dashboardSuggestionsEnabled,
+  });
+
+  const suggestionFeedbackMutation = useMutation({
+    mutationFn: async (payload: {
+      suggestionType: SuggestionFeedbackType;
+      outcome: "accepted" | "rejected";
+      suggestedValue?: string | null;
+      chosenValue?: string | null;
+      date: string;
+      metadata?: Record<string, unknown>;
+    }) => {
+      return apiRequest("POST", "/api/time-entries/suggestions/feedback", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries/suggestions"] });
+    },
+  });
+
+  const caseSuggestionFeedbackMutation = useMutation({
+    mutationFn: async (payload: {
+      suggestionType: string;
+      outcome: "accepted" | "rejected";
+      month?: string | null;
+      caseId?: string | null;
+      suggestedValue?: string | null;
+      chosenValue?: string | null;
+      metadata?: Record<string, unknown>;
+    }) => {
+      return apiRequest("POST", "/api/case-reports/suggestions/feedback", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/case-reports/suggestions"] });
+    },
+  });
+
+  const applyWeekSuggestionMutation = useMutation({
+    mutationFn: async (payload: {
+      projectId: string | null;
+      description: string | null;
+      hours: number | null;
+    }) => {
+      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
+      const weekdays = Array.from({ length: 5 }, (_, index) =>
+        format(addDays(weekStart, index), "yyyy-MM-dd"),
+      );
+
+      const existingResponse = await fetch(
+        `/api/time-entries?startDate=${weekdays[0]}&endDate=${weekdays[weekdays.length - 1]}`,
+        { credentials: "include" },
+      );
+      if (!existingResponse.ok) {
+        throw new Error("Kunne ikke hente ukens føringer.");
+      }
+
+      const existingEntries = await existingResponse.json() as TimeEntry[];
+      const existingDates = new Set(existingEntries.map((entry) => entry.date));
+      const entriesToCreate = weekdays
+        .filter((date) => !existingDates.has(date))
+        .map((date) => ({
+          date,
+          caseNumber: payload.projectId,
+          description: payload.description || "Arbeid",
+          hours: payload.hours ?? 7.5,
+          status: "pending",
+        }));
+
+      await Promise.all(entriesToCreate.map((entry) => apiRequest("POST", "/api/time-entries", entry)));
+      return { createdCount: entriesToCreate.length };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/chart-data"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/activities"] });
+    },
   });
 
   /* ── Track "sist oppdatert" ── */
@@ -228,6 +407,357 @@ export default function DashboardPage() {
   /* ═══════════════════════════════════════════════════
      Derived data
      ═══════════════════════════════════════════════════ */
+
+  const smartSuggestions = useMemo<TimeEntrySuggestionsResponse | null>(() => {
+    if (!rawTimeSuggestions || typeof rawTimeSuggestions !== "object") {
+      return null;
+    }
+
+    if (!("suggestion" in rawTimeSuggestions) || typeof rawTimeSuggestions.suggestion !== "object") {
+      return null;
+    }
+
+    return rawTimeSuggestions as TimeEntrySuggestionsResponse;
+  }, [rawTimeSuggestions]);
+
+  const caseReportSuggestions = useMemo<CaseReportSuggestionsResponse | null>(() => {
+    if (!rawCaseReportSuggestions || typeof rawCaseReportSuggestions !== "object") {
+      return null;
+    }
+    if (!("suggestion" in rawCaseReportSuggestions) || typeof rawCaseReportSuggestions.suggestion !== "object") {
+      return null;
+    }
+    return rawCaseReportSuggestions as CaseReportSuggestionsResponse;
+  }, [rawCaseReportSuggestions]);
+
+  const suggestionResetKey = useMemo(() => {
+    if (!smartSuggestions) return "none";
+    return [
+      smartSuggestions.date,
+      smartSuggestions.suggestion.project?.value || "",
+      smartSuggestions.suggestion.description?.value || "",
+      smartSuggestions.suggestion.hours?.value != null ? String(smartSuggestions.suggestion.hours.value) : "",
+      smartSuggestions.suggestion.bulkCopyPrevMonth?.value ? "1" : "0",
+    ].join("|");
+  }, [smartSuggestions]);
+
+  const caseSuggestionResetKey = useMemo(() => {
+    if (!caseReportSuggestions) return "none";
+    return [
+      caseReportSuggestions.month,
+      caseReportSuggestions.suggestion.caseId?.value || "",
+      caseReportSuggestions.suggestion.copyPreviousMonth?.value ? "1" : "0",
+    ].join("|");
+  }, [caseReportSuggestions]);
+
+  const dashboardSuggestionAction = useMemo<{
+    kind: "prefill" | "bulk_copy";
+    label: string;
+    description: string;
+    path: string;
+    reason?: string | null;
+    confidence?: number | null;
+    projectId?: string | null;
+    projectLabel?: string | null;
+    suggestedDescription?: string | null;
+    suggestedHours?: number | null;
+  } | null>(() => {
+    if (isDashboardSuggestionDismissed || !smartSuggestions) {
+      return null;
+    }
+
+    const projectId = smartSuggestions.suggestion.project?.value ?? null;
+    const suggestedDescription = smartSuggestions.suggestion.description?.value?.trim() || null;
+    const suggestedHours = smartSuggestions.suggestion.hours?.value ?? null;
+    const reasonCandidates = [
+      projectId ? smartSuggestions.suggestion.project?.reason : null,
+      suggestedDescription ? smartSuggestions.suggestion.description?.reason : null,
+      suggestedHours != null ? smartSuggestions.suggestion.hours?.reason : null,
+    ].filter((value): value is string => Boolean(value && value.trim()));
+    const confidenceCandidates = [
+      projectId ? smartSuggestions.suggestion.project?.confidence : null,
+      suggestedDescription ? smartSuggestions.suggestion.description?.confidence : null,
+      suggestedHours != null ? smartSuggestions.suggestion.hours?.confidence : null,
+    ].filter((value): value is number => typeof value === "number");
+    const combinedConfidence = confidenceCandidates.length
+      ? Math.max(...confidenceCandidates)
+      : null;
+
+    const hasPrefillSuggestion = Boolean(projectId || suggestedDescription || suggestedHours != null);
+    if (hasPrefillSuggestion) {
+      const params = new URLSearchParams();
+      if (projectId) params.set("prefillProject", projectId);
+      if (suggestedDescription) params.set("prefillDescription", suggestedDescription);
+      if (suggestedHours != null) params.set("prefillHours", String(suggestedHours));
+
+      const path = params.toString() ? `/time-tracking?${params.toString()}` : "/time-tracking";
+      const projectLabel = projectId ? DASHBOARD_PROJECT_LABELS[projectId] || projectId : null;
+
+      return {
+        kind: "prefill",
+        label: projectLabel
+          ? `Start med forslag for ${projectLabel}`
+          : "Start med personlige forslag",
+        description: suggestedDescription || "Prosjekt og timer er klare for i dag.",
+        reason: reasonCandidates[0] || "Basert på tidligere føringer.",
+        confidence: combinedConfidence,
+        path,
+        projectId,
+        projectLabel,
+        suggestedDescription,
+        suggestedHours,
+      };
+    }
+
+    if (smartSuggestions.suggestion.bulkCopyPrevMonth?.value) {
+      return {
+        kind: "bulk_copy",
+        label: "Kopier forrige måned",
+        description: smartSuggestions.suggestion.bulkCopyPrevMonth.reason,
+        reason: smartSuggestions.suggestion.bulkCopyPrevMonth.reason,
+        confidence: smartSuggestions.suggestion.bulkCopyPrevMonth.confidence,
+        path: "/time-tracking?openBulk=1",
+      };
+    }
+
+    return null;
+  }, [isDashboardSuggestionDismissed, smartSuggestions]);
+
+  const dashboardCaseSuggestionAction = useMemo<{
+    label: string;
+    description: string;
+    reason: string;
+    confidence: number | null;
+    path: string;
+    caseId: string | null;
+    prefillMode: "copy_previous_month" | "empty_fields";
+    sourceMonth: string | null;
+  } | null>(() => {
+    if (isDashboardCaseSuggestionDismissed || !caseReportSuggestions) {
+      return null;
+    }
+
+    const suggestedCaseId = caseReportSuggestions.suggestion.caseId?.value?.trim() || null;
+    const hasCopyPreviousMonth = Boolean(
+      caseReportSuggestions.suggestion.copyPreviousMonth?.value && caseReportSuggestions.previousMonthReport,
+    );
+    const hasFieldSuggestion = Object.values(caseReportSuggestions.suggestion.fields || {}).some(
+      (field) => typeof field?.value === "string" && field.value.trim().length > 0,
+    );
+
+    if (!suggestedCaseId && !hasCopyPreviousMonth && !hasFieldSuggestion) {
+      return null;
+    }
+
+    const params = new URLSearchParams();
+    params.set("create", "1");
+    params.set("useSuggestions", "1");
+    params.set("source", "dashboard");
+    if (suggestedCaseId) params.set("prefillCaseId", suggestedCaseId);
+    if (hasCopyPreviousMonth) {
+      params.set("prefillMode", "copy_previous_month");
+    } else {
+      params.set("prefillMode", "empty_fields");
+    }
+    const path = `/case-reports?${params.toString()}`;
+
+    const caseConfidence = caseReportSuggestions.suggestion.caseId?.confidence ?? null;
+    const copyConfidence = caseReportSuggestions.suggestion.copyPreviousMonth?.confidence ?? null;
+
+    return {
+      label: hasCopyPreviousMonth
+        ? "Fortsett fra forrige måned"
+        : suggestedCaseId
+          ? `Start rapport for ${suggestedCaseId}`
+          : "Start med personlige forslag",
+      description: hasCopyPreviousMonth
+        ? caseReportSuggestions.suggestion.copyPreviousMonth.reason
+        : caseReportSuggestions.suggestion.caseId.reason || "Bruk forslag fra tidligere rapporter.",
+      reason: hasCopyPreviousMonth
+        ? caseReportSuggestions.suggestion.copyPreviousMonth.reason
+        : caseReportSuggestions.suggestion.caseId.reason || "Bruk forslag fra tidligere rapporter.",
+      confidence: hasCopyPreviousMonth ? copyConfidence : caseConfidence,
+      path,
+      caseId: suggestedCaseId,
+      prefillMode: hasCopyPreviousMonth ? "copy_previous_month" : "empty_fields",
+      sourceMonth: caseReportSuggestions.previousMonthReport?.month ?? null,
+    };
+  }, [caseReportSuggestions, isDashboardCaseSuggestionDismissed]);
+
+  const dashboardTimeSuggestionVisibility = useSuggestionVisibility({
+    surface: "dashboard_time",
+    enabled: !isTiltakslederView && dashboardSuggestionsEnabled && !!dashboardSuggestionAction,
+    frequency: suggestionSettings.frequency,
+    scopeKey: suggestionResetKey,
+  });
+
+  const dashboardCaseSuggestionVisibility = useSuggestionVisibility({
+    surface: "dashboard_case",
+    enabled: !isTiltakslederView && dashboardSuggestionsEnabled && !!dashboardCaseSuggestionAction,
+    frequency: suggestionSettings.frequency,
+    scopeKey: caseSuggestionResetKey,
+  });
+
+  const visibleDashboardSuggestionAction = dashboardTimeSuggestionVisibility.isVisible
+    ? dashboardSuggestionAction
+    : null;
+
+  const visibleDashboardCaseSuggestionAction = dashboardCaseSuggestionVisibility.isVisible
+    ? dashboardCaseSuggestionAction
+    : null;
+
+  const sendSuggestionFeedback = useCallback((
+    suggestionType: SuggestionFeedbackType,
+    outcome: "accepted" | "rejected",
+    suggestedValue?: string | null,
+    chosenValue?: string | null,
+    metadata?: Record<string, unknown>,
+  ) => {
+    suggestionFeedbackMutation.mutate({
+      suggestionType,
+      outcome,
+      suggestedValue,
+      chosenValue,
+      date: today,
+      metadata,
+    });
+  }, [suggestionFeedbackMutation, today]);
+
+  const handleUseDashboardSuggestion = useCallback((placement: "next_action" | "quick_log") => {
+    if (!visibleDashboardSuggestionAction) return;
+
+    if (visibleDashboardSuggestionAction.kind === "prefill") {
+      if (visibleDashboardSuggestionAction.projectId) {
+        sendSuggestionFeedback("project", "accepted", visibleDashboardSuggestionAction.projectId, visibleDashboardSuggestionAction.projectId, {
+          source: "dashboard",
+          placement,
+        });
+      }
+      if (visibleDashboardSuggestionAction.suggestedDescription) {
+        sendSuggestionFeedback("description", "accepted", visibleDashboardSuggestionAction.suggestedDescription, visibleDashboardSuggestionAction.suggestedDescription, {
+          source: "dashboard",
+          placement,
+        });
+      }
+      if (visibleDashboardSuggestionAction.suggestedHours != null) {
+        const hoursValue = String(visibleDashboardSuggestionAction.suggestedHours);
+        sendSuggestionFeedback("hours", "accepted", hoursValue, hoursValue, {
+          source: "dashboard",
+          placement,
+        });
+      }
+      sendSuggestionFeedback("apply_all", "accepted", null, "dashboard_prefill", {
+        source: "dashboard",
+        placement,
+        project: visibleDashboardSuggestionAction.projectId || null,
+        description: visibleDashboardSuggestionAction.suggestedDescription || null,
+        hours: visibleDashboardSuggestionAction.suggestedHours ?? null,
+      });
+      return;
+    }
+
+    sendSuggestionFeedback("bulk_copy_prev_month", "accepted", "open_bulk_modal", "open_bulk_modal", {
+      source: "dashboard",
+      placement,
+    });
+  }, [sendSuggestionFeedback, visibleDashboardSuggestionAction]);
+
+  const handleDismissDashboardSuggestion = useCallback((placement: "next_action" | "quick_log") => {
+    if (!visibleDashboardSuggestionAction) return;
+
+    if (visibleDashboardSuggestionAction.kind === "prefill") {
+      sendSuggestionFeedback("apply_all", "rejected", null, null, {
+        source: "dashboard",
+        placement,
+      });
+    } else {
+      sendSuggestionFeedback("bulk_copy_prev_month", "rejected", "open_bulk_modal", null, {
+        source: "dashboard",
+        placement,
+      });
+    }
+
+    dashboardTimeSuggestionVisibility.dismiss();
+    setIsDashboardSuggestionDismissed(true);
+  }, [dashboardTimeSuggestionVisibility, sendSuggestionFeedback, visibleDashboardSuggestionAction]);
+
+  const handleApplyDashboardWeekSuggestion = useCallback(() => {
+    if (!visibleDashboardSuggestionAction || visibleDashboardSuggestionAction.kind !== "prefill") {
+      return;
+    }
+
+    applyWeekSuggestionMutation.mutate({
+      projectId: visibleDashboardSuggestionAction.projectId || null,
+      description: visibleDashboardSuggestionAction.suggestedDescription || null,
+      hours: visibleDashboardSuggestionAction.suggestedHours ?? null,
+    });
+
+    sendSuggestionFeedback("apply_all", "accepted", null, "dashboard_week_prefill", {
+      source: "dashboard",
+      placement: "quick_log",
+      scope: "week",
+      project: visibleDashboardSuggestionAction.projectId || null,
+      description: visibleDashboardSuggestionAction.suggestedDescription || null,
+      hours: visibleDashboardSuggestionAction.suggestedHours ?? null,
+    });
+  }, [applyWeekSuggestionMutation, sendSuggestionFeedback, visibleDashboardSuggestionAction]);
+
+  const handleOpenDashboardBulkCopy = useCallback(() => {
+    navigate("/time-tracking?openBulk=1&bulkMode=copy_previous_month");
+    sendSuggestionFeedback("bulk_copy_prev_month", "accepted", "open_bulk_modal", "open_bulk_modal", {
+      source: "dashboard",
+      placement: "quick_log",
+      mode: "copy_previous_month",
+    });
+  }, [navigate, sendSuggestionFeedback]);
+
+  const handleUseDashboardCaseSuggestion = useCallback(() => {
+    if (!visibleDashboardCaseSuggestionAction) return;
+    caseSuggestionFeedbackMutation.mutate({
+      suggestionType: "apply_all",
+      outcome: "accepted",
+      month: currentYearMonth,
+      caseId: visibleDashboardCaseSuggestionAction.caseId,
+      suggestedValue: visibleDashboardCaseSuggestionAction.prefillMode,
+      chosenValue: visibleDashboardCaseSuggestionAction.prefillMode,
+      metadata: {
+        source: "dashboard",
+        sourceMonth: visibleDashboardCaseSuggestionAction.sourceMonth,
+      },
+    });
+    navigate(visibleDashboardCaseSuggestionAction.path);
+  }, [caseSuggestionFeedbackMutation, currentYearMonth, navigate, visibleDashboardCaseSuggestionAction]);
+
+  const handleDismissDashboardCaseSuggestion = useCallback(() => {
+    if (!visibleDashboardCaseSuggestionAction) return;
+    caseSuggestionFeedbackMutation.mutate({
+      suggestionType: "apply_all",
+      outcome: "rejected",
+      month: currentYearMonth,
+      caseId: visibleDashboardCaseSuggestionAction.caseId,
+      suggestedValue: visibleDashboardCaseSuggestionAction.prefillMode,
+      chosenValue: null,
+      metadata: {
+        source: "dashboard",
+        sourceMonth: visibleDashboardCaseSuggestionAction.sourceMonth,
+      },
+    });
+    dashboardCaseSuggestionVisibility.dismiss();
+    setIsDashboardCaseSuggestionDismissed(true);
+  }, [
+    caseSuggestionFeedbackMutation,
+    currentYearMonth,
+    dashboardCaseSuggestionVisibility,
+    visibleDashboardCaseSuggestionAction,
+  ]);
+
+  useEffect(() => {
+    setIsDashboardSuggestionDismissed(false);
+  }, [suggestionResetKey]);
+
+  useEffect(() => {
+    setIsDashboardCaseSuggestionDismissed(false);
+  }, [caseSuggestionResetKey]);
 
   const myTasks: TaskCounts = useMemo(
     () => ({
@@ -313,15 +843,6 @@ export default function DashboardPage() {
         type: "warning",
         title: `${stats.pendingApprovals} ventende godkjenninger`,
         description: "Høy arbeidsmengde oppdaget",
-        action: () => navigate("/time-tracking"),
-      });
-    }
-    if (!isTiltakslederView && stats && stats.totalHours < 20 && timeRange === "week") {
-      items.push({
-        id: 2,
-        type: "info",
-        title: "Lav timeregistrering denne uken",
-        description: `Kun ${stats.totalHours.toFixed(1)} timer registrert`,
         action: () => navigate("/time-tracking"),
       });
     }
@@ -473,15 +994,6 @@ export default function DashboardPage() {
     [monthActivities],
   );
 
-  /* ── Onboarding conditions ── */
-  const isNewDashboard =
-    !statsLoading &&
-    stats !== undefined &&
-    stats.activeUsers <= 1 &&
-    stats.totalHours === 0 &&
-    stats.casesThisWeek === 0 &&
-    activities.length === 0;
-
   /* ── Heatmap fetch tracking ── */
   const monthEntriesFetchCount = useIsFetching({
     queryKey: ["/api/time-entries", monthRange],
@@ -561,79 +1073,148 @@ export default function DashboardPage() {
 
   return (
     <PortalLayout>
-      <div className={cn("space-y-6", prefs.compactMode && "space-y-4") }>
-        {/* ─────────── HERO (header + stat cards + alerts) ─────────── */}
-        <section className="relative overflow-hidden rounded-[26px] border border-[#d4dfdb] dark:border-border bg-[linear-gradient(180deg,rgba(255,255,255,0.97),rgba(247,251,249,0.95))] dark:bg-card p-5 shadow-[0_20px_44px_rgba(22,43,49,0.08)] dark:shadow-none md:p-6">
-          <div className="pointer-events-none absolute -left-20 top-8 h-48 w-80 rounded-[999px] bg-[rgba(78,154,111,0.13)] blur-3xl" />
-          <div className="pointer-events-none absolute right-0 top-0 h-48 w-72 rounded-bl-[160px] bg-[rgba(31,107,115,0.08)]" />
-          <div className="relative space-y-6">
-            <DashboardHero
-              mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
-              title={isTiltakslederView ? "Oppfølgingsoversikt" : isMiljoarbeiderView ? "Min arbeidsdag" : "Dashboard"}
-              subtitle={isTiltakslederView ? "Status på tiltak, deltakere og dokumentasjon" : isMiljoarbeiderView ? "Oversikt over dine deltakere og oppfølging i dag" : undefined}
-              timeRange={timeRange}
-              onTimeRangeChange={handleTimeRangeChange}
-              statsFetching={statsFetching}
-              statsLoading={statsLoading}
-              pendingApprovals={stats?.pendingApprovals ?? 0}
-              lastUpdated={lastUpdated}
-              navigate={navigate}
-            />
+      <div className={cn("space-y-6", prefs.compactMode && "space-y-4")} data-dash-card={prefs.cardStyle}>
+        {/* ─────────── SLIM HEADER STRIP ─────────── */}
+        <header className="flex flex-wrap items-center gap-2 pb-3 border-b border-border">
+          <DashboardHero
+            slim
+            mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
+            title={isTiltakslederView ? "Oppfølgingsoversikt" : isMiljoarbeiderView ? "Min arbeidsdag" : "Dashboard"}
+            subtitle={isTiltakslederView ? "Status på tiltak, deltakere og dokumentasjon" : isMiljoarbeiderView ? "Oversikt over dine deltakere og oppfølging i dag" : undefined}
+            timeRange={timeRange}
+            onTimeRangeChange={handleTimeRangeChange}
+            statsFetching={statsFetching}
+            statsLoading={statsLoading}
+            pendingApprovals={stats?.pendingApprovals ?? 0}
+            lastUpdated={lastUpdated}
+            userName={user?.firstName || undefined}
+            navigate={navigate}
+          />
 
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-background/75 p-2">
-              <Button
-                size="sm"
-                variant={prefs.compactMode ? "default" : "outline"}
-                onClick={() => updatePrefs({ ...prefs, compactMode: !prefs.compactMode })}
-                aria-pressed={prefs.compactMode}
-              >
-                Kompakt visning
-              </Button>
-              <Button
-                size="sm"
-                variant={prefs.showTasks ? "default" : "outline"}
-                onClick={() => updatePrefs({ ...prefs, showTasks: !prefs.showTasks })}
-                aria-pressed={prefs.showTasks}
-              >
-                Oppgaver
-              </Button>
-              <Button
-                size="sm"
-                variant={prefs.showGoals ? "default" : "outline"}
-                onClick={() => updatePrefs({ ...prefs, showGoals: !prefs.showGoals })}
-                aria-pressed={prefs.showGoals}
-              >
-                Mål
-              </Button>
-              <Button
-                size="sm"
-                variant={prefs.showInsights ? "default" : "outline"}
-                onClick={() => updatePrefs({ ...prefs, showInsights: !prefs.showInsights })}
-                aria-pressed={prefs.showInsights}
-              >
-                Innsikt
-              </Button>
-            </div>
+          {/* ── Hours this week — non-interactive info pill ── */}
+          {!isTiltakslederView && !isMiljoarbeiderView && !statsLoading && stats && timeRange === "week" && (
+            <span className={cn(
+              "hidden sm:inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium select-none",
+              stats.totalHours < 20
+                ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-400"
+                : "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400"
+            )}>
+              <Clock className="h-3 w-3" />
+              {stats.totalHours.toFixed(1)}t denne uken
+            </span>
+          )}
 
-            {isTiltakslederView && <DashboardStatusToday signals={statusSignals} />}
+          {/* ── View toggle icon buttons ── */}
+          <div className="flex items-center gap-0.5">
+            <Button
+              size="icon"
+              variant={prefs.compactMode ? "secondary" : "ghost"}
+              className="h-7 w-7"
+              onClick={() => updatePrefs({ ...prefs, compactMode: !prefs.compactMode })}
+              aria-pressed={prefs.compactMode}
+              title="Kompakt visning"
+            >
+              <AlignJustify className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant={prefs.showTasks ? "secondary" : "ghost"}
+              className="h-7 w-7"
+              onClick={() => updatePrefs({ ...prefs, showTasks: !prefs.showTasks })}
+              aria-pressed={prefs.showTasks}
+              title="Vis oppgaver"
+            >
+              <ListChecks className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant={prefs.showGoals ? "secondary" : "ghost"}
+              className="h-7 w-7"
+              onClick={() => updatePrefs({ ...prefs, showGoals: !prefs.showGoals })}
+              aria-pressed={prefs.showGoals}
+              title="Vis mål"
+            >
+              <Target className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant={prefs.showInsights ? "secondary" : "ghost"}
+              className="h-7 w-7"
+              onClick={() => updatePrefs({ ...prefs, showInsights: !prefs.showInsights })}
+              aria-pressed={prefs.showInsights}
+              title="Vis innsikt"
+            >
+              <TrendingUp className="h-3.5 w-3.5" />
+            </Button>
 
-            {/* Alerts – max 2 visible, severity pills */}
-            <DashboardAlerts alerts={prefs.compactMode ? alerts.slice(0, 1) : alerts} />
+            {/* ── Appearance panel ── */}
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" className="ml-1 h-7 text-xs px-2.5 gap-1.5">
+                  <Paintbrush className="h-3 w-3" />
+                  Utseende
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-60 p-3 space-y-4">
+                {/* Theme */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Tema</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {([
+                      { value: 'light', label: 'Lys', Icon: Sun },
+                      { value: 'dark', label: 'Mørk', Icon: Moon },
+                      { value: 'system', label: 'System', Icon: Monitor },
+                    ] as const).map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => setTheme(value)}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-medium transition-colors",
+                          theme === value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Card style */}
+                <div className="space-y-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kortstil</p>
+                  <div className="grid grid-cols-3 gap-1">
+                    {([
+                      { value: 'default', label: 'Standard', Icon: LayoutGrid },
+                      { value: 'flat', label: 'Flat', Icon: LayoutGrid },
+                      { value: 'glass', label: 'Glass', Icon: LayoutGrid },
+                    ] as const).map(({ value, label, Icon }) => (
+                      <button
+                        key={value}
+                        type="button"
+                        onClick={() => updatePrefs({ ...prefs, cardStyle: value })}
+                        className={cn(
+                          "flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-[11px] font-medium transition-colors",
+                          prefs.cardStyle === value
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:bg-accent"
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </PopoverContent>
+            </Popover>
+          </div>
+        </header>
 
-            {/* "Neste beste handling" – contextual single CTA */}
-            {!statsLoading && stats && (
-              <DashboardNextAction
-                mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
-                pendingApprovals={myTasks.pendingApprovals}
-                overdueItems={myTasks.overdueItems}
-                myDrafts={myTasks.myDrafts}
-                totalHours={stats.totalHours}
-                navigate={navigate}
-              />
-            )}
-
-            {/* Stat cards */}
-            <div className="grid grid-cols-1 gap-4 md:gap-5 sm:grid-cols-2 xl:grid-cols-4">
+        {/* ─────────── STAT CARDS ─────────── */}
+        <div className="grid grid-cols-1 gap-4 md:gap-5 sm:grid-cols-2 xl:grid-cols-4">
               {statsLoading ? (
                 <>
                   {[1, 2, 3, 4].map((i) => (
@@ -833,20 +1414,91 @@ export default function DashboardPage() {
                   )}
                 </>
               ) : null}
-            </div>
-          </div>
-        </section>
+        </div>
 
-        {/* ─────────── ONBOARDING (empty dashboard for new customers) ─────────── */}
-        {isNewDashboard && (
-          <DashboardOnboarding
-            hasUsers={(stats?.activeUsers ?? 0) > 1}
-            hasCases={(stats?.casesThisWeek ?? 0) > 0}
-            hasHours={(stats?.totalHours ?? 0) > 0}
-            hasReports={false}
-            navigate={navigate}
+        {/* ─────────── WEEK STRIP ─────────── */}
+        {!isTiltakslederView && !isMiljoarbeiderView && (
+          <DashboardWeekStrip
+            hoursData={hoursData}
+            loading={chartLoading}
           />
         )}
+
+        {/* ─────────── QUICK LOG ─────────── */}
+        {!isTiltakslederView && (
+          <DashboardQuickLog
+            suggestedProjectId={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.projectId : null}
+            suggestedProjectLabel={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.projectLabel : null}
+            suggestedDescription={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.suggestedDescription : null}
+            suggestedHours={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.suggestedHours : null}
+            suggestionReason={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.reason || null : null}
+            suggestionConfidence={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.confidence ?? null : null}
+            onApplySuggestion={() => handleUseDashboardSuggestion("quick_log")}
+            onDismissSuggestion={() => handleDismissDashboardSuggestion("quick_log")}
+            onApplyWeekSuggestion={visibleDashboardSuggestionAction?.kind === "prefill" ? handleApplyDashboardWeekSuggestion : undefined}
+            onOpenBulkCopy={smartSuggestions?.suggestion.bulkCopyPrevMonth?.value ? handleOpenDashboardBulkCopy : undefined}
+          />
+        )}
+
+        {!isTiltakslederView && visibleDashboardCaseSuggestionAction && (
+          <Card
+            className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent"
+            data-testid="dashboard-case-report-suggestion"
+          >
+            <CardContent className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="space-y-1">
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary/80">Saksrapport</p>
+                <p className="text-sm font-medium">{visibleDashboardCaseSuggestionAction.label}</p>
+                <p className="text-xs text-muted-foreground">{visibleDashboardCaseSuggestionAction.reason}</p>
+                {visibleDashboardCaseSuggestionAction.confidence != null && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Sikkerhet: {Math.round(visibleDashboardCaseSuggestionAction.confidence * 100)}%
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleUseDashboardCaseSuggestion}
+                  data-testid="dashboard-case-report-suggestion-apply"
+                >
+                  Bruk forslag
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={handleDismissDashboardCaseSuggestion}
+                  data-testid="dashboard-case-report-suggestion-dismiss"
+                >
+                  Ikke nå
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ─────────── ALERTS + CTA STRIP ─────────── */}
+        <div className={cn("space-y-3", prefs.compactMode && "space-y-2")}>
+          {isTiltakslederView && <DashboardStatusToday signals={statusSignals} />}
+          <DashboardAlerts alerts={prefs.compactMode ? alerts.slice(0, 1) : alerts} />
+          {!statsLoading && stats && (
+            <DashboardNextAction
+              mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
+              pendingApprovals={myTasks.pendingApprovals}
+              overdueItems={myTasks.overdueItems}
+              myDrafts={myTasks.myDrafts}
+              totalHours={stats.totalHours}
+              navigate={navigate}
+              smartSuggestion={visibleDashboardSuggestionAction ? {
+                label: visibleDashboardSuggestionAction.label,
+                description: visibleDashboardSuggestionAction.description,
+                path: visibleDashboardSuggestionAction.path,
+              } : null}
+              onUseSmartSuggestion={() => handleUseDashboardSuggestion("next_action")}
+              onDismissSmartSuggestion={() => handleDismissDashboardSuggestion("next_action")}
+            />
+          )}
+        </div>
 
         {isMiljoarbeiderView && (
           <DashboardWorkerMobile
@@ -879,12 +1531,24 @@ export default function DashboardPage() {
           </Card>
         )}
 
-        {/* ─────────── TASKS + GOALS (collapsible, below hero) ─────────── */}
-        <section className={cn("grid gap-6 md:grid-cols-2", prefs.compactMode && "gap-4", isMiljoarbeiderView && "hidden md:grid")}>
-          {prefs.showTasks && (
-            <DashboardTasks tasks={myTasks} navigate={navigate} mode={isTiltakslederView ? "tiltaksleder" : "default"} />
+        {/* ─────────── TASKS + GOALS | ACTIVITY ─────────── */}
+        <section className={cn("grid gap-6", (prefs.showTasks || prefs.showGoals) && "xl:grid-cols-2", prefs.compactMode && "gap-4", isMiljoarbeiderView && "hidden md:grid")}>
+          {(prefs.showTasks || prefs.showGoals) && (
+            <div className={cn("space-y-6", prefs.compactMode && "space-y-4")}>
+              {prefs.showTasks && (
+                <DashboardTasks tasks={myTasks} navigate={navigate} mode={isTiltakslederView ? "tiltaksleder" : "default"} />
+              )}
+              {prefs.showGoals && <DashboardGoals stats={stats} mode={isTiltakslederView ? "tiltaksleder" : "default"} />}
+            </div>
           )}
-          {prefs.showGoals && <DashboardGoals stats={stats} mode={isTiltakslederView ? "tiltaksleder" : "default"} />}
+          <DashboardActivity
+            mode={isTiltakslederView ? "tiltaksleder" : "default"}
+            recentItems={recentItems}
+            activityItems={activityItems}
+            activitiesLoading={activitiesLoading}
+            currentUserId={user?.id}
+            navigate={navigate}
+          />
         </section>
 
         {isTiltakslederView && (
@@ -894,35 +1558,25 @@ export default function DashboardPage() {
         {/* ─────────── Intersection sentinel for deferred analytics queries ─────────── */}
         <div ref={analyticsSentinelRef} className="h-0 w-0" aria-hidden />
 
-        {/* ─────────── ANALYTICS + ACTIVITY (two-column) ─────────── */}
+        {/* ─────────── ANALYTICS (chart | heatmap side-by-side) ─────────── */}
         {prefs.showInsights && (
-          <section className={cn("grid gap-6 xl:grid-cols-[1.75fr,1fr]", prefs.compactMode && "gap-4", isMiljoarbeiderView && "hidden md:grid")}>
-          <DashboardAnalytics
-            mode={isTiltakslederView ? "tiltaksleder" : "default"}
-            hoursData={hoursData}
-            chartLoading={chartLoading && analyticsVisible}
-            hoursTimeLabel={TIME_RANGE_LABELS[timeRange]}
-            heatmapData={calendarHeatmapData}
-            monthEntries={monthEntries}
-            calendarActivities={calendarActivities}
-            showHeatmapSkeleton={showHeatmapSkeleton}
-            isHeatmapRefreshing={isHeatmapRefreshing}
-            selectedCalendarDate={selectedCalendarDate}
-            onDateSelect={setSelectedCalendarDate}
-            currentMonth={calendarMonth}
-            onMonthChange={handleCalendarMonthChange}
-            monthDirection={monthDirection}
-          />
-
-          {/* Merged activity module: "Mine siste" + "Teamets aktivitet" */}
-          <DashboardActivity
-            mode={isTiltakslederView ? "tiltaksleder" : "default"}
-            recentItems={recentItems}
-            activityItems={activityItems}
-            activitiesLoading={activitiesLoading}
-            currentUserId={user?.id}
-            navigate={navigate}
-          />
+          <section className={cn(isMiljoarbeiderView && "hidden md:block")}>
+            <DashboardAnalytics
+              mode={isTiltakslederView ? "tiltaksleder" : "default"}
+              hoursData={hoursData}
+              chartLoading={chartLoading && analyticsVisible}
+              hoursTimeLabel={TIME_RANGE_LABELS[timeRange]}
+              heatmapData={calendarHeatmapData}
+              monthEntries={monthEntries}
+              calendarActivities={calendarActivities}
+              showHeatmapSkeleton={showHeatmapSkeleton}
+              isHeatmapRefreshing={isHeatmapRefreshing}
+              selectedCalendarDate={selectedCalendarDate}
+              onDateSelect={setSelectedCalendarDate}
+              currentMonth={calendarMonth}
+              onMonthChange={handleCalendarMonthChange}
+              monthDirection={monthDirection}
+            />
           </section>
         )}
       </div>

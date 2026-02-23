@@ -75,32 +75,32 @@ type SavedView = {
 const statusConfig = {
   draft: { 
     label: "Utkast", 
-    color: "bg-gradient-to-r from-slate-100 to-slate-50 text-slate-700 border border-slate-200 shadow-sm", 
+    color: "bg-gradient-to-r from-slate-100 to-slate-50 text-slate-700 border border-slate-200 shadow-sm dark:bg-none dark:bg-slate-800/50 dark:from-transparent dark:to-transparent dark:text-slate-300 dark:border-slate-700", 
     icon: FileText 
   },
   pending: { 
     label: "Til behandling", 
-    color: "bg-gradient-to-r from-yellow-100 to-amber-50 text-yellow-800 border border-yellow-200 shadow-sm", 
+    color: "bg-gradient-to-r from-yellow-100 to-amber-50 text-yellow-800 border border-yellow-200 shadow-sm dark:bg-none dark:bg-amber-950/40 dark:from-transparent dark:to-transparent dark:text-amber-400 dark:border-amber-800/50", 
     icon: Clock 
   },
   submitted: { 
     label: "Sendt inn", 
-    color: "bg-gradient-to-r from-blue-100 to-sky-50 text-blue-800 border border-blue-200 shadow-sm", 
+    color: "bg-gradient-to-r from-blue-100 to-sky-50 text-blue-800 border border-blue-200 shadow-sm dark:bg-none dark:bg-blue-950/40 dark:from-transparent dark:to-transparent dark:text-blue-400 dark:border-blue-800/50", 
     icon: Clock 
   },
   needs_revision: { 
     label: "Trenger revisjon", 
-    color: "bg-gradient-to-r from-orange-100 to-orange-50 text-orange-800 border border-orange-200 shadow-sm", 
+    color: "bg-gradient-to-r from-orange-100 to-orange-50 text-orange-800 border border-orange-200 shadow-sm dark:bg-none dark:bg-orange-950/40 dark:from-transparent dark:to-transparent dark:text-orange-400 dark:border-orange-800/50", 
     icon: AlertTriangle 
   },
   approved: { 
     label: "Godkjent", 
-    color: "bg-gradient-to-r from-green-100 to-emerald-50 text-green-800 border border-green-200 shadow-sm", 
+    color: "bg-gradient-to-r from-green-100 to-emerald-50 text-green-800 border border-green-200 shadow-sm dark:bg-none dark:bg-green-950/40 dark:from-transparent dark:to-transparent dark:text-green-400 dark:border-green-800/50", 
     icon: CheckCircle2 
   },
   rejected: { 
     label: "Avslått", 
-    color: "bg-gradient-to-r from-red-100 to-rose-50 text-red-800 border border-red-200 shadow-sm", 
+    color: "bg-gradient-to-r from-red-100 to-rose-50 text-red-800 border border-red-200 shadow-sm dark:bg-none dark:bg-red-950/40 dark:from-transparent dark:to-transparent dark:text-red-400 dark:border-red-800/50", 
     icon: XCircle 
   },
 };
@@ -273,7 +273,7 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
   return (
     <div className="space-y-4">
       {/* Header with saved views and actions */}
-      <div className="flex items-center justify-between gap-4 flex-wrap bg-gradient-to-r from-slate-50 to-white p-4 rounded-lg border border-slate-200/50 shadow-sm">
+      <div className="flex items-center justify-between gap-4 flex-wrap bg-gradient-to-r from-slate-50 to-white dark:bg-none dark:bg-card dark:from-transparent dark:to-transparent p-4 rounded-lg border border-slate-200/50 dark:border-border shadow-sm">
         <div className="flex items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
@@ -365,7 +365,7 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
       </div>
 
       {/* Search and filters */}
-      <Card className="bg-gradient-to-br from-white to-slate-50/50 border-slate-200/60 shadow-sm">
+      <Card className="bg-gradient-to-br from-white to-slate-50/50 dark:bg-none dark:bg-card dark:from-transparent dark:to-transparent border-slate-200/60 dark:border-border shadow-sm">
         <CardContent className="pt-6">
           <div className="flex items-center gap-4 flex-wrap">
             <div className="flex-1 min-w-[300px]">
@@ -455,7 +455,7 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
             return (
               <Card
                 key={report.id}
-                className={`group transition-all duration-300 hover:shadow-lg hover:shadow-slate-200/50 hover:-translate-y-0.5 border-slate-200/60 bg-gradient-to-br from-white to-slate-50/30 ${
+                className={`group transition-all duration-300 hover:shadow-lg hover:shadow-slate-200/50 dark:hover:shadow-none hover:-translate-y-0.5 border-slate-200/60 dark:border-border bg-gradient-to-br from-white to-slate-50/30 dark:bg-none dark:bg-card dark:from-transparent dark:to-transparent ${
                   selectedReports.includes(report.id) ? "ring-2 ring-primary shadow-lg shadow-primary/10" : ""
                 }`}
               >
@@ -545,91 +545,51 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
           })}
 
           {filteredReports.length === 0 && reports.length > 0 && (
-            <Card>
-              <CardContent className="py-12 text-center">
-                <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <h3 className="text-lg font-semibold mb-2">Ingen rapporter funnet</h3>
-                <p className="text-muted-foreground mb-4">
-                  Juster filtrene eller opprett en ny rapport for å komme i gang.
-                </p>
-              </CardContent>
-            </Card>
+            <div className="flex flex-col items-center justify-center py-16 px-4">
+              <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-muted/60 border border-border mb-4">
+                <FileText className="h-6 w-6 text-muted-foreground" />
+              </div>
+              <h3 className="text-base font-semibold mb-1">Ingen rapporter funnet</h3>
+              <p className="text-sm text-muted-foreground text-center max-w-xs">
+                Juster filtrene eller opprett en ny rapport for å komme i gang.
+              </p>
+            </div>
           )}
 
           {reports.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 px-4">
-              {/* Illustrated empty state */}
-              <div className="relative w-full max-w-lg mx-auto mb-8">
-                {/* Background shape */}
-                <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-950/20 dark:to-indigo-950/20 -z-10" />
-
-                <div className="flex items-start gap-4 p-8">
-                  {/* Left: case card mock */}
-                  <div className="flex-1 space-y-4">
-                    {/* Case header card */}
-                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-4 space-y-2">
-                      <p className="text-xs text-muted-foreground font-medium">Sak</p>
-                      <p className="text-sm font-semibold">SAK-2024-001</p>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                        <Calendar className="h-3 w-3" />
-                        <span>Februar 2028</span>
-                      </div>
-                    </div>
-
-                    {/* Section checkmarks */}
-                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-4 space-y-2.5">
-                      {["Bakgrunn", "Tiltak", "Vurdering"].map((s) => (
-                        <div key={s} className="flex items-center gap-2">
-                          <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          <span className="text-sm font-medium">{s}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Right: report + badges */}
-                  <div className="flex-1 space-y-4 pt-2">
-                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-5 text-center">
-                      <h3 className="text-lg font-bold mb-1">Saksrapport</h3>
-                      <div className="flex justify-center">
-                        <div className="h-px w-16 bg-border" />
-                      </div>
-                      <div className="mt-3 flex justify-center">
-                        <div className="rounded-full bg-primary/10 p-2">
-                          <Plus className="h-5 w-5 text-primary" />
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* GDPR badge */}
-                    <div className="rounded-xl bg-white dark:bg-card border shadow-sm p-3 space-y-2">
-                      <div className="flex items-center gap-2 text-sm font-medium">
-                        <Lock className="h-4 w-4 text-slate-600 dark:text-slate-400" />
-                        GDPR-sikkert
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-                        <CheckCircle2 className="h-4 w-4" />
-                        Ingen persondata
-                      </div>
-                    </div>
-
-                    {/* Chat hint */}
-                    <div className="flex justify-end">
-                      <div className="rounded-full bg-primary/10 p-2">
-                        <MessageCircle className="h-4 w-4 text-primary" />
-                      </div>
-                    </div>
-                  </div>
+            <div className="flex flex-col items-center justify-center py-20 px-4">
+              {/* Icon with glow */}
+              <div className="relative mb-8">
+                <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl scale-150" />
+                <div className="relative flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-primary/20 to-indigo-500/20 border border-primary/20 shadow-lg">
+                  <FileText className="h-9 w-9 text-primary" />
                 </div>
               </div>
 
-              {/* Text + CTA */}
-              <h3 className="text-xl font-semibold mb-2">Ingen rapporter ennå</h3>
-              <p className="text-muted-foreground text-center max-w-md mb-6">
+              {/* Heading + description */}
+              <h3 className="text-2xl font-semibold mb-3 text-foreground">Ingen rapporter ennå</h3>
+              <p className="text-muted-foreground text-center max-w-sm mb-8 leading-relaxed">
                 Opprett din første saksrapport for å komme i gang med dokumentasjon og oppfølging.
               </p>
+
+              {/* Feature chips */}
+              <div className="flex flex-wrap justify-center gap-2 mb-8">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-700 dark:text-green-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Bakgrunn · Tiltak · Vurdering
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-700 dark:text-blue-400">
+                  <Lock className="h-3.5 w-3.5" />
+                  GDPR-sikkert
+                </div>
+                <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-medium text-purple-700 dark:text-purple-400">
+                  <MessageCircle className="h-3.5 w-3.5" />
+                  Kommentarer & historikk
+                </div>
+              </div>
+
               {onCreateNew && (
-                <Button onClick={onCreateNew} size="lg" className="gap-2">
+                <Button onClick={onCreateNew} size="lg" className="gap-2 px-8 shadow-md">
                   <Plus className="h-5 w-5" />
                   Opprett første saksrapport
                 </Button>

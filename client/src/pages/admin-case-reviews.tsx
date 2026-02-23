@@ -291,17 +291,17 @@ export default function AdminCaseReviewsPage() {
                 ))}
               </div>
             ) : filteredReports.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="font-medium mb-2">Ingen rapporter</h3>
-                  <p className="text-muted-foreground">Det er ingen rapporter som matcher filteret ditt.</p>
-                </CardContent>
-              </Card>
+              <div className="flex flex-col items-center justify-center py-16 px-4">
+                <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-muted/60 border border-border mb-4">
+                  <FileText className="h-6 w-6 text-muted-foreground" />
+                </div>
+                <h3 className="text-base font-semibold mb-1">Ingen rapporter funnet</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-xs">Det er ingen rapporter som matcher filteret ditt.</p>
+              </div>
             ) : (
               <div className="grid md:grid-cols-2 gap-4">
                 {filteredReports.map((report, index) => (
-                  <Card key={report.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 hover:shadow-md hover:shadow-slate-200/50 cursor-pointer transition-all hover:-translate-y-0.5 duration-300" onClick={() => openReviewDialog(report)} data-testid={`card-report-${report.id}`}>
+                  <Card key={report.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 dark:from-slate-900/40 dark:to-slate-800/20 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 dark:border-border hover:shadow-md hover:shadow-slate-200/50 dark:hover:shadow-none cursor-pointer transition-all hover:-translate-y-0.5 duration-300" onClick={() => openReviewDialog(report)} data-testid={`card-report-${report.id}`}>
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div>
@@ -337,7 +337,7 @@ export default function AdminCaseReviewsPage() {
           <TabsContent value="analytics" className="space-y-6">
             <div className="grid gap-4 md:grid-cols-4">
               {/* Total Reports Card */}
-              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 dark:from-blue-950/40 dark:to-blue-900/20 border-blue-200/60 dark:border-blue-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -352,7 +352,7 @@ export default function AdminCaseReviewsPage() {
               </Card>
 
               {/* Pending Reports Card */}
-              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 dark:from-orange-950/40 dark:to-orange-900/20 border-orange-200/60 dark:border-orange-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -367,7 +367,7 @@ export default function AdminCaseReviewsPage() {
               </Card>
 
               {/* Approved Reports Card */}
-              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60">
+              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 dark:from-emerald-950/40 dark:to-emerald-900/20 border-emerald-200/60 dark:border-emerald-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -382,7 +382,7 @@ export default function AdminCaseReviewsPage() {
               </Card>
 
               {/* Approval Rate Card */}
-              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 dark:from-purple-950/40 dark:to-purple-900/20 border-purple-200/60 dark:border-purple-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>

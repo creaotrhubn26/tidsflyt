@@ -17,6 +17,13 @@ interface DashboardNextActionProps {
   myDrafts: number;
   totalHours: number;
   navigate: (path: string) => void;
+  smartSuggestion?: {
+    label: string;
+    description: string;
+    path: string;
+  } | null;
+  onUseSmartSuggestion?: () => void;
+  onDismissSmartSuggestion?: () => void;
 }
 
 interface NextAction {
@@ -26,6 +33,7 @@ interface NextAction {
   buttonText: string;
   path: string;
   variant: "critical" | "warning" | "info" | "neutral";
+  isSmartSuggestion?: boolean;
 }
 
 const VARIANT_STYLES: Record<NextAction["variant"], string> = {
@@ -49,11 +57,14 @@ export function DashboardNextAction({
   myDrafts,
   totalHours,
   navigate,
+  smartSuggestion,
+  onUseSmartSuggestion,
+  onDismissSmartSuggestion,
 }: DashboardNextActionProps) {
   const isTiltaksleder = mode === "tiltaksleder";
   const isMiljoarbeider = mode === "miljoarbeider";
 
-  const action = useMemo((): NextAction => {
+  const action = useMemo((): NextAction | null => {
     if ((isTiltaksleder || isMiljoarbeider) && pendingApprovals > 0) {
       return {
         icon: CheckCircle,
@@ -113,20 +124,30 @@ export function DashboardNextAction({
         variant: "info",
       };
     }
-    return {
-      icon: Clock,
-      label: "Registrer timer for i dag",
-      description:
-        totalHours > 0
-          ? `Du har registrert ${totalHours.toFixed(1)}t denne uken`
-          : "Start med å registrere dagens arbeid",
-      buttonText: "Registrer",
-      path: "/time-tracking",
-      variant: "neutral",
-    };
-  }, [pendingApprovals, overdueItems, myDrafts, totalHours, isTiltaksleder, isMiljoarbeider]);
+
+    if (!isTiltaksleder && !isMiljoarbeider && smartSuggestion) {
+      return {
+        icon: Clock,
+        label: smartSuggestion.label,
+        description: smartSuggestion.description,
+        buttonText: "Start med forslag",
+        path: smartSuggestion.path,
+        variant: "info",
+        isSmartSuggestion: true,
+      };
+    }
+    return null;
+  }, [pendingApprovals, overdueItems, myDrafts, totalHours, isTiltaksleder, isMiljoarbeider, smartSuggestion]);
+
+  if (!action) return null;
 
   const Icon = action.icon;
+  const handleActionNavigate = () => {
+    if (action.isSmartSuggestion) {
+      onUseSmartSuggestion?.();
+    }
+    navigate(action.path);
+  };
 
   return (
     <Card
@@ -134,13 +155,13 @@ export function DashboardNextAction({
         "rounded-xl border transition-all hover:shadow-md hover:-translate-y-px cursor-pointer active:translate-y-0",
         VARIANT_STYLES[action.variant],
       )}
-      onClick={() => navigate(action.path)}
+      onClick={handleActionNavigate}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          navigate(action.path);
+          handleActionNavigate();
         }
       }}
       data-testid="next-action"
@@ -157,13 +178,26 @@ export function DashboardNextAction({
             {action.description}
           </p>
         </div>
+        {action.isSmartSuggestion && onDismissSmartSuggestion && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="shrink-0 text-xs text-muted-foreground hover:text-foreground"
+            onClick={(e) => {
+              e.stopPropagation();
+              onDismissSmartSuggestion();
+            }}
+          >
+            Ikke nå
+          </Button>
+        )}
         <Button
           size="sm"
           variant="ghost"
           className="shrink-0 gap-1 text-xs font-medium text-primary hover:text-foreground"
           onClick={(e) => {
             e.stopPropagation();
-            navigate(action.path);
+            handleActionNavigate();
           }}
         >
           {action.buttonText}

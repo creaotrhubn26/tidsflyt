@@ -7,16 +7,16 @@ import { getUncachableGitHubClient } from "./github";
 import { registerSmartTimingRoutes } from "./smartTimingRoutes";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
-import { db } from "./db";
-import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics } from "@shared/schema";
-import { eq, and, isNull, desc } from "drizzle-orm";
+import { db, pool } from "./db";
+import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users } from "@shared/schema";
+import { eq, and, isNull, desc, sql } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
-import { canAccessVendorApiAdmin } from "@shared/roles";
+import { canAccessVendorApiAdmin, canManageUsers, normalizeRole } from "@shared/roles";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
 
@@ -42,6 +42,357 @@ const timerSessionSchema = z.object({
   isRunning: z.boolean(),
   pauseStartedAt: z.string().datetime().nullable().optional(),
 });
+
+const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
+
+const timeSuggestionFeedbackSchema = z.object({
+  suggestionType: z.enum([
+    "project",
+    "description",
+    "hours",
+    "bulk_copy_prev_month",
+    "apply_all",
+    "manual_prefill",
+  ]),
+  outcome: z.enum(["accepted", "rejected"]),
+  date: z.string().regex(DATE_ONLY_REGEX, "Invalid date format (expected YYYY-MM-DD)").nullable().optional(),
+  suggestedValue: z.string().max(500).nullable().optional(),
+  chosenValue: z.string().max(500).nullable().optional(),
+  metadata: z.record(z.unknown()).nullable().optional(),
+});
+
+const caseReportSuggestionFeedbackSchema = z.object({
+  suggestionType: z.string().min(1).max(80),
+  outcome: z.enum(["accepted", "rejected"]),
+  month: z.string().regex(YEAR_MONTH_REGEX, "Invalid month format (expected YYYY-MM)").nullable().optional(),
+  caseId: z.string().max(120).nullable().optional(),
+  suggestedValue: z.string().max(5000).nullable().optional(),
+  chosenValue: z.string().max(5000).nullable().optional(),
+  metadata: z.record(z.unknown()).nullable().optional(),
+});
+
+const suggestionSettingsModeSchema = z.enum([
+  "off",
+  "dashboard_only",
+  "balanced",
+  "proactive",
+]);
+
+const suggestionSettingsFrequencySchema = z.enum([
+  "low",
+  "normal",
+  "high",
+]);
+
+const suggestionConfidenceThresholdSchema = z.number().min(0.2).max(0.95);
+
+const suggestionSettingsPatchSchema = z.object({
+  mode: suggestionSettingsModeSchema.optional(),
+  frequency: suggestionSettingsFrequencySchema.optional(),
+  confidenceThreshold: suggestionConfidenceThresholdSchema.optional(),
+}).refine((data) => data.mode !== undefined || data.frequency !== undefined || data.confidenceThreshold !== undefined, {
+  message: "At least one setting must be provided",
+});
+
+const suggestionBlockSchema = z.object({
+  category: z.enum(["project", "description", "case_id"]),
+  value: z.string().trim().min(1).max(200),
+});
+
+const suggestionTeamPresetSchema = z.object({
+  mode: suggestionSettingsModeSchema,
+  frequency: suggestionSettingsFrequencySchema,
+  confidenceThreshold: suggestionConfidenceThresholdSchema,
+});
+
+const suggestionTeamDefaultUpdateSchema = z.object({
+  role: z.string().trim().min(1).max(40),
+  preset: suggestionTeamPresetSchema,
+});
+
+type FeedbackStatsMap = Record<string, { accepted: number; rejected: number }>;
+
+function formatDateOnly(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function parseDateOnly(input: string): Date | null {
+  if (!DATE_ONLY_REGEX.test(input)) return null;
+  const [year, month, day] = input.split("-").map((part) => Number(part));
+  if (!year || !month || !day) return null;
+  const parsed = new Date(year, month - 1, day);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) return null;
+  return parsed;
+}
+
+function shiftDays(base: Date, days: number): Date {
+  const next = new Date(base);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatYearMonth(date: Date): string {
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  return `${yyyy}-${mm}`;
+}
+
+function parseYearMonth(input: string): Date | null {
+  if (!YEAR_MONTH_REGEX.test(input)) return null;
+  const [year, month] = input.split("-").map((part) => Number(part));
+  if (!year || !month) return null;
+  const parsed = new Date(year, month - 1, 1);
+  if (Number.isNaN(parsed.getTime())) return null;
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1) return null;
+  return parsed;
+}
+
+function shiftMonths(base: Date, months: number): Date {
+  const next = new Date(base);
+  next.setMonth(next.getMonth() + months);
+  return next;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}
+
+function roundToQuarterHour(value: number): number {
+  return Math.round(value * 4) / 4;
+}
+
+function modeWithCount(values: string[]): { value: string | null; count: number } {
+  if (!values.length) return { value: null, count: 0 };
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    counts.set(value, (counts.get(value) || 0) + 1);
+  }
+  let bestValue: string | null = null;
+  let bestCount = 0;
+  counts.forEach((count, value) => {
+    if (count > bestCount) {
+      bestValue = value;
+      bestCount = count;
+    }
+  });
+  return { value: bestValue, count: bestCount };
+}
+
+function average(values: number[]): number {
+  if (!values.length) return 0;
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+}
+
+function getFeedbackAcceptanceRate(feedbackByType: FeedbackStatsMap, suggestionType: string): number | null {
+  const stats = feedbackByType[suggestionType];
+  if (!stats) return null;
+  const total = (stats.accepted || 0) + (stats.rejected || 0);
+  if (!total) return null;
+  return (stats.accepted || 0) / total;
+}
+
+function adjustConfidenceByFeedback(base: number, feedbackByType: FeedbackStatsMap, suggestionType: string): number {
+  const acceptanceRate = getFeedbackAcceptanceRate(feedbackByType, suggestionType);
+  if (acceptanceRate == null) {
+    return clampNumber(base, 0.1, 0.98);
+  }
+  const adjustment = (acceptanceRate - 0.5) * 0.3;
+  return clampNumber(base + adjustment, 0.1, 0.98);
+}
+
+type SuggestionPolicySource = "feature_flag_off" | "team_default" | "experiment" | "user_override";
+type SuggestionExperimentVariant = "control" | "proactive_test";
+type SuggestionTeamPreset = {
+  mode: "off" | "dashboard_only" | "balanced" | "proactive";
+  frequency: "low" | "normal" | "high";
+  confidenceThreshold: number;
+};
+
+type SuggestionTeamDefaults = Record<string, SuggestionTeamPreset>;
+
+const TEAM_SUGGESTION_DEFAULTS_KEY = "suggestion_team_defaults";
+
+const DEFAULT_TEAM_SUGGESTION_DEFAULTS: SuggestionTeamDefaults = {
+  default: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.45 },
+  super_admin: { mode: "proactive", frequency: "high", confidenceThreshold: 0.35 },
+  hovedadmin: { mode: "proactive", frequency: "high", confidenceThreshold: 0.35 },
+  admin: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.45 },
+  vendor_admin: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.45 },
+  tiltaksleder: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.5 },
+  teamleder: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.5 },
+  case_manager: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.5 },
+  miljoarbeider: { mode: "dashboard_only", frequency: "low", confidenceThreshold: 0.6 },
+  member: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.5 },
+  user: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.5 },
+};
+
+function normalizeSuggestionTeamPreset(raw: unknown): SuggestionTeamPreset | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const mode = suggestionSettingsModeSchema.safeParse(value.mode);
+  const frequency = suggestionSettingsFrequencySchema.safeParse(value.frequency);
+  const confidenceThreshold = suggestionConfidenceThresholdSchema.safeParse(value.confidenceThreshold);
+
+  if (!mode.success || !frequency.success || !confidenceThreshold.success) {
+    return null;
+  }
+
+  return {
+    mode: mode.data,
+    frequency: frequency.data,
+    confidenceThreshold: confidenceThreshold.data,
+  };
+}
+
+function cloneTeamDefaults(source: SuggestionTeamDefaults): SuggestionTeamDefaults {
+  return Object.fromEntries(
+    Object.entries(source).map(([key, preset]) => [
+      key,
+      { ...preset },
+    ]),
+  );
+}
+
+function normalizeSuggestionTeamDefaults(raw: unknown): SuggestionTeamDefaults {
+  const next = cloneTeamDefaults(DEFAULT_TEAM_SUGGESTION_DEFAULTS);
+  if (!raw || typeof raw !== "object") return next;
+
+  Object.entries(raw as Record<string, unknown>).forEach(([key, presetRaw]) => {
+    const normalized = normalizeSuggestionTeamPreset(presetRaw);
+    if (!normalized) return;
+    const roleKey = key === "default" ? "default" : normalizeRole(key);
+    next[roleKey] = normalized;
+  });
+
+  return next;
+}
+
+async function readSuggestionTeamDefaults(): Promise<SuggestionTeamDefaults> {
+  try {
+    const setting = await storage.getSiteSetting(TEAM_SUGGESTION_DEFAULTS_KEY);
+    if (!setting?.value) return cloneTeamDefaults(DEFAULT_TEAM_SUGGESTION_DEFAULTS);
+    const parsed = JSON.parse(setting.value);
+    return normalizeSuggestionTeamDefaults(parsed);
+  } catch {
+    return cloneTeamDefaults(DEFAULT_TEAM_SUGGESTION_DEFAULTS);
+  }
+}
+
+async function writeSuggestionTeamDefaults(defaults: SuggestionTeamDefaults): Promise<void> {
+  await storage.upsertSiteSetting(TEAM_SUGGESTION_DEFAULTS_KEY, JSON.stringify(defaults));
+}
+
+function computeSuggestionExperimentVariant(userId: string): SuggestionExperimentVariant {
+  const seed = `${userId}:suggestions-v1`;
+  let hash = 0;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash = (hash * 31 + seed.charCodeAt(i)) >>> 0;
+  }
+  return hash % 2 === 0 ? "control" : "proactive_test";
+}
+
+function isBlockedSuggestionValue(blockedValues: string[], value: string | null | undefined): boolean {
+  if (!value) return false;
+  const candidate = value.trim().toLowerCase();
+  if (!candidate) return false;
+  return blockedValues.some((entry) => entry.trim().toLowerCase() === candidate);
+}
+
+function fallbackSuggestionReason(
+  sourceReason: string,
+  fallback: "threshold" | "blocked",
+  confidenceThreshold: number,
+): string {
+  if (fallback === "blocked") {
+    return "Skjult fordi du har valgt «ikke foreslå igjen».";
+  }
+  const thresholdPercent = Math.round(confidenceThreshold * 100);
+  return `${sourceReason} Skjult fordi sikkerhet er under terskelen (${thresholdPercent}%).`;
+}
+
+async function resolveSuggestionSettingsForUser(params: {
+  userId: string;
+  role: string | null | undefined;
+  settingsOverride?: Awaited<ReturnType<typeof storage.getUserSuggestionSettings>>;
+}) {
+  const {
+    userId,
+    role,
+    settingsOverride,
+  } = params;
+
+  const userSettings = settingsOverride || await storage.getUserSuggestionSettings(userId);
+  const teamDefaults = await readSuggestionTeamDefaults();
+  const normalizedRole = normalizeRole(role);
+  const teamDefault = teamDefaults[normalizedRole] || teamDefaults.default;
+  const featureEnabled = process.env.TIDUM_SUGGESTIONS_ENABLED !== "false";
+  const experimentsEnabled = process.env.TIDUM_SUGGESTIONS_EXPERIMENTS !== "false";
+  const variant = computeSuggestionExperimentVariant(userId);
+  const recommendedMode = variant === "proactive_test" ? "proactive" : "balanced";
+
+  let mode = userSettings.userOverride ? userSettings.mode : teamDefault.mode;
+  let frequency = userSettings.userOverride ? userSettings.frequency : teamDefault.frequency;
+  let confidenceThreshold = userSettings.userOverride
+    ? userSettings.confidenceThreshold
+    : teamDefault.confidenceThreshold;
+  let source: SuggestionPolicySource = userSettings.userOverride ? "user_override" : "team_default";
+
+  if (!featureEnabled) {
+    mode = "off";
+    source = "feature_flag_off";
+  } else if (!userSettings.userOverride && experimentsEnabled && variant === "proactive_test" && mode === "balanced") {
+    mode = "proactive";
+    source = "experiment";
+  }
+
+  return {
+    mode,
+    frequency,
+    confidenceThreshold,
+    blocked: userSettings.blocked,
+    userOverride: userSettings.userOverride,
+    updatedAt: userSettings.updatedAt,
+    teamDefault,
+    rollout: {
+      featureEnabled,
+      experimentsEnabled,
+      variant,
+      recommendedMode,
+      source,
+    },
+  };
+}
+
+function estimateTimeSavedMinutesFromFeedback(feedbackByType: FeedbackStatsMap): number {
+  const weightByType: Record<string, number> = {
+    project: 0.8,
+    description: 0.8,
+    hours: 0.6,
+    bulk_copy_prev_month: 8,
+    apply_all: 3,
+    manual_prefill: 1.2,
+    case_id: 1.5,
+    template: 1.2,
+    copy_previous_month: 10,
+  };
+
+  let total = 0;
+  Object.entries(feedbackByType).forEach(([suggestionType, stats]) => {
+    const accepted = Number(stats?.accepted || 0);
+    if (!accepted) return;
+
+    const dynamicFieldWeight = suggestionType.startsWith("field_") ? 0.7 : null;
+    const weight = dynamicFieldWeight ?? weightByType[suggestionType] ?? 0.5;
+    total += accepted * weight;
+  });
+
+  return Math.round(total);
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -443,6 +794,319 @@ export async function registerRoutes(
     }
   });
 
+  /* ─── Profile: current user's own settings ─── */
+
+  const profileUpdateSchema = z.object({
+    firstName: z.string().min(1).max(100).optional(),
+    lastName: z.string().max(100).optional(),
+    phone: z.string().max(32).optional(),
+    language: z.enum(["no", "en"]).optional(),
+    notificationEmail: z.boolean().optional(),
+    notificationPush: z.boolean().optional(),
+    notificationWeekly: z.boolean().optional(),
+  });
+
+  app.get("/api/profile", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as { id: string }).id;
+      const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      if (row) return res.json(row);
+      // Fall back to session data with defaults if row not yet in DB
+      const sessionUser = req.user as { id: string; email: string; name: string; role: string; vendorId: number | null };
+      res.json({
+        id: sessionUser.id,
+        email: sessionUser.email,
+        firstName: sessionUser.name?.split(" ")[0] ?? null,
+        lastName: sessionUser.name?.split(" ").slice(1).join(" ") || null,
+        profileImageUrl: null,
+        role: sessionUser.role,
+        vendorId: sessionUser.vendorId,
+        createdAt: null,
+        updatedAt: null,
+        phone: null,
+        language: "no",
+        notificationEmail: true,
+        notificationPush: false,
+        notificationWeekly: true,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/profile", isAuthenticated, async (req, res) => {
+    try {
+      const userId = (req.user as { id: string }).id;
+      const parsed = profileUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten().fieldErrors });
+      }
+      const updates = parsed.data;
+      // Upsert: try update first, then insert if no row exists
+      const result = await db
+        .update(users)
+        .set({ ...updates, updatedAt: new Date() })
+        .where(eq(users.id, userId))
+        .returning();
+      if (result[0]) return res.json(result[0]);
+      // User not in DB yet (dev mode / new OAuth user) — raw upsert because
+      // username/password are NOT NULL with no defaults in this table.
+      const sessionUser = req.user as { email: string; name: string; role: string; vendorId: number | null };
+      const fn = updates.firstName ?? sessionUser.name?.split(" ")[0] ?? null;
+      const ln = (updates.lastName ?? sessionUser.name?.split(" ").slice(1).join(" ")) || null;
+      const ph = updates.phone ?? null;
+      const lang = updates.language ?? "no";
+      const ne = updates.notificationEmail ?? true;
+      const np = updates.notificationPush ?? false;
+      const nw = updates.notificationWeekly ?? true;
+      const role = sessionUser.role ?? "user";
+      const vid = sessionUser.vendorId ?? null;
+      await db.execute(sql`
+        INSERT INTO users
+          (id, email, username, password, first_name, last_name, role, vendor_id,
+           phone, language, notification_email, notification_push, notification_weekly)
+        VALUES
+          (${userId}, ${sessionUser.email}, ${userId}, '', ${fn}, ${ln}, ${role}, ${vid},
+           ${ph}, ${lang}, ${ne}, ${np}, ${nw})
+        ON CONFLICT (id) DO UPDATE SET
+          first_name         = EXCLUDED.first_name,
+          last_name          = EXCLUDED.last_name,
+          phone              = EXCLUDED.phone,
+          language           = EXCLUDED.language,
+          notification_email = EXCLUDED.notification_email,
+          notification_push  = EXCLUDED.notification_push,
+          notification_weekly= EXCLUDED.notification_weekly,
+          updated_at         = NOW()
+      `);
+      // Re-fetch via Drizzle so the response is camelCase-mapped uniformly
+      const [upserted] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+      res.json(upserted);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/suggestion-settings", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const settings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/suggestion-settings", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = suggestionSettingsPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const saved = await storage.updateUserSuggestionSettings(authUserId, {
+        ...parsed.data,
+        userOverride: true,
+      });
+      const settings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+        settingsOverride: saved,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/suggestion-settings/reset", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const saved = await storage.updateUserSuggestionSettings(authUserId, {
+        userOverride: false,
+      });
+      const settings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+        settingsOverride: saved,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/suggestion-settings/blocks", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = suggestionBlockSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const saved = await storage.addUserSuggestionBlock(authUserId, parsed.data);
+      const settings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+        settingsOverride: saved,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.delete("/api/suggestion-settings/blocks", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = suggestionBlockSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const saved = await storage.removeUserSuggestionBlock(authUserId, parsed.data);
+      const settings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+        settingsOverride: saved,
+      });
+      res.json(settings);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!canManageUsers(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+      const defaults = await readSuggestionTeamDefaults();
+      res.json({ defaults });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!canManageUsers(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const parsed = suggestionTeamDefaultUpdateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const defaults = await readSuggestionTeamDefaults();
+      const roleKey = parsed.data.role === "default"
+        ? "default"
+        : normalizeRole(parsed.data.role);
+      defaults[roleKey] = parsed.data.preset;
+      await writeSuggestionTeamDefaults(defaults);
+      res.json({ defaults });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/suggestions/metrics", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const [timePrefs, casePrefs] = await Promise.all([
+        storage.getUserTimeTrackingPrefs(authUserId),
+        storage.getUserCaseReportingPrefs(authUserId),
+      ]);
+
+      const accepted = (timePrefs.totalAccepted || 0) + (casePrefs.totalAccepted || 0);
+      const rejected = (timePrefs.totalRejected || 0) + (casePrefs.totalRejected || 0);
+      const totalFeedback = accepted + rejected;
+      const acceptanceRate = totalFeedback > 0 ? accepted / totalFeedback : null;
+      const overrideRate = totalFeedback > 0 ? rejected / totalFeedback : null;
+
+      const timeSavedMinutes = estimateTimeSavedMinutesFromFeedback(timePrefs.feedbackByType || {})
+        + estimateTimeSavedMinutesFromFeedback(casePrefs.feedbackByType || {});
+
+      const preventedMisentries =
+        Number(timePrefs.feedbackByType?.project?.rejected || 0)
+        + Number(timePrefs.feedbackByType?.hours?.rejected || 0)
+        + Number(casePrefs.feedbackByType?.case_id?.rejected || 0);
+
+      const sevenDaysAgoMs = Date.now() - (7 * 24 * 60 * 60 * 1000);
+      const recentTimeFeedback = (timePrefs.recentFeedback || []).filter((entry) => {
+        const ts = Date.parse(entry.timestamp);
+        return Number.isFinite(ts) && ts >= sevenDaysAgoMs;
+      });
+      const recentCaseFeedback = (casePrefs.recentFeedback || []).filter((entry) => {
+        const ts = Date.parse(entry.timestamp);
+        return Number.isFinite(ts) && ts >= sevenDaysAgoMs;
+      });
+      const periodAccepted = recentTimeFeedback.filter((entry) => entry.outcome === "accepted").length
+        + recentCaseFeedback.filter((entry) => entry.outcome === "accepted").length;
+      const periodRejected = recentTimeFeedback.filter((entry) => entry.outcome === "rejected").length
+        + recentCaseFeedback.filter((entry) => entry.outcome === "rejected").length;
+      const periodTotal = periodAccepted + periodRejected;
+
+      res.json({
+        totalFeedback,
+        accepted,
+        rejected,
+        acceptanceRate,
+        overrideRate,
+        estimatedTimeSavedMinutes: timeSavedMinutes,
+        preventedMisentries,
+        period7d: {
+          totalFeedback: periodTotal,
+          accepted: periodAccepted,
+          rejected: periodRejected,
+          acceptanceRate: periodTotal > 0 ? periodAccepted / periodTotal : null,
+        },
+        bySurface: {
+          timeTracking: {
+            accepted: timePrefs.totalAccepted || 0,
+            rejected: timePrefs.totalRejected || 0,
+          },
+          caseReporting: {
+            accepted: casePrefs.totalAccepted || 0,
+            rejected: casePrefs.totalRejected || 0,
+          },
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
       const { userId, startDate, endDate, status } = req.query;
@@ -453,6 +1117,483 @@ export async function registerRoutes(
         status: status as string,
       });
       res.json(entries);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/time-entries/suggestions", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+      const suggestionSettings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+      });
+
+      const targetDateInput = typeof req.query.date === "string" ? req.query.date : formatDateOnly(new Date());
+      const targetDate = parseDateOnly(targetDateInput) || new Date();
+      const targetDateStr = formatDateOnly(targetDate);
+
+      const lookbackStart = shiftDays(targetDate, -120);
+      const lookbackStartStr = formatDateOnly(lookbackStart);
+
+      const rawEntries = await storage.getTimeEntries({
+        userId: authUserId,
+        startDate: lookbackStartStr,
+        endDate: targetDateStr,
+      });
+
+      const usableEntries = rawEntries.filter((entry) => {
+        if (entry.caseNumber === "client_sick") return false;
+        const parsedDate = parseDateOnly(entry.date);
+        if (!parsedDate) return false;
+        if (parsedDate.getTime() > targetDate.getTime()) return false;
+        return entry.hours >= 0;
+      });
+
+      const targetWeekday = targetDate.getDay();
+      const weekdayEntries = usableEntries.filter((entry) => {
+        const parsedDate = parseDateOnly(entry.date);
+        return parsedDate ? parsedDate.getDay() === targetWeekday : false;
+      });
+
+      const projectCandidateEntries = weekdayEntries.filter((entry) => !!entry.caseNumber);
+      const projectSource = projectCandidateEntries.length >= 3
+        ? projectCandidateEntries
+        : usableEntries.filter((entry) => !!entry.caseNumber);
+      const projectMode = modeWithCount(projectSource.map((entry) => String(entry.caseNumber)));
+
+      const descriptionCandidateEntries = weekdayEntries.filter((entry) => !!entry.description?.trim());
+      const descriptionSource = descriptionCandidateEntries.length >= 3
+        ? descriptionCandidateEntries
+        : usableEntries.filter((entry) => !!entry.description?.trim());
+      const descriptionMode = modeWithCount(descriptionSource.map((entry) => entry.description.trim()));
+
+      const weekdayHours = weekdayEntries.map((entry) => entry.hours).filter((hours) => hours > 0);
+      const allHours = usableEntries.map((entry) => entry.hours).filter((hours) => hours > 0);
+      const hourSource = weekdayHours.length >= 2 ? weekdayHours : allHours;
+      const suggestedHours = hourSource.length
+        ? clampNumber(roundToQuarterHour(average(hourSource)), 0.25, 24)
+        : null;
+
+      const prevMonthStart = new Date(targetDate.getFullYear(), targetDate.getMonth() - 1, 1);
+      const prevMonthPrefix = `${prevMonthStart.getFullYear()}-${String(prevMonthStart.getMonth() + 1).padStart(2, "0")}-`;
+      const previousMonthCount = usableEntries.filter((entry) => entry.date.startsWith(prevMonthPrefix)).length;
+
+      const timePrefs = await storage.getUserTimeTrackingPrefs(authUserId);
+      const feedbackByType: FeedbackStatsMap = timePrefs.feedbackByType || {};
+
+      const projectBaseConfidence = projectMode.count
+        ? clampNumber(0.35 + projectMode.count / 10, 0.2, 0.9)
+        : 0.2;
+      const descriptionBaseConfidence = descriptionMode.count
+        ? clampNumber(0.3 + descriptionMode.count / 10, 0.2, 0.9)
+        : 0.2;
+      const hoursBaseConfidence = hourSource.length
+        ? clampNumber(0.3 + hourSource.length / 12, 0.2, 0.9)
+        : 0.2;
+      const bulkBaseConfidence = previousMonthCount
+        ? clampNumber(0.35 + previousMonthCount / 15, 0.2, 0.9)
+        : 0.2;
+
+      const totalFeedback = (timePrefs.totalAccepted || 0) + (timePrefs.totalRejected || 0);
+      const acceptanceRate = totalFeedback > 0 ? (timePrefs.totalAccepted || 0) / totalFeedback : null;
+
+      const projectSuggestion = {
+        value: projectMode.value,
+        confidence: adjustConfidenceByFeedback(projectBaseConfidence, feedbackByType, "project"),
+        sampleSize: projectSource.length,
+        reason: projectMode.value
+          ? `Mest brukt prosjekt i lignende føringer (${projectMode.count} av ${projectSource.length}).`
+          : "Ikke nok historikk for prosjektforslag ennå.",
+      };
+      const descriptionSuggestion = {
+        value: descriptionMode.value,
+        confidence: adjustConfidenceByFeedback(descriptionBaseConfidence, feedbackByType, "description"),
+        sampleSize: descriptionSource.length,
+        reason: descriptionMode.value
+          ? `Mest brukt beskrivelse i lignende føringer (${descriptionMode.count} av ${descriptionSource.length}).`
+          : "Ikke nok historikk for beskrivelsesforslag ennå.",
+      };
+      const hoursSuggestion = {
+        value: suggestedHours,
+        confidence: adjustConfidenceByFeedback(hoursBaseConfidence, feedbackByType, "hours"),
+        sampleSize: hourSource.length,
+        reason: suggestedHours != null
+          ? `Gjennomsnitt fra ${hourSource.length} tidligere føringer.`
+          : "Ikke nok historikk for timeforslag ennå.",
+      };
+      const bulkCopySuggestion = {
+        value: previousMonthCount > 0,
+        confidence: adjustConfidenceByFeedback(bulkBaseConfidence, feedbackByType, "bulk_copy_prev_month"),
+        sampleSize: previousMonthCount,
+        reason: previousMonthCount > 0
+          ? `${previousMonthCount} føringer ble funnet i forrige måned.`
+          : "Ingen føringer i forrige måned å kopiere fra.",
+      };
+
+      if (projectSuggestion.value && isBlockedSuggestionValue(suggestionSettings.blocked.projects, projectSuggestion.value)) {
+        projectSuggestion.value = null;
+        projectSuggestion.reason = fallbackSuggestionReason(projectSuggestion.reason, "blocked", suggestionSettings.confidenceThreshold);
+      } else if (projectSuggestion.value && projectSuggestion.confidence < suggestionSettings.confidenceThreshold) {
+        projectSuggestion.value = null;
+        projectSuggestion.reason = fallbackSuggestionReason(projectSuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      if (descriptionSuggestion.value && isBlockedSuggestionValue(suggestionSettings.blocked.descriptions, descriptionSuggestion.value)) {
+        descriptionSuggestion.value = null;
+        descriptionSuggestion.reason = fallbackSuggestionReason(descriptionSuggestion.reason, "blocked", suggestionSettings.confidenceThreshold);
+      } else if (descriptionSuggestion.value && descriptionSuggestion.confidence < suggestionSettings.confidenceThreshold) {
+        descriptionSuggestion.value = null;
+        descriptionSuggestion.reason = fallbackSuggestionReason(descriptionSuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      if (hoursSuggestion.value != null && hoursSuggestion.confidence < suggestionSettings.confidenceThreshold) {
+        hoursSuggestion.value = null;
+        hoursSuggestion.reason = fallbackSuggestionReason(hoursSuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      if (bulkCopySuggestion.value && bulkCopySuggestion.confidence < suggestionSettings.confidenceThreshold) {
+        bulkCopySuggestion.value = false;
+        bulkCopySuggestion.reason = fallbackSuggestionReason(bulkCopySuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      if (suggestionSettings.mode === "off") {
+        projectSuggestion.value = null;
+        descriptionSuggestion.value = null;
+        hoursSuggestion.value = null;
+        bulkCopySuggestion.value = false;
+      }
+
+      res.json({
+        date: targetDateStr,
+        analyzedEntries: usableEntries.length,
+        suggestion: {
+          project: projectSuggestion,
+          description: descriptionSuggestion,
+          hours: hoursSuggestion,
+          bulkCopyPrevMonth: bulkCopySuggestion,
+        },
+        personalization: {
+          totalFeedback,
+          acceptanceRate,
+          feedbackByType,
+        },
+        policy: {
+          mode: suggestionSettings.mode,
+          confidenceThreshold: suggestionSettings.confidenceThreshold,
+          source: suggestionSettings.rollout.source,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/time-entries/suggestions/feedback", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = timeSuggestionFeedbackSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      await storage.recordTimeTrackingFeedback(authUserId, {
+        ...parsed.data,
+        timestamp: new Date().toISOString(),
+      });
+      res.status(204).end();
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/case-reports/suggestions", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+      const suggestionSettings = await resolveSuggestionSettingsForUser({
+        userId: authUserId,
+        role: (req.user as any)?.role,
+      });
+
+      const monthInput = typeof req.query.month === "string" ? req.query.month : formatYearMonth(new Date());
+      const targetMonthDate = parseYearMonth(monthInput) || new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+      const targetMonth = formatYearMonth(targetMonthDate);
+      const lookbackStart = formatYearMonth(shiftMonths(targetMonthDate, -18));
+
+      const caseIdInputRaw = typeof req.query.caseId === "string" ? req.query.caseId : "";
+      const caseIdInput = caseIdInputRaw.trim();
+
+      const rawReportsResult = await pool.query(
+        `SELECT
+          id,
+          case_id,
+          month,
+          background,
+          actions,
+          progress,
+          challenges,
+          factors,
+          assessment,
+          recommendations,
+          notes,
+          status,
+          created_at,
+          updated_at
+        FROM case_reports
+        WHERE user_id = $1
+          AND month >= $2
+          AND month <= $3
+        ORDER BY month DESC, updated_at DESC, created_at DESC`,
+        [authUserId, lookbackStart, targetMonth],
+      );
+
+      type ReportRow = {
+        id: number;
+        case_id: string;
+        month: string;
+        background?: string | null;
+        actions?: string | null;
+        progress?: string | null;
+        challenges?: string | null;
+        factors?: string | null;
+        assessment?: string | null;
+        recommendations?: string | null;
+        notes?: string | null;
+        status?: string | null;
+      };
+
+      const fieldKeys = [
+        "background",
+        "actions",
+        "progress",
+        "challenges",
+        "factors",
+        "assessment",
+        "recommendations",
+        "notes",
+      ] as const;
+
+      const isMeaningfulText = (value: unknown) => {
+        if (typeof value !== "string") return false;
+        return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().length > 0;
+      };
+
+      const reports = (rawReportsResult.rows as ReportRow[]).filter((report) => {
+        if (!report?.case_id || typeof report.case_id !== "string") return false;
+        if (!report?.month || !YEAR_MONTH_REGEX.test(report.month)) return false;
+        return true;
+      });
+
+      const caseCounts = new Map<string, number>();
+      reports.forEach((report) => {
+        caseCounts.set(report.case_id, (caseCounts.get(report.case_id) || 0) + 1);
+      });
+      let suggestedCaseId: string | null = null;
+      let suggestedCaseIdCount = 0;
+      caseCounts.forEach((count, caseId) => {
+        if (count > suggestedCaseIdCount) {
+          suggestedCaseId = caseId;
+          suggestedCaseIdCount = count;
+        }
+      });
+
+      const preferredCaseId = caseIdInput || suggestedCaseId || null;
+      const sameCaseReports = preferredCaseId
+        ? reports.filter((report) => report.case_id === preferredCaseId)
+        : [];
+      const fieldSource = sameCaseReports.length > 0 ? sameCaseReports : reports;
+
+      const previousMonth = formatYearMonth(shiftMonths(targetMonthDate, -1));
+      const previousMonthCandidates = reports.filter((report) => {
+        if (report.month !== previousMonth) return false;
+        if (preferredCaseId && report.case_id !== preferredCaseId) return false;
+        return true;
+      });
+      const previousMonthReport = previousMonthCandidates[0] || null;
+
+      const casePrefs = await storage.getUserCaseReportingPrefs(authUserId);
+      const feedbackByType = casePrefs.feedbackByType || {};
+      const totalFeedback = (casePrefs.totalAccepted || 0) + (casePrefs.totalRejected || 0);
+      const acceptanceRate = totalFeedback > 0 ? (casePrefs.totalAccepted || 0) / totalFeedback : null;
+
+      const caseBaseConfidence = preferredCaseId
+        ? clampNumber(0.4 + Math.min((caseCounts.get(preferredCaseId) || 0), 10) / 14, 0.25, 0.92)
+        : 0.2;
+
+      const caseSuggestion = {
+        value: preferredCaseId,
+        confidence: adjustConfidenceByFeedback(caseBaseConfidence, feedbackByType, "case_id"),
+        sampleSize: preferredCaseId ? (caseCounts.get(preferredCaseId) || 0) : 0,
+        reason: preferredCaseId
+          ? `Mest brukte sak i tidligere rapporter (${caseCounts.get(preferredCaseId) || 0} treff).`
+          : "Ingen historikk for saksforslag ennå.",
+      };
+
+      const templateSourceSize = sameCaseReports.length > 0 ? sameCaseReports.length : reports.length;
+      let templateLabel = previousMonthReport
+        ? "Forrige måned (samme sak)"
+        : sameCaseReports.length > 0
+          ? "Siste rapport for samme sak"
+          : reports.length > 0
+            ? "Siste rapport"
+            : null;
+      const templateBaseConfidence = templateLabel
+        ? clampNumber(0.35 + Math.min(templateSourceSize, 10) / 14, 0.2, 0.9)
+        : 0.2;
+      const templateConfidence = adjustConfidenceByFeedback(templateBaseConfidence, feedbackByType, "template");
+
+      const fieldsSuggestion = fieldKeys.reduce<Record<string, {
+        value: string | null;
+        confidence: number;
+        sampleSize: number;
+        reason: string;
+      }>>((acc, fieldKey) => {
+        const candidates = fieldSource.filter((report) => isMeaningfulText(report[fieldKey]));
+        const latest = candidates[0];
+        const value = latest ? String(latest[fieldKey]) : null;
+
+        const baseConfidence = value
+          ? preferredCaseId
+            ? clampNumber(0.42 + Math.min(candidates.length, 10) / 14, 0.25, 0.92)
+            : clampNumber(0.32 + Math.min(candidates.length, 10) / 18, 0.2, 0.88)
+          : 0.2;
+
+        acc[fieldKey] = {
+          value,
+          confidence: adjustConfidenceByFeedback(baseConfidence, feedbackByType, `field_${fieldKey}`),
+          sampleSize: candidates.length,
+          reason: value
+            ? preferredCaseId
+              ? `Hentet fra ${candidates.length} rapport(er) på samme sak.`
+              : `Hentet fra ${candidates.length} tidligere rapport(er).`
+            : "Ingen forslag tilgjengelig ennå.",
+        };
+        return acc;
+      }, {});
+
+      const copyPrevBaseConfidence = previousMonthReport
+        ? clampNumber(0.45 + Math.min(previousMonthCandidates.length, 4) / 8, 0.25, 0.95)
+        : 0.2;
+
+      if (caseSuggestion.value && isBlockedSuggestionValue(suggestionSettings.blocked.caseIds, caseSuggestion.value)) {
+        caseSuggestion.value = null;
+        caseSuggestion.reason = fallbackSuggestionReason(caseSuggestion.reason, "blocked", suggestionSettings.confidenceThreshold);
+      } else if (caseSuggestion.value && caseSuggestion.confidence < suggestionSettings.confidenceThreshold) {
+        caseSuggestion.value = null;
+        caseSuggestion.reason = fallbackSuggestionReason(caseSuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      let templateReason = templateLabel
+        ? `Basert på ${templateSourceSize} relevant(e) rapport(er).`
+        : "Ingen historikk for malforslag ennå.";
+
+      if (templateLabel && templateConfidence < suggestionSettings.confidenceThreshold) {
+        // template value is label-only metadata; hide when confidence is too low
+        templateReason = fallbackSuggestionReason(templateReason, "threshold", suggestionSettings.confidenceThreshold);
+        templateLabel = null;
+      }
+
+      Object.values(fieldsSuggestion).forEach((fieldSuggestion) => {
+        if (!fieldSuggestion.value) return;
+        if (fieldSuggestion.confidence < suggestionSettings.confidenceThreshold) {
+          fieldSuggestion.value = null;
+          fieldSuggestion.reason = fallbackSuggestionReason(fieldSuggestion.reason, "threshold", suggestionSettings.confidenceThreshold);
+        }
+      });
+
+      let copyPreviousMonthValue = !!previousMonthReport;
+      let copyPreviousMonthReason = previousMonthReport
+        ? `Fant rapport fra ${previousMonth} som kan gjenbrukes.`
+        : "Ingen rapport i forrige måned å kopiere fra.";
+      const copyPreviousMonthConfidence = adjustConfidenceByFeedback(copyPrevBaseConfidence, feedbackByType, "copy_previous_month");
+      if (copyPreviousMonthValue && copyPreviousMonthConfidence < suggestionSettings.confidenceThreshold) {
+        copyPreviousMonthValue = false;
+        copyPreviousMonthReason = fallbackSuggestionReason(copyPreviousMonthReason, "threshold", suggestionSettings.confidenceThreshold);
+      }
+
+      if (suggestionSettings.mode === "off") {
+        caseSuggestion.value = null;
+        templateLabel = null;
+        templateReason = "Forslag er skrudd av.";
+        copyPreviousMonthValue = false;
+        Object.values(fieldsSuggestion).forEach((fieldSuggestion) => {
+          fieldSuggestion.value = null;
+        });
+      }
+
+      res.json({
+        month: targetMonth,
+        analyzedReports: reports.length,
+        suggestion: {
+          caseId: caseSuggestion,
+          template: {
+            value: templateLabel,
+            confidence: templateConfidence,
+            sampleSize: templateSourceSize,
+            reason: templateReason,
+          },
+          copyPreviousMonth: {
+            value: copyPreviousMonthValue,
+            confidence: copyPreviousMonthConfidence,
+            sampleSize: previousMonthCandidates.length,
+            reason: copyPreviousMonthReason,
+          },
+          fields: fieldsSuggestion,
+        },
+        previousMonthReport: previousMonthReport
+          ? {
+              id: previousMonthReport.id,
+              caseId: previousMonthReport.case_id,
+              month: previousMonthReport.month,
+              fields: fieldKeys.reduce<Record<string, string | null>>((acc, fieldKey) => {
+                acc[fieldKey] = previousMonthReport[fieldKey] ?? null;
+                return acc;
+              }, {}),
+            }
+          : null,
+        personalization: {
+          totalFeedback,
+          acceptanceRate,
+          feedbackByType,
+        },
+        policy: {
+          mode: suggestionSettings.mode,
+          confidenceThreshold: suggestionSettings.confidenceThreshold,
+          source: suggestionSettings.rollout.source,
+        },
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/case-reports/suggestions/feedback", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+
+      const parsed = caseReportSuggestionFeedbackSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      await storage.recordCaseReportingFeedback(authUserId, {
+        ...parsed.data,
+        timestamp: new Date().toISOString(),
+      });
+
+      res.status(204).end();
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -663,6 +1804,85 @@ export async function registerRoutes(
       res.json({ existingDates });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // Dashboard tasks
+  // ─────────────────────────────────────────────────────────────
+  app.get("/api/tasks", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const tasks = await storage.getDashboardTasks(userId);
+      res.json(tasks);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/tasks", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const { title, linkedUrl, linkedLabel } = req.body;
+      if (!title || typeof title !== "string" || !title.trim()) {
+        return res.status(400).json({ error: "title is required" });
+      }
+      const task = await storage.createDashboardTask(userId, title.trim(), linkedUrl, linkedLabel);
+      res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      const { title, done, linkedUrl, linkedLabel, snoozedUntil } = req.body;
+      const updated = await storage.updateDashboardTask(id, userId, { title, done, linkedUrl, linkedLabel, snoozedUntil });
+      if (!updated) return res.status(404).json({ error: "Not found" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/tasks/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const id = parseInt(req.params.id);
+      const ok = await storage.deleteDashboardTask(id, userId);
+      if (!ok) return res.status(404).json({ error: "Not found" });
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── Task learning preferences ──
+  app.get("/api/task-prefs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      const prefs = await storage.getUserTaskPrefs(userId);
+      res.json(prefs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/task-prefs/event", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      await storage.recordTaskEvent(userId, req.body);
+      res.status(204).end();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

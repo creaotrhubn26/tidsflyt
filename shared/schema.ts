@@ -1297,5 +1297,32 @@ export type InsertUser = Omit<User, 'id' | 'hoursThisWeek' | 'pendingApprovals'>
 export type InsertTimeEntry = Omit<TimeEntry, 'id'>;
 export type InsertActivity = Omit<Activity, 'id'>;
 
+// Dashboard tasks
+export const dashboardTasks = pgTable("dashboard_tasks", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull(),
+  title: text("title").notNull(),
+  done: boolean("done").default(false).notNull(),
+  linkedUrl: text("linked_url"),
+  linkedLabel: text("linked_label"),
+  snoozedUntil: timestamp("snoozed_until"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDashboardTaskSchema = createInsertSchema(dashboardTasks).omit({ id: true, createdAt: true, updatedAt: true });
+
+export type DashboardTask = typeof dashboardTasks.$inferSelect;
+export type InsertDashboardTask = typeof dashboardTasks.$inferInsert;
+
+// User task learning preferences
+export const userTaskPrefs = pgTable("user_task_prefs", {
+  userId: text("user_id").primaryKey(),
+  prefs: jsonb("prefs").notNull().default({}),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type UserTaskPrefs = typeof userTaskPrefs.$inferSelect;
+
 // Export auth models (required for Replit Auth)
 export * from "./models/auth";

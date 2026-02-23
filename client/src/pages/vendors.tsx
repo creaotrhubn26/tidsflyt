@@ -316,21 +316,52 @@ export default function VendorsPage() {
                 <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
               </div>
             ) : filteredVendors.length === 0 ? (
-              <Card>
-                <CardContent className="py-12 text-center">
-                  <Building2 className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <h3 className="font-medium mb-2">
-                    {searchQuery ? 'Ingen leverandører funnet' : 'Ingen leverandører registrert'}
-                  </h3>
-                  <p className="text-muted-foreground">
-                    {searchQuery ? 'Prøv et annet søkeord' : 'Legg til den første leverandøren for å komme i gang'}
-                  </p>
-                </CardContent>
-              </Card>
+              <div className="flex flex-col items-center justify-center py-20 px-4">
+                {searchQuery ? (
+                  <>
+                    <div className="flex items-center justify-center w-14 h-14 rounded-xl bg-muted/60 border border-border mb-4">
+                      <Building2 className="h-6 w-6 text-muted-foreground" />
+                    </div>
+                    <h3 className="text-base font-semibold mb-1">Ingen leverandører funnet</h3>
+                    <p className="text-sm text-muted-foreground text-center max-w-xs">Prøv et annet søkeord eller juster filteret.</p>
+                  </>
+                ) : (
+                  <>
+                    <div className="relative mb-8">
+                      <div className="absolute inset-0 rounded-full bg-blue-500/20 blur-2xl scale-150" />
+                      <div className="relative flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-blue-500/20 to-indigo-500/20 border border-blue-500/20 shadow-lg">
+                        <Building2 className="h-9 w-9 text-blue-500" />
+                      </div>
+                    </div>
+                    <h3 className="text-2xl font-semibold mb-3">Ingen leverandører ennå</h3>
+                    <p className="text-muted-foreground text-center max-w-sm mb-8 leading-relaxed">
+                      Legg til den første leverandøren for å komme i gang med administrasjonen.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2 mb-8">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/10 border border-blue-500/20 text-xs font-medium text-blue-700 dark:text-blue-400">
+                        <Users className="h-3.5 w-3.5" />
+                        Brukeradministrasjon
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-700 dark:text-green-400">
+                        <Shield className="h-3.5 w-3.5" />
+                        Tilgangsstyring
+                      </div>
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-purple-500/10 border border-purple-500/20 text-xs font-medium text-purple-700 dark:text-purple-400">
+                        <BarChart3 className="h-3.5 w-3.5" />
+                        Statistikk & rapporter
+                      </div>
+                    </div>
+                    <Button size="lg" className="gap-2 px-8 shadow-md" onClick={() => { setSelectedVendor(null); setShowVendorDialog(true); }}>
+                      <Plus className="h-5 w-5" />
+                      Legg til første leverandør
+                    </Button>
+                  </>
+                )}
+              </div>
             ) : (
               <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {filteredVendors.map((vendor) => (
-                  <Card key={vendor.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 hover:shadow-md hover:shadow-slate-200/50 cursor-pointer transition-all hover:-translate-y-0.5 duration-300" data-testid={`vendor-card-${vendor.id}`}>
+                  <Card key={vendor.id} className="bg-gradient-to-br from-slate-50 to-slate-100/30 dark:from-slate-900/40 dark:to-slate-800/20 hover:from-slate-100 hover:to-slate-100/50 border-slate-200/60 dark:border-border hover:shadow-md hover:shadow-slate-200/50 dark:hover:shadow-none cursor-pointer transition-all hover:-translate-y-0.5 duration-300" data-testid={`vendor-card-${vendor.id}`}>
                     <CardContent className="p-6">
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="p-2 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600 text-white">
@@ -408,7 +439,7 @@ export default function VendorsPage() {
           <TabsContent value="analytics" className="space-y-6">
             <div className="grid gap-4 md:grid-cols-4">
               {/* Total Vendors Card */}
-              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60">
+              <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 dark:from-blue-950/40 dark:to-blue-900/20 border-blue-200/60 dark:border-blue-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -423,7 +454,7 @@ export default function VendorsPage() {
               </Card>
 
               {/* Active Vendors Card */}
-              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60">
+              <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 dark:from-emerald-950/40 dark:to-emerald-900/20 border-emerald-200/60 dark:border-emerald-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -438,7 +469,7 @@ export default function VendorsPage() {
               </Card>
 
               {/* Total Users Card */}
-              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 dark:from-purple-950/40 dark:to-purple-900/20 border-purple-200/60 dark:border-purple-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
@@ -453,7 +484,7 @@ export default function VendorsPage() {
               </Card>
 
               {/* Average Users Card */}
-              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 dark:from-orange-950/40 dark:to-orange-900/20 border-orange-200/60 dark:border-orange-800/40">
                 <CardContent className="p-6">
                   <div className="flex items-center justify-between">
                     <div>
