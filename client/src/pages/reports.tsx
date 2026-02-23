@@ -16,6 +16,7 @@ import {
   Bell,
   ArrowUpRight,
   ArrowDownRight,
+  Minus,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -43,6 +44,10 @@ import { cn } from "@/lib/utils";
 import { format, subDays } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { User } from "@shared/schema";
+import { useToast } from "@/hooks/use-toast";
+import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
+import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 
 type ReportEntry = {
   id: string;
@@ -69,13 +74,82 @@ const statusLabels: Record<string, string> = {
   rejected: "Avvist",
 };
 
+type ReportScheduleType = "weekly" | "monthly" | "quarterly";
+type ReportScheduleFrequency = "weekly" | "biweekly" | "monthly";
+
+type SavedReportSchedule = {
+  reportType: ReportScheduleType;
+  frequency: ReportScheduleFrequency;
+  updatedAt: string;
+};
+
+const REPORT_SCHEDULE_STORAGE_KEY = "tidum-report-schedule";
+
+const reportTypeLabels: Record<ReportScheduleType, string> = {
+  weekly: "Ukerapport",
+  monthly: "Månedlig rapport",
+  quarterly: "Kvartalsvis rapport",
+};
+
+const reportFrequencyLabels: Record<ReportScheduleFrequency, string> = {
+  weekly: "Hver uke",
+  biweekly: "Annenhver uke",
+  monthly: "Hver måned",
+};
+
+function loadSavedReportSchedule(): SavedReportSchedule | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(REPORT_SCHEDULE_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SavedReportSchedule>;
+    if (!parsed.reportType || !parsed.frequency) return null;
+    return {
+      reportType: parsed.reportType as ReportScheduleType,
+      frequency: parsed.frequency as ReportScheduleFrequency,
+      updatedAt: parsed.updatedAt || new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveReportSchedule(schedule: SavedReportSchedule) {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(REPORT_SCHEDULE_STORAGE_KEY, JSON.stringify(schedule));
+}
+
 export default function ReportsPage() {
+  const { toast } = useToast();
+  const { settings: suggestionSettings } = useSuggestionSettings();
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState("week");
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
   const [viewMode, setViewMode] = useState<"summary" | "reports" | "analytics" | "schedule">("summary");
   const [selectedReportForAction, setSelectedReportForAction] = useState<string | null>(null);
+  const [savedSchedule, setSavedSchedule] = useState<SavedReportSchedule | null>(() => loadSavedReportSchedule());
+  const [reportType, setReportType] = useState<ReportScheduleType>(savedSchedule?.reportType || "monthly");
+  const [reportFrequency, setReportFrequency] = useState<ReportScheduleFrequency>(savedSchedule?.frequency || "monthly");
+  const automationSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "automation");
+
+  const reportsScheduleSuggestionVisibility = useSuggestionVisibility({
+    surface: "reports_schedule",
+    enabled: viewMode === "schedule" && automationSuggestionsEnabled && !!savedSchedule,
+    frequency: suggestionSettings.frequency,
+    scopeKey: savedSchedule?.updatedAt || "none",
+  });
+
+  const scheduleSuggestionConfidence = useMemo(() => {
+    if (!savedSchedule?.updatedAt) return null;
+    const savedAt = Date.parse(savedSchedule.updatedAt);
+    if (!Number.isFinite(savedAt)) return null;
+    const ageHours = (Date.now() - savedAt) / (1000 * 60 * 60);
+    if (ageHours <= 24) return 0.92;
+    if (ageHours <= 72) return 0.82;
+    if (ageHours <= 168) return 0.7;
+    return 0.58;
+  }, [savedSchedule?.updatedAt]);
 
   const startDate = dateRange === "today" 
     ? format(new Date(), "yyyy-MM-dd")
@@ -202,6 +276,30 @@ export default function ReportsPage() {
     }
   };
 
+  const handleUsePreviousSchedule = () => {
+    if (!savedSchedule) return;
+    setReportType(savedSchedule.reportType);
+    setReportFrequency(savedSchedule.frequency);
+    toast({
+      title: "Forslag brukt",
+      description: `Bruker forrige plan: ${reportTypeLabels[savedSchedule.reportType]} · ${reportFrequencyLabels[savedSchedule.frequency]}`,
+    });
+  };
+
+  const handleSaveSchedule = () => {
+    const nextSchedule: SavedReportSchedule = {
+      reportType,
+      frequency: reportFrequency,
+      updatedAt: new Date().toISOString(),
+    };
+    saveReportSchedule(nextSchedule);
+    setSavedSchedule(nextSchedule);
+    toast({
+      title: "Plan lagret",
+      description: `${reportTypeLabels[reportType]} settes opp med frekvens ${reportFrequencyLabels[reportFrequency].toLowerCase()}.`,
+    });
+  };
+
   return (
     <PortalLayout>
       <div className="space-y-6">
@@ -240,7 +338,7 @@ export default function ReportsPage() {
 
         <div className="grid gap-4 md:gap-6 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {/* Total Hours Card */}
-          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60 hover:shadow-lg hover:shadow-blue-200/30 transition-all -translate-y-0 hover:-translate-y-1">
+          <Card className="bg-gradient-to-br from-blue-50 to-blue-100/30 border-blue-200/60 dark:from-blue-950/40 dark:to-blue-900/20 dark:border-blue-800/40 hover:shadow-lg hover:shadow-blue-200/30 dark:hover:shadow-none transition-all -translate-y-0 hover:-translate-y-1">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-lg bg-gradient-to-br from-blue-500 to-blue-600">
@@ -267,7 +365,7 @@ export default function ReportsPage() {
           </Card>
 
           {/* Average Per User Card */}
-          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60 hover:shadow-lg hover:shadow-emerald-200/30 transition-all -translate-y-0 hover:-translate-y-1">
+          <Card className="bg-gradient-to-br from-emerald-50 to-emerald-100/30 border-emerald-200/60 dark:from-emerald-950/40 dark:to-emerald-900/20 dark:border-emerald-800/40 hover:shadow-lg hover:shadow-emerald-200/30 dark:hover:shadow-none transition-all -translate-y-0 hover:-translate-y-1">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-600">
@@ -285,7 +383,7 @@ export default function ReportsPage() {
           </Card>
 
           {/* Approved Card */}
-          <Card className="bg-gradient-to-br from-green-50 to-green-100/30 border-green-200/60 hover:shadow-lg hover:shadow-green-200/30 transition-all -translate-y-0 hover:-translate-y-1">
+          <Card className="bg-gradient-to-br from-green-50 to-green-100/30 border-green-200/60 dark:from-green-950/40 dark:to-green-900/20 dark:border-green-800/40 hover:shadow-lg hover:shadow-green-200/30 dark:hover:shadow-none transition-all -translate-y-0 hover:-translate-y-1">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-lg bg-gradient-to-br from-green-500 to-green-600">
@@ -303,7 +401,7 @@ export default function ReportsPage() {
           </Card>
 
           {/* Pending Card */}
-          <Card className="bg-gradient-to-br from-amber-50 to-amber-100/30 border-amber-200/60 hover:shadow-lg hover:shadow-amber-200/30 transition-all -translate-y-0 hover:-translate-y-1">
+          <Card className="bg-gradient-to-br from-amber-50 to-amber-100/30 border-amber-200/60 dark:from-amber-950/40 dark:to-amber-900/20 dark:border-amber-800/40 hover:shadow-lg hover:shadow-amber-200/30 dark:hover:shadow-none transition-all -translate-y-0 hover:-translate-y-1">
             <CardContent className="p-6">
               <div className="flex items-center gap-4">
                 <div className="p-3 rounded-lg bg-gradient-to-br from-amber-500 to-amber-600">
@@ -334,7 +432,7 @@ export default function ReportsPage() {
           <TabsContent value="summary" className="space-y-6 mt-6">
             <div className="grid gap-6 md:grid-cols-2">
               {/* Department Breakdown */}
-              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60">
+              <Card className="bg-gradient-to-br from-purple-50 to-purple-100/30 border-purple-200/60 dark:from-purple-950/40 dark:to-purple-900/20 dark:border-purple-800/40">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5" />
@@ -349,7 +447,7 @@ export default function ReportsPage() {
                           <span className="font-medium">{dept.department}</span>
                           <span className="font-mono">{dept.hours.toFixed(1)}t</span>
                         </div>
-                        <div className="h-2 bg-slate-200/60 rounded-full overflow-hidden">
+                        <div className="h-2 bg-slate-200/60 dark:bg-slate-700/40 rounded-full overflow-hidden">
                           <progress
                             value={dept.percentage}
                             max={100}
@@ -369,7 +467,7 @@ export default function ReportsPage() {
               </Card>
 
               {/* Top Performers */}
-              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60">
+              <Card className="bg-gradient-to-br from-orange-50 to-orange-100/30 border-orange-200/60 dark:from-orange-950/40 dark:to-orange-900/20 dark:border-orange-800/40">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <Users className="h-5 w-5" />
@@ -384,7 +482,7 @@ export default function ReportsPage() {
                           <p className="text-sm font-medium">{idx + 1}. {user.user}</p>
                           <p className="text-xs text-muted-foreground">{user.approvals} godkjente</p>
                         </div>
-                        <Badge className="bg-gradient-to-r from-orange-500 to-orange-600">
+                        <Badge className="bg-gradient-to-r from-orange-500 to-orange-600 dark:from-orange-700 dark:to-orange-800">
                           {user.hours.toFixed(1)}t
                         </Badge>
                       </div>
@@ -402,7 +500,7 @@ export default function ReportsPage() {
 
           {/* ANALYTICS TAB */}
           <TabsContent value="analytics" className="space-y-6 mt-6">
-            <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100/30 border-indigo-200/60">
+            <Card className="bg-gradient-to-br from-indigo-50 to-indigo-100/30 border-indigo-200/60 dark:from-indigo-950/40 dark:to-indigo-900/20 dark:border-indigo-800/40">
               <CardHeader>
                 <CardTitle>Trendanalyse</CardTitle>
               </CardHeader>
@@ -420,19 +518,25 @@ export default function ReportsPage() {
                 <div className={cn(
                   "p-3 rounded-lg text-sm font-medium",
                   trends.changePercent > 0 
-                    ? "bg-green-100/50 border border-green-200/60 text-green-700" 
+                    ? "bg-green-100/50 border border-green-200/60 text-green-700 dark:bg-green-950/30 dark:border-green-900/40 dark:text-green-400" 
                     : trends.changePercent < 0
-                    ? "bg-orange-100/50 border border-orange-200/60 text-orange-700"
-                    : "bg-slate-100/50 border border-slate-200/60 text-slate-700"
+                    ? "bg-orange-100/50 border border-orange-200/60 text-orange-700 dark:bg-orange-950/30 dark:border-orange-900/40 dark:text-orange-400"
+                    : "bg-slate-100/50 border border-slate-200/60 text-slate-700 dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400"
                 )}>
-                  {trends.changePercent > 0 ? "📈 " : trends.changePercent < 0 ? "📉 " : "⏹️ "}
+                  {trends.changePercent > 0 ? (
+                    <ArrowUpRight className="inline h-4 w-4 mr-1" />
+                  ) : trends.changePercent < 0 ? (
+                    <ArrowDownRight className="inline h-4 w-4 mr-1" />
+                  ) : (
+                    <Minus className="inline h-4 w-4 mr-1" />
+                  )}
                   {Math.abs(trends.changePercent).toFixed(1)}% {trends.changePercent > 0 ? "økning" : trends.changePercent < 0 ? "reduksjon" : "uendret"}
                 </div>
               </CardContent>
             </Card>
 
             {stats && (
-              <Card className="bg-gradient-to-br from-slate-50 to-slate-100/30 border-slate-200/60">
+              <Card className="bg-gradient-to-br from-slate-50 to-slate-100/30 border-slate-200/60 dark:from-slate-900/40 dark:to-slate-800/20 dark:border-slate-700/40">
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
                     <BarChart3 className="h-5 w-5" />
@@ -465,7 +569,7 @@ export default function ReportsPage() {
 
           {/* SCHEDULE TAB */}
           <TabsContent value="schedule" className="space-y-6 mt-6">
-            <Card className="bg-gradient-to-br from-teal-50 to-teal-100/30 border-teal-200/60">
+            <Card className="bg-gradient-to-br from-teal-50 to-teal-100/30 border-teal-200/60 dark:from-teal-950/40 dark:to-teal-900/20 dark:border-teal-800/40">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
                   <Calendar className="h-5 w-5" />
@@ -473,10 +577,35 @@ export default function ReportsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
+                {savedSchedule && reportsScheduleSuggestionVisibility.isVisible && (
+                  <div className="rounded-md border border-primary/25 bg-primary/5 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between" data-testid="reports-schedule-suggestion">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Sist brukt plan: {reportTypeLabels[savedSchedule.reportType]} · {reportFrequencyLabels[savedSchedule.frequency]}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Lagret {format(new Date(savedSchedule.updatedAt), "dd.MM.yyyy HH:mm", { locale: nb })}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Hvorfor: Basert på din sist brukte plan.
+                        {scheduleSuggestionConfidence != null ? ` · Sikkerhet: ${Math.round(scheduleSuggestionConfidence * 100)}%` : ""}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleUsePreviousSchedule}
+                      data-testid="reports-schedule-use-previous"
+                    >
+                      Bruk forrige plan
+                    </Button>
+                  </div>
+                )}
                 <div className="p-4 rounded-lg bg-white/60 dark:bg-card/60 space-y-3">
                   <div>
                     <label className="text-sm font-medium">Rapporttype</label>
-                    <Select>
+                    <Select value={reportType} onValueChange={(value) => setReportType(value as ReportScheduleType)}>
                       <SelectTrigger className="mt-2">
                         <SelectValue placeholder="Velg rapport" />
                       </SelectTrigger>
@@ -489,7 +618,7 @@ export default function ReportsPage() {
                   </div>
                   <div>
                     <label className="text-sm font-medium">Frekvens</label>
-                    <Select>
+                    <Select value={reportFrequency} onValueChange={(value) => setReportFrequency(value as ReportScheduleFrequency)}>
                       <SelectTrigger className="mt-2">
                         <SelectValue placeholder="Velg frekvens" />
                       </SelectTrigger>
@@ -500,7 +629,12 @@ export default function ReportsPage() {
                       </SelectContent>
                     </Select>
                   </div>
-                  <Button className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700">
+                  <Button
+                    type="button"
+                    className="w-full bg-gradient-to-r from-teal-500 to-teal-600 hover:from-teal-600 hover:to-teal-700 dark:from-teal-700 dark:to-teal-800 dark:hover:from-teal-600 dark:hover:to-teal-700"
+                    onClick={handleSaveSchedule}
+                    data-testid="reports-schedule-save"
+                  >
                     <Calendar className="h-4 w-4 mr-2" />
                     Planlegg rapport
                   </Button>

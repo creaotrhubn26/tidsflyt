@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -11,11 +11,14 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useToast } from "@/hooks/use-toast";
+import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { PortalLayout } from "@/components/portal/portal-layout";
-import { format } from "date-fns";
+import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from "date-fns";
 import { nb } from "date-fns/locale";
 import { FileText, Plus, Download, Send, CheckCircle2, Clock, XCircle, CalendarIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 
 interface Invoice {
   id: number;
@@ -34,6 +37,8 @@ interface Invoice {
   notes: string | null;
   paymentDate: string | null;
   paymentMethod: string | null;
+  periodStart?: string | null;
+  periodEnd?: string | null;
   createdAt: string;
   updatedAt: string;
   lineItems?: InvoiceLineItem[];
@@ -50,6 +55,7 @@ interface InvoiceLineItem {
 
 export default function InvoicesPage() {
   const { toast } = useToast();
+  const { settings: suggestionSettings } = useSuggestionSettings();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [viewInvoice, setViewInvoice] = useState<Invoice | null>(null);
@@ -69,6 +75,23 @@ export default function InvoicesPage() {
     queryKey: ["/api/invoices"],
   });
 
+  const latestInvoice = useMemo(() => {
+    if (!invoices.length) return null;
+    return [...invoices].sort((a, b) => {
+      const aTime = new Date(a.invoiceDate || a.createdAt).getTime();
+      const bTime = new Date(b.invoiceDate || b.createdAt).getTime();
+      return bTime - aTime;
+    })[0];
+  }, [invoices]);
+  const automationSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "automation");
+
+  const invoiceSuggestionVisibility = useSuggestionVisibility({
+    surface: "invoices",
+    enabled: isDialogOpen && automationSuggestionsEnabled && !!latestInvoice,
+    frequency: suggestionSettings.frequency,
+    scopeKey: latestInvoice ? `${latestInvoice.id}:${latestInvoice.invoiceNumber}` : "none",
+  });
+
   // Generate invoice mutation
   const generateMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -83,12 +106,12 @@ export default function InvoicesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      toast({ title: "✅ Generert!", description: "Faktura opprettet" });
+      toast({ title: "Generert", description: "Faktura opprettet" });
       resetForm();
       setIsDialogOpen(false);
     },
     onError: () => {
-      toast({ title: "❌ Feil", description: "Kunne ikke generere faktura", variant: "destructive" });
+      toast({ title: "Feil", description: "Kunne ikke generere faktura", variant: "destructive" });
     },
   });
 
@@ -106,7 +129,7 @@ export default function InvoicesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/invoices"] });
-      toast({ title: "✅ Oppdatert!", description: "Status endret" });
+      toast({ title: "Oppdatert", description: "Status endret" });
     },
   });
 
@@ -153,10 +176,53 @@ export default function InvoicesPage() {
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
 
-      toast({ title: "✅ Lastet ned!", description: "PDF-faktura lastet ned" });
+      toast({ title: "Lastet ned", description: "PDF-faktura lastet ned" });
     } catch (error) {
-      toast({ title: "❌ Feil", description: "Kunne ikke laste ned PDF", variant: "destructive" });
+      toast({ title: "Feil", description: "Kunne ikke laste ned PDF", variant: "destructive" });
     }
+  };
+
+  const applyPreviousInvoiceTemplate = () => {
+    if (!latestInvoice) return;
+
+    const parseDateSafely = (value?: string | null): Date | null => {
+      if (!value) return null;
+      const parsed = parseISO(value);
+      return isValid(parsed) ? parsed : null;
+    };
+
+    setClientName(latestInvoice.clientName || "");
+    setClientAddress(latestInvoice.clientAddress || "");
+    setClientOrg(latestInvoice.clientOrg || "");
+    setClientEmail(latestInvoice.clientEmail || "");
+    setNotes(latestInvoice.notes || "");
+
+    const copiedHourlyRate = latestInvoice.lineItems?.find((item) => Number(item.unitPrice) > 0)?.unitPrice;
+    if (copiedHourlyRate != null && Number.isFinite(Number(copiedHourlyRate))) {
+      setHourlyRate(String(copiedHourlyRate));
+    }
+
+    const periodStart = parseDateSafely(latestInvoice.periodStart);
+    const periodEnd = parseDateSafely(latestInvoice.periodEnd);
+    const invoiceDate = parseDateSafely(latestInvoice.invoiceDate);
+
+    if (periodStart && periodEnd) {
+      setStartDate(addMonths(periodStart, 1));
+      setEndDate(addMonths(periodEnd, 1));
+    } else if (invoiceDate) {
+      const nextMonth = addMonths(invoiceDate, 1);
+      setStartDate(startOfMonth(nextMonth));
+      setEndDate(endOfMonth(nextMonth));
+    } else {
+      const nextMonth = addMonths(new Date(), 1);
+      setStartDate(startOfMonth(nextMonth));
+      setEndDate(endOfMonth(nextMonth));
+    }
+
+    toast({
+      title: "Forslag brukt",
+      description: `Hentet oppsett fra ${latestInvoice.invoiceNumber} og tilpasset perioden til neste måned.`,
+    });
   };
 
   const getStatusBadge = (status: string) => {
@@ -211,6 +277,26 @@ export default function InvoicesPage() {
               </DialogHeader>
 
               <form onSubmit={handleGenerate} className="space-y-4">
+                {latestInvoice && invoiceSuggestionVisibility.isVisible && (
+                  <div className="rounded-md border border-primary/25 bg-primary/5 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-sm font-medium">Kopier fra forrige faktura</p>
+                      <p className="text-xs text-muted-foreground">
+                        Bruker kundeinfo fra {latestInvoice.invoiceNumber} og flytter perioden én måned frem.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={applyPreviousInvoiceTemplate}
+                      data-testid="invoice-copy-previous"
+                    >
+                      Bruk forrige
+                    </Button>
+                  </div>
+                )}
+
                 {/* Client Info */}
                 <div className="space-y-4">
                   <h3 className="font-semibold">Kundeinformasjon</h3>
@@ -423,8 +509,21 @@ export default function InvoicesPage() {
             {isLoading ? (
               <div className="py-8 text-center text-muted-foreground">Laster...</div>
             ) : invoices.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground">
-                Ingen fakturaer ennå. Opprett din første faktura!
+              <div className="flex flex-col items-center justify-center py-16 px-4">
+                <div className="relative mb-6">
+                  <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl scale-150" />
+                  <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-indigo-500/20 border border-primary/20 shadow-lg">
+                    <FileText className="h-7 w-7 text-primary" />
+                  </div>
+                </div>
+                <h3 className="text-xl font-semibold mb-2">Ingen fakturaer ennå</h3>
+                <p className="text-sm text-muted-foreground text-center max-w-xs mb-6 leading-relaxed">
+                  Opprett din første faktura for å komme i gang med fakturering.
+                </p>
+                <Button size="lg" className="gap-2 px-8 shadow-md" onClick={() => setIsDialogOpen(true)}>
+                  <Plus className="h-5 w-5" />
+                  Opprett første faktura
+                </Button>
               </div>
             ) : (
               <Table>

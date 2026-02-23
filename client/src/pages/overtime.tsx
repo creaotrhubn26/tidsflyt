@@ -96,11 +96,11 @@ export default function OvertimePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/overtime/settings"] });
-      toast({ title: "✅ Lagret!", description: "Overtidsinnstillinger oppdatert" });
+      toast({ title: "Lagret", description: "Overtidsinnstillinger oppdatert" });
       setIsSettingsOpen(false);
     },
     onError: () => {
-      toast({ title: "❌ Feil", description: "Kunne ikke lagre innstillinger", variant: "destructive" });
+      toast({ title: "Feil", description: "Kunne ikke lagre innstillinger", variant: "destructive" });
     },
   });
 
@@ -120,7 +120,7 @@ export default function OvertimePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/overtime/entries"] });
       queryClient.invalidateQueries({ queryKey: [`/api/overtime/summary?month=${monthStr}`] });
       toast({ 
-        title: "✅ Beregnet!", 
+        title: "Beregnet", 
         description: `${data.entries?.length || 0} overtidsdager funnet` 
       });
     },
@@ -140,7 +140,7 @@ export default function OvertimePage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/overtime/entries"] });
-      toast({ title: "✅ Oppdatert!", description: "Status endret" });
+      toast({ title: "Oppdatert", description: "Status endret" });
     },
   });
 

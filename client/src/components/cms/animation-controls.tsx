@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { 
   Play, Clock, Zap, MousePointer, 
-  Eye, ScrollText
+  Eye, ScrollText, Minus
 } from "lucide-react";
 
 interface AnimationConfig {
@@ -29,11 +29,11 @@ export function AnimationControls({ animation, onChange, onPreview }: AnimationC
   };
 
   const animationTypes = [
-    { value: 'none', label: 'None', icon: '—' },
-    { value: 'fade', label: 'Fade In', icon: '👁️' },
-    { value: 'slide', label: 'Slide Up', icon: '↑' },
-    { value: 'scale', label: 'Scale', icon: '⤢' },
-    { value: 'rotate', label: 'Rotate', icon: '↻' },
+    { value: 'none', label: 'None', icon: <Minus className="h-4 w-4" /> },
+    { value: 'fade', label: 'Fade In', icon: <Eye className="h-4 w-4" /> },
+    { value: 'slide', label: 'Slide Up', icon: <ScrollText className="h-4 w-4" /> },
+    { value: 'scale', label: 'Scale', icon: <MousePointer className="h-4 w-4" /> },
+    { value: 'rotate', label: 'Rotate', icon: <Clock className="h-4 w-4" /> },
   ];
 
   const triggerTypes = [
@@ -71,7 +71,7 @@ export function AnimationControls({ animation, onChange, onPreview }: AnimationC
                   onClick={() => updateAnimation({ type: type.value as any })}
                   className="flex items-center gap-2 h-auto py-3"
                 >
-                  <span className="text-lg">{type.icon}</span>
+                  <span>{type.icon}</span>
                   <span className="text-xs">{type.label}</span>
                 </Button>
               ))}

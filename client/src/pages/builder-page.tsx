@@ -53,7 +53,12 @@ function renderSectionContent(section: any): string {
     case 'tidum-hero-icon':
       return `
         <div style="text-align:center;max-width:700px;margin:0 auto;">
-          ${c.icon ? `<div style="display:inline-flex;padding:16px;border-radius:16px;background:${c.iconBg || '#E7F3EE'};margin-bottom:16px;font-size:2rem;">🛡️</div>` : ''}
+          ${c.icon ? `<div style="display:inline-flex;padding:16px;border-radius:16px;background:${c.iconBg || '#E7F3EE'};margin-bottom:16px;">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:${c.iconColor || 'var(--color-primary)'};">
+              <path d="M12 3l7 3v6c0 4.5-2.9 7.9-7 9-4.1-1.1-7-4.5-7-9V6l7-3z"></path>
+              <path d="M9.5 12.5l1.7 1.7 3.3-3.3"></path>
+            </svg>
+          </div>` : ''}
           <h1 class="tidum-title">${t}</h1>
           ${c.subtitle ? `<p class="tidum-text" style="margin-top:12px;">${c.subtitle}</p>` : ''}
           ${c.dateLabel ? `<p style="margin-top:8px;font-size:0.85rem;color:var(--color-text-muted);">${c.dateLabel}: ${c.date || ''}</p>` : ''}
@@ -325,7 +330,11 @@ function renderSectionContent(section: any): string {
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px;">
             ${(c.benefits || []).map((b: any) => `
               <div class="tidum-panel" style="padding:24px;border-radius:12px;text-align:center;">
-                <div style="font-size:1.5rem;margin-bottom:12px;color:var(--color-primary);">⭐</div>
+                <div style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;margin-bottom:12px;color:var(--color-primary);">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <polygon points="12 2 15 9 22 9 16.5 14 18.5 21 12 16.8 5.5 21 7.5 14 2 9 9 9 12 2"></polygon>
+                  </svg>
+                </div>
                 <h3 style="font-weight:600;font-size:1.05rem;margin-bottom:8px;">${b.title || ''}</h3>
                 <p style="color:var(--color-text-muted);font-size:0.9rem;line-height:1.5;">${b.description || ''}</p>
               </div>
@@ -364,7 +373,13 @@ function renderSectionContent(section: any): string {
               <p style="color:var(--color-text-muted);font-size:0.9rem;margin-bottom:16px;">${left.description || ''}</p>
               ${(left.issues || []).map((iss: any) => `
                 <div style="display:flex;gap:10px;margin-bottom:10px;align-items:start;">
-                  <span style="color:#e74c3c;font-size:1rem;">⚠</span>
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:#e74c3c;">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M12 9v4"></path>
+                      <path d="M12 17h.01"></path>
+                      <path d="M10.3 3.8 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.8a2 2 0 0 0-3.4 0z"></path>
+                    </svg>
+                  </span>
                   <div>
                     <strong style="font-size:0.9rem;">${iss.title || ''}</strong>
                     <p style="color:var(--color-text-muted);font-size:0.85rem;margin-top:2px;">${iss.detail || ''}</p>
@@ -430,7 +445,7 @@ function renderSectionContent(section: any): string {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
             ${(c.items || []).map((it: any) => `
               <div class="tidum-panel" style="display:flex;align-items:center;gap:14px;padding:16px 20px;border-radius:12px;">
-                <span style="font-size:1.3rem;">👤</span>
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:999px;background:rgba(31,107,115,0.12);color:var(--color-primary);font-weight:700;font-size:0.85rem;">${(it.label || '?').charAt(0).toUpperCase()}</span>
                 <span style="font-weight:500;font-size:1rem;">${it.label || ''}</span>
               </div>
             `).join('')}
@@ -475,7 +490,11 @@ function renderSectionContent(section: any): string {
               <p style="color:var(--color-text-muted);font-size:0.9rem;margin-bottom:20px;">${c.rightSubtitle || ''}</p>
               ${(c.features || []).map((f: any) => `
                 <div style="display:flex;gap:12px;margin-bottom:14px;align-items:start;">
-                  <span style="color:var(--color-primary);font-size:1.1rem;">⚡</span>
+                  <span style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;color:var(--color-primary);">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M13 2 4 14h7l-1 8 9-12h-7z"></path>
+                    </svg>
+                  </span>
                   <div>
                     <strong style="font-size:0.9rem;">${f.title || ''}</strong>
                     <p style="color:var(--color-text-muted);font-size:0.85rem;margin-top:2px;">${f.description || ''}</p>
@@ -515,7 +534,15 @@ function renderSectionContent(section: any): string {
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
             ${(c.items || []).map((it: any) => `
               <div class="tidum-panel" style="display:flex;align-items:center;gap:14px;padding:20px;border-radius:12px;">
-                <span style="font-size:1.2rem;color:var(--color-primary);">🏆</span>
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--color-primary);">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M8 21h8"></path>
+                    <path d="M12 17v4"></path>
+                    <path d="M7 4h10v5a5 5 0 0 1-10 0V4z"></path>
+                    <path d="M17 6h2a2 2 0 0 1 0 4h-2"></path>
+                    <path d="M7 6H5a2 2 0 1 0 0 4h2"></path>
+                  </svg>
+                </span>
                 <div>
                   <strong style="font-size:0.95rem;">${it.title || ''}</strong>
                   <p style="color:var(--color-text-muted);font-size:0.85rem;margin-top:2px;">${it.detail || ''}</p>
@@ -532,7 +559,12 @@ function renderSectionContent(section: any): string {
           ${t ? `<h2 style="font-size:1.5rem;font-weight:700;margin-bottom:24px;color:var(--color-heading);">${t}</h2>` : ''}
           ${(c.items || []).map((it: any) => `
             <div class="tidum-panel" style="display:flex;align-items:center;gap:16px;padding:16px 20px;border-radius:12px;margin-bottom:12px;">
-              <span style="font-size:1.3rem;">📬</span>
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;color:var(--color-primary);">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="5" width="18" height="14" rx="2"></rect>
+                  <path d="M3 7l9 6 9-6"></path>
+                </svg>
+              </span>
               <div>
                 <div style="font-size:0.8rem;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:0.5px;">${it.label || ''}</div>
                 ${it.href ? `<a href="${it.href}" style="font-weight:500;color:var(--color-primary);text-decoration:none;">${it.value || ''}</a>` : `<span style="font-weight:500;">${it.value || ''}</span>`}
@@ -547,15 +579,27 @@ function renderSectionContent(section: any): string {
       return `
         <div style="max-width:800px;margin:0 auto;">
           <div style="display:flex;align-items:center;gap:14px;margin-bottom:20px;">
-            ${c.iconBg ? `<div style="width:48px;height:48px;border-radius:12px;background:${c.iconBg};display:flex;align-items:center;justify-content:center;"><span style="color:${c.iconColor || 'var(--color-primary)'};font-size:1.3rem;">⏱️</span></div>` : ''}
+            ${c.iconBg ? `<div style="width:48px;height:48px;border-radius:12px;background:${c.iconBg};display:flex;align-items:center;justify-content:center;color:${c.iconColor || 'var(--color-primary)'};">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="13" r="8"></circle>
+                <path d="M12 9v4l2 2"></path>
+                <path d="M9 2h6"></path>
+              </svg>
+            </div>` : ''}
             <div>
               <h2 style="font-size:1.5rem;font-weight:700;color:var(--color-heading);">${t}</h2>
               ${c.subtitle ? `<p style="color:var(--color-text-muted);font-size:0.9rem;">${c.subtitle}</p>` : ''}
             </div>
           </div>
-          ${c.storyEmoji || c.storyTitle ? `
+          ${c.storyEmoji || c.storyIcon || c.storyTitle ? `
             <div class="tidum-panel" style="padding:24px;border-radius:16px;display:flex;gap:16px;align-items:start;">
-              ${c.storyEmoji ? `<span style="font-size:2rem;">${c.storyEmoji}</span>` : ''}
+              <span style="display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:10px;background:var(--color-primary-light,#E7F3EE);color:var(--color-primary);">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M9 18h6"></path>
+                  <path d="M10 22h4"></path>
+                  <path d="M12 2a7 7 0 0 0-4 12.8c.7.5 1 1.2 1 2V18h6v-1.2c0-.8.3-1.5 1-2A7 7 0 0 0 12 2z"></path>
+                </svg>
+              </span>
               <div>
                 <h3 style="font-weight:600;font-size:1.05rem;margin-bottom:8px;">${c.storyTitle || ''}</h3>
                 <p style="color:var(--color-text-muted);font-size:0.9rem;line-height:1.6;">${c.storyDescription || ''}</p>
@@ -572,7 +616,11 @@ function renderSectionContent(section: any): string {
           <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px;">
             ${(c.practices || []).map((p: any) => `
               <div class="tidum-panel" style="padding:24px;border-radius:12px;">
-                <span style="font-size:1.5rem;display:block;margin-bottom:10px;">${p.emoji || ''}</span>
+                <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:999px;background:rgba(31,107,115,0.12);color:var(--color-primary);margin-bottom:10px;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M20 6L9 17l-5-5"></path>
+                  </svg>
+                </span>
                 <h3 style="font-weight:600;font-size:1.05rem;margin-bottom:8px;">${p.title || ''}</h3>
                 <p style="color:var(--color-text-muted);font-size:0.9rem;line-height:1.5;">${p.description || ''}</p>
               </div>
@@ -587,7 +635,7 @@ function renderSectionContent(section: any): string {
       return `
         <div style="max-width:800px;margin:0 auto;">
           <div style="display:flex;align-items:start;gap:14px;padding:20px;border-radius:12px;background:${v.bgColor};border-left:4px solid ${v.borderColor};">
-            <span style="color:${v.iconColor};font-size:1.3rem;flex-shrink:0;">ℹ</span>
+            <span style="display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;border:1.8px solid ${v.iconColor};color:${v.iconColor};font-size:11px;font-weight:700;line-height:1;flex-shrink:0;">i</span>
             <div style="font-size:0.95rem;line-height:1.6;color:#1a1a1a;">${c.text || ''}</div>
           </div>
         </div>`;

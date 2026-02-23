@@ -868,7 +868,7 @@ function ResultDetail({ result: r }: { result: CrawlResultRow }) {
             </pre>
             {r.structured_data_errors?.length > 0 && (
               <div className="text-red-600">
-                {r.structured_data_errors.map((e, i) => <p key={i}>⚠ {e}</p>)}
+                {r.structured_data_errors.map((e, i) => <p key={i}>Advarsel: {e}</p>)}
               </div>
             )}
           </>

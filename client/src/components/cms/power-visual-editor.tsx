@@ -27,12 +27,12 @@ import {
 } from "@/components/cms/editor-extensions";
 import {
   GripVertical, Save, Undo2, Redo2, Monitor, Tablet, Smartphone,
-  Plus, Trash2, Copy, Palette, Sparkles,
+  Plus, Trash2, Copy, Palette, Sparkles, Play,
   Code2, Loader2,
-  Keyboard, Layers, Box, Grid3X3, X,
+  Keyboard, Layers, Box, Grid3X3, X, Users,
   FileText, LayoutTemplate, Search, Calendar, Upload, LayoutPanelTop,
   ClipboardCopy, ClipboardPaste, BookmarkPlus, History, FileDown, 
-  Accessibility, BarChart3, Gauge, Languages, Globe, PanelRightOpen,
+  Accessibility, BarChart3, Gauge, Languages, Globe, PanelRightOpen, Target,
   ExternalLink, AlertTriangle
 } from "lucide-react";
 import {
@@ -101,19 +101,44 @@ interface ComponentTemplate {
 
 // ── Sub-category labels for the component library UI ──
 const TIDUM_SUBCATEGORIES: Record<string, string> = {
-  'tidum-nav': '🧭 Navigasjon',
-  'tidum-hero': '🏔️ Hero',
-  'tidum-features': '⭐ Funksjoner',
-  'tidum-content': '📄 Innhold',
-  'tidum-stats': '📊 Statistikk',
-  'tidum-trust': '🛡️ Trygghet',
-  'tidum-cta': '🎯 CTA',
-  'tidum-footer': '🦶 Bunn',
-  'tidum-form': '📝 Skjema',
-  'tidum-guide': '📖 Guide',
-  'tidum-commerce': '💰 Priser & Team',
-  'tidum-media': '🎬 Media',
-  'generic': '🔧 Generelle',
+  'tidum-nav': 'Navigasjon',
+  'tidum-hero': 'Hero',
+  'tidum-features': 'Funksjoner',
+  'tidum-content': 'Innhold',
+  'tidum-stats': 'Statistikk',
+  'tidum-trust': 'Trygghet',
+  'tidum-cta': 'CTA',
+  'tidum-footer': 'Bunn',
+  'tidum-form': 'Skjema',
+  'tidum-guide': 'Guide',
+  'tidum-commerce': 'Priser og Team',
+  'tidum-media': 'Media',
+  'generic': 'Generelle',
+};
+
+const CATEGORY_ICON_MAP: Record<string, any> = {
+  'tidum-nav': LayoutPanelTop,
+  'tidum-hero': Monitor,
+  'tidum-features': Grid3X3,
+  'tidum-content': FileText,
+  'tidum-stats': BarChart3,
+  'tidum-trust': Accessibility,
+  'tidum-cta': Sparkles,
+  'tidum-footer': Box,
+  'tidum-form': ClipboardPaste,
+  'tidum-guide': BookmarkPlus,
+  'tidum-commerce': Layers,
+  'tidum-media': Upload,
+  'generic': Code2,
+};
+
+const PRACTICE_ICON_MAP: Record<string, any> = {
+  Target,
+  FileText,
+  Calendar,
+  Search,
+  Users,
+  BarChart3,
 };
 
 const COMPONENT_LIBRARY: ComponentTemplate[] = [
@@ -124,7 +149,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-header-bar',
     name: 'Tidum Toppbar',
     category: 'tidum-nav',
-    thumbnail: '🧭',
+    thumbnail: 'nav',
     config: {
       type: 'container',
       title: 'Tidum Toppbar',
@@ -150,7 +175,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-hero-split',
     name: 'Hero Delt (Tekst + Bilde)',
     category: 'tidum-hero',
-    thumbnail: '🖼️',
+    thumbnail: 'image',
     config: {
       type: 'hero',
       title: 'Arbeidstid, gjort enkelt',
@@ -170,7 +195,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-hero-centered',
     name: 'Hero Sentrert (Kun tekst)',
     category: 'tidum-hero',
-    thumbnail: '🎯',
+    thumbnail: 'target',
     config: {
       type: 'hero',
       title: 'Hvorfor velge Tidum?',
@@ -190,7 +215,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-hero-contact',
     name: 'Hero Kontakt (Tekst + Skjema)',
     category: 'tidum-hero',
-    thumbnail: '📬',
+    thumbnail: 'mail',
     config: {
       type: 'hero',
       title: 'Kontakt oss',
@@ -208,7 +233,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-hero-icon',
     name: 'Hero Med Ikon (Personvern-stil)',
     category: 'tidum-hero',
-    thumbnail: '🛡️',
+    thumbnail: 'shield',
     config: {
       type: 'hero',
       title: 'Personvernerklæring',
@@ -233,7 +258,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-feature-grid-3',
     name: 'Funksjonskort (3-kolonne)',
     category: 'tidum-features',
-    thumbnail: '📊',
+    thumbnail: 'chart',
     config: {
       type: 'features',
       title: 'Et system bygget for virkeligheten',
@@ -254,7 +279,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-benefits-grid',
     name: 'Fordelskort (2-3 kolonner)',
     category: 'tidum-features',
-    thumbnail: '⭐',
+    thumbnail: 'sparkles',
     config: {
       type: 'features',
       title: 'Fordeler med Tidum',
@@ -279,7 +304,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-how-it-works',
     name: 'Slik fungerer det (4 steg)',
     category: 'tidum-features',
-    thumbnail: '🔢',
+    thumbnail: 'steps',
     config: {
       type: 'features',
       title: 'Kom i gang på minutter',
@@ -306,7 +331,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-story-section',
     name: 'Historieseksjon (Problem/Løsning)',
     category: 'tidum-content',
-    thumbnail: '📖',
+    thumbnail: 'guide',
     config: {
       type: 'custom',
       title: 'Før og etter Tidum',
@@ -342,7 +367,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-two-col-split',
     name: 'To-kolonne kort (delt)',
     category: 'tidum-content',
-    thumbnail: '↔️',
+    thumbnail: 'split',
     config: {
       type: 'container',
       title: 'Trygghet for alle parter',
@@ -372,7 +397,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-audience-list',
     name: 'Målgruppeliste (ikon + tekst)',
     category: 'tidum-content',
-    thumbnail: '👥',
+    thumbnail: 'users',
     config: {
       type: 'custom',
       title: 'Hvem bruker Tidum?',
@@ -394,7 +419,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-prose-content',
     name: 'Tekstinnhold (Prose/Markdown)',
     category: 'tidum-content',
-    thumbnail: '📝',
+    thumbnail: 'text',
     config: {
       type: 'custom',
       title: 'Innholdsseksjon',
@@ -410,7 +435,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-nordic-split',
     name: 'Norsk sjekkliste + funksjoner (delt)',
     category: 'tidum-content',
-    thumbnail: '🇳🇴',
+    thumbnail: 'norway',
     config: {
       type: 'container',
       title: 'Bygget for norske forhold',
@@ -447,7 +472,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-stats-bar',
     name: 'Statistikkfelt (4 tall)',
     category: 'tidum-stats',
-    thumbnail: '📊',
+    thumbnail: 'chart',
     config: {
       type: 'custom',
       title: 'Nøkkeltall',
@@ -473,7 +498,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-trust-norsk',
     name: 'Norsk arbeidsliv (ikon + rutenett)',
     category: 'tidum-trust',
-    thumbnail: '🇳🇴',
+    thumbnail: 'norway',
     config: {
       type: 'container',
       title: 'Bygget for norsk arbeidsliv',
@@ -496,7 +521,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-trust-section',
     name: 'Tillitsseksjon (anbefalt av)',
     category: 'tidum-trust',
-    thumbnail: '🏆',
+    thumbnail: 'award',
     config: {
       type: 'container',
       title: 'Anbefalt av norske tiltaksbedrifter',
@@ -525,7 +550,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-cta-banner',
     name: 'CTA Banner (mørk)',
     category: 'tidum-cta',
-    thumbnail: '🎯',
+    thumbnail: 'target',
     config: {
       type: 'cta',
       title: 'Klar for å gjøre arbeidstid enklere?',
@@ -548,7 +573,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-footer-full',
     name: 'Full Footer (3-kolonne)',
     category: 'tidum-footer',
-    thumbnail: '🦶',
+    thumbnail: 'footer',
     config: {
       type: 'container',
       title: 'Tidum Footer',
@@ -570,7 +595,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-footer-minimal',
     name: 'Minimal Footer (sentrert)',
     category: 'tidum-footer',
-    thumbnail: '➖',
+    thumbnail: 'minimal',
     config: {
       type: 'container',
       title: 'Minimal Footer',
@@ -594,7 +619,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-contact-info',
     name: 'Kontaktinfo-kort',
     category: 'tidum-form',
-    thumbnail: '📇',
+    thumbnail: 'contact',
     config: {
       type: 'custom',
       title: 'Kontaktinformasjon',
@@ -615,7 +640,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-contact-form',
     name: 'Kontaktskjema-kort',
     category: 'tidum-form',
-    thumbnail: '📝',
+    thumbnail: 'text',
     config: {
       type: 'custom',
       title: 'Send oss en melding',
@@ -643,16 +668,16 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-guide-feature',
     name: 'Guide-seksjon (ikon + kort)',
     category: 'tidum-guide',
-    thumbnail: '📖',
+    thumbnail: 'guide',
     config: {
       type: 'features',
-      title: '⏱️ Registrer Din Tid',
+      title: 'Registrer din tid',
       content: {
         icon: 'Clock',
         iconBg: '#E7F3EE',
         iconColor: '#3A8B73',
         subtitle: 'Din profesjonelle dagbok starter her',
-        storyEmoji: '📋',
+        storyEmoji: 'ClipboardList',
         storyTitle: 'Tenk på tidsregistrering som din profesjonelle dagbok',
         storyDescription: 'Hver gang du registrerer tid, bygger du en pålitelig historikk som beskytter deg og arbeidsgiveren din.',
       },
@@ -666,10 +691,10 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-faq-accordion',
     name: 'FAQ Spørsmål og svar',
     category: 'tidum-guide',
-    thumbnail: '❓',
+    thumbnail: 'faq',
     config: {
       type: 'custom',
-      title: '❓ Ofte Stilte Spørsmål',
+      title: 'Ofte stilte spørsmål',
       content: {
         faqs: [
           { question: 'Hvordan gjenoppretter jeg en slettet oppføring?', answer: 'Kontakt administrator. Slettede oppføringer flyttes til gjenopprettingsbingen og kan gjenopprettes innen 30 dager.' },
@@ -688,18 +713,18 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-best-practices',
     name: 'Best Practices rutenett',
     category: 'tidum-guide',
-    thumbnail: '💡',
+    thumbnail: 'tip',
     config: {
       type: 'features',
-      title: '💡 Best Practices',
+      title: 'Best practices',
       content: {
         practices: [
-          { emoji: '🎯', title: 'Vær konsistent', description: 'Registrer tid daglig. Konsistens skaper ærlige data og bedre innsikter.' },
-          { emoji: '📝', title: 'Detaljer betyr noe', description: 'Legg til meningsfulle beskrivelser. Framtidig deg vil takke deg.' },
-          { emoji: '⏰', title: 'Tidsblokker', description: 'Del dagen inn i fokuserte blokker. Det avslører mønstre bedre.' },
-          { emoji: '🔍', title: 'Gjennomgang', description: 'Generer ukerapporter. Spot trender tidlig og juster strategi.' },
-          { emoji: '🤝', title: 'Samarbeid', description: 'Del kunnskap gjennom saksmeldinger. Hele teamet vinner.' },
-          { emoji: '📊', title: 'Data først', description: 'Bruk analyser til å begrunne avgjørelser. Data taler sterkere.' },
+          { icon: 'Target', title: 'Vær konsistent', description: 'Registrer tid daglig. Konsistens skaper ærlige data og bedre innsikter.' },
+          { icon: 'FileText', title: 'Detaljer betyr noe', description: 'Legg til meningsfulle beskrivelser. Framtidig deg vil takke deg.' },
+          { icon: 'Calendar', title: 'Tidsblokker', description: 'Del dagen inn i fokuserte blokker. Det avslører mønstre bedre.' },
+          { icon: 'Search', title: 'Gjennomgang', description: 'Generer ukerapporter. Spot trender tidlig og juster strategi.' },
+          { icon: 'Users', title: 'Samarbeid', description: 'Del kunnskap gjennom saksmeldinger. Hele teamet vinner.' },
+          { icon: 'BarChart3', title: 'Data først', description: 'Bruk analyser til å begrunne avgjørelser. Data taler sterkere.' },
         ],
       },
       spacing: { paddingTop: 24, paddingBottom: 32, paddingX: 32, gap: 16 },
@@ -711,7 +736,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-info-callout',
     name: 'Info-boks (farget kant)',
     category: 'tidum-guide',
-    thumbnail: 'ℹ️',
+    thumbnail: 'info',
     config: {
       type: 'custom',
       title: 'Informasjon',
@@ -738,7 +763,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-pricing-table',
     name: 'Pristabell',
     category: 'tidum-commerce',
-    thumbnail: '💳',
+    thumbnail: 'pricing',
     config: {
       type: 'features',
       title: 'Våre priser',
@@ -760,7 +785,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-team-grid',
     name: 'Teamoversikt',
     category: 'tidum-commerce',
-    thumbnail: '👥',
+    thumbnail: 'users',
     config: {
       type: 'features',
       title: 'Møt teamet',
@@ -782,7 +807,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-logo-strip',
     name: 'Logostripe (kunder)',
     category: 'tidum-commerce',
-    thumbnail: '🏢',
+    thumbnail: 'building',
     config: {
       type: 'custom',
       title: 'Brukt av ledende virksomheter',
@@ -805,7 +830,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-newsletter',
     name: 'Nyhetsbrev-registrering',
     category: 'tidum-commerce',
-    thumbnail: '📧',
+    thumbnail: 'newsletter',
     config: {
       type: 'cta',
       title: 'Hold deg oppdatert',
@@ -825,7 +850,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-image-gallery',
     name: 'Bildegalleri',
     category: 'tidum-media',
-    thumbnail: '🖼️',
+    thumbnail: 'image',
     config: {
       type: 'custom',
       title: 'Galleri',
@@ -848,7 +873,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-video-embed',
     name: 'Video-innbygging',
     category: 'tidum-media',
-    thumbnail: '🎬',
+    thumbnail: 'video',
     config: {
       type: 'custom',
       title: 'Se hvordan Tidum fungerer',
@@ -867,7 +892,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'tidum-timeline',
     name: 'Tidslinje',
     category: 'tidum-media',
-    thumbnail: '📅',
+    thumbnail: 'calendar',
     config: {
       type: 'custom',
       title: 'Vår reise',
@@ -894,7 +919,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'hero-modern',
     name: 'Modern Hero',
     category: 'generic',
-    thumbnail: '🎯',
+    thumbnail: 'target',
     config: {
       type: 'hero',
       title: 'Modern Hero Section',
@@ -908,7 +933,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'features-grid',
     name: 'Features Grid',
     category: 'generic',
-    thumbnail: '📊',
+    thumbnail: 'chart',
     config: {
       type: 'features',
       title: 'Our Features',
@@ -922,7 +947,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'testimonials-cards',
     name: 'Testimonial Cards',
     category: 'generic',
-    thumbnail: '💬',
+    thumbnail: 'chat',
     config: {
       type: 'testimonials',
       title: 'What Our Customers Say',
@@ -934,7 +959,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
     id: 'cta-centered',
     name: 'Centered CTA',
     category: 'generic',
-    thumbnail: '🎁',
+    thumbnail: 'cta-gift',
     config: {
       type: 'cta',
       title: 'Ready to Get Started?',
@@ -1193,12 +1218,12 @@ export function PowerVisualEditor() {
 
   // Theme presets
   const THEME_PRESETS: Record<string, { label: string; primary: string; bg: string; bgSection: string; heading: string; border: string }> = {
-    'tidum-standard': { label: '🌿 Standard', primary: '#1F6B73', bg: '#FAFAF8', bgSection: '#F1F1ED', heading: '#0E4852', border: '#E1E4E3' },
-    'tidum-ocean': { label: '🌊 Hav', primary: '#1A5276', bg: '#F5F9FC', bgSection: '#E8F0F8', heading: '#0B3D5B', border: '#D0DDE8' },
-    'tidum-forest': { label: '🌲 Skog', primary: '#2D5016', bg: '#F8FAF5', bgSection: '#EFF3E8', heading: '#1A3A0A', border: '#D5E0C8' },
-    'tidum-sunset': { label: '🌅 Solnedgang', primary: '#A0522D', bg: '#FDFAF7', bgSection: '#F5EDE4', heading: '#6B3A1F', border: '#E8D8C8' },
-    'tidum-night': { label: '🌙 Natt', primary: '#3B82F6', bg: '#0F172A', bgSection: '#1E293B', heading: '#E2E8F0', border: '#334155' },
-    'tidum-lavender': { label: '💜 Lavendel', primary: '#7C3AED', bg: '#FAF5FF', bgSection: '#F3E8FF', heading: '#4C1D95', border: '#DDD6FE' },
+    'tidum-standard': { label: 'Standard', primary: '#1F6B73', bg: '#FAFAF8', bgSection: '#F1F1ED', heading: '#0E4852', border: '#E1E4E3' },
+    'tidum-ocean': { label: 'Hav', primary: '#1A5276', bg: '#F5F9FC', bgSection: '#E8F0F8', heading: '#0B3D5B', border: '#D0DDE8' },
+    'tidum-forest': { label: 'Skog', primary: '#2D5016', bg: '#F8FAF5', bgSection: '#EFF3E8', heading: '#1A3A0A', border: '#D5E0C8' },
+    'tidum-sunset': { label: 'Solnedgang', primary: '#A0522D', bg: '#FDFAF7', bgSection: '#F5EDE4', heading: '#6B3A1F', border: '#E8D8C8' },
+    'tidum-night': { label: 'Natt', primary: '#3B82F6', bg: '#0F172A', bgSection: '#1E293B', heading: '#E2E8F0', border: '#334155' },
+    'tidum-lavender': { label: 'Lavendel', primary: '#7C3AED', bg: '#FAF5FF', bgSection: '#F3E8FF', heading: '#4C1D95', border: '#DDD6FE' },
   };
 
   const applyTheme = (themeKey: string) => {
@@ -1928,7 +1953,12 @@ export function PowerVisualEditor() {
                       <Card key={template.id} className="cursor-pointer hover:bg-accent mb-2" onClick={() => addSection(template)}>
                         <CardContent className="p-3">
                           <div className="flex items-center gap-3">
-                            <div className="text-2xl">{template.thumbnail}</div>
+                            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                              {(() => {
+                                const TemplateIcon = CATEGORY_ICON_MAP[template.category] || Box;
+                                return <TemplateIcon className="h-5 w-5" />;
+                              })()}
+                            </div>
                             <div className="flex-1 min-w-0">
                               <h4 className="font-medium text-sm truncate">{template.name}</h4>
                             </div>
@@ -2039,7 +2069,15 @@ export function PowerVisualEditor() {
                       <div className="mt-4 grid gap-2 grid-cols-2">
                         {section.content.practices.map((p: any, i: number) => (
                           <div key={i} className="rounded-lg border bg-white/80 p-2 text-sm">
-                            <span>{p.emoji} {p.title}</span>
+                            {(() => {
+                              const PracticeIcon = PRACTICE_ICON_MAP[p.icon || p.emoji] || Sparkles;
+                              return (
+                                <span className="inline-flex items-center gap-2">
+                                  <PracticeIcon className="h-4 w-4 text-primary" />
+                                  {p.title}
+                                </span>
+                              );
+                            })()}
                           </div>
                         ))}
                       </div>
@@ -2150,7 +2188,7 @@ export function PowerVisualEditor() {
                       >
                         <div className="w-full h-full flex items-center justify-center bg-muted/40 text-muted-foreground">
                           <div className="text-center">
-                            <div className="text-3xl mb-2">▶️</div>
+                            <Play className="h-8 w-8 mx-auto mb-2" />
                             <p className="text-xs">Video forhåndsvisning</p>
                           </div>
                         </div>

@@ -853,11 +853,17 @@ export function CalendarHeatmap({
                     <p
                       key={`${dateStr}-${marker.label}`}
                       className={cn(
-                        "text-xs font-medium",
+                        "text-xs font-medium inline-flex items-center gap-1.5",
                         marker.kind === "holiday" ? "text-[var(--hm-marker-holiday)]" : "text-[var(--hm-marker-vacation)]",
                       )}
                     >
-                      {marker.kind === "holiday" ? "🔴 " : "🟡 "}{marker.label}
+                      <span
+                        className={cn(
+                          "h-2 w-2 rounded-full",
+                          marker.kind === "holiday" ? "bg-[var(--hm-marker-holiday)]" : "bg-[var(--hm-marker-vacation)]",
+                        )}
+                      />
+                      {marker.label}
                     </p>
                   ))}
                   {dayHours === 0 && totalEntryCount === 0 && (

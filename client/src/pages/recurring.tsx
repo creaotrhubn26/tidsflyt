@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,14 @@ import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { CalendarIcon, Plus, Repeat, Trash2, Edit2, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 
 interface RecurringEntry {
   id: number;
@@ -48,6 +51,7 @@ const WEEKDAYS = [
 
 export default function RecurringPage() {
   const { toast } = useToast();
+  const { settings: suggestionSettings } = useSuggestionSettings();
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<RecurringEntry | null>(null);
@@ -69,6 +73,23 @@ export default function RecurringPage() {
     queryKey: ["/api/recurring"],
   });
 
+  const latestEntryTemplate = useMemo(() => {
+    if (!entries.length) return null;
+    return [...entries].sort((a, b) => {
+      const aTime = new Date(a.createdAt).getTime();
+      const bTime = new Date(b.createdAt).getTime();
+      return bTime - aTime;
+    })[0];
+  }, [entries]);
+  const automationSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "automation");
+
+  const recurringSuggestionVisibility = useSuggestionVisibility({
+    surface: "recurring",
+    enabled: isDialogOpen && !editingEntry && automationSuggestionsEnabled && !!latestEntryTemplate,
+    frequency: suggestionSettings.frequency,
+    scopeKey: latestEntryTemplate ? `${latestEntryTemplate.id}:${latestEntryTemplate.createdAt}` : "none",
+  });
+
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: any) => {
@@ -83,12 +104,12 @@ export default function RecurringPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/recurring"] });
-      toast({ title: "✅ Opprettet!", description: "Gjentakende oppføring opprettet" });
+      toast({ title: "Opprettet", description: "Gjentakende oppføring opprettet" });
       resetForm();
       setIsDialogOpen(false);
     },
     onError: () => {
-      toast({ title: "❌ Feil", description: "Kunne ikke opprette oppføring", variant: "destructive" });
+      toast({ title: "Feil", description: "Kunne ikke opprette oppføring", variant: "destructive" });
     },
   });
 
@@ -106,7 +127,7 @@ export default function RecurringPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/recurring"] });
-      toast({ title: "✅ Oppdatert!", description: "Endringer lagret" });
+      toast({ title: "Oppdatert", description: "Endringer lagret" });
     },
   });
 
@@ -122,7 +143,7 @@ export default function RecurringPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/recurring"] });
-      toast({ title: "✅ Slettet!", description: "Gjentakende oppføring fjernet" });
+      toast({ title: "Slettet", description: "Gjentakende oppføring fjernet" });
     },
   });
 
@@ -138,7 +159,7 @@ export default function RecurringPage() {
     },
     onSuccess: (data) => {
       toast({ 
-        title: "✅ Generert!", 
+        title: "Generert", 
         description: `${data.generated} nye tidsposter opprettet` 
       });
     },
@@ -203,6 +224,26 @@ export default function RecurringPage() {
     });
   };
 
+  const applyLatestEntryTemplate = () => {
+    if (!latestEntryTemplate) return;
+
+    setTitle(latestEntryTemplate.title);
+    setDescription(latestEntryTemplate.description || "");
+    setActivity(latestEntryTemplate.activity);
+    setProject(latestEntryTemplate.project || "");
+    setHours(String(latestEntryTemplate.hours));
+    setRecurrenceType(latestEntryTemplate.recurrenceType);
+    setSelectedDays(latestEntryTemplate.recurrenceDays || []);
+    setMonthlyDay(String(latestEntryTemplate.recurrenceDay || 1));
+    setStartDate(new Date());
+    setEndDate(undefined);
+
+    toast({
+      title: "Forslag brukt",
+      description: `Kopierte oppsett fra "${latestEntryTemplate.title}" og satte ny startdato til i dag.`,
+    });
+  };
+
   return (
     <PortalLayout>
       <div className="space-y-6">
@@ -244,6 +285,26 @@ export default function RecurringPage() {
                 </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
+                  {!editingEntry && latestEntryTemplate && recurringSuggestionVisibility.isVisible && (
+                    <div className="rounded-md border border-primary/25 bg-primary/5 p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm font-medium">Kopier siste oppføring</p>
+                        <p className="text-xs text-muted-foreground">
+                          Bruker oppsett fra "{latestEntryTemplate.title}" og tilpasser startdato til i dag.
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={applyLatestEntryTemplate}
+                        data-testid="recurring-copy-latest"
+                      >
+                        Bruk siste
+                      </Button>
+                    </div>
+                  )}
+
                   {/* Title */}
                   <div>
                     <Label htmlFor="title">Tittel *</Label>
@@ -472,11 +533,22 @@ export default function RecurringPage() {
             </CardContent>
           </Card>
         ) : entries.length === 0 ? (
-          <Card>
-            <CardContent className="py-8 text-center text-muted-foreground">
-              Ingen gjentakende oppføringer ennå. Opprett din første!
-            </CardContent>
-          </Card>
+          <div className="flex flex-col items-center justify-center py-16 px-4">
+            <div className="relative mb-6">
+              <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl scale-150" />
+              <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-primary/20 to-indigo-500/20 border border-primary/20 shadow-lg">
+                <Repeat className="h-7 w-7 text-primary" />
+              </div>
+            </div>
+            <h3 className="text-xl font-semibold mb-2">Ingen gjentakende oppføringer ennå</h3>
+            <p className="text-sm text-muted-foreground text-center max-w-xs mb-6 leading-relaxed">
+              Opprett en gjentakende oppføring for å automatisere regelmessige tidsregistreringer.
+            </p>
+            <Button size="lg" className="gap-2 px-8 shadow-md" onClick={() => { setIsDialogOpen(true); }}>
+              <Plus className="h-5 w-5" />
+              Opprett første oppføring
+            </Button>
+          </div>
         ) : (
           <div className="grid gap-4">
             {entries.map((entry) => (

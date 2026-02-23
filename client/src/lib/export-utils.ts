@@ -171,6 +171,16 @@ export async function exportToPDF(
           font-weight: bold;
           color: #1F6B73;
           margin-bottom: 10px;
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .header-branding-mark {
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #1F6B73;
+          display: inline-block;
         }
         .header-subtitle {
           color: #666;
@@ -217,9 +227,9 @@ export async function exportToPDF(
         }
       </style>
     </head>
-    <body>
+      <body>
       <div class="header">
-        ${includeBranding ? `<div class="header-branding">${includeLogo ? '📊 ' : ''}TIDUM</div>` : ""}
+        ${includeBranding ? `<div class="header-branding">${includeLogo ? '<span class="header-branding-mark" aria-hidden="true"></span>' : ''}TIDUM</div>` : ""}
         <div style="font-size: 18px; font-weight: 600; margin-bottom: 10px;">${escapeHtml(title)}</div>
         ${subtitle ? `<div class="header-subtitle">${escapeHtml(subtitle)}</div>` : ""}
         <div class="header-timestamp">Generert: ${timestamp}</div>

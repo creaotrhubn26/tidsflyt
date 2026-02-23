@@ -94,7 +94,7 @@ async function runTestSuite(suiteName: string, tests: Record<string, () => Promi
     totalDuration: 0,
   };
 
-  console.log(`\n${'='.repeat(80)}\n▶ Running: ${suiteName}\n${'='.repeat(80)}`);
+  console.log(`\n${'='.repeat(80)}\nRunning: ${suiteName}\n${'='.repeat(80)}`);
 
   for (const [testName, testFn] of Object.entries(tests)) {
     const result = await runTest(testName, testFn);
@@ -555,7 +555,7 @@ export async function runAllTests(): Promise<FullTestReport> {
   const totalDuration = performance.now() - startTime;
 
   // Print summary
-  console.log(`\n${'='.repeat(80)}\n▶ TEST SUMMARY\n${'='.repeat(80)}`);
+  console.log(`\n${'='.repeat(80)}\nTEST SUMMARY\n${'='.repeat(80)}`);
   console.log(`Total Tests:  ${totalTests}`);
   console.log(`Passed:       ${totalPassed} ✓`);
   console.log(`Failed:       ${totalFailed} ✗`);

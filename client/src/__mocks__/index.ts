@@ -339,5 +339,5 @@ FEATURES TESTED:
   • Performance (latency, bulk operations)
   • Error Handling (network, validation, auth)
 
-Ready to test! 🚀
+Ready to test!
 `);

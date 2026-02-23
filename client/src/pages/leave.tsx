@@ -105,12 +105,16 @@ export default function LeavePage() {
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {balances.map((balance: any) => (
             <Card key={balance.id}>
-              <CardHeader className="pb-3">
-                <CardTitle className="text-sm font-medium flex items-center gap-2">
-                  <span className="text-2xl">{balance.leaveTypeIcon || "📅"}</span>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  {balance.leaveTypeIcon ? (
+                    <span className="text-2xl">{balance.leaveTypeIcon}</span>
+                  ) : (
+                    <CalendarIcon className="h-5 w-5 text-muted-foreground" />
+                  )}
                   {balance.leaveTypeName}
-                </CardTitle>
-              </CardHeader>
+                  </CardTitle>
+                </CardHeader>
               <CardContent>
                 <div className="space-y-2">
                   <div className="flex justify-between text-sm">

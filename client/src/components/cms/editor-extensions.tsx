@@ -133,7 +133,22 @@ export function ScheduleEditor({ scheduledAt, status, onChange, onStatusChange }
 
       <div className="flex items-center gap-2 p-3 rounded-lg border">
         <Badge variant={status === 'published' ? 'default' : status === 'scheduled' ? 'secondary' : 'outline'}>
-          {status === 'published' ? '🟢 Publisert' : status === 'scheduled' ? '⏰ Planlagt' : '📝 Kladd'}
+          {status === 'published' ? (
+            <span className="inline-flex items-center gap-1">
+              <Check className="h-3 w-3" />
+              Publisert
+            </span>
+          ) : status === 'scheduled' ? (
+            <span className="inline-flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              Planlagt
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1">
+              <FileDown className="h-3 w-3" />
+              Kladd
+            </span>
+          )}
         </Badge>
       </div>
 
@@ -1189,16 +1204,16 @@ export function PerformanceEstimator({ sections, customCss }: PerformanceEstimat
 
           <div className="space-y-1 text-xs">
             {result.totalImages > 8 && (
-              <p className="text-yellow-600">⚠ Mange bilder — vurder lazy loading</p>
+              <p className="text-yellow-600">Advarsel: Mange bilder, vurder lazy loading</p>
             )}
             {result.sectionCount > 12 && (
-              <p className="text-yellow-600">⚠ Mange seksjoner — kan påvirke scrollytelse</p>
+              <p className="text-yellow-600">Advarsel: Mange seksjoner kan påvirke scrollytelse</p>
             )}
             {result.hasVideo && (
-              <p className="text-blue-600">ℹ Video iframe — lastes asynkront</p>
+              <p className="text-blue-600">Info: Video iframe lastes asynkront</p>
             )}
             {result.score >= 80 && (
-              <p className="text-green-600">✓ God ytelse — ingen kritiske problemer</p>
+              <p className="text-green-600">God ytelse: Ingen kritiske problemer</p>
             )}
           </div>
         </>
@@ -1322,7 +1337,17 @@ export function FormSubmissionsViewer({ pageId }: FormSubmissionsViewerProps) {
             <CardContent className="p-3">
               <div className="flex items-center justify-between mb-2">
                 <Badge variant={sub.status === 'new' ? 'default' : 'secondary'} className="text-[10px]">
-                  {sub.status === 'new' ? '🔵 Ny' : sub.status === 'read' ? '👁️ Lest' : sub.status}
+                  {sub.status === 'new' ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Sparkles className="h-3 w-3" />
+                      Ny
+                    </span>
+                  ) : sub.status === 'read' ? (
+                    <span className="inline-flex items-center gap-1">
+                      <Eye className="h-3 w-3" />
+                      Lest
+                    </span>
+                  ) : sub.status}
                 </Badge>
                 <span className="text-[10px] text-muted-foreground">
                   {new Date(sub.createdAt).toLocaleString('nb-NO')}

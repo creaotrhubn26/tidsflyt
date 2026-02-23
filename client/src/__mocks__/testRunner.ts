@@ -54,7 +54,7 @@ export class TestExecutor {
       this.log(`\nTest execution completed in ${duration}ms`);
 
       if (this.config.performance?.maxDuration && duration > this.config.performance.maxDuration) {
-        this.log(`⚠ WARNING: Execution exceeded max duration of ${this.config.performance.maxDuration}ms`);
+        this.log(`WARNING: Execution exceeded max duration of ${this.config.performance.maxDuration}ms`);
       }
 
       // Generate report based on format

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import type { ComponentType } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { X, ChevronRight, ChevronLeft } from 'lucide-react';
+import { X, ChevronRight, ChevronLeft, Hand, Clock3, ClipboardList, BarChart3, CheckCircle2 } from 'lucide-react';
 import { useLocalStorage } from '@/hooks/use-local-storage';
 
 interface TourStep {
@@ -9,32 +10,38 @@ interface TourStep {
   description: string;
   target?: string;
   action?: string;
+  icon?: ComponentType<{ className?: string }>;
 }
 
 const tourSteps: TourStep[] = [
   {
-    title: 'Velkommen til Tidsflyt! 👋',
+    title: 'Velkommen til Tidsflyt',
     description: 'La oss ta en rask omvisning for å komme i gang. Dette tar bare 30 sekunder.',
+    icon: Hand,
   },
   {
-    title: 'Stemple inn og ut ⏰',
+    title: 'Stemple inn og ut',
     description: 'Bruk knappene "Stemple INN" og "Stemple UT" for å registrere arbeidstid. Du kan også bruke hurtigmaler for vanlige aktiviteter.',
     target: '#quick-stamp-section',
+    icon: Clock3,
   },
   {
-    title: 'Timelogg 📋',
+    title: 'Timelogg',
     description: 'Se alle dine registreringer i tabellen. Du kan redigere, slette og filtrere etter dato.',
     target: '#time-log-table',
+    icon: ClipboardList,
   },
   {
-    title: 'Månedlig rapport 📊',
+    title: 'Månedlig rapport',
     description: 'Generer profesjonelle rapporter i Google Docs med ett klikk. Perfekt for timeføring til oppdragsgiver.',
     target: '#report-button',
+    icon: BarChart3,
   },
   {
-    title: 'Du er klar! ✅',
+    title: 'Du er klar',
     description: 'Det var det! Begynn å registrere tid nå, eller utforsk innstillingene for å tilpasse systemet.',
     action: 'Kom i gang',
+    icon: CheckCircle2,
   },
 ];
 
@@ -96,6 +103,7 @@ export function OnboardingTour() {
   if (!isOpen) return null;
 
   const step = tourSteps[currentStep];
+  const StepIcon = step.icon;
   const isFirstStep = currentStep === 0;
   const isLastStep = currentStep === tourSteps.length - 1;
 
@@ -116,7 +124,10 @@ export function OnboardingTour() {
         <CardHeader>
           <div className="flex items-start justify-between">
             <div>
-              <CardTitle>{step.title}</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                {StepIcon && <StepIcon className="h-5 w-5 text-primary" />}
+                {step.title}
+              </CardTitle>
               <CardDescription className="mt-2">{step.description}</CardDescription>
             </div>
             <Button

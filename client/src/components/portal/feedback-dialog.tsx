@@ -317,7 +317,7 @@ export function FeedbackDialog({ userId, vendorId }: FeedbackDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[440px] rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-card shadow-[0_20px_60px_rgba(20,58,65,0.12)] dark:shadow-none p-0 gap-0 overflow-hidden"
+        className="sm:max-w-[440px] rounded-2xl border-[#d8e4e0] dark:border-border bg-[linear-gradient(180deg,#ffffff,#f7fbf9)] dark:bg-none dark:bg-card shadow-[0_20px_60px_rgba(20,58,65,0.12)] dark:shadow-none p-0 gap-0 overflow-hidden"
         data-testid="feedback-dialog"
       >
         {/* ── Context banner ── */}
@@ -389,7 +389,7 @@ export function FeedbackDialog({ userId, vendorId }: FeedbackDialogProps) {
                       className="text-sm font-semibold text-[#1F6B73] dark:text-[#51C2D0]"
                     >
                       {RATING_LABELS[rating]}
-                      {rating === 5 && " 🙌"}
+                      {rating === 5 && <CheckCircle className="inline h-4 w-4 ml-1 align-text-bottom" />}
                     </motion.p>
                   )}
                 </AnimatePresence>

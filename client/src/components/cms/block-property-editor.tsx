@@ -10,7 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
-  Plus, Trash2, ChevronUp, ChevronDown,
+  Plus, Trash2, ChevronUp, ChevronDown, Link2,
 } from "lucide-react";
 
 // ── Helpers ──
@@ -433,7 +433,9 @@ function ProseEditor({ content, onUpdate }: { content: any; onUpdate: ContentUpd
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('## ')} title="Overskrift">H2</Button>
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('### ')} title="Underoverskrift">H3</Button>
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('- ')} title="Punkt">• Liste</Button>
-        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('[', '](url)')} title="Lenke">🔗</Button>
+        <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('[', '](url)')} title="Lenke">
+          <Link2 className="h-3.5 w-3.5" />
+        </Button>
         <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => insertMarkdown('\n---\n')} title="Skillelinje">—</Button>
       </div>
       <Textarea
@@ -741,11 +743,16 @@ function BestPracticesEditor({ content, onUpdate }: { content: any; onUpdate: Co
         items={content?.practices || []}
         onUpdate={practices => onUpdate({ ...content, practices })}
         addLabel="Legg til tips"
-        createItem={() => ({ emoji: '💡', title: 'Nytt tips', description: 'Beskriv tipset.' })}
+        createItem={() => ({ icon: 'Lightbulb', title: 'Nytt tips', description: 'Beskriv tipset.' })}
         renderItem={(p, _i, update) => (
           <div className="space-y-1 pr-16">
             <div className="flex gap-2">
-              <Input value={p.emoji} onChange={e => update({ emoji: e.target.value })} className="w-14 text-center" />
+              <Input
+                value={p.icon || p.emoji || ''}
+                onChange={e => update({ icon: e.target.value, emoji: '' })}
+                className="w-24 text-center"
+                placeholder="Ikonnavn"
+              />
               <Input value={p.title} onChange={e => update({ title: e.target.value })} className="flex-1 text-xs font-medium" />
             </div>
             <Textarea value={p.description} onChange={e => update({ description: e.target.value })} rows={2} className="text-xs" />
