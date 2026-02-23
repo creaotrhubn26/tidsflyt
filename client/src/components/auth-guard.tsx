@@ -14,7 +14,17 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
   const isDev = import.meta.env.DEV;
   const { user, isLoading, isAuthenticated } = useAuth();
 
+  const hasRequiredRole = (() => {
+    if (!requiredRoles || !user) return true;
+    const normalizedUserRole = normalizeRole(user.role);
+    const normalizedRequiredRoles = requiredRoles.map((role) => normalizeRole(role));
+    return normalizedRequiredRoles.includes(normalizedUserRole);
+  })();
+
   if (isDev) {
+    if (!hasRequiredRole) {
+      return <Redirect to="/dashboard" />;
+    }
     return <>{children}</>;
   }
 
@@ -33,12 +43,8 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
     return <Redirect to="/" />;
   }
 
-  if (requiredRoles && user) {
-    const normalizedUserRole = normalizeRole(user.role);
-    const normalizedRequiredRoles = requiredRoles.map((role) => normalizeRole(role));
-    if (!normalizedRequiredRoles.includes(normalizedUserRole)) {
-      return <Redirect to="/dashboard" />;
-    }
+  if (!hasRequiredRole) {
+    return <Redirect to="/dashboard" />;
   }
 
   return <>{children}</>;

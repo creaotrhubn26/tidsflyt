@@ -500,7 +500,7 @@ export function DashboardWorkerMobile({
         <CardContent className="p-4">
           <div className="mb-3 flex items-center justify-between">
             <h3 className="text-xl leading-none font-semibold tracking-tight text-foreground">Aktivitet</h3>
-            <Button aria-label="Gå til saker" title="Gå til saker" variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate("/cases")}>
+            <Button aria-label="Gå til oppfølging" title="Gå til oppfølging" variant="ghost" size="sm" className="h-8 px-2" onClick={() => navigate("/case-reports")}>
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>
@@ -510,7 +510,7 @@ export function DashboardWorkerMobile({
               <button
                 key={row.id}
                 type="button"
-                onClick={() => navigate("/cases")}
+                onClick={() => navigate("/case-reports")}
                 className="w-full rounded-xl border border-border px-3 py-2.5"
               >
                 <div className="flex items-center justify-between gap-2">
@@ -535,7 +535,7 @@ export function DashboardWorkerMobile({
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <Button onClick={() => navigate("/cases")} className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
+            <Button onClick={() => navigate("/case-reports?create=1")} className="w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
               Ny oppfølging
             </Button>
             <Button variant="outline" onClick={() => navigate("/case-reports")} className="w-full rounded-xl">
@@ -548,7 +548,7 @@ export function DashboardWorkerMobile({
             <span>{nearDeadline} nær frist</span>
           </div>
 
-          <Button variant="ghost" className="mt-1.5 w-full text-primary" onClick={() => navigate("/cases")}>
+          <Button variant="ghost" className="mt-1.5 w-full text-primary" onClick={() => navigate("/case-reports")}>
             <CheckCircle2 className="h-4 w-4 mr-1.5" />
             Trenger støtte
           </Button>

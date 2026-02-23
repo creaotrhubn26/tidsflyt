@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Plus, Clock, Send, Loader2, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Card, CardContent } from "@/components/ui/card";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -120,10 +121,16 @@ export function DashboardQuickLog({
     onDismissSuggestion?.();
   };
 
-  /* ── Collapsed pill ── */
-  if (!expanded) {
-    return (
-      <div className="space-y-2">
+  return (
+    <Card className="overflow-hidden rounded-2xl border-border bg-card shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border bg-muted px-4 py-2 text-muted-foreground">
+        <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-primary/15 text-primary">+</span>
+        <p className="text-[15px] font-medium">
+          {expanded ? "Hurtigregistrering aktiv" : "Logg tid raskt"}
+        </p>
+        <span className="ml-auto hidden text-[11px] capitalize sm:inline">{todayLabel}</span>
+      </div>
+      <CardContent className="p-4 space-y-3">
         {hasSuggestion && showSuggestionHint && (
           <div
             className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3"
@@ -148,10 +155,10 @@ export function DashboardQuickLog({
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   size="sm"
-                  className="h-7 px-2.5 text-xs"
+                  className="h-8 rounded-lg px-3 text-xs"
                   onClick={applySuggestion}
                   data-testid="dashboard-quick-log-apply-suggestion"
                 >
@@ -160,7 +167,7 @@ export function DashboardQuickLog({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="h-7 px-2 text-xs text-muted-foreground hover:text-foreground"
+                  className="h-8 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
                   onClick={dismissSuggestion}
                   data-testid="dashboard-quick-log-dismiss-suggestion"
                 >
@@ -170,7 +177,7 @@ export function DashboardQuickLog({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2.5 text-xs"
+                    className="h-8 rounded-lg px-3 text-xs"
                     onClick={onApplyWeekSuggestion}
                     data-testid="dashboard-quick-log-apply-week-suggestion"
                   >
@@ -181,7 +188,7 @@ export function DashboardQuickLog({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="h-7 px-2.5 text-xs"
+                    className="h-8 rounded-lg px-3 text-xs"
                     onClick={onOpenBulkCopy}
                     data-testid="dashboard-quick-log-open-bulk-copy"
                   >
@@ -193,100 +200,91 @@ export function DashboardQuickLog({
           </div>
         )}
 
-        <button
-          type="button"
-          onClick={() => setExpanded(true)}
-          className={cn(
-            "w-full flex items-center gap-3 rounded-xl border border-dashed border-border",
-            "bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground",
-            "hover:bg-muted/40 hover:text-foreground hover:border-primary/30 transition-all group",
-          )}
-        >
-          <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10 group-hover:bg-primary/20 transition-colors flex-shrink-0">
-            <Plus className="h-3.5 w-3.5 text-primary" />
-          </div>
-          <Clock className="h-3.5 w-3.5 flex-shrink-0" />
-          <span>Logg tid raskt…</span>
-          <span className="ml-auto text-[10px] text-muted-foreground/50 hidden sm:inline capitalize">
-            {todayLabel}
-          </span>
-        </button>
-      </div>
-    );
-  }
-
-  /* ── Expanded inline form ── */
-  return (
-    <div className="rounded-xl border border-primary/20 bg-card px-4 py-3.5 shadow-sm animate-in fade-in slide-in-from-top-1 duration-150">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-3 capitalize">
-        Logg tid · {todayLabel}
-      </p>
-      {justSaved ? (
-        <div className="flex items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400 py-1">
-          <CheckCircle2 className="h-4 w-4" />
-          Tid logget!
-        </div>
-      ) : (
-        <div className="flex flex-wrap sm:flex-nowrap gap-2 items-center">
-          <Input
-            placeholder="Hva jobbet du med?"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            className="flex-1 min-w-40 h-8 text-sm"
-            onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-            data-testid="dashboard-quick-log-description"
-            autoFocus
-          />
-          <div className="relative w-24 flex-shrink-0">
-            <Input
-              placeholder="Timer"
-              value={hours}
-              type="number"
-              min="0.25"
-              step="0.25"
-              max="24"
-              onChange={(e) => setHours(e.target.value)}
-              className="h-8 text-sm pr-7"
-              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-              data-testid="dashboard-quick-log-hours"
-            />
-            <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
-              t
-            </span>
-          </div>
-          <Button
-            size="sm"
-            className="h-8 gap-1.5 px-3 flex-shrink-0"
-            onClick={handleSubmit}
-            disabled={!canSubmit}
-          >
-            {logMutation.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Send className="h-3.5 w-3.5" />
+        {!expanded ? (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className={cn(
+              "w-full flex items-center gap-3 rounded-xl border border-border bg-card px-4 py-3",
+              "text-sm text-muted-foreground transition-colors hover:bg-muted/40 hover:text-foreground",
             )}
-            Logg
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-8 px-2 flex-shrink-0 text-muted-foreground hover:text-foreground"
-            onClick={() => {
-              setExpanded(false);
-              setDescription("");
-              setHours("");
-              setSelectedProjectId(null);
-            }}
           >
-            Avbryt
-          </Button>
-        </div>
-      )}
-      {logMutation.isError && (
-        <p className="mt-2 text-xs text-destructive">
-          Noe gikk galt. Prøv igjen.
-        </p>
-      )}
-    </div>
+            <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted">
+              <Plus className="h-4 w-4 text-primary" />
+            </span>
+            <Clock className="h-4 w-4 flex-shrink-0" />
+            <span className="font-medium">Åpne hurtigføring</span>
+          </button>
+        ) : justSaved ? (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-400">
+            <CheckCircle2 className="h-4 w-4" />
+            Tid logget!
+          </div>
+        ) : (
+          <div className="space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+            <Input
+              placeholder="Hva jobbet du med?"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="h-10 text-sm"
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              data-testid="dashboard-quick-log-description"
+              autoFocus
+            />
+            <div className="flex flex-wrap gap-2 items-center">
+              <div className="relative w-28 flex-shrink-0">
+                <Input
+                  placeholder="Timer"
+                  value={hours}
+                  type="number"
+                  min="0.25"
+                  step="0.25"
+                  max="24"
+                  onChange={(e) => setHours(e.target.value)}
+                  className="h-10 text-sm pr-7"
+                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                  data-testid="dashboard-quick-log-hours"
+                />
+                <span className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground">
+                  t
+                </span>
+              </div>
+              <Button
+                size="sm"
+                className="h-10 gap-1.5 rounded-xl px-4"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+              >
+                {logMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5" />
+                )}
+                Logg
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-10 rounded-xl px-3 text-muted-foreground hover:text-foreground"
+                onClick={() => {
+                  setExpanded(false);
+                  setDescription("");
+                  setHours("");
+                  setSelectedProjectId(null);
+                }}
+              >
+                Avbryt
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {logMutation.isError && (
+          <p className="text-xs text-destructive">
+            Noe gikk galt. Prøv igjen.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }

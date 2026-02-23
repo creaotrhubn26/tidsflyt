@@ -1,5 +1,5 @@
 import { Suspense, lazy } from "react";
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -13,6 +13,7 @@ const Landing = lazy(() => import("@/pages/landing"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const TimeTracking = lazy(() => import("@/pages/time-tracking"));
 const Reports = lazy(() => import("@/pages/reports"));
+const Cases = lazy(() => import("@/pages/cases"));
 const CaseReports = lazy(() => import("@/pages/case-reports"));
 const Users = lazy(() => import("@/pages/users"));
 const Profile = lazy(() => import("@/pages/profile"));
@@ -64,16 +65,17 @@ function Router() {
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
         <Route path="/time-tracking">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
-        <Route path="/reports">{() => <AuthGuard><Reports /></AuthGuard>}</Route>
+        <Route path="/reports">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Reports /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
-        <Route path="/cases">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
+        <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Cases /></AuthGuard>}</Route>
+        <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
         <Route path="/profile">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
-        <Route path="/invites">{() => <AuthGuard><Users /></AuthGuard>}</Route>
+        <Route path="/invites">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Users /></AuthGuard>}</Route>
+        <Route path="/users">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Redirect to="/invites" /></AuthGuard>}</Route>
 
         {/* Admin routes */}
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>
-        <Route path="/users">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><Users /></AuthGuard>}</Route>
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>

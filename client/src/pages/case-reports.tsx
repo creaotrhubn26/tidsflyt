@@ -48,6 +48,7 @@ import { RotateCcw, Trash2 } from "lucide-react";
 import { AdvancedCaseReportBuilder } from "@/components/cms/advanced-case-report-builder";
 import { CaseAnalyticsDashboard } from "@/components/cms/case-analytics-dashboard";
 import { CaseReportExport } from "@/components/cms/case-report-export";
+import { TimeTrackingPdfDesigner } from "@/components/reports/time-tracking-pdf-designer";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { usePiiDetection } from "@/hooks/use-pii-detection";
@@ -60,11 +61,26 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { REPORT_TEMPLATES } from "@/lib/report-templates";
 import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 import { format } from "date-fns";
+import { subDays } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { CaseReport, ReportStatus } from "@shared/schema";
+import { normalizeRole } from "@shared/roles";
 
 type CaseReportResponse = {
   reports: CaseReport[];
+};
+
+type TimeReportEntry = {
+  id: string;
+  userId: string;
+  caseNumber: string | null;
+  description: string;
+  hours: number;
+  date: string;
+  status: string;
+  createdAt: string;
+  userName: string;
+  department: string;
 };
 
 type SuggestionValue<T> = {
@@ -125,6 +141,18 @@ const statusLabels: Record<ReportStatus, string> = {
   needs_revision: "Trenger revisjon",
   approved: "Godkjent",
   rejected: "Avslått",
+};
+
+const timeEntryStatusLabels: Record<string, string> = {
+  pending: "Venter",
+  approved: "Godkjent",
+  rejected: "Avvist",
+};
+
+const timeEntryStatusClasses: Record<string, string> = {
+  pending: "bg-warning/10 text-warning border-warning/20",
+  approved: "bg-success/10 text-success border-success/20",
+  rejected: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 /* ── Lifecycle strip ────────────────────────────────────────── */
@@ -402,7 +430,7 @@ function SectionProgress({ formData }: { formData: typeof emptyFormData }) {
 }
 
 export default function CaseReportsPage() {
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
   const locationSearch = useMemo(() => {
     if (typeof window !== "undefined") {
       return window.location.search || "";
@@ -431,6 +459,7 @@ export default function CaseReportsPage() {
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [reportsToExport, setReportsToExport] = useState<CaseReport[]>([]);
   const [activeTab, setActiveTab] = useState<string>("reports");
+  const [timeReportRange, setTimeReportRange] = useState<"week" | "month" | "quarter">("month");
   const [analyticsTimeRange, setAnalyticsTimeRange] = useState<"7d" | "30d" | "90d" | "12m" | "all">("30d");
   const [statusFilter, setStatusFilter] = useState<ReportStatus | null>(null);
   const [piiDismissed, setPiiDismissed] = useState(false);
@@ -443,6 +472,7 @@ export default function CaseReportsPage() {
   const [reportSuggestionsDismissed, setReportSuggestionsDismissed] = useState(false);
   const dashboardPrefillAppliedRef = useRef<string | null>(null);
   const { user } = useAuth();
+  const isTiltaksleder = normalizeRole(user?.role) === "tiltaksleder";
   const { settings: suggestionSettings, blockSuggestionAsync } = useSuggestionSettings();
   const currentUserId = user?.id ?? "default";
   const workflowSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "workflow");
@@ -549,6 +579,38 @@ export default function CaseReportsPage() {
   });
 
   const reports = reportsData?.reports || [];
+
+  const timeReportStartDate = useMemo(() => {
+    const days = timeReportRange === "week" ? 7 : timeReportRange === "quarter" ? 90 : 30;
+    return format(subDays(new Date(), days), "yyyy-MM-dd");
+  }, [timeReportRange]);
+
+  const { data: timeReports = [], isLoading: isLoadingTimeReports } = useQuery<TimeReportEntry[]>({
+    queryKey: ["/api/reports", { startDate: timeReportStartDate, status: "" }],
+    enabled: activeTab === "timeReports",
+    staleTime: 0,
+  });
+
+  const latestTimeReports = useMemo(
+    () =>
+      [...timeReports]
+        .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
+        .slice(0, 8),
+    [timeReports],
+  );
+
+  const timeReportStats = useMemo(() => {
+    const totalHours = timeReports.reduce((sum, report) => sum + report.hours, 0);
+    const uniqueUsers = new Set(timeReports.map((report) => report.userId)).size;
+    const pendingCount = timeReports.filter((report) => report.status === "pending").length;
+    return { totalHours, uniqueUsers, pendingCount };
+  }, [timeReports]);
+
+  useEffect(() => {
+    if (!isTiltaksleder && activeTab === "timeReports") {
+      setActiveTab("reports");
+    }
+  }, [activeTab, isTiltaksleder]);
 
   const { data: rawReportSuggestions } = useQuery<CaseReportSuggestionsResponse | Record<string, unknown>>({
     queryKey: ["/api/case-reports/suggestions", {
@@ -1034,6 +1096,52 @@ export default function CaseReportsPage() {
     setExportDialogOpen(true);
   };
 
+  const handleExportTimeReports = async (formatType: "pdf" | "excel" | "csv") => {
+    try {
+      const params = new URLSearchParams({
+        format: formatType,
+        startDate: timeReportStartDate,
+      });
+
+      if (formatType === "pdf") {
+        window.open(`/api/reports/export?${params.toString()}`, "_blank");
+        toast({
+          title: "Eksport startet",
+          description: "PDF åpnes i ny fane.",
+        });
+        return;
+      }
+
+      const response = await fetch(`/api/reports/export?${params.toString()}`);
+      if (!response.ok) {
+        throw new Error("Kunne ikke laste ned eksportfilen.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const fileDate = format(new Date(), "yyyy-MM-dd");
+      a.href = url;
+      a.download =
+        formatType === "excel" ? `timelister-${fileDate}.xls` : `timelister-${fileDate}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+
+      toast({
+        title: "Eksport fullført",
+        description: `Timelister ble eksportert som ${formatType.toUpperCase()}.`,
+      });
+    } catch (error: any) {
+      toast({
+        title: "Eksport feilet",
+        description: error?.message || "Kunne ikke eksportere timelister akkurat nå.",
+        variant: "destructive",
+      });
+    }
+  };
+
   const handleBulkStatusChange = async (reportIds: number[], newStatus: string) => {
     try {
       // In a real app, implement bulk update API
@@ -1154,15 +1262,21 @@ export default function CaseReportsPage() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsList className={`grid w-full max-w-xl ${isTiltaksleder ? "grid-cols-3" : "grid-cols-2"}`}>
             <TabsTrigger value="reports" className="gap-2">
               <FileText className="h-4 w-4" />
-              Rapporter
+              Saksrapporter
             </TabsTrigger>
             <TabsTrigger value="analytics" className="gap-2">
               <BarChart3 className="h-4 w-4" />
               Analyse
             </TabsTrigger>
+            {isTiltaksleder && (
+              <TabsTrigger value="timeReports" className="gap-2">
+                <Download className="h-4 w-4" />
+                Rapporter
+              </TabsTrigger>
+            )}
           </TabsList>
 
           <TabsContent value="reports" className="space-y-6">
@@ -1597,6 +1711,121 @@ export default function CaseReportsPage() {
               />
             )}
           </TabsContent>
+
+          {isTiltaksleder && (
+            <TabsContent value="timeReports" className="space-y-6">
+              <Card>
+              <CardHeader>
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <CardTitle>Rapporter</CardTitle>
+                    <CardDescription>Administrer og eksporter timelister og rapporter</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Select
+                      value={timeReportRange}
+                      onValueChange={(value) => setTimeReportRange(value as "week" | "month" | "quarter")}
+                    >
+                      <SelectTrigger className="w-[180px]">
+                        <SelectValue placeholder="Velg periode" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="week">Siste 7 dager</SelectItem>
+                        <SelectItem value="month">Siste 30 dager</SelectItem>
+                        <SelectItem value="quarter">Siste 90 dager</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <TimeTrackingPdfDesigner />
+                    <Button variant="outline" onClick={() => setLocation("/reports")}>
+                      Åpne full side
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-3">
+                  <Card className="border-muted bg-muted/20">
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Totalt timer</p>
+                      <p className="text-2xl font-semibold">{timeReportStats.totalHours.toFixed(1)}t</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-muted bg-muted/20">
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Aktive brukere</p>
+                      <p className="text-2xl font-semibold">{timeReportStats.uniqueUsers}</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-muted bg-muted/20">
+                    <CardContent className="p-4">
+                      <p className="text-sm text-muted-foreground">Venter godkjenning</p>
+                      <p className="text-2xl font-semibold">{timeReportStats.pendingCount}</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Eksporter timelister</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="outline" onClick={() => void handleExportTimeReports("pdf")}>
+                      PDF
+                    </Button>
+                    <Button variant="outline" onClick={() => void handleExportTimeReports("excel")}>
+                      Excel
+                    </Button>
+                    <Button variant="outline" onClick={() => void handleExportTimeReports("csv")}>
+                      CSV
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <p className="text-sm font-medium">Siste registreringer</p>
+                  {isLoadingTimeReports ? (
+                    <div className="space-y-2">
+                      {[1, 2, 3, 4].map((index) => (
+                        <Skeleton key={index} className="h-14 w-full" />
+                      ))}
+                    </div>
+                  ) : latestTimeReports.length === 0 ? (
+                    <div className="rounded-md border border-dashed p-6 text-sm text-muted-foreground">
+                      Ingen timelister funnet for valgt periode.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {latestTimeReports.map((entry) => (
+                        <div
+                          key={entry.id}
+                          className="flex flex-col gap-2 rounded-md border p-3 md:flex-row md:items-center md:justify-between"
+                        >
+                          <div>
+                            <p className="font-medium leading-tight">{entry.userName}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {entry.caseNumber ? `${entry.caseNumber} · ` : ""}
+                              {entry.description || "Ingen beskrivelse"}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm text-muted-foreground">
+                              {format(new Date(entry.date), "d. MMM yyyy", { locale: nb })}
+                            </span>
+                            <span className="font-semibold">{entry.hours.toFixed(1)}t</span>
+                            <Badge
+                              variant="outline"
+                              className={timeEntryStatusClasses[entry.status] ?? "bg-muted text-muted-foreground"}
+                            >
+                              {timeEntryStatusLabels[entry.status] ?? entry.status}
+                            </Badge>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+              </Card>
+            </TabsContent>
+          )}
         </Tabs>
 
         {/* Export Dialog */}

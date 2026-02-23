@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { TimeTrackingPdfDesigner } from "@/components/reports/time-tracking-pdf-designer";
 import { 
   ChevronRight, ChevronDown, Eye, EyeOff, Minus, Plus, Monitor, Tablet, Smartphone,
   Save, Loader2, ArrowLeft, Type, Box, Layers, 
@@ -22,7 +23,7 @@ import {
   Home, Sparkles, Clock, Shield, TrendingUp, CheckCircle, Heart, Calendar,
   Globe, MapPin, Send, Rocket, Award, Target, Briefcase, Settings, Grid3X3,
   Undo2, Redo2, Palette, AlignLeft, AlignCenter, AlignRight, Bold, Italic,
-  Search, FileText, Link2, ImageIcon, Trash2, GripVertical, PlusCircle,
+  Search, FileText, Link2, ImageIcon, Trash2, GripVertical, PlusCircle, Lightbulb,
   Database,
   type LucideIcon
 } from "lucide-react";
@@ -133,7 +134,7 @@ interface HistoryEntry {
   timestamp: number;
 }
 
-type ToolPanelId = 'design' | 'media' | 'navigation' | 'forms' | 'blog' | 'email' | 'reports' | 'portal' | 'analytics' | 'versions' | 'content-modeling' | null;
+type ToolPanelId = 'design' | 'media' | 'navigation' | 'forms' | 'blog' | 'email' | 'reports' | 'portal' | 'analytics' | 'versions' | 'content-modeling' | 'illustration-mock' | null;
 
 interface BuilderContextType {
   selectedElement: SelectedElement | null;
@@ -197,6 +198,45 @@ const fontSizes = [
   { label: '4XL', value: '2.25rem' },
 ];
 
+interface IllustrationMockScene {
+  id: string;
+  title: string;
+  description: string;
+  image: string;
+  prompt: string;
+  tags: string[];
+}
+
+const illustrationMockScenes: IllustrationMockScene[] = [
+  {
+    id: 'time-tracking',
+    title: 'Mock: Timeføring på mobil',
+    description: 'Ren komposisjon av mobil visning, ukesummer og raske handlinger.',
+    image: '/illustrations/mock-time-tracking.svg',
+    prompt:
+      'Scandinavian SaaS illustration of mobile time tracking UI. Worker logging hours on smartphone, clean cards and week summary, soft daylight, teal and neutral palette, modern editorial vector style, high clarity, no logos, no text, no watermark.',
+    tags: ['mobil', 'timeføring', 'dashboard'],
+  },
+  {
+    id: 'analytics',
+    title: 'Mock: Rapport og analyse',
+    description: 'Metrikker, trender og visualiseringer i en rolig og profesjonell scene.',
+    image: '/illustrations/mock-analytics.svg',
+    prompt:
+      'Professional product illustration for analytics dashboard. Manager reviewing charts, KPI cards and trend panel, Scandinavian office mood, muted teal + warm gray palette, modern vector editorial style, no logos, no text, no watermark.',
+    tags: ['rapporter', 'analyse', 'kpi'],
+  },
+  {
+    id: 'case-collab',
+    title: 'Mock: Saksrapport samarbeid',
+    description: 'Saksflyt med dokumentasjon, godkjenning og team-samarbeid.',
+    image: '/illustrations/mock-case-collaboration.svg',
+    prompt:
+      'Editorial software illustration of case management collaboration. Team discussing case cards and approval workflow on screens, Scandinavian office style, calm trustworthy colors, modern vector style, no logos, no text, no watermark.',
+    tags: ['saksrapporter', 'godkjenning', 'team'],
+  },
+];
+
 interface LayerItemProps {
   label: string;
   icon: LucideIcon;
@@ -252,6 +292,7 @@ const cmsTools = [
   { id: 'content-modeling', name: 'Innholdstyper', icon: Database, description: 'Egendefinerte innholdstyper' },
   { id: 'design', name: 'Design System', icon: Palette, description: 'Farger og typografi' },
   { id: 'media', name: 'Mediebibliotek', icon: ImageIcon, description: 'Bilder og filer' },
+  { id: 'illustration-mock', name: 'Illustrasjonsmock', icon: Lightbulb, description: 'Prompter og SVG-maler' },
   { id: 'navigation', name: 'Navigasjon', icon: Layers, description: 'Menystruktur' },
   { id: 'forms', name: 'Skjemaer', icon: FileText, description: 'Kontaktskjemaer' },
   { id: 'blog', name: 'Blogg', icon: FileText, description: 'Blogginnlegg' },
@@ -995,6 +1036,8 @@ function PropertiesPanel() {
           return <DesignSystemPanel />;
         case 'media':
           return <MediaLibraryPanel />;
+        case 'illustration-mock':
+          return <IllustrationMockPanel />;
         case 'navigation':
           return <NavigationPanel />;
         case 'forms':
@@ -2517,30 +2560,94 @@ function EmailPanel() {
 }
 
 function ReportsPanel() {
-  const reports = [
-    { id: 1, name: 'Timesoversikt', lastRun: '2024-01-20' },
-    { id: 2, name: 'Prosjektrapport', lastRun: '2024-01-19' },
-    { id: 3, name: 'Faktureringsrapport', lastRun: '2024-01-15' },
-  ];
+  return (
+    <div className="p-4 space-y-4">
+      <div className="rounded-md border bg-muted/30 p-3">
+        <p className="text-sm font-medium">Rapportdesigner for PDF</p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Admin kan styre hele timeførings-PDF fra topp til bunn: seksjoner, kolonner, logo, farger og tabellstil.
+        </p>
+      </div>
+
+      <div className="rounded-md border bg-card p-3">
+        <TimeTrackingPdfDesigner mode="inline" />
+      </div>
+    </div>
+  );
+}
+
+function IllustrationMockPanel() {
+  const { toast } = useToast();
+  const [copiedSceneId, setCopiedSceneId] = useState<string | null>(null);
+
+  const copyPrompt = async (scene: IllustrationMockScene) => {
+    try {
+      await navigator.clipboard.writeText(scene.prompt);
+      setCopiedSceneId(scene.id);
+      toast({ title: 'Prompt kopiert', description: `${scene.title} er kopiert til utklippstavlen.` });
+      window.setTimeout(() => setCopiedSceneId(null), 1800);
+    } catch {
+      toast({
+        title: 'Kunne ikke kopiere prompt',
+        description: 'Kopier manuelt fra tekstfeltet under.',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <div className="p-4 space-y-4">
-      <Button className="w-full" data-testid="button-create-report">
-        <Plus className="h-4 w-4 mr-2" />
-        Ny rapportmal
-      </Button>
-
-      <div className="space-y-2">
-        {reports.map((report) => (
-          <div key={report.id} className="flex items-center justify-between gap-4 p-3 border rounded-md hover-elevate cursor-pointer" data-testid={`report-item-${report.id}`}>
-            <div>
-              <p className="font-medium">{report.name}</p>
-              <p className="text-xs text-muted-foreground">Sist kjørt: {new Date(report.lastRun).toLocaleDateString('nb-NO')}</p>
-            </div>
-            <ChevronRight className="h-4 w-4 text-muted-foreground" />
-          </div>
-        ))}
+      <div className="rounded-md border bg-muted/30 p-3">
+        <p className="flex items-center gap-2 text-sm font-medium">
+          <Lightbulb className="h-4 w-4 text-amber-500" />
+          Illustrasjonsmock i Visual Editor
+        </p>
+        <p className="mt-1 text-xs text-muted-foreground">
+          Kun tilgjengelig for admin i CMS. Velg scene, kopier prompt og last ned SVG som referanse.
+        </p>
       </div>
+
+      {illustrationMockScenes.map((scene) => (
+        <div key={scene.id} className="space-y-3 rounded-md border bg-card p-3">
+          <div>
+            <p className="text-sm font-medium">{scene.title}</p>
+            <p className="text-xs text-muted-foreground">{scene.description}</p>
+          </div>
+
+          <div className="overflow-hidden rounded-md border bg-muted/20">
+            <img src={scene.image} alt={scene.title} className="h-auto w-full object-cover" />
+          </div>
+
+          <div className="flex flex-wrap gap-1.5">
+            {scene.tags.map((tag) => (
+              <Badge key={`${scene.id}-${tag}`} variant="outline" className="text-[11px]">
+                {tag}
+              </Badge>
+            ))}
+          </div>
+
+          <div className="rounded-md border bg-muted/30 p-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Prompt</p>
+            <p className="mt-1 text-xs leading-relaxed">{scene.prompt}</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => copyPrompt(scene)}
+              data-testid={`button-copy-illustration-prompt-${scene.id}`}
+            >
+              {copiedSceneId === scene.id ? 'Kopiert' : 'Kopier prompt'}
+            </Button>
+            <a href={scene.image} download className="w-full">
+              <Button size="sm" className="w-full" data-testid={`button-download-illustration-svg-${scene.id}`}>
+                Last ned SVG
+              </Button>
+            </a>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2949,6 +3056,19 @@ export function VisualBuilder({ onLogout: _onLogout }: VisualBuilderProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [undo, redo]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const toolFromQuery = params.get('tool');
+    if (!toolFromQuery) {
+      return;
+    }
+    const hasTool = cmsTools.some((tool) => tool.id === toolFromQuery);
+    if (hasTool) {
+      setActiveToolPanel(toolFromQuery as ToolPanelId);
+      setSelectedElementState(null);
+    }
+  }, []);
 
   if (isLoading) {
     return (

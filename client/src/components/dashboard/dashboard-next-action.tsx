@@ -63,6 +63,8 @@ export function DashboardNextAction({
 }: DashboardNextActionProps) {
   const isTiltaksleder = mode === "tiltaksleder";
   const isMiljoarbeider = mode === "miljoarbeider";
+  const followupPath = isMiljoarbeider ? "/case-reports" : "/cases";
+  const followupCreatePath = isMiljoarbeider ? "/case-reports?create=1" : "/cases";
 
   const action = useMemo((): NextAction | null => {
     if ((isTiltaksleder || isMiljoarbeider) && pendingApprovals > 0) {
@@ -75,7 +77,7 @@ export function DashboardNextAction({
           ? "Dokumenter oppfølging rolig og stegvis"
           : "Sikre kontinuitet og dokumentasjon i dag",
         buttonText: isMiljoarbeider ? "Start oppfølging" : "Gå til tiltak",
-        path: "/cases",
+        path: followupCreatePath,
         variant: "warning",
       };
     }
@@ -89,7 +91,7 @@ export function DashboardNextAction({
           ? "Se hvem som bør kontaktes først"
           : "Prioriter deltakere med lengst opphold",
         buttonText: isMiljoarbeider ? "Se deltakere" : "Åpne tiltak",
-        path: "/cases",
+        path: followupPath,
         variant: "critical",
       };
     }
@@ -120,7 +122,7 @@ export function DashboardNextAction({
         label: `Fullfør ${myDrafts} utkast`,
         description: "Du har uferdige rapporter",
         buttonText: "Fortsett",
-        path: "/cases",
+        path: isMiljoarbeider ? "/case-reports" : "/cases",
         variant: "info",
       };
     }
@@ -137,7 +139,7 @@ export function DashboardNextAction({
       };
     }
     return null;
-  }, [pendingApprovals, overdueItems, myDrafts, totalHours, isTiltaksleder, isMiljoarbeider, smartSuggestion]);
+  }, [pendingApprovals, overdueItems, myDrafts, totalHours, isTiltaksleder, isMiljoarbeider, smartSuggestion, followupCreatePath, followupPath]);
 
   if (!action) return null;
 

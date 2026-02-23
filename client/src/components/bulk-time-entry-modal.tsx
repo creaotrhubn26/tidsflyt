@@ -44,6 +44,15 @@ interface PreviousMonthTimeEntry {
   caseNumber: string | null;
 }
 
+interface WorkTypeOption {
+  id: string;
+  name: string;
+}
+
+interface WorkTypeSettingsResponse {
+  workTypes: WorkTypeOption[];
+}
+
 // Norwegian public holidays calculation
 function getNorwegianHolidays(year: number): Map<string, string> {
   const holidays = new Map<string, string>();
@@ -97,14 +106,6 @@ function getNorwegianHolidays(year: number): Map<string, string> {
   
   return holidays;
 }
-
-const projectOptions = [
-  { id: "general", name: "Generelt arbeid" },
-  { id: "development", name: "Utvikling" },
-  { id: "meeting", name: "Møte" },
-  { id: "support", name: "Kundesupport" },
-  { id: "admin", name: "Administrasjon" },
-];
 
 const WEEKDAY_NAMES = ["Man", "Tir", "Ons", "Tor", "Fre"];
 const NO_PROJECT_VALUE = "no_project";
@@ -190,6 +191,16 @@ export function BulkTimeEntryModal({
     enabled: open,
   });
 
+  const { data: workTypeSettingsData } = useQuery<WorkTypeSettingsResponse>({
+    queryKey: ["/api/time-tracking/work-types"],
+    enabled: open,
+  });
+
+  const workTypeOptions = useMemo(
+    () => workTypeSettingsData?.workTypes || [],
+    [workTypeSettingsData],
+  );
+
   const previousMonthSummary = useMemo(() => {
     const hoursByWeekdayTemplate = new Map<string, number>();
     const descriptionCounts = new Map<string, number>();
@@ -218,7 +229,7 @@ export function BulkTimeEntryModal({
 
     const preferredDescription = getMostFrequentValue(descriptionCounts);
     const preferredProjectRaw = getMostFrequentValue(projectCounts) || NO_PROJECT_VALUE;
-    const preferredProject = projectOptions.some((p) => p.id === preferredProjectRaw)
+    const preferredProject = workTypeOptions.some((p) => p.id === preferredProjectRaw)
       ? preferredProjectRaw
       : NO_PROJECT_VALUE;
 
@@ -229,7 +240,7 @@ export function BulkTimeEntryModal({
       totalEntries: previousMonthEntries.length,
       mappedTemplateDays: hoursByWeekdayTemplate.size,
     };
-  }, [previousMonthEntries]);
+  }, [previousMonthEntries, workTypeOptions]);
 
   useEffect(() => {
     if (!open) return;
@@ -251,6 +262,12 @@ export function BulkTimeEntryModal({
     previousMonthSummary.preferredDescription,
     previousMonthSummary.preferredProject,
   ]);
+
+  useEffect(() => {
+    if (selectedProject === NO_PROJECT_VALUE) return;
+    if (workTypeOptions.some((workType) => workType.id === selectedProject)) return;
+    setSelectedProject(NO_PROJECT_VALUE);
+  }, [selectedProject, workTypeOptions]);
 
   // Get holidays for the selected month's year
   const holidays = useMemo(() => {
@@ -606,14 +623,14 @@ export function BulkTimeEntryModal({
             </div>
 
             <div className="space-y-2">
-              <Label>Prosjekt (valgfritt)</Label>
+              <Label>Type arbeid (valgfritt)</Label>
               <Select value={selectedProject} onValueChange={setSelectedProject}>
                 <SelectTrigger data-testid="select-bulk-project">
-                  <SelectValue placeholder="Velg prosjekt" />
+                  <SelectValue placeholder="Velg type arbeid" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={NO_PROJECT_VALUE}>Ingen</SelectItem>
-                  {projectOptions.map((p) => (
+                  {workTypeOptions.map((p) => (
                     <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                   ))}
                 </SelectContent>

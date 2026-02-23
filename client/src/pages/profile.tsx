@@ -21,6 +21,8 @@ import {
   RotateCcw,
   UserCog,
   XCircle,
+  Plus,
+  Trash2,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -87,6 +89,19 @@ interface TeamSuggestionDefaultsResponse {
   defaults: Record<string, TeamSuggestionPreset>;
 }
 
+type TimeTrackingEntryMode = "timer_or_manual" | "manual_only";
+
+interface TimeTrackingWorkType {
+  id: string;
+  name: string;
+  color: string;
+  entryMode: TimeTrackingEntryMode;
+}
+
+interface TimeTrackingWorkTypesAdminResponse {
+  config: Record<string, TimeTrackingWorkType[]>;
+}
+
 async function fetchProfile(): Promise<ProfileData> {
   const res = await fetch("/api/profile", { credentials: "include" });
   if (!res.ok) throw new Error("Kunne ikke laste profil");
@@ -137,6 +152,7 @@ export default function ProfilePage() {
     isSaving: isSuggestionSettingsSaving,
   } = useSuggestionSettings();
   const [selectedTeamRole, setSelectedTeamRole] = useState("default");
+  const [miljoarbeiderWorkTypesDraft, setMiljoarbeiderWorkTypesDraft] = useState<TimeTrackingWorkType[]>([]);
 
   /* ── Contact form state ── */
   const [editingContact, setEditingContact] = useState(false);
@@ -151,6 +167,12 @@ export default function ProfilePage() {
     setLastName(profile.lastName ?? "");
     setPhone(profile.phone ?? "");
   }, [profile]);
+
+  useEffect(() => {
+    if (!workTypesAdminData) return;
+    const seeded = workTypesAdminData.config?.miljoarbeider || [];
+    setMiljoarbeiderWorkTypesDraft(seeded.map((workType) => ({ ...workType })));
+  }, [workTypesAdminData]);
 
   /* ── Mutation ── */
   const mutation = useMutation({
@@ -180,10 +202,17 @@ export default function ProfilePage() {
   const totalHours = stats?.totalHours ?? 0;
   const normalizedRole = normalizeRole(role);
   const isAdminLikeRole = ["super_admin", "hovedadmin", "admin", "vendor_admin", "tiltaksleder", "teamleder"].includes(normalizedRole);
+  const canManageTimeTrackingWorkTypes = ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
 
   const { data: teamDefaultsData } = useQuery<TeamSuggestionDefaultsResponse>({
     queryKey: ["/api/suggestion-team-defaults"],
     enabled: isAdminLikeRole,
+    staleTime: 60_000,
+  });
+
+  const { data: workTypesAdminData } = useQuery<TimeTrackingWorkTypesAdminResponse>({
+    queryKey: ["/api/time-tracking/work-types/admin"],
+    enabled: canManageTimeTrackingWorkTypes,
     staleTime: 60_000,
   });
 
@@ -253,6 +282,89 @@ export default function ProfilePage() {
       });
     },
   });
+
+  const workTypesMutation = useMutation({
+    mutationFn: async (payload: { role: string; workTypes: Array<{ id?: string; name: string; color?: string; entryMode: TimeTrackingEntryMode }> }) => {
+      const response = await fetch("/api/time-tracking/work-types/admin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(payload),
+      });
+      if (!response.ok) {
+        throw new Error("Kunne ikke oppdatere arbeidstyper.");
+      }
+      return response.json() as Promise<{ config: Record<string, TimeTrackingWorkType[]>; workTypes: TimeTrackingWorkType[] }>;
+    },
+    onSuccess: (next) => {
+      queryClient.setQueryData<TimeTrackingWorkTypesAdminResponse>(
+        ["/api/time-tracking/work-types/admin"],
+        { config: next.config },
+      );
+      setMiljoarbeiderWorkTypesDraft(next.workTypes || []);
+      toast({
+        title: "Lagringsfullført",
+        description: "Arbeidstyper for miljøarbeider er oppdatert.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Feil",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMiljoarbeiderWorkType = (
+    index: number,
+    patch: Partial<TimeTrackingWorkType>,
+  ) => {
+    setMiljoarbeiderWorkTypesDraft((previous) =>
+      previous.map((workType, workTypeIndex) => (workTypeIndex === index ? { ...workType, ...patch } : workType)),
+    );
+  };
+
+  const removeMiljoarbeiderWorkType = (index: number) => {
+    setMiljoarbeiderWorkTypesDraft((previous) => previous.filter((_, workTypeIndex) => workTypeIndex !== index));
+  };
+
+  const addMiljoarbeiderWorkType = () => {
+    setMiljoarbeiderWorkTypesDraft((previous) => [
+      ...previous,
+      {
+        id: `lokal-${Date.now()}`,
+        name: "",
+        color: "bg-primary",
+        entryMode: "timer_or_manual",
+      },
+    ]);
+  };
+
+  const saveMiljoarbeiderWorkTypes = () => {
+    const cleaned = miljoarbeiderWorkTypesDraft
+      .map((workType) => ({
+        id: workType.id,
+        name: workType.name.trim(),
+        color: workType.color,
+        entryMode: workType.entryMode,
+      }))
+      .filter((workType) => workType.name.length > 0);
+
+    if (cleaned.length === 0) {
+      toast({
+        title: "Mangler arbeidstyper",
+        description: "Legg til minst én arbeidstype før lagring.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    workTypesMutation.mutate({
+      role: "miljoarbeider",
+      workTypes: cleaned,
+    });
+  };
 
   async function removeBlockedSuggestion(category: SuggestionBlockCategory, value: string) {
     try {
@@ -830,6 +942,82 @@ export default function ProfilePage() {
                     </Button>
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          )}
+
+          {canManageTimeTrackingWorkTypes && (
+            <Card data-testid="time-worktypes-admin-card">
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Clock className="h-5 w-5" />
+                  Arbeidstyper for Miljøarbeider
+                </CardTitle>
+                <CardDescription>
+                  Denne listen styrer Type arbeid i Timeføring for miljøarbeidere.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="space-y-2">
+                  {miljoarbeiderWorkTypesDraft.map((workType, index) => (
+                    <div key={`${workType.id}-${index}`} className="grid grid-cols-1 gap-2 rounded-md border bg-background/70 p-3 md:grid-cols-[1fr_180px_auto]">
+                      <Input
+                        value={workType.name}
+                        onChange={(event) => {
+                          updateMiljoarbeiderWorkType(index, { name: event.target.value });
+                        }}
+                        placeholder="Navn på arbeidstype"
+                        data-testid={`worktype-name-${index}`}
+                      />
+                      <Select
+                        value={workType.entryMode}
+                        onValueChange={(value) => {
+                          updateMiljoarbeiderWorkType(index, { entryMode: value as TimeTrackingEntryMode });
+                        }}
+                      >
+                        <SelectTrigger data-testid={`worktype-mode-${index}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="timer_or_manual">Stempling + manuell</SelectItem>
+                          <SelectItem value="manual_only">Kun manuell timer</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => removeMiljoarbeiderWorkType(index)}
+                        data-testid={`worktype-remove-${index}`}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={addMiljoarbeiderWorkType}
+                    data-testid="worktype-add"
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Legg til type
+                  </Button>
+                  <Button
+                    type="button"
+                    onClick={saveMiljoarbeiderWorkTypes}
+                    disabled={workTypesMutation.isPending}
+                    data-testid="worktype-save"
+                  >
+                    {workTypesMutation.isPending ? "Lagrer..." : "Lagre arbeidstyper"}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Tips: Sett "Rapportskriving" til "Kun manuell timer" for å kreve manuell timeføring.
+                </p>
               </CardContent>
             </Card>
           )}

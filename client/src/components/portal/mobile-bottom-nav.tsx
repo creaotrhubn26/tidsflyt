@@ -1,16 +1,37 @@
 import { Link, useLocation } from "wouter";
 import { LayoutDashboard, Clock, FileText, User } from "lucide-react";
+import { useMemo } from "react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeRole } from "@shared/roles";
 
-const navItems = [
+interface MobileNavItem {
+  path: string;
+  icon: typeof LayoutDashboard;
+  label: string;
+  roles?: string[];
+}
+
+const navItems: MobileNavItem[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timer" },
-  { path: "/reports", icon: FileText, label: "Rapporter" },
+  { path: "/reports", icon: FileText, label: "Rapporter", roles: ["tiltaksleder"] },
   { path: "/profile", icon: User, label: "Profil" },
 ];
 
 export function MobileBottomNav() {
   const [location] = useLocation();
+  const { user } = useAuth();
+  const normalizedUserRole = normalizeRole(user?.role);
+  const visibleNavItems = useMemo(
+    () =>
+      navItems.filter(
+        (item) =>
+          !(item.path === "/time" && normalizedUserRole === "tiltaksleder")
+          && (!item.roles || item.roles.map((role) => normalizeRole(role)).includes(normalizedUserRole)),
+      ),
+    [normalizedUserRole],
+  );
 
   return (
     <nav 
@@ -18,7 +39,7 @@ export function MobileBottomNav() {
       data-testid="mobile-bottom-nav"
     >
       <div className="flex items-center justify-around h-16 px-2">
-        {navItems.map((item) => {
+        {visibleNavItems.map((item) => {
           const isActive = location === item.path;
           const Icon = item.icon;
           

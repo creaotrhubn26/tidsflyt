@@ -34,7 +34,7 @@ export interface ActivityItem {
 }
 
 interface DashboardActivityProps {
-  mode?: "default" | "tiltaksleder";
+  mode?: "default" | "tiltaksleder" | "miljoarbeider";
   recentItems: RecentItem[];
   activityItems: ActivityItem[];
   activitiesLoading: boolean;
@@ -70,6 +70,8 @@ export function DashboardActivity({
 }: DashboardActivityProps) {
   const [tab, setTab] = useState<"mine" | "tiltak" | "team">("mine");
   const isTiltaksleder = mode === "tiltaksleder";
+  const isMiljoarbeider = mode === "miljoarbeider";
+  const showTeamTab = !isMiljoarbeider;
 
   // Filter activities by userId match instead of text-based matching
   const teamItems = useMemo(() => {
@@ -121,8 +123,8 @@ export function DashboardActivity({
     <Card className="rounded-2xl border-border bg-card">
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Bell className="h-5 w-5 text-primary" />
+          <CardTitle className="text-lg inline-flex items-center gap-2 leading-none">
+            <Bell className="h-5 w-5 shrink-0 text-primary" />
             {isTiltaksleder ? "Faglig logg" : "Aktivitet"}
           </CardTitle>
           <Button
@@ -138,89 +140,138 @@ export function DashboardActivity({
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs
-          value={tab}
-          onValueChange={(v) => setTab(v as "mine" | "tiltak" | "team")}
-          className="w-full"
-        >
-          <TabsList className={isTiltaksleder ? "grid w-full grid-cols-3 mb-4" : "grid w-full grid-cols-2 mb-4"}>
-            <TabsTrigger value="mine">
-              <History className="mr-1.5 h-3.5 w-3.5" />
-              {isTiltaksleder ? "Viktig" : "Mine siste"}
-            </TabsTrigger>
-            {isTiltaksleder && (
-              <TabsTrigger value="tiltak">
-                <FileText className="mr-1.5 h-3.5 w-3.5" />
-                Tiltak
-              </TabsTrigger>
-            )}
-            <TabsTrigger value="team">
-              <Bell className="mr-1.5 h-3.5 w-3.5" />
-              {isTiltaksleder ? "Team" : "Teamets aktivitet"}
-            </TabsTrigger>
-          </TabsList>
-
-          {/* Viktig/Mine siste */}
-          <TabsContent value="mine" className="mt-0">
-            {isTiltaksleder ? (
-              <ActivityFeed activities={importantItems} title="" variant="compact" compactLimit={8} />
+        {isMiljoarbeider ? (
+          <div className="space-y-1.5">
+            {recentItems.length === 0 ? (
+              <p className="py-6 text-center text-sm text-muted-foreground italic">
+                Ingen nylige elementer
+              </p>
             ) : (
-              <div className="space-y-1.5">
-                {recentItems.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground italic">
-                  Ingen nylige elementer
-                </p>
-                ) : (
-                  recentItems.map((item) => {
-                  const ItemIcon = TYPE_ICONS[item.type];
-                  return (
-                    <Button
-                      key={item.id}
-                      variant="ghost"
-                      className="w-full justify-start h-auto p-3 hover:bg-accent"
-                      onClick={() => {
-                        if (item.type === "time") navigate("/time-tracking");
-                        else navigate("/cases");
-                      }}
-                    >
-                      <div className="flex items-start gap-3 w-full">
-                        <div className="p-2 rounded-lg bg-slate-50 dark:bg-muted shrink-0">
-                          <ItemIcon className="h-4 w-4 text-slate-600 dark:text-muted-foreground" />
-                        </div>
-                        <div className="flex-1 text-left min-w-0">
-                          <div className="text-sm font-medium truncate">
-                            {item.title}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {format(item.timestamp, "HH:mm \u00b7 dd MMM")}
-                          </div>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={cn("text-[10px] shrink-0", STATUS_COLORS[item.status])}
-                        >
-                          {STATUS_LABELS[item.status]}
-                        </Badge>
+              recentItems.map((item) => {
+                const ItemIcon = TYPE_ICONS[item.type];
+                return (
+                  <Button
+                    key={item.id}
+                    variant="ghost"
+                    className="w-full justify-start h-auto p-3 hover:bg-accent"
+                    onClick={() => {
+                      if (item.type === "time") navigate("/time-tracking");
+                      else navigate("/cases");
+                    }}
+                  >
+                    <div className="flex items-start gap-3 w-full">
+                      <div className="p-2 rounded-lg bg-slate-50 dark:bg-muted shrink-0">
+                        <ItemIcon className="h-4 w-4 text-slate-600 dark:text-muted-foreground" />
                       </div>
-                    </Button>
-                  );
-                  })
-                )}
-              </div>
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="text-sm font-medium truncate">
+                          {item.title}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {format(item.timestamp, "HH:mm \u00b7 dd MMM")}
+                        </div>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={cn("text-[10px] shrink-0", STATUS_COLORS[item.status])}
+                      >
+                        {STATUS_LABELS[item.status]}
+                      </Badge>
+                    </div>
+                  </Button>
+                );
+              })
             )}
-          </TabsContent>
+          </div>
+        ) : (
+          <Tabs
+            value={tab}
+            onValueChange={(v) => setTab(v as "mine" | "tiltak" | "team")}
+            className="w-full"
+          >
+            <TabsList className={isTiltaksleder ? "grid w-full grid-cols-3 mb-4" : "grid w-full grid-cols-2 mb-4"}>
+              <TabsTrigger value="mine" className="whitespace-nowrap">
+                <History className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                {isTiltaksleder ? "Viktig" : "Mine siste"}
+              </TabsTrigger>
+              {isTiltaksleder && (
+                <TabsTrigger value="tiltak" className="whitespace-nowrap">
+                  <FileText className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                  Tiltak
+                </TabsTrigger>
+              )}
+              {showTeamTab && (
+                <TabsTrigger value="team" className="whitespace-nowrap">
+                  <Bell className="mr-1.5 h-3.5 w-3.5 shrink-0" />
+                  {isTiltaksleder ? "Team" : "Teamets aktivitet"}
+                </TabsTrigger>
+              )}
+            </TabsList>
 
-          {isTiltaksleder && (
-            <TabsContent value="tiltak" className="mt-0">
-              <ActivityFeed activities={tiltakItems} title="" variant="compact" compactLimit={8} />
+            {/* Viktig/Mine siste */}
+            <TabsContent value="mine" className="mt-0">
+              {isTiltaksleder ? (
+                <ActivityFeed activities={importantItems} title="" variant="compact" compactLimit={8} />
+              ) : (
+                <div className="space-y-1.5">
+                  {recentItems.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-muted-foreground italic">
+                    Ingen nylige elementer
+                  </p>
+                  ) : (
+                    recentItems.map((item) => {
+                    const ItemIcon = TYPE_ICONS[item.type];
+                    return (
+                      <Button
+                        key={item.id}
+                        variant="ghost"
+                        className="w-full justify-start h-auto p-3 hover:bg-accent"
+                        onClick={() => {
+                          if (item.type === "time") navigate("/time-tracking");
+                          else navigate("/cases");
+                        }}
+                      >
+                        <div className="flex items-start gap-3 w-full">
+                          <div className="p-2 rounded-lg bg-slate-50 dark:bg-muted shrink-0">
+                            <ItemIcon className="h-4 w-4 text-slate-600 dark:text-muted-foreground" />
+                          </div>
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="text-sm font-medium truncate">
+                              {item.title}
+                            </div>
+                            <div className="text-xs text-muted-foreground">
+                              {format(item.timestamp, "HH:mm \u00b7 dd MMM")}
+                            </div>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={cn("text-[10px] shrink-0", STATUS_COLORS[item.status])}
+                          >
+                            {STATUS_LABELS[item.status]}
+                          </Badge>
+                        </div>
+                      </Button>
+                    );
+                    })
+                  )}
+                </div>
+              )}
             </TabsContent>
-          )}
 
-          {/* Teamets aktivitet – system/team log */}
-          <TabsContent value="team" className="mt-0">
-            <ActivityFeed activities={teamItems} title="" variant="compact" compactLimit={8} />
-          </TabsContent>
-        </Tabs>
+            {isTiltaksleder && (
+              <TabsContent value="tiltak" className="mt-0">
+                <ActivityFeed activities={tiltakItems} title="" variant="compact" compactLimit={8} />
+              </TabsContent>
+            )}
+
+            {/* Teamets aktivitet – system/team log */}
+            {showTeamTab && (
+              <TabsContent value="team" className="mt-0">
+                <ActivityFeed activities={teamItems} title="" variant="compact" compactLimit={8} />
+              </TabsContent>
+            )}
+          </Tabs>
+        )}
       </CardContent>
     </Card>
   );

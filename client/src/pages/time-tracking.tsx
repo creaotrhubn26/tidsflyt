@@ -17,8 +17,19 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  Line,
+  ReferenceLine,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { cn } from "@/lib/utils";
-import { format, startOfISOWeek, endOfISOWeek, eachDayOfInterval, isSameDay } from "date-fns";
+import { format, startOfISOWeek, endOfISOWeek, eachDayOfInterval, isSameDay, subDays } from "date-fns";
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -28,6 +39,7 @@ import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { BulkTimeEntryModal } from "@/components/bulk-time-entry-modal";
 import { useLocation } from "wouter";
 import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
+import { normalizeRole } from "@shared/roles";
 
 interface TimeEntry {
   id: string;
@@ -68,13 +80,32 @@ interface TimeEntrySuggestionsResponse {
   };
 }
 
-const projectOptions = [
-  { id: "general", name: "Generelt arbeid", color: "bg-primary" },
-  { id: "development", name: "Utvikling", color: "bg-success" },
-  { id: "meeting", name: "Møte", color: "bg-warning" },
-  { id: "support", name: "Kundesupport", color: "bg-info" },
-  { id: "admin", name: "Administrasjon", color: "bg-muted" },
-];
+interface CompanyUserAssignedCase {
+  id: number;
+  case_id: string | null;
+  case_title: string | null;
+  status: string | null;
+}
+
+interface AssignedCaseOption {
+  id: string;
+  name: string;
+}
+
+type WorkTypeEntryMode = "timer_or_manual" | "manual_only";
+
+interface WorkTypeOption {
+  id: string;
+  name: string;
+  color: string;
+  entryMode: WorkTypeEntryMode;
+}
+
+interface WorkTypeSettingsResponse {
+  role: string;
+  timeTrackingEnabled: boolean;
+  workTypes: WorkTypeOption[];
+}
 
 export default function TimeTrackingPage() {
   const { toast } = useToast();
@@ -83,17 +114,20 @@ export default function TimeTrackingPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedProject, setSelectedProject] = useState<string>("");
+  const [selectedWorkType, setSelectedWorkType] = useState<string>("");
   const [taskDescription, setTaskDescription] = useState("");
   const [showManualDialog, setShowManualDialog] = useState(false);
   const [manualHours, setManualHours] = useState("");
   const [manualDescription, setManualDescription] = useState("");
   const [manualProject, setManualProject] = useState("");
+  const [manualWorkType, setManualWorkType] = useState<string>("");
   const [editingEntry, setEditingEntry] = useState<TimeEntry | null>(null);
   const [showBulkDialog, setShowBulkDialog] = useState(false);
   const [bulkGenerationMode, setBulkGenerationMode] = useState<"default" | "copy_previous_month">("default");
   const [showClientSickDialog, setShowClientSickDialog] = useState(false);
   const [clientSickNote, setClientSickNote] = useState("");
   const [selectedDay, setSelectedDay] = useState<{ date: Date; day: string; hours: number; entries: TimeEntry[]; percentage: number } | null>(null);
+  const [calendarTimelineMode, setCalendarTimelineMode] = useState<"daily" | "cumulative">("daily");
   
   const timerStartRef = useRef<Date | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -102,8 +136,10 @@ export default function TimeTrackingPage() {
   
   const { user } = useAuth();
   const { settings: suggestionSettings, blockSuggestionAsync } = useSuggestionSettings();
+  const normalizedRole = normalizeRole(user?.role);
   const currentUserId = user?.id ?? "default";
   const today = format(new Date(), "yyyy-MM-dd");
+  const thirtyDaysAgo = format(subDays(new Date(), 29), "yyyy-MM-dd");
   const workflowSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "workflow");
 
   useEffect(() => {
@@ -121,6 +157,106 @@ export default function TimeTrackingPage() {
   const { data: todayEntries = [], isLoading } = useQuery<TimeEntry[]>({
     queryKey: ["/api/time-entries", { startDate: today, endDate: today }],
   });
+
+  const { data: last30DaysEntries = [], isLoading: isLoadingLast30Days } = useQuery<TimeEntry[]>({
+    queryKey: ["/api/time-entries", { startDate: thirtyDaysAgo, endDate: today }],
+  });
+
+  const { data: workTypeSettingsData } = useQuery<WorkTypeSettingsResponse>({
+    queryKey: ["/api/time-tracking/work-types"],
+  });
+
+  const workTypeOptions = useMemo(
+    () => workTypeSettingsData?.workTypes || [],
+    [workTypeSettingsData],
+  );
+
+  const isTimeTrackingEnabledForRole = useMemo(() => {
+    if (workTypeSettingsData) return workTypeSettingsData.timeTrackingEnabled;
+    return normalizedRole !== "tiltaksleder";
+  }, [normalizedRole, workTypeSettingsData]);
+
+  const { data: assignedCasesData = [], isLoading: isLoadingAssignedCases } = useQuery<CompanyUserAssignedCase[]>({
+    queryKey: ["/api/company/me/assigned-cases", { company_id: "1" }],
+    enabled: Boolean(user?.email),
+  });
+
+  const assignedCaseOptions = useMemo<AssignedCaseOption[]>(() => {
+    const options = assignedCasesData
+      .filter((assignedCase) => {
+        const normalizedStatus = (assignedCase.status || "active").toLowerCase();
+        return normalizedStatus !== "inactive";
+      })
+      .map((assignedCase) => {
+        const caseId = (assignedCase.case_id || "").trim();
+        const caseTitle = (assignedCase.case_title || "").trim();
+        if (!caseId && !caseTitle) return null;
+
+        return {
+          id: caseId || `case-${assignedCase.id}`,
+          name: caseTitle || caseId,
+        };
+      })
+      .filter((option): option is AssignedCaseOption => Boolean(option));
+
+    return options.filter(
+      (option, index, array) => array.findIndex((candidate) => candidate.id === option.id) === index,
+    );
+  }, [assignedCasesData]);
+
+  const workTypeById = useMemo(
+    () => new Map(workTypeOptions.map((workType) => [workType.id, workType])),
+    [workTypeOptions],
+  );
+
+  useEffect(() => {
+    if (workTypeOptions.length === 0) {
+      if (selectedWorkType) setSelectedWorkType("");
+      if (manualWorkType) setManualWorkType("");
+      return;
+    }
+
+    if (!selectedWorkType || !workTypeById.has(selectedWorkType)) {
+      setSelectedWorkType(workTypeOptions[0].id);
+    }
+
+    if (!manualWorkType || !workTypeById.has(manualWorkType)) {
+      setManualWorkType(workTypeOptions[0].id);
+    }
+  }, [manualWorkType, selectedWorkType, workTypeById, workTypeOptions]);
+
+  const resolveCaseLabel = useCallback((caseNumber?: string | null) => {
+    if (!caseNumber) return "Uten sak";
+    if (caseNumber === "client_sick") return "Klient syk";
+
+    const assignedCase = assignedCaseOptions.find((option) => option.id === caseNumber);
+    if (assignedCase) return assignedCase.name;
+
+    const workType = workTypeById.get(caseNumber);
+    if (workType) return workType.name;
+
+    return caseNumber;
+  }, [assignedCaseOptions, workTypeById]);
+
+  const hasAssignedCase = useCallback((value?: string | null) => {
+    if (!value) return false;
+    return assignedCaseOptions.some((option) => option.id === value);
+  }, [assignedCaseOptions]);
+
+  const selectedWorkTypeName = useMemo(
+    () => workTypeById.get(selectedWorkType)?.name || "Arbeid",
+    [selectedWorkType, workTypeById],
+  );
+
+  const manualWorkTypeName = useMemo(
+    () => workTypeById.get(manualWorkType)?.name || "Arbeid",
+    [manualWorkType, workTypeById],
+  );
+
+  const selectedWorkTypeOption = useMemo(
+    () => (selectedWorkType ? workTypeById.get(selectedWorkType) : undefined),
+    [selectedWorkType, workTypeById],
+  );
 
   const { data: rawSmartSuggestions } = useQuery<TimeEntrySuggestionsResponse | Record<string, unknown>>({
     queryKey: ["/api/time-entries/suggestions", { date: today }],
@@ -258,6 +394,18 @@ export default function TimeTrackingPage() {
   }, [suggestionFeedbackMutation, today]);
 
   useEffect(() => {
+    if (!selectedProject) return;
+    if (hasAssignedCase(selectedProject)) return;
+    setSelectedProject("");
+  }, [hasAssignedCase, selectedProject]);
+
+  useEffect(() => {
+    if (!manualProject) return;
+    if (hasAssignedCase(manualProject)) return;
+    setManualProject("");
+  }, [hasAssignedCase, manualProject]);
+
+  useEffect(() => {
     if (typeof window === "undefined" || prefillAppliedRef.current) return;
 
     const params = new URLSearchParams(window.location.search);
@@ -271,12 +419,13 @@ export default function TimeTrackingPage() {
 
     const hasPrefillParams = Boolean(prefillProject || prefillDescription || prefillHoursRaw || openBulk);
     if (!hasPrefillParams) return;
+    if (prefillProject && isLoadingAssignedCases) return;
 
     prefillAppliedRef.current = true;
 
     let hasAppliedPrefill = false;
 
-    if (prefillProject && projectOptions.some((project) => project.id === prefillProject)) {
+    if (prefillProject && hasAssignedCase(prefillProject)) {
       setSelectedProject(prefillProject);
       sendSuggestionFeedback("project", "accepted", prefillProject, prefillProject, { source: "dashboard_prefill" });
       hasAppliedPrefill = true;
@@ -316,11 +465,20 @@ export default function TimeTrackingPage() {
     }
 
     setLocation(window.location.pathname, { replace: true });
-  }, [sendSuggestionFeedback, setLocation]);
+  }, [hasAssignedCase, isLoadingAssignedCases, sendSuggestionFeedback, setLocation]);
 
   const applyProjectSuggestion = () => {
     const suggestedProject = smartSuggestions?.suggestion?.project?.value;
     if (!suggestedProject) return;
+    if (!hasAssignedCase(suggestedProject)) {
+      toast({
+        title: "Forslag hoppet over",
+        description: "Foreslått case er ikke blant dine tildelte caser.",
+        variant: "destructive",
+      });
+      return;
+    }
+
     setSelectedProject(suggestedProject);
     sendSuggestionFeedback("project", "accepted", suggestedProject, suggestedProject);
   };
@@ -341,8 +499,12 @@ export default function TimeTrackingPage() {
     }
 
     if (suggestedProject) {
-      setSelectedProject(suggestedProject);
-      sendSuggestionFeedback("project", "accepted", suggestedProject, suggestedProject);
+      if (hasAssignedCase(suggestedProject)) {
+        setSelectedProject(suggestedProject);
+        sendSuggestionFeedback("project", "accepted", suggestedProject, suggestedProject);
+      } else if (assignedCaseOptions.length > 0) {
+        sendSuggestionFeedback("project", "rejected", suggestedProject, null, { reason: "not_assigned_case" });
+      }
     }
     if (suggestedDescription) {
       setTaskDescription(suggestedDescription);
@@ -354,7 +516,7 @@ export default function TimeTrackingPage() {
       appliedDescription: suggestedDescription,
     });
 
-    toast({ title: "Forslag brukt", description: "Prosjekt og beskrivelse er forhåndsutfylt." });
+    toast({ title: "Forslag brukt", description: "Case og beskrivelse er forhåndsutfylt." });
   };
 
   const applyManualPrefillSuggestion = () => {
@@ -368,8 +530,8 @@ export default function TimeTrackingPage() {
     }
 
     setManualHours(String(suggestedHours));
-    setManualDescription(suggestedDescription || "Arbeid");
-    setManualProject(suggestedProject || "");
+    setManualDescription(suggestedDescription || manualWorkTypeName);
+    setManualProject(suggestedProject && hasAssignedCase(suggestedProject) ? suggestedProject : "");
     setShowManualDialog(true);
 
     sendSuggestionFeedback("hours", "accepted", String(suggestedHours), String(suggestedHours));
@@ -414,9 +576,37 @@ export default function TimeTrackingPage() {
 
   const startTimer = () => {
     if (!selectedProject) {
-      toast({ title: "Velg prosjekt", description: "Du må velge et prosjekt før du starter timeren.", variant: "destructive" });
+      toast({
+        title: "Velg case",
+        description: assignedCaseOptions.length === 0
+          ? "Du har ingen tildelte caser ennå. Be tiltaksleder tildele en sak."
+          : "Du må velge en tildelt sak før du starter timeren.",
+        variant: "destructive",
+      });
       return;
     }
+
+    if (workTypeOptions.length > 0 && !selectedWorkType) {
+      toast({
+        title: "Velg type arbeid",
+        description: "Velg arbeidstype før du starter timeren.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (selectedWorkTypeOption?.entryMode === "manual_only") {
+      setManualProject(selectedProject);
+      setManualWorkType(selectedWorkType);
+      setManualDescription(taskDescription.trim() || selectedWorkTypeName);
+      setShowManualDialog(true);
+      toast({
+        title: "Bruk manuell føring",
+        description: `${selectedWorkTypeName} registreres manuelt med timer i stedet for stempling.`,
+      });
+      return;
+    }
+
     setIsRunning(true);
   };
 
@@ -431,13 +621,12 @@ export default function TimeTrackingPage() {
     }
 
     const hours = Math.round((elapsedSeconds / 3600) * 100) / 100;
-    const project = projectOptions.find(p => p.id === selectedProject);
-    const description = taskDescription || project?.name || "Arbeid";
+    const description = taskDescription.trim() || selectedWorkTypeName;
 
     createMutation.mutate({
       description,
       hours,
-      caseNumber: selectedProject,
+      caseNumber: selectedProject || null,
     });
 
     setIsRunning(false);
@@ -452,13 +641,21 @@ export default function TimeTrackingPage() {
       toast({ title: "Ugyldig tid", description: "Angi et gyldig antall timer.", variant: "destructive" });
       return;
     }
-    if (!manualDescription.trim()) {
-      toast({ title: "Mangler beskrivelse", description: "Legg til en beskrivelse.", variant: "destructive" });
+
+    if (assignedCaseOptions.length > 0 && !manualProject) {
+      toast({ title: "Velg case", description: "Velg en tildelt sak for manuell føring.", variant: "destructive" });
       return;
     }
 
+    if (workTypeOptions.length > 0 && !manualWorkType) {
+      toast({ title: "Velg type arbeid", description: "Velg arbeidstype for manuell føring.", variant: "destructive" });
+      return;
+    }
+
+    const normalizedDescription = manualDescription.trim() || manualWorkTypeName;
+
     createMutation.mutate({
-      description: manualDescription,
+      description: normalizedDescription,
       hours,
       caseNumber: manualProject || null,
     });
@@ -467,6 +664,7 @@ export default function TimeTrackingPage() {
     setManualHours("");
     setManualDescription("");
     setManualProject("");
+    setManualWorkType(workTypeOptions[0]?.id || "");
   };
 
   const handleEditSave = () => {
@@ -498,6 +696,86 @@ export default function TimeTrackingPage() {
     if (e.caseNumber === "client_sick") return sum;
     return sum + e.hours;
   }, 0);
+
+  const totalLast30Days = useMemo(() => {
+    return last30DaysEntries.reduce((sum, e) => {
+      if (e.caseNumber === "client_sick") return sum;
+      return sum + e.hours;
+    }, 0);
+  }, [last30DaysEntries]);
+
+  const averageLast30Days = useMemo(() => totalLast30Days / 30, [totalLast30Days]);
+
+  const last30DailySeries = useMemo(() => {
+    const startDate = subDays(new Date(), 29);
+    const endDate = new Date();
+    const dayRange = eachDayOfInterval({ start: startDate, end: endDate });
+    const hoursByDay = new Map<string, number>();
+
+    last30DaysEntries.forEach((entry) => {
+      if (entry.caseNumber === "client_sick") return;
+      const dayKey = (entry.date || entry.createdAt || "").slice(0, 10);
+      if (!dayKey) return;
+      hoursByDay.set(dayKey, (hoursByDay.get(dayKey) || 0) + entry.hours);
+    });
+
+    return dayRange.map((day) => {
+      const dayKey = format(day, "yyyy-MM-dd");
+      const hours = hoursByDay.get(dayKey) || 0;
+      return {
+        dayKey,
+        label: format(day, "d"),
+        hours,
+        percentage: Math.min((hours / 8) * 100, 100),
+      };
+    });
+  }, [last30DaysEntries]);
+
+  const activeDaysLast30 = useMemo(
+    () => last30DailySeries.filter((day) => day.hours > 0).length,
+    [last30DailySeries],
+  );
+
+  const calendarActivityRate = useMemo(() => (activeDaysLast30 / 30) * 100, [activeDaysLast30]);
+
+  const timeline30ChartData = useMemo(() => {
+    let cumulativeHours = 0;
+
+    return last30DailySeries.map((day, index) => {
+      const date = new Date(`${day.dayKey}T00:00:00`);
+      cumulativeHours += day.hours;
+
+      return {
+        ...day,
+        shortLabel: format(date, "d. MMM", { locale: nb }),
+        fullLabel: format(date, "EEEE d. MMMM", { locale: nb }),
+        cumulativeHours: Number(cumulativeHours.toFixed(2)),
+        expectedCumulative: Number((averageLast30Days * (index + 1)).toFixed(2)),
+      };
+    });
+  }, [last30DailySeries, averageLast30Days]);
+
+  const peakDayLast30 = useMemo(() => {
+    if (timeline30ChartData.length === 0) return null;
+    return timeline30ChartData.reduce((peak, day) => (day.hours > peak.hours ? day : peak), timeline30ChartData[0]);
+  }, [timeline30ChartData]);
+
+  const currentActiveStreak = useMemo(() => {
+    let streak = 0;
+    for (let index = last30DailySeries.length - 1; index >= 0; index -= 1) {
+      if (last30DailySeries[index].hours > 0) {
+        streak += 1;
+      } else {
+        break;
+      }
+    }
+    return streak;
+  }, [last30DailySeries]);
+
+  const last7DaysTotal = useMemo(
+    () => last30DailySeries.slice(-7).reduce((sum, day) => sum + day.hours, 0),
+    [last30DailySeries],
+  );
 
   // View modes
   const [viewMode, setViewMode] = useState<"today" | "weekly" | "calendar" | "analytics">("today");
@@ -535,14 +813,38 @@ export default function TimeTrackingPage() {
     const breakdown: Record<string, number> = {};
     todayEntries.forEach(e => {
       if (e.caseNumber !== "client_sick") {
-        const project = projectOptions.find(p => p.id === e.caseNumber)?.name || "Annet";
-        breakdown[project] = (breakdown[project] || 0) + e.hours;
+        const caseLabel = resolveCaseLabel(e.caseNumber);
+        breakdown[caseLabel] = (breakdown[caseLabel] || 0) + e.hours;
       }
     });
+
+    const totalForBreakdown = Object.values(breakdown).reduce((sum, value) => sum + value, 0);
     return Object.entries(breakdown)
-      .map(([name, hours]) => ({ name, hours, percentage: (hours / totalToday) * 100 }))
+      .map(([name, hours]) => ({
+        name,
+        hours,
+        percentage: totalForBreakdown > 0 ? (hours / totalForBreakdown) * 100 : 0,
+      }))
       .sort((a, b) => b.hours - a.hours);
-  }, [todayEntries]);
+  }, [resolveCaseLabel, todayEntries]);
+
+  const projectFilterOptions = useMemo(() => {
+    const uniqueCaseIds = new Set<string>();
+    assignedCaseOptions.forEach((option) => uniqueCaseIds.add(option.id));
+    todayEntries.forEach((entry) => {
+      if (entry.caseNumber && entry.caseNumber !== "client_sick") {
+        uniqueCaseIds.add(entry.caseNumber);
+      }
+    });
+
+    return Array.from(uniqueCaseIds)
+      .map((id) => ({
+        id,
+        name: resolveCaseLabel(id),
+        color: workTypeById.get(id)?.color || "bg-primary/60",
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name, "nb"));
+  }, [assignedCaseOptions, resolveCaseLabel, todayEntries, workTypeById]);
 
   // Filtered entries based on active filters
   const filteredEntries = useMemo(() => {
@@ -589,8 +891,38 @@ export default function TimeTrackingPage() {
   const suggestedProjectLabel = useMemo(() => {
     const suggestionProjectId = projectSuggestion?.value;
     if (!suggestionProjectId) return "Ingen forslag ennå";
-    return projectOptions.find((project) => project.id === suggestionProjectId)?.name || suggestionProjectId;
-  }, [projectSuggestion]);
+    return resolveCaseLabel(suggestionProjectId);
+  }, [projectSuggestion, resolveCaseLabel]);
+
+  const formatHoursCompact = useCallback((hours: number) => {
+    if (Number.isInteger(hours)) return String(hours);
+    return hours.toFixed(1);
+  }, []);
+
+  if (!isTimeTrackingEnabledForRole) {
+    return (
+      <PortalLayout>
+        <div className="space-y-6 max-w-2xl">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">Timeføring</h1>
+            <p className="text-muted-foreground mt-1">Denne siden brukes av miljøarbeidere.</p>
+          </div>
+
+          <Card>
+            <CardContent className="p-6 space-y-3">
+              <p className="font-medium">Tiltaksleder registrerer ikke timer direkte i denne modulen.</p>
+              <p className="text-sm text-muted-foreground">
+                Miljøarbeidere sender timer til deg for godkjenning i rapportflyten.
+              </p>
+              <Button variant="outline" onClick={() => setLocation("/dashboard")}>
+                Gå til Dashboard
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      </PortalLayout>
+    );
+  }
 
   return (
     <PortalLayout>
@@ -672,7 +1004,7 @@ export default function TimeTrackingPage() {
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                     <div className="rounded-md border bg-background/70 p-3 space-y-2" data-testid="suggestion-project">
-                      <p className="text-xs text-muted-foreground">Prosjekt</p>
+                      <p className="text-xs text-muted-foreground">Case</p>
                       <p className="font-medium">{suggestedProjectLabel}</p>
                       <p className="text-xs text-muted-foreground">{projectSuggestion.reason}</p>
                       <div className="flex items-center justify-between">
@@ -836,30 +1168,56 @@ export default function TimeTrackingPage() {
                 </div>
               )}
 
-              <div className="flex flex-col sm:flex-row gap-4 w-full max-w-xl">
-                <Select value={selectedProject} onValueChange={setSelectedProject}>
-                  <SelectTrigger className="flex-1" data-testid="project-select">
-                    <SelectValue placeholder="Velg prosjekt" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {projectOptions.map((project) => (
-                      <SelectItem key={project.id} value={project.id}>
-                        <div className="flex items-center gap-2">
-                          <div className={cn("w-2 h-2 rounded-full", project.color)} />
-                          {project.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <div className="w-full max-w-3xl space-y-3">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <Select value={selectedProject} onValueChange={setSelectedProject} disabled={assignedCaseOptions.length === 0}>
+                    <SelectTrigger className="w-full" data-testid="project-select">
+                      <SelectValue placeholder="Velg case" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {assignedCaseOptions.map((assignedCase) => (
+                        <SelectItem key={assignedCase.id} value={assignedCase.id}>
+                          {assignedCase.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
 
-                <Input
-                  placeholder="Hva jobber du med?"
-                  value={taskDescription}
-                  onChange={(e) => setTaskDescription(e.target.value)}
-                  className="flex-1"
-                  data-testid="task-input"
-                />
+                  <Select value={selectedWorkType} onValueChange={setSelectedWorkType} disabled={workTypeOptions.length === 0}>
+                    <SelectTrigger className="w-full" data-testid="work-type-select">
+                      <SelectValue placeholder={workTypeOptions.length === 0 ? "Ingen arbeidstyper" : "Type arbeid"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {workTypeOptions.map((workType) => (
+                        <SelectItem key={workType.id} value={workType.id}>
+                          <div className="flex items-center gap-2">
+                            <div className={cn("w-2 h-2 rounded-full", workType.color)} />
+                            {workType.name}
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Input
+                    placeholder="Hva jobber du med?"
+                    value={taskDescription}
+                    onChange={(e) => setTaskDescription(e.target.value)}
+                    className="w-full"
+                    data-testid="task-input"
+                  />
+                </div>
+
+                {assignedCaseOptions.length === 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Du har ingen tildelte caser ennå. Tiltaksleder må tildele caser før timerstart.
+                  </p>
+                )}
+                {workTypeOptions.length === 0 && (
+                  <p className="text-xs text-amber-700 dark:text-amber-400">
+                    Ingen arbeidstyper er satt opp. Be admin konfigurere arbeidstyper i Innstillinger.
+                  </p>
+                )}
               </div>
 
               <div className="flex gap-3">
@@ -899,7 +1257,7 @@ export default function TimeTrackingPage() {
               {isRunning && (
                 <Badge variant="outline" className="text-sm py-1 px-3">
                   <Clock className="h-3 w-3 mr-1" />
-                  Timer kjører - {projectOptions.find(p => p.id === selectedProject)?.name || "Ingen prosjekt valgt"}
+                  Timer kjører - {resolveCaseLabel(selectedProject)} ({selectedWorkTypeName})
                 </Badge>
               )}
             </div>
@@ -941,15 +1299,15 @@ export default function TimeTrackingPage() {
               <div className="flex items-center gap-3 flex-wrap">
                 <Select value={projectFilter} onValueChange={setProjectFilter}>
                   <SelectTrigger className="w-[180px]" data-testid="project-filter">
-                    <SelectValue placeholder="Alle prosjekt" />
+                    <SelectValue placeholder="Alle caser" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Alle prosjekt</SelectItem>
-                    {projectOptions.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
+                    <SelectItem value="all">Alle caser</SelectItem>
+                    {projectFilterOptions.map((projectOption) => (
+                      <SelectItem key={projectOption.id} value={projectOption.id}>
                         <div className="flex items-center gap-2">
-                          <div className={cn("w-2 h-2 rounded-full", p.color)} />
-                          {p.name}
+                          <div className={cn("w-2 h-2 rounded-full", projectOption.color)} />
+                          {projectOption.name}
                         </div>
                       </SelectItem>
                     ))}
@@ -1028,14 +1386,15 @@ export default function TimeTrackingPage() {
                   filteredEntries
                     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                     .map((entry) => {
-                      const project = projectOptions.find(p => p.id === entry.caseNumber);
+                      const workType = workTypeById.get(entry.caseNumber || "");
+                      const caseLabel = resolveCaseLabel(entry.caseNumber);
                       const isEditing = editingEntry?.id === entry.id;
                       
                       return (
                         <Card key={entry.id} className="overflow-visible" data-testid={`time-entry-${entry.id}`}>
                           <CardContent className="p-4">
                             <div className="flex items-start gap-4">
-                              <div className={cn("w-1 h-full min-h-[60px] rounded-full flex-shrink-0", project?.color || "bg-muted")} />
+                              <div className={cn("w-1 h-full min-h-[60px] rounded-full flex-shrink-0", workType?.color || "bg-primary/60")} />
                               
                               <div className="flex-1 min-w-0">
                                 {isEditing ? (
@@ -1060,7 +1419,7 @@ export default function TimeTrackingPage() {
                                 ) : (
                                   <div>
                                     <p className="font-medium">{entry.description}</p>
-                                    <p className="text-sm text-muted-foreground">{project?.name || "Annet"}</p>
+                                    <p className="text-sm text-muted-foreground">{caseLabel}</p>
                                   </div>
                                 )}
                               </div>
@@ -1176,7 +1535,7 @@ export default function TimeTrackingPage() {
                 <CardContent className="p-6">
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <BarChart3 className="h-4 w-4 text-emerald-600 dark:text-emerald-400" />
-                    Etter prosjekt
+                    Etter case
                   </h3>
                   <div className="space-y-3">
                     {projectBreakdown.length > 0 ? (
@@ -1231,7 +1590,7 @@ export default function TimeTrackingPage() {
                     )}
                     {projectBreakdown.length > 1 && (
                       <div className="p-2 bg-slate-100/50 border border-slate-200/60 rounded text-slate-700 text-xs dark:bg-slate-800/40 dark:border-slate-700/40 dark:text-slate-400">
-                        Du arbeider på {projectBreakdown.length} prosjekt(er) i dag
+                        Du arbeider på {projectBreakdown.length} sak(er) i dag
                       </div>
                     )}
                   </div>
@@ -1269,16 +1628,204 @@ export default function TimeTrackingPage() {
                 </CardContent>
               </Card>
             )}
-            <Card className="bg-gradient-to-br from-purple-50 to-pink-50/50 dark:from-purple-950/40 dark:to-pink-950/20 border-purple-200/60 dark:border-purple-800/40">
-              <CardContent className="p-6">
-                <h3 className="font-semibold mb-4">Kalender (30 siste dager)</h3>
-                <div className="text-sm text-muted-foreground">
-                  <p className="mb-3">Gjennomsnittlig timer per dag de siste 30 dagene:</p>
-                  <div className="p-3 bg-white/60 dark:bg-card/60 rounded-lg font-mono text-foreground">
-                    7.2t / dag - Totalt: 216t
+            <Card className="bg-gradient-to-br from-sky-50 via-cyan-50/80 to-emerald-50/60 dark:from-slate-900/70 dark:via-cyan-950/20 dark:to-emerald-950/10 border-sky-200/70 dark:border-cyan-900/40">
+              <CardContent className="p-6 space-y-5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div>
+                    <h3 className="font-semibold flex items-center gap-2">
+                      <CalendarDays className="h-4 w-4 text-sky-600 dark:text-sky-400" />
+                      Kalender (30 siste dager)
+                    </h3>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Gjennomsnittlig timer per dag de siste 30 dagene
+                    </p>
                   </div>
-                  <p className="text-xs mt-4">Kalendervisning kommer snart med avansert tidslinjegraf</p>
+                  {!isLoadingLast30Days && (
+                    <Badge variant="secondary" className="bg-white/70 dark:bg-card/60">
+                      {activeDaysLast30}/30 aktive dager
+                    </Badge>
+                  )}
                 </div>
+
+                {isLoadingLast30Days ? (
+                  <div className="space-y-3">
+                    <div className="h-16 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
+                    <div className="h-24 rounded-lg bg-white/60 dark:bg-card/60 animate-pulse" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                      <div className="rounded-lg border border-sky-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                        <p className="text-xs text-muted-foreground">Snitt per dag</p>
+                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{averageLast30Days.toFixed(1)}t</p>
+                        <p className="text-xs text-muted-foreground mt-1" data-testid="calendar-last-30-metrics">
+                          {averageLast30Days.toFixed(1)}t / dag - Totalt: {formatHoursCompact(totalLast30Days)}t
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-cyan-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                        <p className="text-xs text-muted-foreground">Total tid</p>
+                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{formatHoursCompact(totalLast30Days)}t</p>
+                        <p className="text-xs text-muted-foreground mt-1">Siste 30 dager</p>
+                      </div>
+                      <div className="rounded-lg border border-emerald-200/60 dark:border-slate-700/60 bg-white/75 dark:bg-card/60 p-3">
+                        <p className="text-xs text-muted-foreground">Aktive dager</p>
+                        <p className="text-2xl font-mono font-semibold text-foreground mt-1">{activeDaysLast30}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Dager med registrerte timer</p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs text-muted-foreground">
+                        <span>Aktivitetsgrad</span>
+                        <span>{calendarActivityRate.toFixed(0)}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-200/70 dark:bg-slate-700/50 rounded-full overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-sky-500 to-emerald-500 transition-all"
+                          style={{ width: `${Math.min(calendarActivityRate, 100)}%` }}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl border border-sky-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 p-4 space-y-4">
+                      <div className="flex items-start justify-between gap-3 flex-wrap">
+                        <div>
+                          <p className="text-sm font-semibold text-foreground">Avansert tidslinjegraf</p>
+                          <p className="text-xs text-muted-foreground mt-1">Detaljvisning av føringer de siste 30 dagene</p>
+                        </div>
+                        <div className="flex items-center gap-1 rounded-md border border-slate-200/70 dark:border-slate-700/70 bg-white/60 dark:bg-slate-900/40 p-1">
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={calendarTimelineMode === "daily" ? "default" : "ghost"}
+                            className="h-7 px-3 text-xs"
+                            onClick={() => setCalendarTimelineMode("daily")}
+                          >
+                            Daglig
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant={calendarTimelineMode === "cumulative" ? "default" : "ghost"}
+                            className="h-7 px-3 text-xs"
+                            onClick={() => setCalendarTimelineMode("cumulative")}
+                          >
+                            Kumulativ
+                          </Button>
+                        </div>
+                      </div>
+
+                      <div className="h-64" data-testid="calendar-advanced-timeline">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={timeline30ChartData} margin={{ top: 12, right: 12, left: 0, bottom: 0 }}>
+                            <defs>
+                              <linearGradient id="calendarDailyFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.35} />
+                                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.05} />
+                              </linearGradient>
+                              <linearGradient id="calendarCumulativeFill" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+                                <stop offset="95%" stopColor="#10b981" stopOpacity={0.06} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(148, 163, 184, 0.3)" />
+                            <XAxis
+                              dataKey="shortLabel"
+                              minTickGap={26}
+                              interval="preserveStartEnd"
+                              tick={{ fontSize: 11, fill: "currentColor" }}
+                              tickLine={false}
+                              axisLine={false}
+                            />
+                            <YAxis
+                              tickFormatter={(value) => `${value}t`}
+                              tick={{ fontSize: 11, fill: "currentColor" }}
+                              tickLine={false}
+                              axisLine={false}
+                              width={42}
+                            />
+                            <RechartsTooltip
+                              cursor={{ stroke: "#0ea5e9", strokeWidth: 1, strokeDasharray: "4 4" }}
+                              contentStyle={{
+                                borderRadius: "10px",
+                                border: "1px solid hsl(var(--border))",
+                                backgroundColor: "hsl(var(--card))",
+                                color: "hsl(var(--foreground))",
+                              }}
+                              labelFormatter={(_, payload) => payload?.[0]?.payload?.fullLabel || ""}
+                              formatter={(value, name) => {
+                                if (name === "hours") return [`${Number(value).toFixed(1)}t`, "Timer"];
+                                if (name === "cumulativeHours") return [`${Number(value).toFixed(1)}t`, "Kumulativ tid"];
+                                if (name === "expectedCumulative") return [`${Number(value).toFixed(1)}t`, "Forventet progresjon"];
+                                return [`${Number(value).toFixed(1)}t`, name];
+                              }}
+                            />
+
+                            {calendarTimelineMode === "daily" ? (
+                              <>
+                                <ReferenceLine y={8} stroke="#f59e0b" strokeDasharray="5 4" />
+                                <ReferenceLine y={averageLast30Days} stroke="#6366f1" strokeDasharray="5 4" />
+                                <Area
+                                  type="monotone"
+                                  dataKey="hours"
+                                  stroke="#0ea5e9"
+                                  fill="url(#calendarDailyFill)"
+                                  strokeWidth={2.5}
+                                  dot={false}
+                                  activeDot={{ r: 4 }}
+                                />
+                              </>
+                            ) : (
+                              <>
+                                <Area
+                                  type="monotone"
+                                  dataKey="cumulativeHours"
+                                  stroke="#10b981"
+                                  fill="url(#calendarCumulativeFill)"
+                                  strokeWidth={2.5}
+                                  dot={false}
+                                  activeDot={{ r: 4 }}
+                                />
+                                <Line
+                                  type="monotone"
+                                  dataKey="expectedCumulative"
+                                  stroke="#64748b"
+                                  strokeWidth={1.8}
+                                  strokeDasharray="5 4"
+                                  dot={false}
+                                />
+                              </>
+                            )}
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
+                          <p className="text-[11px] text-muted-foreground">Toppdag</p>
+                          {peakDayLast30 && peakDayLast30.hours > 0 ? (
+                            <>
+                              <p className="text-sm font-mono font-semibold">{peakDayLast30.hours.toFixed(1)}t</p>
+                              <p className="text-[11px] text-muted-foreground">{peakDayLast30.fullLabel}</p>
+                            </>
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground mt-1">Ingen timer registrert ennå</p>
+                          )}
+                        </div>
+                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
+                          <p className="text-[11px] text-muted-foreground">Nåværende streak</p>
+                          <p className="text-sm font-mono font-semibold">{currentActiveStreak} dager</p>
+                          <p className="text-[11px] text-muted-foreground">Sammenhengende dager med føring</p>
+                        </div>
+                        <div className="rounded-md border border-slate-200/60 dark:border-slate-700/60 bg-white/70 dark:bg-card/60 px-3 py-2">
+                          <p className="text-[11px] text-muted-foreground">Siste 7 dager</p>
+                          <p className="text-sm font-mono font-semibold">{formatHoursCompact(last7DaysTotal)}t</p>
+                          <p className="text-[11px] text-muted-foreground">Rullerende ukesum</p>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
               </CardContent>
             </Card>
           </TabsContent>
@@ -1316,17 +1863,33 @@ export default function TimeTrackingPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="manual-project">Prosjekt</Label>
-              <Select value={manualProject} onValueChange={setManualProject}>
+              <Label htmlFor="manual-project">Case</Label>
+              <Select value={manualProject} onValueChange={setManualProject} disabled={assignedCaseOptions.length === 0}>
                 <SelectTrigger data-testid="manual-project-select">
-                  <SelectValue placeholder="Velg prosjekt (valgfritt)" />
+                  <SelectValue placeholder={assignedCaseOptions.length === 0 ? "Ingen tildelte caser" : "Velg case"} />
                 </SelectTrigger>
                 <SelectContent>
-                  {projectOptions.map((project) => (
-                    <SelectItem key={project.id} value={project.id}>
+                  {assignedCaseOptions.map((assignedCase) => (
+                    <SelectItem key={assignedCase.id} value={assignedCase.id}>
+                      {assignedCase.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="manual-work-type">Type arbeid</Label>
+              <Select value={manualWorkType} onValueChange={setManualWorkType} disabled={workTypeOptions.length === 0}>
+                <SelectTrigger data-testid="manual-work-type-select">
+                  <SelectValue placeholder={workTypeOptions.length === 0 ? "Ingen arbeidstyper" : "Velg type arbeid"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {workTypeOptions.map((workType) => (
+                    <SelectItem key={workType.id} value={workType.id}>
                       <div className="flex items-center gap-2">
-                        <div className={cn("w-2 h-2 rounded-full", project.color)} />
-                        {project.name}
+                        <div className={cn("w-2 h-2 rounded-full", workType.color)} />
+                        {workType.name}
                       </div>
                     </SelectItem>
                   ))}
@@ -1440,13 +2003,12 @@ export default function TimeTrackingPage() {
                 ) : (
                   <div className="divide-y divide-border rounded-md border">
                     {selectedDay.entries.map((entry) => {
-                      const project = projectOptions.find((p) => p.id === entry.caseNumber);
                       return (
                         <div key={entry.id} className="flex items-center justify-between px-3 py-2.5 text-sm">
                           <div className="flex-1 min-w-0">
                             <p className="font-medium truncate">{entry.description || "Ingen beskrivelse"}</p>
                             <p className="text-xs text-muted-foreground mt-0.5">
-                              {project?.name ?? entry.caseNumber ?? "Annet"}
+                              {resolveCaseLabel(entry.caseNumber)}
                             </p>
                           </div>
                           <span className="font-mono text-sm ml-3 shrink-0">{formatDuration(entry.hours)}</span>

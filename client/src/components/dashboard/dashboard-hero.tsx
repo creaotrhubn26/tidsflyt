@@ -93,6 +93,27 @@ export function DashboardHero({
   const periodLabel = useMemo(() => getPeriodLabel(timeRange), [timeRange]);
   const isTiltaksleder = mode === "tiltaksleder";
   const isMiljoarbeider = mode === "miljoarbeider";
+  const createFollowUpPath = "/case-reports?create=1";
+  const primaryActionPath = isTiltaksleder
+    ? "/cases"
+    : isMiljoarbeider
+      ? createFollowUpPath
+      : "/time-tracking";
+  const reportActionPath = isTiltaksleder
+    ? "/cases"
+    : isMiljoarbeider
+      ? createFollowUpPath
+      : "/reports";
+  const overviewActionPath = isTiltaksleder
+    ? "/cases"
+    : isMiljoarbeider
+      ? "/case-reports"
+      : "/cases";
+  const reportsShortcutPath = isTiltaksleder
+    ? "/cases"
+    : isMiljoarbeider
+      ? "/case-reports"
+      : "/reports";
 
   /* ── Live relative-time state ── */
   const [relativeTime, setRelativeTime] = useState<string | null>(null);
@@ -190,7 +211,7 @@ export function DashboardHero({
           </div>
           <Button
             size="sm"
-            onClick={() => navigate(isTiltaksleder || isMiljoarbeider ? "/cases" : "/time-tracking")}
+            onClick={() => navigate(primaryActionPath)}
             className="gap-1.5"
           >
             <Plus className="h-3.5 w-3.5" />
@@ -251,12 +272,12 @@ export function DashboardHero({
           {/* Split "Ny" button */}
           <div className="flex">
             <Button
-              onClick={() => navigate(isTiltaksleder || isMiljoarbeider ? "/cases" : "/time-tracking")}
+              onClick={() => navigate(primaryActionPath)}
               className="gap-2 rounded-r-none bg-primary text-primary-foreground hover:bg-primary/90 shadow-lg"
             >
               <Plus className="h-4 w-4" />
               <span className="hidden sm:inline">{isTiltaksleder ? "Gå til tiltak" : isMiljoarbeider ? "Ny oppfølging" : "Ny tidsregistrering"}</span>
-              <span className="sm:hidden">{isTiltaksleder || isMiljoarbeider ? "Tiltak" : "Ny"}</span>
+              <span className="sm:hidden">{isTiltaksleder ? "Tiltak" : isMiljoarbeider ? "Oppfølging" : "Ny"}</span>
             </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -269,11 +290,11 @@ export function DashboardHero({
                   <Plus className="mr-2 h-4 w-4" />
                   {isTiltaksleder || isMiljoarbeider ? "Registrer oppfølging" : "Ny tidsregistrering"}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/cases")}>
+                <DropdownMenuItem onClick={() => navigate(reportActionPath)}>
                   <FileText className="mr-2 h-4 w-4" />
                   {isTiltaksleder || isMiljoarbeider ? "Ny tiltaksrapport" : "Ny rapport"}
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => navigate("/cases")}>
+                <DropdownMenuItem onClick={() => navigate(overviewActionPath)}>
                   <Briefcase className="mr-2 h-4 w-4" />
                   {isTiltaksleder || isMiljoarbeider ? "Åpne tiltak" : "Ny sak"}
                 </DropdownMenuItem>
@@ -299,7 +320,7 @@ export function DashboardHero({
 
           {/* "Rapporter" ghost */}
           <Button
-            onClick={() => navigate("/cases")}
+            onClick={() => navigate(reportsShortcutPath)}
             variant="ghost"
             size="sm"
             className="gap-1.5 text-muted-foreground"

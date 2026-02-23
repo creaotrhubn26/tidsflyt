@@ -1,0 +1,67 @@
+<svg width="1536" height="1024" viewBox="0 0 1536 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Morning routine time tracking illustration</title>
+  <desc id="desc">A professional starting the day with coffee and a time tracking app at a clean desk.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1536" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#F6FBF8"/>
+      <stop offset="1" stop-color="#E7F3EE"/>
+    </linearGradient>
+    <linearGradient id="sun" x1="1030" y1="70" x2="1536" y2="390" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFDDAA" stop-opacity="0.72"/>
+      <stop offset="1" stop-color="#FFDDAA" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="desk" x1="0" y1="680" x2="1536" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#E6D5C3"/>
+      <stop offset="1" stop-color="#D8C2AC"/>
+    </linearGradient>
+    <filter id="soft" x="0" y="0" width="2000" height="1400" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="8"/>
+    </filter>
+  </defs>
+
+  <rect width="1536" height="1024" fill="url(#bg)"/>
+  <rect x="1020" y="0" width="516" height="400" fill="url(#sun)"/>
+
+  <rect x="0" y="676" width="1536" height="348" fill="url(#desk)"/>
+
+  <rect x="106" y="210" width="390" height="420" rx="26" fill="#F2F8F5" stroke="#C8DDD3" stroke-width="4"/>
+  <rect x="130" y="242" width="342" height="212" rx="16" fill="#DDEBE4"/>
+  <rect x="130" y="472" width="146" height="34" rx="10" fill="#C1D8CC"/>
+  <rect x="286" y="472" width="186" height="34" rx="10" fill="#B4D0C1"/>
+  <rect x="130" y="520" width="98" height="88" rx="12" fill="#A8C8B8"/>
+  <rect x="238" y="520" width="234" height="88" rx="12" fill="#9ABDAC"/>
+
+  <ellipse cx="792" cy="730" rx="300" ry="30" fill="#A57D5A" fill-opacity="0.2" filter="url(#soft)"/>
+  <rect x="468" y="510" width="670" height="188" rx="20" fill="#284950"/>
+  <rect x="498" y="538" width="610" height="124" rx="12" fill="#172E33"/>
+
+  <rect x="540" y="556" width="290" height="96" rx="10" fill="#1E3A40"/>
+  <rect x="558" y="574" width="118" height="18" rx="6" fill="#4E9A6F"/>
+  <rect x="686" y="574" width="126" height="18" rx="6" fill="#87BDA4"/>
+  <rect x="558" y="604" width="254" height="16" rx="6" fill="#6FA88F"/>
+  <rect x="558" y="628" width="172" height="12" rx="6" fill="#A4CDBA"/>
+
+  <rect x="848" y="556" width="238" height="96" rx="10" fill="#23444B"/>
+  <circle cx="892" cy="598" r="20" fill="#4E9A6F"/>
+  <rect x="924" y="582" width="138" height="12" rx="6" fill="#9FCDB9"/>
+  <rect x="924" y="602" width="98" height="12" rx="6" fill="#8BBCA6"/>
+
+  <ellipse cx="1270" cy="710" rx="78" ry="24" fill="#A57D5A" fill-opacity="0.22"/>
+  <ellipse cx="1270" cy="688" rx="66" ry="16" fill="#F6F6F3"/>
+  <path d="M1232 686C1232 650 1248 620 1270 620C1292 620 1308 650 1308 686" stroke="#E6E2DA" stroke-width="12" stroke-linecap="round"/>
+  <ellipse cx="1270" cy="688" rx="54" ry="12" fill="#C6A27D"/>
+
+  <ellipse cx="420" cy="706" rx="58" ry="16" fill="#A57D5A" fill-opacity="0.2"/>
+  <rect x="370" y="628" width="116" height="72" rx="16" fill="#EBF3EF" stroke="#C6DCD1" stroke-width="4"/>
+  <rect x="386" y="648" width="84" height="12" rx="6" fill="#8BBCA6"/>
+  <rect x="386" y="666" width="68" height="10" rx="5" fill="#A7CFBC"/>
+
+  <circle cx="328" cy="524" r="66" fill="#2F5960"/>
+  <path d="M284 628C284 584 320 548 364 548C408 548 444 584 444 628V696H284V628Z" fill="#4E9A6F"/>
+  <rect x="334" y="552" width="24" height="42" rx="10" fill="#F3CDB2"/>
+  <path d="M322 578C332 592 360 592 370 578" stroke="#E8B89A" stroke-width="4" stroke-linecap="round"/>
+
+  <circle cx="312" cy="402" r="6" fill="#BDD8CB"/>
+  <circle cx="350" cy="372" r="8" fill="#CDE3D8"/>
+  <circle cx="384" cy="412" r="7" fill="#BDD8CB"/>
+</svg>

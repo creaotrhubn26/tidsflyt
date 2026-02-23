@@ -4,6 +4,8 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
 import { GlobalSearch } from "@/components/global-search";
+import { ActivityFeed } from "@/components/portal/activity-feed";
+import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard,
   Users,
@@ -21,6 +23,7 @@ import {
   Building2,
   Palette,
   ArrowRight,
+  Bell,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -46,10 +49,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { normalizeRole } from "@shared/roles";
 
 interface CompanyUser {
   id: number;
   approved: boolean;
+}
+
+interface HeaderActivity {
+  id: string;
+  userId: string;
+  action: string;
+  description: string;
+  timestamp: string;
+  userName?: string;
 }
 
 interface NavItem {
@@ -72,11 +85,10 @@ const baseNavItems: NavItemBase[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "__getting-started__", icon: ClipboardList, label: "Kom i gang med Tidum", kind: "modal" },
   { path: "/time", icon: Clock, label: "Timeføring" },
-  { path: "/users", icon: Users, label: "Brukere" },
-  { path: "/invites", icon: UserPlus, label: "Invitasjoner" },
-  { path: "/cases", icon: FolderKanban, label: "Saker" },
+  { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
+  { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
-  { path: "/reports", icon: FileText, label: "Rapporter" },
+  { path: "/reports", icon: FileText, label: "Rapporter", roles: ["tiltaksleder"] },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
   { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
@@ -97,6 +109,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
+  const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
+  const { user: authUser } = useAuth();
 
   const { data: companyUsersData } = useQuery<CompanyUser[] | { error?: string }>({
     queryKey: ['/api/company/users', 1],
@@ -111,6 +125,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     () => companyUsers.filter((companyUser) => !companyUser.approved).length,
     [companyUsers],
   );
+  const showHeaderActivityBell = location !== "/dashboard";
 
   const currentUser = user || {
     id: "demo",
@@ -119,6 +134,23 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     role: "member",
     vendorId: undefined,
   };
+  const normalizedCurrentUserRole = normalizeRole(currentUser.role);
+  const effectiveUserId = user?.id || authUser?.id || currentUser.id;
+  const effectiveRole = normalizeRole(user?.role || authUser?.role || currentUser.role);
+  const isMiljoarbeider = effectiveRole === "miljoarbeider";
+
+  const { data: headerActivitiesData = [], isLoading: headerActivitiesLoading } = useQuery<HeaderActivity[]>({
+    queryKey: ["/api/activities", { limit: "20", source: "header" }],
+    queryFn: async () => {
+      const response = await fetch("/api/activities?limit=20", { credentials: "include" });
+      if (!response.ok) {
+        throw new Error("Kunne ikke hente aktiviteter");
+      }
+      return response.json();
+    },
+    staleTime: 20_000,
+    enabled: showHeaderActivityBell,
+  });
 
   const checkMilestoneMutation = useMutation({
     mutationFn: async () => {
@@ -140,16 +172,50 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     }
   }, [checkMilestone, currentUser.id]);
 
+  useEffect(() => {
+    setIsHeaderActivityOpen(false);
+  }, [location]);
+
+  const headerActivityItems = useMemo(() => {
+    const actionTypeMap: Record<
+      string,
+      "stamp" | "approval" | "report_submitted" | "user_added"
+    > = {
+      time_approved: "approval",
+      time_logged: "stamp",
+      user_invited: "user_added",
+      case_completed: "report_submitted",
+    };
+
+    const mapped = headerActivitiesData.map((activity) => ({
+      id: activity.id,
+      type: actionTypeMap[activity.action] || ("stamp" as const),
+      user: activity.userName || "Ukjent bruker",
+      message: activity.description,
+      timestamp: activity.timestamp,
+      userId: activity.userId,
+    }));
+
+    if (isMiljoarbeider && effectiveUserId) {
+      return mapped.filter((activity) => activity.userId === effectiveUserId);
+    }
+
+    return mapped;
+  }, [headerActivitiesData, isMiljoarbeider, effectiveUserId]);
+
+  const headerActivityCount = headerActivityItems.length;
+
   const navItems: NavItem[] = useMemo(
     () =>
       baseNavItems
-        .filter((item) => !item.roles || item.roles.includes(currentUser.role))
+        .filter((item) => !(item.path === "/time" && normalizedCurrentUserRole === "tiltaksleder"))
+        .filter((item) => !item.roles || item.roles.map((role) => normalizeRole(role)).includes(normalizedCurrentUserRole))
         .map((item) => ({
           ...item,
           kind: item.kind || "route",
           badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
         })),
-    [currentUser.role, pendingCount],
+    [normalizedCurrentUserRole, pendingCount],
   );
 
   const activePageLabel = useMemo(
@@ -350,6 +416,47 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
 
           <div className="flex items-center gap-2 md:gap-3">
             <GlobalSearch />
+            {showHeaderActivityBell && (
+              <Sheet open={isHeaderActivityOpen} onOpenChange={setIsHeaderActivityOpen}>
+                <SheetTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative"
+                    aria-label="Åpne aktivitet"
+                    title="Åpne aktivitet"
+                    data-testid="header-activity-bell"
+                  >
+                    <Bell className="h-5 w-5" />
+                    {headerActivityCount > 0 && (
+                      <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-primary px-1 text-[10px] font-semibold leading-[18px] text-primary-foreground">
+                        {headerActivityCount > 9 ? "9+" : headerActivityCount}
+                      </span>
+                    )}
+                  </Button>
+                </SheetTrigger>
+                <SheetContent
+                  side="top"
+                  className="top-16 inset-x-0 md:inset-x-6 lg:inset-x-10 rounded-b-2xl border-x border-b border-[#d6e2de] dark:border-border bg-background/95 p-0 backdrop-blur"
+                >
+                  <div className="border-b border-border px-4 py-3">
+                    <h2 className="text-base font-semibold">Aktivitet</h2>
+                    <p className="text-xs text-muted-foreground">
+                      {isMiljoarbeider ? "Dine siste aktiviteter" : "Siste aktivitet i teamet"}
+                    </p>
+                  </div>
+                  <div className="max-h-[calc(100vh-11rem)] overflow-auto p-4">
+                    <ActivityFeed
+                      activities={headerActivityItems}
+                      loading={headerActivitiesLoading}
+                      title=""
+                      variant="compact"
+                      compactLimit={10}
+                    />
+                  </div>
+                </SheetContent>
+              </Sheet>
+            )}
             <ThemeToggle />
           </div>
         </header>
@@ -383,31 +490,35 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           </DialogHeader>
 
           <div className="space-y-2 px-4 py-4">
-            <Button
-              variant="outline"
-              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-              onClick={() => { setIsGettingStartedOpen(false); navigate("/users"); }}
-            >
-              <Users className="mr-3 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Inviter brukere</p>
-                <p className="text-xs text-muted-foreground">Legg til teamet ditt og tildel roller</p>
-              </div>
-              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-            </Button>
+            {normalizedCurrentUserRole === "tiltaksleder" && (
+              <Button
+                variant="outline"
+                className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                onClick={() => { setIsGettingStartedOpen(false); navigate("/invites"); }}
+              >
+                <Users className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">Inviter brukere</p>
+                  <p className="text-xs text-muted-foreground">Legg til teamet ditt og tildel roller</p>
+                </div>
+                <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+              </Button>
+            )}
 
-            <Button
-              variant="outline"
-              className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
-              onClick={() => { setIsGettingStartedOpen(false); navigate("/cases"); }}
-            >
-              <FolderKanban className="mr-3 h-4 w-4 shrink-0 text-primary" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">Opprett første sak</p>
-                <p className="text-xs text-muted-foreground">Sett opp deltakere og oppfølging</p>
-              </div>
-              <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
-            </Button>
+            {normalizedCurrentUserRole === "tiltaksleder" && (
+              <Button
+                variant="outline"
+                className="h-auto w-full justify-start rounded-xl px-3 py-3 text-left"
+                onClick={() => { setIsGettingStartedOpen(false); navigate("/cases"); }}
+              >
+                <FolderKanban className="mr-3 h-4 w-4 shrink-0 text-primary" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold">Opprett første sak</p>
+                  <p className="text-xs text-muted-foreground">Sett opp deltakere og oppfølging</p>
+                </div>
+                <ArrowRight className="ml-2 h-4 w-4 text-muted-foreground" />
+              </Button>
+            )}
 
             <Button
               variant="outline"

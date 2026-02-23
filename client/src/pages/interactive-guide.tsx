@@ -391,6 +391,10 @@ export const InteractiveGuide: React.FC = () => {
                   Denne interaktive veiledningen tar deg gjennom alle funksjoner med historier, eksempler og reelle arbeitsflyter.
                 </span>
               </InfoBox>
+              <p className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#D8E6DF] bg-white/80 px-3 py-2 text-sm text-[var(--ig-text-dark)]">
+                <Lightbulb className="h-4 w-4 text-[var(--ig-primary)]" />
+                Illustrasjonsmock er tilgjengelig for admin i CMS Visual Editor.
+              </p>
             </div>
           </div>
         </section>

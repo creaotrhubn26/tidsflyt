@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useIsFetching, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Users, Clock, FileText, AlertCircle, Briefcase, ShieldAlert, Paintbrush, Sun, Moon, Monitor, LayoutGrid, AlignJustify, ListChecks, Target, TrendingUp } from "lucide-react";
+import { Users, Clock, FileText, AlertCircle, Briefcase, ShieldAlert, Paintbrush, Sun, Moon, Monitor, LayoutGrid, AlignJustify, ListChecks, Target } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useTheme } from "@/components/theme-provider";
 import {
-  addDays,
   endOfMonth,
   format,
   getDate,
@@ -13,7 +12,6 @@ import {
   isValid,
   parseISO,
   setDate,
-  startOfWeek,
   startOfMonth,
 } from "date-fns";
 import { PortalLayout } from "@/components/portal/portal-layout";
@@ -23,13 +21,11 @@ import { DashboardNextAction } from "@/components/dashboard/dashboard-next-actio
 import { DashboardAlerts, type DashboardAlert } from "@/components/dashboard/dashboard-alerts";
 import { DashboardTasks, type TaskCounts } from "@/components/dashboard/dashboard-tasks";
 import { DashboardGoals } from "@/components/dashboard/dashboard-goals";
-import { DashboardAnalytics } from "@/components/dashboard/dashboard-analytics";
 import { DashboardActivity } from "@/components/dashboard/dashboard-activity";
 import { DashboardStatusToday, type StatusSignal } from "@/components/dashboard/dashboard-status-today";
 import { DashboardRiskParticipants } from "@/components/dashboard/dashboard-risk-participants";
 import { DashboardWorkerMobile, type WorkerParticipant, type WorkerTodaySignal } from "@/components/dashboard/dashboard-worker-mobile";
 import { DashboardWeekStrip } from "@/components/dashboard/dashboard-week-strip";
-import { DashboardQuickLog } from "@/components/dashboard/dashboard-quick-log";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
@@ -355,48 +351,6 @@ export default function DashboardPage() {
     },
   });
 
-  const applyWeekSuggestionMutation = useMutation({
-    mutationFn: async (payload: {
-      projectId: string | null;
-      description: string | null;
-      hours: number | null;
-    }) => {
-      const weekStart = startOfWeek(new Date(), { weekStartsOn: 1 });
-      const weekdays = Array.from({ length: 5 }, (_, index) =>
-        format(addDays(weekStart, index), "yyyy-MM-dd"),
-      );
-
-      const existingResponse = await fetch(
-        `/api/time-entries?startDate=${weekdays[0]}&endDate=${weekdays[weekdays.length - 1]}`,
-        { credentials: "include" },
-      );
-      if (!existingResponse.ok) {
-        throw new Error("Kunne ikke hente ukens føringer.");
-      }
-
-      const existingEntries = await existingResponse.json() as TimeEntry[];
-      const existingDates = new Set(existingEntries.map((entry) => entry.date));
-      const entriesToCreate = weekdays
-        .filter((date) => !existingDates.has(date))
-        .map((date) => ({
-          date,
-          caseNumber: payload.projectId,
-          description: payload.description || "Arbeid",
-          hours: payload.hours ?? 7.5,
-          status: "pending",
-        }));
-
-      await Promise.all(entriesToCreate.map((entry) => apiRequest("POST", "/api/time-entries", entry)));
-      return { createdCount: entriesToCreate.length };
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/time-entries"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/chart-data"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/activities"] });
-    },
-  });
-
   /* ── Track "sist oppdatert" ── */
   useEffect(() => {
     if (stats && !statsFetching) {
@@ -623,7 +577,7 @@ export default function DashboardPage() {
     });
   }, [suggestionFeedbackMutation, today]);
 
-  const handleUseDashboardSuggestion = useCallback((placement: "next_action" | "quick_log") => {
+  const handleUseDashboardSuggestion = useCallback((placement: "next_action") => {
     if (!visibleDashboardSuggestionAction) return;
 
     if (visibleDashboardSuggestionAction.kind === "prefill") {
@@ -662,7 +616,7 @@ export default function DashboardPage() {
     });
   }, [sendSuggestionFeedback, visibleDashboardSuggestionAction]);
 
-  const handleDismissDashboardSuggestion = useCallback((placement: "next_action" | "quick_log") => {
+  const handleDismissDashboardSuggestion = useCallback((placement: "next_action") => {
     if (!visibleDashboardSuggestionAction) return;
 
     if (visibleDashboardSuggestionAction.kind === "prefill") {
@@ -680,36 +634,6 @@ export default function DashboardPage() {
     dashboardTimeSuggestionVisibility.dismiss();
     setIsDashboardSuggestionDismissed(true);
   }, [dashboardTimeSuggestionVisibility, sendSuggestionFeedback, visibleDashboardSuggestionAction]);
-
-  const handleApplyDashboardWeekSuggestion = useCallback(() => {
-    if (!visibleDashboardSuggestionAction || visibleDashboardSuggestionAction.kind !== "prefill") {
-      return;
-    }
-
-    applyWeekSuggestionMutation.mutate({
-      projectId: visibleDashboardSuggestionAction.projectId || null,
-      description: visibleDashboardSuggestionAction.suggestedDescription || null,
-      hours: visibleDashboardSuggestionAction.suggestedHours ?? null,
-    });
-
-    sendSuggestionFeedback("apply_all", "accepted", null, "dashboard_week_prefill", {
-      source: "dashboard",
-      placement: "quick_log",
-      scope: "week",
-      project: visibleDashboardSuggestionAction.projectId || null,
-      description: visibleDashboardSuggestionAction.suggestedDescription || null,
-      hours: visibleDashboardSuggestionAction.suggestedHours ?? null,
-    });
-  }, [applyWeekSuggestionMutation, sendSuggestionFeedback, visibleDashboardSuggestionAction]);
-
-  const handleOpenDashboardBulkCopy = useCallback(() => {
-    navigate("/time-tracking?openBulk=1&bulkMode=copy_previous_month");
-    sendSuggestionFeedback("bulk_copy_prev_month", "accepted", "open_bulk_modal", "open_bulk_modal", {
-      source: "dashboard",
-      placement: "quick_log",
-      mode: "copy_previous_month",
-    });
-  }, [navigate, sendSuggestionFeedback]);
 
   const handleUseDashboardCaseSuggestion = useCallback(() => {
     if (!visibleDashboardCaseSuggestionAction) return;
@@ -1136,17 +1060,6 @@ export default function DashboardPage() {
             >
               <Target className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="icon"
-              variant={prefs.showInsights ? "secondary" : "ghost"}
-              className="h-7 w-7"
-              onClick={() => updatePrefs({ ...prefs, showInsights: !prefs.showInsights })}
-              aria-pressed={prefs.showInsights}
-              title="Vis innsikt"
-            >
-              <TrendingUp className="h-3.5 w-3.5" />
-            </Button>
-
             {/* ── Appearance panel ── */}
             <Popover>
               <PopoverTrigger asChild>
@@ -1289,7 +1202,7 @@ export default function DashboardPage() {
                         onClick={() => navigate("/cases")}
                       />
                     </>
-                  ) : isMiljoarbeiderView ? (
+                  ) : (
                     <>
                       <StatCard
                         statId="worker-participants"
@@ -1303,7 +1216,7 @@ export default function DashboardPage() {
                         description="Deltakere du følger opp i perioden"
                         noTrendLabel="Samler data…"
                         emptyLabel="Ingen deltakere i dag"
-                        onClick={() => navigate("/cases")}
+                        onClick={() => navigate("/case-reports")}
                       />
                       <StatCard
                         statId="worker-missing-notes"
@@ -1331,7 +1244,7 @@ export default function DashboardPage() {
                         description="Oppfølging som bør gjøres snart"
                         noTrendLabel="Ingen historikk ennå"
                         emptyLabel="Ingen frister nå"
-                        onClick={() => navigate("/cases")}
+                        onClick={() => navigate("/case-reports")}
                       />
                       <StatCard
                         statId="worker-on-track"
@@ -1345,70 +1258,7 @@ export default function DashboardPage() {
                         description="Deltakere med oppfølging som planlagt"
                         noTrendLabel="Ingen historikk ennå"
                         emptyLabel="Ingen i rute ennå"
-                        onClick={() => navigate("/cases")}
-                      />
-                    </>
-                  ) : (
-                    <>
-                      <StatCard
-                        statId="active-users"
-                        title="Aktive brukere"
-                        value={stats.activeUsers}
-                        icon={<Users className="h-5 w-5" />}
-                        trend={{ value: stats.usersTrend, isPositive: stats.usersTrend >= 0 }}
-                        trendDirection="goodUp"
-                        variant="primary"
-                        periodLabel="Siste 7 dager"
-                        description="Antall brukere som har vært aktive i perioden"
-                        noTrendLabel="Samler data\u2026"
-                        emptyLabel="Ingen brukere ennå"
-                        onClick={() => navigate("/users")}
-                      />
-                      <StatCard
-                        statId="pending-approvals"
-                        title="Ventende godkjenninger"
-                        value={stats.pendingApprovals}
-                        icon={<AlertCircle className="h-5 w-5" />}
-                        trend={{
-                          value: stats.approvalsTrend,
-                          isPositive: stats.approvalsTrend <= 0,
-                        }}
-                        trendDirection="goodDown"
-                        variant="warning"
-                        periodLabel="Siste 7 dager"
-                        description="Timelister som venter på godkjenning"
-                        noTrendLabel="Ingen historikk ennå"
-                        emptyLabel="Ingen ventende"
-                        onClick={() => navigate("/time-tracking")}
-                      />
-                      <StatCard
-                        statId="total-hours"
-                        title="Registrerte timer"
-                        value={stats.totalHours}
-                        unit="t"
-                        icon={<Clock className="h-5 w-5" />}
-                        trend={{ value: stats.hoursTrend, isPositive: stats.hoursTrend >= 0 }}
-                        trendDirection="goodUp"
-                        variant="success"
-                        periodLabel={TIME_RANGE_LABELS[timeRange]}
-                        description="Totalt registrerte timer i perioden"
-                        noTrendLabel="Samler data\u2026"
-                        emptyLabel="Ingen timer registrert"
-                        onClick={() => navigate("/time-tracking")}
-                      />
-                      <StatCard
-                        statId="cases-week"
-                        title="Saker denne uken"
-                        value={stats.casesThisWeek}
-                        icon={<FileText className="h-5 w-5" />}
-                        trend={{ value: stats.casesTrend, isPositive: stats.casesTrend >= 0 }}
-                        trendDirection="goodUp"
-                        variant="info"
-                        periodLabel={TIME_RANGE_LABELS[timeRange]}
-                        description="Antall saker opprettet denne uken"
-                        noTrendLabel="Ingen historikk ennå"
-                        emptyLabel="Ingen saker denne uken"
-                        onClick={() => navigate("/cases")}
+                        onClick={() => navigate("/case-reports")}
                       />
                     </>
                   )}
@@ -1421,22 +1271,6 @@ export default function DashboardPage() {
           <DashboardWeekStrip
             hoursData={hoursData}
             loading={chartLoading}
-          />
-        )}
-
-        {/* ─────────── QUICK LOG ─────────── */}
-        {!isTiltakslederView && (
-          <DashboardQuickLog
-            suggestedProjectId={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.projectId : null}
-            suggestedProjectLabel={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.projectLabel : null}
-            suggestedDescription={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.suggestedDescription : null}
-            suggestedHours={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.suggestedHours : null}
-            suggestionReason={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.reason || null : null}
-            suggestionConfidence={visibleDashboardSuggestionAction?.kind === "prefill" ? visibleDashboardSuggestionAction.confidence ?? null : null}
-            onApplySuggestion={() => handleUseDashboardSuggestion("quick_log")}
-            onDismissSuggestion={() => handleDismissDashboardSuggestion("quick_log")}
-            onApplyWeekSuggestion={visibleDashboardSuggestionAction?.kind === "prefill" ? handleApplyDashboardWeekSuggestion : undefined}
-            onOpenBulkCopy={smartSuggestions?.suggestion.bulkCopyPrevMonth?.value ? handleOpenDashboardBulkCopy : undefined}
           />
         )}
 
@@ -1536,13 +1370,17 @@ export default function DashboardPage() {
           {(prefs.showTasks || prefs.showGoals) && (
             <div className={cn("space-y-6", prefs.compactMode && "space-y-4")}>
               {prefs.showTasks && (
-                <DashboardTasks tasks={myTasks} navigate={navigate} mode={isTiltakslederView ? "tiltaksleder" : "default"} />
+                <DashboardTasks
+                  tasks={myTasks}
+                  navigate={navigate}
+                  mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
+                />
               )}
               {prefs.showGoals && <DashboardGoals stats={stats} mode={isTiltakslederView ? "tiltaksleder" : "default"} />}
             </div>
           )}
           <DashboardActivity
-            mode={isTiltakslederView ? "tiltaksleder" : "default"}
+            mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
             recentItems={recentItems}
             activityItems={activityItems}
             activitiesLoading={activitiesLoading}
@@ -1555,30 +1393,6 @@ export default function DashboardPage() {
           <DashboardRiskParticipants participants={riskParticipants} navigate={navigate} />
         )}
 
-        {/* ─────────── Intersection sentinel for deferred analytics queries ─────────── */}
-        <div ref={analyticsSentinelRef} className="h-0 w-0" aria-hidden />
-
-        {/* ─────────── ANALYTICS (chart | heatmap side-by-side) ─────────── */}
-        {prefs.showInsights && (
-          <section className={cn(isMiljoarbeiderView && "hidden md:block")}>
-            <DashboardAnalytics
-              mode={isTiltakslederView ? "tiltaksleder" : "default"}
-              hoursData={hoursData}
-              chartLoading={chartLoading && analyticsVisible}
-              hoursTimeLabel={TIME_RANGE_LABELS[timeRange]}
-              heatmapData={calendarHeatmapData}
-              monthEntries={monthEntries}
-              calendarActivities={calendarActivities}
-              showHeatmapSkeleton={showHeatmapSkeleton}
-              isHeatmapRefreshing={isHeatmapRefreshing}
-              selectedCalendarDate={selectedCalendarDate}
-              onDateSelect={setSelectedCalendarDate}
-              currentMonth={calendarMonth}
-              onMonthChange={handleCalendarMonthChange}
-              monthDirection={monthDirection}
-            />
-          </section>
-        )}
       </div>
     </PortalLayout>
   );

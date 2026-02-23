@@ -33,7 +33,7 @@ export interface TaskCounts {
 interface DashboardTasksProps {
   tasks: TaskCounts;
   navigate: (path: string) => void;
-  mode?: "default" | "tiltaksleder";
+  mode?: "default" | "tiltaksleder" | "miljoarbeider";
 }
 
 interface UserTask {
@@ -236,6 +236,12 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qc = useQueryClient();
   const isTiltaksleder = mode === "tiltaksleder";
+  const isMiljoarbeider = mode === "miljoarbeider";
+  const resolveDashboardPath = (path: string) => {
+    if (!isMiljoarbeider) return path;
+    if (path === "/cases" || path === "/users" || path === "/invites") return "/case-reports";
+    return path;
+  };
 
   /* ── Real tasks from API ── */
   const { data: rawUserTasks } = useQuery<UserTask[] | Record<string, unknown>>({
@@ -534,7 +540,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                       tile.count === 0 && !isTiltaksleder && "opacity-40",
                       tile.highlight ? tile.highlightClass : "hover:bg-accent",
                     )}
-                    onClick={() => navigate(tile.path)}
+                    onClick={() => navigate(resolveDashboardPath(tile.path))}
                   >
                     <div className="flex w-full items-center justify-between">
                       <span className={cn("text-2xl font-bold tabular-nums", tile.countColor)}>
@@ -669,7 +675,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                   {task.linkedUrl && editingId !== task.id && (
                     <button
                       type="button"
-                      onClick={() => navigate(task.linkedUrl!)}
+                      onClick={() => navigate(resolveDashboardPath(task.linkedUrl!))}
                       className="inline-flex items-center gap-1 rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20 transition-colors shrink-0"
                     >
                       <ExternalLink className="h-3 w-3" />
@@ -768,7 +774,7 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                           {task.linkedUrl && (
                             <button
                               type="button"
-                              onClick={() => navigate(task.linkedUrl!)}
+                              onClick={() => navigate(resolveDashboardPath(task.linkedUrl!))}
                               className="inline-flex items-center gap-1 rounded-full bg-muted border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-accent transition-colors shrink-0"
                             >
                               <ExternalLink className="h-3 w-3" />

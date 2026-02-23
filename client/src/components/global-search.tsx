@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/hooks/use-auth";
+import { normalizeRole } from "@shared/roles";
 
 interface SearchResult {
   id: string;
@@ -33,18 +35,30 @@ export function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedIndex = useRef<number>(0);
+  const isTiltaksleder = normalizeRole(user?.role) === "tiltaksleder";
 
   // Mock search results
   const results = useMemo((): SearchResult[] => {
     if (!query.trim()) {
-      return [
+      const defaultResults: SearchResult[] = [
         { id: "1", type: "page", title: "Dashboard", href: "/dashboard", icon: FileText, description: "Oversikt og statistikk" },
         { id: "2", type: "page", title: "Timeføring", href: "/time-tracking", icon: Clock, description: "Registrer arbeidstid" },
-        { id: "3", type: "page", title: "Rapporter", href: "/reports", icon: FileText, description: "Se og eksporter rapporter" },
-        { id: "4", type: "page", title: "Brukere", href: "/users", icon: Users, description: "Administrer teammedlemmer" },
+        { id: "4", type: "page", title: "Invitasjoner", href: "/invites", icon: Users, description: "Administrer brukere og invitasjoner" },
       ];
+      if (isTiltaksleder) {
+        defaultResults.splice(2, 0, {
+          id: "3",
+          type: "page",
+          title: "Rapporter",
+          href: "/reports",
+          icon: FileText,
+          description: "Se og eksporter rapporter",
+        });
+      }
+      return defaultResults;
     }
 
     const filtered: SearchResult[] = [];
@@ -69,7 +83,7 @@ export function GlobalSearch() {
         id: "user-1",
         type: "user",
         title: "John Doe",
-        href: "/users",
+        href: "/invites",
         icon: Users,
         description: "Saksbehandler",
         metadata: { role: "case_manager" },
@@ -90,7 +104,7 @@ export function GlobalSearch() {
     }
 
     // Mock pages
-    if ("rapporter".includes(q)) {
+    if (isTiltaksleder && "rapporter".includes(q)) {
       filtered.push({
         id: "page-1",
         type: "page",
@@ -102,7 +116,7 @@ export function GlobalSearch() {
     }
 
     return filtered.slice(0, 8);
-  }, [query]);
+  }, [isTiltaksleder, query]);
 
   // Handle keyboard shortcuts
   useEffect(() => {

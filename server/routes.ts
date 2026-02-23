@@ -16,7 +16,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
-import { canAccessVendorApiAdmin, canManageUsers, normalizeRole } from "@shared/roles";
+import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
 
@@ -109,6 +109,105 @@ const suggestionTeamPresetSchema = z.object({
 const suggestionTeamDefaultUpdateSchema = z.object({
   role: z.string().trim().min(1).max(40),
   preset: suggestionTeamPresetSchema,
+});
+
+const timeTrackingWorkTypeSchema = z.object({
+  id: z.string().trim().min(1).max(80).optional(),
+  name: z.string().trim().min(1).max(80),
+  color: z.string().trim().max(40).optional(),
+  entryMode: z.enum(["timer_or_manual", "manual_only"]).optional(),
+});
+
+const timeTrackingWorkTypesPatchSchema = z.object({
+  role: z.string().trim().min(1).max(40),
+  workTypes: z.array(timeTrackingWorkTypeSchema).max(20),
+});
+
+const timeTrackingPdfTemplatePatchSchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  subtitle: z.string().trim().max(180).nullable().optional(),
+  logoUrl: z.string().trim().max(2048).nullable().optional(),
+  primaryColor: z.string().trim().max(20).optional(),
+  accentColor: z.string().trim().max(20).optional(),
+  fontFamily: z.enum([
+    "inter",
+    "arial",
+    "georgia",
+    "times_new_roman",
+    "verdana",
+    "courier_new",
+  ]).optional(),
+  baseFontSize: z.number().min(10).max(16).optional(),
+  titleFontSize: z.number().min(18).max(42).optional(),
+  subtitleFontSize: z.number().min(11).max(24).optional(),
+  tableFontSize: z.number().min(9).max(16).optional(),
+  footerFontSize: z.number().min(9).max(14).optional(),
+  lineHeight: z.number().min(1.1).max(2).optional(),
+  showCaseDetails: z.boolean().optional(),
+  caseDetailsTitle: z.string().trim().max(80).nullable().optional(),
+  caseDetails: z.object({
+    caseOwner: z.string().trim().max(120).nullable().optional(),
+    principal: z.string().trim().max(120).nullable().optional(),
+    reference: z.string().trim().max(120).nullable().optional(),
+    workType: z.string().trim().max(120).nullable().optional(),
+    clientCaseNumber: z.string().trim().max(120).nullable().optional(),
+    period: z.string().trim().max(120).nullable().optional(),
+  }).optional(),
+  showContactDetails: z.boolean().optional(),
+  contactTitle: z.string().trim().max(80).nullable().optional(),
+  contactDetails: z.array(
+    z.object({
+      label: z.string().trim().max(80),
+      value: z.string().trim().max(240),
+    }),
+  ).max(12).optional(),
+  showSummary: z.boolean().optional(),
+  showGeneratedDate: z.boolean().optional(),
+  showPeriod: z.boolean().optional(),
+  showFooter: z.boolean().optional(),
+  showTotalsRow: z.boolean().optional(),
+  stripeRows: z.boolean().optional(),
+  density: z.enum(["comfortable", "compact"]).optional(),
+  footerText: z.string().trim().max(240).nullable().optional(),
+  headerAlignment: z.enum(["left", "center"]).optional(),
+  logoPosition: z.enum(["left", "right", "top"]).optional(),
+  tableBorderStyle: z.enum(["soft", "full", "none"]).optional(),
+  sectionOrder: z.array(z.enum(["header", "period", "summary", "table", "footer"])).max(10).optional(),
+  visibleColumns: z.array(z.enum(["date", "user", "department", "caseNumber", "description", "hours", "status"])).max(7).optional(),
+}).refine((data) => (
+  data.title !== undefined
+  || data.subtitle !== undefined
+  || data.logoUrl !== undefined
+  || data.primaryColor !== undefined
+  || data.accentColor !== undefined
+  || data.fontFamily !== undefined
+  || data.baseFontSize !== undefined
+  || data.titleFontSize !== undefined
+  || data.subtitleFontSize !== undefined
+  || data.tableFontSize !== undefined
+  || data.footerFontSize !== undefined
+  || data.lineHeight !== undefined
+  || data.showCaseDetails !== undefined
+  || data.caseDetailsTitle !== undefined
+  || data.caseDetails !== undefined
+  || data.showContactDetails !== undefined
+  || data.contactTitle !== undefined
+  || data.contactDetails !== undefined
+  || data.showSummary !== undefined
+  || data.showGeneratedDate !== undefined
+  || data.showPeriod !== undefined
+  || data.showFooter !== undefined
+  || data.showTotalsRow !== undefined
+  || data.stripeRows !== undefined
+  || data.density !== undefined
+  || data.footerText !== undefined
+  || data.headerAlignment !== undefined
+  || data.logoPosition !== undefined
+  || data.tableBorderStyle !== undefined
+  || data.sectionOrder !== undefined
+  || data.visibleColumns !== undefined
+), {
+  message: "At least one setting must be provided",
 });
 
 type FeedbackStatsMap = Record<string, { accepted: number; rejected: number }>;
@@ -214,8 +313,179 @@ type SuggestionTeamPreset = {
 };
 
 type SuggestionTeamDefaults = Record<string, SuggestionTeamPreset>;
+type TimeTrackingEntryMode = "timer_or_manual" | "manual_only";
+type TimeTrackingWorkType = {
+  id: string;
+  name: string;
+  color: string;
+  entryMode: TimeTrackingEntryMode;
+};
+type TimeTrackingWorkTypeConfig = Record<string, TimeTrackingWorkType[]>;
+type TimeTrackingPdfDensity = "comfortable" | "compact";
+type TimeTrackingPdfSection = "header" | "period" | "summary" | "table" | "footer";
+type TimeTrackingPdfColumn = "date" | "user" | "department" | "caseNumber" | "description" | "hours" | "status";
+type TimeTrackingPdfFontFamily = "inter" | "arial" | "georgia" | "times_new_roman" | "verdana" | "courier_new";
+type TimeTrackingPdfCaseDetails = {
+  caseOwner: string;
+  principal: string;
+  reference: string;
+  workType: string;
+  clientCaseNumber: string;
+  period: string;
+};
+type TimeTrackingPdfContactDetail = {
+  label: string;
+  value: string;
+};
+type TimeTrackingPdfTemplate = {
+  title: string;
+  subtitle: string;
+  logoUrl: string | null;
+  primaryColor: string;
+  accentColor: string;
+  fontFamily: TimeTrackingPdfFontFamily;
+  baseFontSize: number;
+  titleFontSize: number;
+  subtitleFontSize: number;
+  tableFontSize: number;
+  footerFontSize: number;
+  lineHeight: number;
+  showCaseDetails: boolean;
+  caseDetailsTitle: string;
+  caseDetails: TimeTrackingPdfCaseDetails;
+  showContactDetails: boolean;
+  contactTitle: string;
+  contactDetails: TimeTrackingPdfContactDetail[];
+  showSummary: boolean;
+  showGeneratedDate: boolean;
+  showPeriod: boolean;
+  showFooter: boolean;
+  showTotalsRow: boolean;
+  stripeRows: boolean;
+  density: TimeTrackingPdfDensity;
+  footerText: string;
+  headerAlignment: "left" | "center";
+  logoPosition: "left" | "right" | "top";
+  tableBorderStyle: "soft" | "full" | "none";
+  sectionOrder: TimeTrackingPdfSection[];
+  visibleColumns: TimeTrackingPdfColumn[];
+};
 
 const TEAM_SUGGESTION_DEFAULTS_KEY = "suggestion_team_defaults";
+const TIME_TRACKING_WORK_TYPES_KEY = "time_tracking_work_types";
+const TIME_TRACKING_PDF_TEMPLATE_KEY_PREFIX = "time_tracking_pdf_template_v1";
+const TIME_TRACKING_WORK_TYPE_COLORS = [
+  "bg-primary",
+  "bg-warning",
+  "bg-info",
+  "bg-success",
+  "bg-muted",
+] as const;
+const HEX_COLOR_REGEX = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
+const SAFE_LOGO_URL_REGEX = /^(https?:\/\/|\/)/i;
+const TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT: TimeTrackingPdfSection[] = [
+  "header",
+  "period",
+  "summary",
+  "table",
+  "footer",
+];
+const TIME_TRACKING_PDF_COLUMNS_DEFAULT: TimeTrackingPdfColumn[] = [
+  "date",
+  "user",
+  "department",
+  "caseNumber",
+  "description",
+  "hours",
+  "status",
+];
+const TIME_TRACKING_PDF_SECTIONS = new Set<TimeTrackingPdfSection>(TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT);
+const TIME_TRACKING_PDF_COLUMNS = new Set<TimeTrackingPdfColumn>(TIME_TRACKING_PDF_COLUMNS_DEFAULT);
+
+const DEFAULT_TIME_TRACKING_PDF_TEMPLATE: TimeTrackingPdfTemplate = {
+  title: "Timerapport",
+  subtitle: "Timeføring og status i valgt periode",
+  logoUrl: null,
+  primaryColor: "#0f766e",
+  accentColor: "#1f2937",
+  fontFamily: "inter",
+  baseFontSize: 12,
+  titleFontSize: 28,
+  subtitleFontSize: 14,
+  tableFontSize: 12,
+  footerFontSize: 11,
+  lineHeight: 1.45,
+  showCaseDetails: false,
+  caseDetailsTitle: "Saksinformasjon",
+  caseDetails: {
+    caseOwner: "",
+    principal: "",
+    reference: "",
+    workType: "",
+    clientCaseNumber: "",
+    period: "",
+  },
+  showContactDetails: false,
+  contactTitle: "Kontakt",
+  contactDetails: [],
+  showSummary: true,
+  showGeneratedDate: true,
+  showPeriod: true,
+  showFooter: true,
+  showTotalsRow: true,
+  stripeRows: true,
+  density: "comfortable",
+  footerText: "Generert med Tidum",
+  headerAlignment: "left",
+  logoPosition: "right",
+  tableBorderStyle: "soft",
+  sectionOrder: [...TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT],
+  visibleColumns: [...TIME_TRACKING_PDF_COLUMNS_DEFAULT],
+};
+
+const DEFAULT_TIME_TRACKING_WORK_TYPE_CONFIG: TimeTrackingWorkTypeConfig = {
+  default: [
+    {
+      id: "miljoarbeid",
+      name: "Miljøarbeid",
+      color: "bg-primary",
+      entryMode: "timer_or_manual",
+    },
+    {
+      id: "mote",
+      name: "Møte",
+      color: "bg-warning",
+      entryMode: "timer_or_manual",
+    },
+    {
+      id: "rapportskriving",
+      name: "Rapportskriving",
+      color: "bg-info",
+      entryMode: "manual_only",
+    },
+  ],
+  miljoarbeider: [
+    {
+      id: "miljoarbeid",
+      name: "Miljøarbeid",
+      color: "bg-primary",
+      entryMode: "timer_or_manual",
+    },
+    {
+      id: "mote",
+      name: "Møte",
+      color: "bg-warning",
+      entryMode: "timer_or_manual",
+    },
+    {
+      id: "rapportskriving",
+      name: "Rapportskriving",
+      color: "bg-info",
+      entryMode: "manual_only",
+    },
+  ],
+  tiltaksleder: [],
+};
 
 const DEFAULT_TEAM_SUGGESTION_DEFAULTS: SuggestionTeamDefaults = {
   default: { mode: "balanced", frequency: "normal", confidenceThreshold: 0.45 },
@@ -258,6 +528,82 @@ function cloneTeamDefaults(source: SuggestionTeamDefaults): SuggestionTeamDefaul
   );
 }
 
+function normalizeWorkTypeId(value: string): string {
+  return value
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+function normalizeTimeTrackingWorkType(
+  raw: unknown,
+  index: number,
+): TimeTrackingWorkType | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const name = String(value.name || "").trim();
+  if (!name) return null;
+
+  const requestedId = String(value.id || "").trim();
+  const normalizedId = normalizeWorkTypeId(requestedId || name);
+  if (!normalizedId) return null;
+
+  const requestedColor = String(value.color || "").trim();
+  const color = TIME_TRACKING_WORK_TYPE_COLORS.includes(requestedColor as any)
+    ? requestedColor
+    : TIME_TRACKING_WORK_TYPE_COLORS[index % TIME_TRACKING_WORK_TYPE_COLORS.length];
+
+  const requestedEntryMode = String(value.entryMode || "").trim().toLowerCase();
+  const entryMode: TimeTrackingEntryMode = requestedEntryMode === "manual_only"
+    ? "manual_only"
+    : "timer_or_manual";
+
+  return {
+    id: normalizedId,
+    name,
+    color,
+    entryMode,
+  };
+}
+
+function normalizeTimeTrackingWorkTypeList(raw: unknown): TimeTrackingWorkType[] {
+  if (!Array.isArray(raw)) return [];
+  const normalized = raw
+    .map((entry, index) => normalizeTimeTrackingWorkType(entry, index))
+    .filter((entry): entry is TimeTrackingWorkType => Boolean(entry));
+
+  return normalized.filter(
+    (entry, index, array) => array.findIndex((candidate) => candidate.id === entry.id) === index,
+  );
+}
+
+function cloneTimeTrackingWorkTypeConfig(source: TimeTrackingWorkTypeConfig): TimeTrackingWorkTypeConfig {
+  return Object.fromEntries(
+    Object.entries(source).map(([key, workTypes]) => [
+      key,
+      workTypes.map((workType) => ({ ...workType })),
+    ]),
+  );
+}
+
+function normalizeTimeTrackingWorkTypeConfig(raw: unknown): TimeTrackingWorkTypeConfig {
+  const next = cloneTimeTrackingWorkTypeConfig(DEFAULT_TIME_TRACKING_WORK_TYPE_CONFIG);
+  if (!raw || typeof raw !== "object") return next;
+
+  Object.entries(raw as Record<string, unknown>).forEach(([key, workTypesRaw]) => {
+    const roleKey = key === "default" ? "default" : normalizeRole(key);
+    next[roleKey] = normalizeTimeTrackingWorkTypeList(workTypesRaw);
+  });
+
+  if (!Array.isArray(next.tiltaksleder)) {
+    next.tiltaksleder = [];
+  }
+
+  return next;
+}
+
 function normalizeSuggestionTeamDefaults(raw: unknown): SuggestionTeamDefaults {
   const next = cloneTeamDefaults(DEFAULT_TEAM_SUGGESTION_DEFAULTS);
   if (!raw || typeof raw !== "object") return next;
@@ -285,6 +631,347 @@ async function readSuggestionTeamDefaults(): Promise<SuggestionTeamDefaults> {
 
 async function writeSuggestionTeamDefaults(defaults: SuggestionTeamDefaults): Promise<void> {
   await storage.upsertSiteSetting(TEAM_SUGGESTION_DEFAULTS_KEY, JSON.stringify(defaults));
+}
+
+async function readTimeTrackingWorkTypeConfig(): Promise<TimeTrackingWorkTypeConfig> {
+  try {
+    const setting = await storage.getSiteSetting(TIME_TRACKING_WORK_TYPES_KEY);
+    if (!setting?.value) {
+      return cloneTimeTrackingWorkTypeConfig(DEFAULT_TIME_TRACKING_WORK_TYPE_CONFIG);
+    }
+    const parsed = JSON.parse(setting.value);
+    return normalizeTimeTrackingWorkTypeConfig(parsed);
+  } catch {
+    return cloneTimeTrackingWorkTypeConfig(DEFAULT_TIME_TRACKING_WORK_TYPE_CONFIG);
+  }
+}
+
+async function writeTimeTrackingWorkTypeConfig(config: TimeTrackingWorkTypeConfig): Promise<void> {
+  await storage.upsertSiteSetting(TIME_TRACKING_WORK_TYPES_KEY, JSON.stringify(config));
+}
+
+function cloneTimeTrackingPdfTemplate(source: TimeTrackingPdfTemplate): TimeTrackingPdfTemplate {
+  return {
+    ...source,
+    caseDetails: { ...source.caseDetails },
+    sectionOrder: [...source.sectionOrder],
+    visibleColumns: [...source.visibleColumns],
+    contactDetails: source.contactDetails.map((entry) => ({ ...entry })),
+  };
+}
+
+function normalizeHexColor(value: unknown, fallback: string): string {
+  const candidate = String(value || "").trim();
+  if (!candidate) return fallback;
+  return HEX_COLOR_REGEX.test(candidate) ? candidate : fallback;
+}
+
+function normalizeLogoUrl(value: unknown): string | null {
+  const candidate = String(value || "").trim();
+  if (!candidate) return null;
+  if (!SAFE_LOGO_URL_REGEX.test(candidate)) return null;
+  return candidate;
+}
+
+function normalizeNumericRange(value: unknown, fallback: number, min: number, max: number, decimals = 0): number {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  const clamped = clampNumber(parsed, min, max);
+  if (decimals <= 0) {
+    return Math.round(clamped);
+  }
+  const factor = 10 ** decimals;
+  return Math.round(clamped * factor) / factor;
+}
+
+function resolveTimeTrackingPdfFontStack(fontFamily: TimeTrackingPdfFontFamily): string {
+  switch (fontFamily) {
+    case "arial":
+      return "Arial, Helvetica, sans-serif";
+    case "georgia":
+      return "Georgia, 'Times New Roman', serif";
+    case "times_new_roman":
+      return "'Times New Roman', Times, serif";
+    case "verdana":
+      return "Verdana, Geneva, sans-serif";
+    case "courier_new":
+      return "'Courier New', Courier, monospace";
+    case "inter":
+    default:
+      return "'Inter', 'Segoe UI', Arial, sans-serif";
+  }
+}
+
+function normalizeTimeTrackingPdfSectionOrder(value: unknown): TimeTrackingPdfSection[] {
+  if (!Array.isArray(value)) {
+    return [...TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT];
+  }
+
+  const normalized = value
+    .map((entry) => String(entry || "").trim())
+    .filter((entry): entry is TimeTrackingPdfSection => TIME_TRACKING_PDF_SECTIONS.has(entry as TimeTrackingPdfSection))
+    .filter((entry, index, array) => array.indexOf(entry) === index);
+
+  if (!normalized.includes("table")) {
+    normalized.push("table");
+  }
+
+  return normalized.length > 0 ? normalized : [...TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT];
+}
+
+function normalizeTimeTrackingPdfVisibleColumns(value: unknown): TimeTrackingPdfColumn[] {
+  if (!Array.isArray(value)) {
+    return [...TIME_TRACKING_PDF_COLUMNS_DEFAULT];
+  }
+
+  const normalized = value
+    .map((entry) => String(entry || "").trim())
+    .filter((entry): entry is TimeTrackingPdfColumn => TIME_TRACKING_PDF_COLUMNS.has(entry as TimeTrackingPdfColumn))
+    .filter((entry, index, array) => array.indexOf(entry) === index);
+
+  if (!normalized.includes("hours")) {
+    normalized.push("hours");
+  }
+
+  return normalized.length > 0 ? normalized : [...TIME_TRACKING_PDF_COLUMNS_DEFAULT];
+}
+
+function normalizeTimeTrackingPdfCaseDetails(value: unknown): TimeTrackingPdfCaseDetails {
+  const defaults = DEFAULT_TIME_TRACKING_PDF_TEMPLATE.caseDetails;
+  if (!value || typeof value !== "object") {
+    return { ...defaults };
+  }
+  const record = value as Record<string, unknown>;
+  return {
+    caseOwner: String(record.caseOwner || "").trim().slice(0, 120),
+    principal: String(record.principal || "").trim().slice(0, 120),
+    reference: String(record.reference || "").trim().slice(0, 120),
+    workType: String(record.workType || "").trim().slice(0, 120),
+    clientCaseNumber: String(record.clientCaseNumber || "").trim().slice(0, 120),
+    period: String(record.period || "").trim().slice(0, 120),
+  };
+}
+
+function normalizeTimeTrackingPdfContactDetails(value: unknown): TimeTrackingPdfContactDetail[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const normalized = value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const row = entry as Record<string, unknown>;
+      const label = String(row.label || "").trim();
+      const detailValue = String(row.value || "").trim();
+      if (!label || !detailValue) {
+        return null;
+      }
+      return {
+        label: label.slice(0, 80),
+        value: detailValue.slice(0, 240),
+      };
+    })
+    .filter((entry): entry is TimeTrackingPdfContactDetail => Boolean(entry));
+
+  return normalized.slice(0, 12);
+}
+
+function normalizeTimeTrackingPdfTemplate(raw: unknown): TimeTrackingPdfTemplate {
+  const next = cloneTimeTrackingPdfTemplate(DEFAULT_TIME_TRACKING_PDF_TEMPLATE);
+  if (!raw || typeof raw !== "object") return next;
+
+  const value = raw as Record<string, unknown>;
+  const title = String(value.title || "").trim();
+  if (title) next.title = title;
+
+  if (value.subtitle === null) {
+    next.subtitle = "";
+  } else if (typeof value.subtitle === "string") {
+    next.subtitle = value.subtitle.trim();
+  }
+
+  if (Object.prototype.hasOwnProperty.call(value, "logoUrl")) {
+    next.logoUrl = normalizeLogoUrl(value.logoUrl);
+  }
+  next.primaryColor = normalizeHexColor(value.primaryColor, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.primaryColor);
+  next.accentColor = normalizeHexColor(value.accentColor, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.accentColor);
+  if (
+    value.fontFamily === "inter"
+    || value.fontFamily === "arial"
+    || value.fontFamily === "georgia"
+    || value.fontFamily === "times_new_roman"
+    || value.fontFamily === "verdana"
+    || value.fontFamily === "courier_new"
+  ) {
+    next.fontFamily = value.fontFamily;
+  }
+  next.baseFontSize = normalizeNumericRange(
+    value.baseFontSize,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.baseFontSize,
+    10,
+    16,
+  );
+  next.titleFontSize = normalizeNumericRange(
+    value.titleFontSize,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.titleFontSize,
+    18,
+    42,
+  );
+  next.subtitleFontSize = normalizeNumericRange(
+    value.subtitleFontSize,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.subtitleFontSize,
+    11,
+    24,
+  );
+  next.tableFontSize = normalizeNumericRange(
+    value.tableFontSize,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.tableFontSize,
+    9,
+    16,
+  );
+  next.footerFontSize = normalizeNumericRange(
+    value.footerFontSize,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.footerFontSize,
+    9,
+    14,
+  );
+  next.lineHeight = normalizeNumericRange(
+    value.lineHeight,
+    DEFAULT_TIME_TRACKING_PDF_TEMPLATE.lineHeight,
+    1.1,
+    2,
+    2,
+  );
+  if (typeof value.showCaseDetails === "boolean") {
+    next.showCaseDetails = value.showCaseDetails;
+  }
+  if (value.caseDetailsTitle === null) {
+    next.caseDetailsTitle = "";
+  } else if (typeof value.caseDetailsTitle === "string") {
+    next.caseDetailsTitle = value.caseDetailsTitle.trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "caseDetails")) {
+    next.caseDetails = normalizeTimeTrackingPdfCaseDetails(value.caseDetails);
+  }
+  if (typeof value.showContactDetails === "boolean") {
+    next.showContactDetails = value.showContactDetails;
+  }
+  if (value.contactTitle === null) {
+    next.contactTitle = "";
+  } else if (typeof value.contactTitle === "string") {
+    next.contactTitle = value.contactTitle.trim();
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "contactDetails")) {
+    next.contactDetails = normalizeTimeTrackingPdfContactDetails(value.contactDetails);
+  }
+
+  if (typeof value.showSummary === "boolean") {
+    next.showSummary = value.showSummary;
+  }
+  if (typeof value.showGeneratedDate === "boolean") {
+    next.showGeneratedDate = value.showGeneratedDate;
+  }
+  if (typeof value.showPeriod === "boolean") {
+    next.showPeriod = value.showPeriod;
+  }
+  if (typeof value.showFooter === "boolean") {
+    next.showFooter = value.showFooter;
+  }
+  if (typeof value.showTotalsRow === "boolean") {
+    next.showTotalsRow = value.showTotalsRow;
+  }
+  if (typeof value.stripeRows === "boolean") {
+    next.stripeRows = value.stripeRows;
+  }
+  if (value.density === "compact" || value.density === "comfortable") {
+    next.density = value.density;
+  }
+  if (value.footerText === null) {
+    next.footerText = "";
+  } else if (typeof value.footerText === "string") {
+    next.footerText = value.footerText.trim();
+  }
+  if (value.headerAlignment === "left" || value.headerAlignment === "center") {
+    next.headerAlignment = value.headerAlignment;
+  }
+  if (value.logoPosition === "left" || value.logoPosition === "right" || value.logoPosition === "top") {
+    next.logoPosition = value.logoPosition;
+  }
+  if (value.tableBorderStyle === "soft" || value.tableBorderStyle === "full" || value.tableBorderStyle === "none") {
+    next.tableBorderStyle = value.tableBorderStyle;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "sectionOrder")) {
+    next.sectionOrder = normalizeTimeTrackingPdfSectionOrder(value.sectionOrder);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "visibleColumns")) {
+    next.visibleColumns = normalizeTimeTrackingPdfVisibleColumns(value.visibleColumns);
+  }
+
+  return next;
+}
+
+function resolveTimeTrackingPdfTemplateKey(vendorId: number | null | undefined): string {
+  const parsedVendorId = Number(vendorId);
+  if (Number.isFinite(parsedVendorId) && parsedVendorId > 0) {
+    return `${TIME_TRACKING_PDF_TEMPLATE_KEY_PREFIX}:vendor:${parsedVendorId}`;
+  }
+  return `${TIME_TRACKING_PDF_TEMPLATE_KEY_PREFIX}:global`;
+}
+
+async function readTimeTrackingPdfTemplate(vendorId: number | null | undefined): Promise<TimeTrackingPdfTemplate> {
+  const key = resolveTimeTrackingPdfTemplateKey(vendorId);
+  const globalKey = resolveTimeTrackingPdfTemplateKey(null);
+  try {
+    const setting = await storage.getSiteSetting(key);
+    if (setting?.value) {
+      const parsed = JSON.parse(setting.value);
+      return normalizeTimeTrackingPdfTemplate(parsed);
+    }
+
+    if (key !== globalKey) {
+      const globalSetting = await storage.getSiteSetting(globalKey);
+      if (globalSetting?.value) {
+        const parsed = JSON.parse(globalSetting.value);
+        return normalizeTimeTrackingPdfTemplate(parsed);
+      }
+    }
+  } catch {
+    // fall through to default
+  }
+
+  return cloneTimeTrackingPdfTemplate(DEFAULT_TIME_TRACKING_PDF_TEMPLATE);
+}
+
+async function writeTimeTrackingPdfTemplate(
+  vendorId: number | null | undefined,
+  template: TimeTrackingPdfTemplate,
+): Promise<void> {
+  const key = resolveTimeTrackingPdfTemplateKey(vendorId);
+  await storage.upsertSiteSetting(key, JSON.stringify(template));
+}
+
+function canEditTimeTrackingPdfTemplate(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === "tiltaksleder" || isTopAdminRole(normalizedRole);
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function resolveTimeTrackingWorkTypesForRole(
+  config: TimeTrackingWorkTypeConfig,
+  role: string | null | undefined,
+): TimeTrackingWorkType[] {
+  const normalizedRole = normalizeRole(role);
+  return config[normalizedRole] || config.default || [];
 }
 
 function computeSuggestionExperimentVariant(userId: string): SuggestionExperimentVariant {
@@ -1038,6 +1725,149 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/time-tracking/work-types", isAuthenticated, async (req, res) => {
+    try {
+      const normalizedRole = normalizeRole((req.user as any)?.role);
+      const config = await readTimeTrackingWorkTypeConfig();
+      const workTypes = resolveTimeTrackingWorkTypesForRole(config, normalizedRole);
+      const timeTrackingEnabled = normalizedRole !== "tiltaksleder";
+
+      res.json({
+        role: normalizedRole,
+        timeTrackingEnabled,
+        workTypes,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/time-tracking/work-types/admin", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!isTopAdminRole(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const config = await readTimeTrackingWorkTypeConfig();
+      res.json({ config });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/time-tracking/work-types/admin", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!isTopAdminRole(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const parsed = timeTrackingWorkTypesPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const roleKey = parsed.data.role === "default"
+        ? "default"
+        : normalizeRole(parsed.data.role);
+      if (roleKey === "tiltaksleder") {
+        return res.status(400).json({
+          error: "Tiltaksleder bruker ikke timeføring. Rollelisten kan ikke redigeres.",
+        });
+      }
+
+      const config = await readTimeTrackingWorkTypeConfig();
+      config[roleKey] = normalizeTimeTrackingWorkTypeList(parsed.data.workTypes);
+      await writeTimeTrackingWorkTypeConfig(config);
+
+      res.json({
+        role: roleKey,
+        workTypes: config[roleKey],
+        config,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/time-tracking/pdf-template", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      const vendorIdRaw = Number((req.user as any)?.vendorId);
+      const vendorId = Number.isFinite(vendorIdRaw) && vendorIdRaw > 0 ? vendorIdRaw : null;
+      const template = await readTimeTrackingPdfTemplate(vendorId);
+
+      res.json({
+        template,
+        canEdit: canEditTimeTrackingPdfTemplate(userRole),
+        scope: vendorId ? "vendor" : "global",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/time-tracking/pdf-template", isAuthenticated, async (req, res) => {
+    try {
+      const userRole = (req.user as any)?.role;
+      if (!canEditTimeTrackingPdfTemplate(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const parsed = timeTrackingPdfTemplatePatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten(),
+        });
+      }
+
+      const vendorIdRaw = Number((req.user as any)?.vendorId);
+      const vendorId = Number.isFinite(vendorIdRaw) && vendorIdRaw > 0 ? vendorIdRaw : null;
+      const current = await readTimeTrackingPdfTemplate(vendorId);
+
+      const mergedInput = {
+        ...current,
+        ...parsed.data,
+        ...(parsed.data.caseDetails !== undefined
+          ? {
+            caseDetails: normalizeTimeTrackingPdfCaseDetails({
+              ...current.caseDetails,
+              ...parsed.data.caseDetails,
+            }),
+          }
+          : {}),
+        ...(parsed.data.caseDetailsTitle !== undefined
+          ? { caseDetailsTitle: parsed.data.caseDetailsTitle === null ? "" : parsed.data.caseDetailsTitle }
+          : {}),
+        ...(parsed.data.subtitle !== undefined
+          ? { subtitle: parsed.data.subtitle === null ? "" : parsed.data.subtitle }
+          : {}),
+        ...(parsed.data.logoUrl !== undefined
+          ? { logoUrl: parsed.data.logoUrl === null ? null : parsed.data.logoUrl }
+          : {}),
+        ...(parsed.data.contactTitle !== undefined
+          ? { contactTitle: parsed.data.contactTitle === null ? "" : parsed.data.contactTitle }
+          : {}),
+      };
+
+      const merged = normalizeTimeTrackingPdfTemplate(mergedInput);
+
+      await writeTimeTrackingPdfTemplate(vendorId, merged);
+
+      res.json({
+        template: merged,
+        scope: vendorId ? "vendor" : "global",
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/suggestions/metrics", isAuthenticated, async (req, res) => {
     try {
       const authUserId = String((req.user as any)?.id || "").trim();
@@ -1118,6 +1948,44 @@ export async function registerRoutes(
       });
       res.json(entries);
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/company/me/assigned-cases", isAuthenticated, async (req, res) => {
+    try {
+      const authEmail = String((req.user as any)?.email || "").trim().toLowerCase();
+      if (!authEmail) {
+        return res.json([]);
+      }
+
+      const companyIdRaw = Number(req.query.company_id ?? 1);
+      const companyId = Number.isFinite(companyIdRaw) && companyIdRaw > 0 ? companyIdRaw : 1;
+
+      const result = await pool.query(
+        `SELECT uc.id, uc.case_id, uc.case_title, uc.status, uc.assigned_at
+         FROM company_users cu
+         JOIN user_cases uc ON uc.company_user_id = cu.id
+         WHERE cu.company_id = $1
+           AND cu.approved = true
+           AND (
+             LOWER(cu.user_email) = $2
+             OR LOWER(COALESCE(cu.google_email, '')) = $2
+           )
+           AND COALESCE(uc.status, 'active') <> 'inactive'
+         ORDER BY uc.assigned_at DESC NULLS LAST, uc.created_at DESC NULLS LAST, uc.id DESC`,
+        [companyId, authEmail],
+      );
+
+      res.json(result.rows);
+    } catch (error: any) {
+      const message = String(error?.message || "");
+      if (
+        message.includes("relation \"company_users\" does not exist")
+        || message.includes("relation \"user_cases\" does not exist")
+      ) {
+        return res.json([]);
+      }
       res.status(500).json({ error: error.message });
     }
   });
@@ -2038,6 +2906,231 @@ export async function registerRoutes(
         res.send(`\uFEFF${headers}\n${rows}`);
       } else if (format === "pdf") {
         const totalHours = data.reduce((sum: number, d: any) => sum + (parseFloat(d.Timer) || 0), 0);
+        const vendorIdRaw = Number((req.user as any)?.vendorId);
+        const vendorId = Number.isFinite(vendorIdRaw) && vendorIdRaw > 0 ? vendorIdRaw : null;
+        const template = await readTimeTrackingPdfTemplate(vendorId);
+        const generatedDate = new Date().toLocaleDateString("nb-NO");
+        const periodValue = endDate
+          ? `${String(startDate || "").trim()} - ${String(endDate).trim()}`
+          : startDate
+            ? `Fra dato: ${String(startDate).trim()}`
+            : "Alle registreringer";
+        const periodLabel = `Periode: ${periodValue}`;
+
+        const cellPadding = template.density === "compact" ? "6px 8px" : "10px 12px";
+        const tableFontSizeDefault = template.density === "compact" ? 11 : 12;
+        const tableFontSize = `${normalizeNumericRange(template.tableFontSize, tableFontSizeDefault, 9, 16)}px`;
+        const baseFontSize = `${normalizeNumericRange(template.baseFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.baseFontSize, 10, 16)}px`;
+        const titleFontSize = `${normalizeNumericRange(template.titleFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.titleFontSize, 18, 42)}px`;
+        const subtitleFontSize = `${normalizeNumericRange(template.subtitleFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.subtitleFontSize, 11, 24)}px`;
+        const footerFontSize = `${normalizeNumericRange(template.footerFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.footerFontSize, 9, 14)}px`;
+        const metaFontSize = `${Math.max(10, normalizeNumericRange(template.baseFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.baseFontSize, 10, 16) - 1)}px`;
+        const periodFontSize = `${Math.max(11, normalizeNumericRange(template.baseFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.baseFontSize, 10, 16))}px`;
+        const summaryFontSize = `${Math.max(11, normalizeNumericRange(template.baseFontSize, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.baseFontSize, 10, 16) + (template.density === "compact" ? 0 : 1))}px`;
+        const lineHeight = normalizeNumericRange(template.lineHeight, DEFAULT_TIME_TRACKING_PDF_TEMPLATE.lineHeight, 1.1, 2, 2);
+        const fontStack = resolveTimeTrackingPdfFontStack(template.fontFamily);
+        const visibleColumns = (template.visibleColumns || []).length
+          ? template.visibleColumns
+          : [...TIME_TRACKING_PDF_COLUMNS_DEFAULT];
+
+        const columnLabel: Record<TimeTrackingPdfColumn, string> = {
+          date: "Dato",
+          user: "Bruker",
+          department: "Avdeling",
+          caseNumber: "Saksnummer",
+          description: "Beskrivelse",
+          hours: "Timer",
+          status: "Status",
+        };
+
+        const resolveColumnValue = (row: Record<string, unknown>, column: TimeTrackingPdfColumn): string => {
+          switch (column) {
+            case "date":
+              return String(row.Dato || "");
+            case "user":
+              return String(row.Bruker || "");
+            case "department":
+              return String(row.Avdeling || "");
+            case "caseNumber":
+              return String(row.Saksnummer || "");
+            case "description":
+              return String(row.Beskrivelse || "");
+            case "hours": {
+              const timerValue = Number(row.Timer);
+              if (!Number.isFinite(timerValue)) return String(row.Timer || "");
+              return timerValue.toFixed(1);
+            }
+            case "status":
+              return String(row.Status || "");
+            default:
+              return "";
+          }
+        };
+
+        const tableHeadersMarkup = visibleColumns
+          .map((column) => `<th class="${column === "hours" ? "number" : ""}">${escapeHtml(columnLabel[column])}</th>`)
+          .join("");
+
+        const rowsMarkup = data.length > 0
+          ? data
+            .map((row, index) => {
+              const rowClass = template.stripeRows && index % 2 === 1 ? "odd" : "";
+              const cells = visibleColumns
+                .map((column) => {
+                  const value = resolveColumnValue(row as Record<string, unknown>, column);
+                  return `<td class="${column === "hours" ? "number" : ""}">${escapeHtml(value)}</td>`;
+                })
+                .join("");
+              return `<tr class="${rowClass}">${cells}</tr>`;
+            })
+            .join("\n")
+          : `<tr><td class="empty-state" colspan="${visibleColumns.length}">Ingen registreringer i valgt periode.</td></tr>`;
+
+        const totalsRowMarkup = (() => {
+          if (!template.showTotalsRow || !visibleColumns.includes("hours")) return "";
+
+          let labelPrinted = false;
+          const cells = visibleColumns
+            .map((column) => {
+              if (column === "hours") {
+                return `<td class="number total-hours">${escapeHtml(totalHours.toFixed(1))}</td>`;
+              }
+              if (!labelPrinted) {
+                labelPrinted = true;
+                return `<td class="total-label">Totalt</td>`;
+              }
+              return "<td></td>";
+            })
+            .join("");
+
+          return `<tr class="totals-row">${cells}</tr>`;
+        })();
+
+        const subtitleMarkup = template.subtitle
+          ? `<p class="subtitle">${escapeHtml(template.subtitle)}</p>`
+          : "";
+        const generatedMarkup = template.showGeneratedDate
+          ? `<p class="meta">Generert: ${escapeHtml(generatedDate)}</p>`
+          : "";
+        const logoMarkup = template.logoUrl
+          ? `<img class="brand-logo" src="${escapeHtml(template.logoUrl)}" alt="Logo" />`
+          : "";
+
+        const headerMarkup = (() => {
+          if (template.logoPosition === "top") {
+            return `
+  <section class="report-header align-${template.headerAlignment} logo-top">
+    ${logoMarkup ? `<div class="logo-top-wrap">${logoMarkup}</div>` : ""}
+    <div class="report-title-wrap">
+      <h1>${escapeHtml(template.title)}</h1>
+      ${subtitleMarkup}
+      ${generatedMarkup}
+    </div>
+  </section>`;
+          }
+
+          return `
+  <section class="report-header align-${template.headerAlignment} logo-${template.logoPosition}">
+    ${template.logoPosition === "left" ? logoMarkup : ""}
+    <div class="report-title-wrap">
+      <h1>${escapeHtml(template.title)}</h1>
+      ${subtitleMarkup}
+      ${generatedMarkup}
+    </div>
+    ${template.logoPosition === "right" ? logoMarkup : ""}
+  </section>`;
+        })();
+
+        const summaryMarkup = template.showSummary
+          ? `
+  <section class="summary">
+    <strong>Totalt timer:</strong> ${totalHours.toFixed(1)} timer<br>
+    <strong>Antall registreringer:</strong> ${data.length}
+  </section>`
+          : "";
+
+        const normalizedCaseDetails = normalizeTimeTrackingPdfCaseDetails(template.caseDetails);
+        const resolvedCasePeriod = normalizedCaseDetails.period || periodValue;
+        const caseDetailsRows = [
+          { label: "Miljøarbeider", value: normalizedCaseDetails.caseOwner },
+          { label: "Oppdragsgiver", value: normalizedCaseDetails.principal },
+          { label: "Referanse", value: normalizedCaseDetails.reference },
+          { label: "Type arbeid", value: normalizedCaseDetails.workType },
+          { label: "Klient ID/Saks nr", value: normalizedCaseDetails.clientCaseNumber },
+          { label: "Periode", value: resolvedCasePeriod },
+        ].filter((entry) => entry.value.trim().length > 0);
+        const caseDetailsMarkup = template.showCaseDetails && caseDetailsRows.length > 0
+          ? `
+  <div class="case-details">
+    ${template.caseDetailsTitle.trim() ? `<p class="case-details-title">${escapeHtml(template.caseDetailsTitle.trim())}</p>` : ""}
+    <div class="case-details-grid">
+      ${caseDetailsRows
+        .map((entry) => `<p><span class="case-label">${escapeHtml(entry.label)}:</span> <span class="case-value">${escapeHtml(entry.value)}</span></p>`)
+        .join("\n")}
+    </div>
+  </div>`
+          : "";
+        const periodMarkup = (template.showPeriod || caseDetailsMarkup)
+          ? `<section class="period-wrap">
+    ${template.showPeriod ? `<p class="period">${escapeHtml(periodLabel)}</p>` : ""}
+    ${caseDetailsMarkup}
+  </section>`
+          : "";
+
+        const tableMarkup = `
+  <section class="table-wrap">
+    <table>
+      <thead><tr>${tableHeadersMarkup}</tr></thead>
+      <tbody>
+        ${rowsMarkup}
+        ${totalsRowMarkup}
+      </tbody>
+    </table>
+  </section>`;
+
+        const footerMarkup = template.showFooter
+          ? `<section class="report-footer">${escapeHtml(template.footerText || "")}</section>`
+          : "";
+        const contactRows = normalizeTimeTrackingPdfContactDetails(template.contactDetails);
+        const hasContactRows = template.showContactDetails && contactRows.length > 0;
+        const contactTitleMarkup = template.contactTitle.trim()
+          ? `<p class="contact-title">${escapeHtml(template.contactTitle.trim())}</p>`
+          : "";
+        const contactListMarkup = hasContactRows
+          ? `
+  <div class="contact-details">
+    ${contactTitleMarkup}
+    <ul class="contact-list">
+      ${contactRows
+        .map((row) => `<li><span class="contact-label">${escapeHtml(row.label)}:</span> <span class="contact-value">${escapeHtml(row.value)}</span></li>`)
+        .join("\n")}
+    </ul>
+  </div>`
+          : "";
+        const footerNoteMarkup = template.showFooter && template.footerText.trim()
+          ? `<p class="footer-note">${escapeHtml(template.footerText.trim())}</p>`
+          : "";
+        const footerSectionMarkup = hasContactRows || footerNoteMarkup
+          ? `<section class="report-footer">${contactListMarkup}${footerNoteMarkup}</section>`
+          : "";
+
+        const sectionMarkup: Record<TimeTrackingPdfSection, string> = {
+          header: headerMarkup,
+          period: periodMarkup,
+          summary: summaryMarkup,
+          table: tableMarkup,
+          footer: footerSectionMarkup || footerMarkup,
+        };
+
+        const orderedMarkup = (template.sectionOrder || TIME_TRACKING_PDF_SECTION_ORDER_DEFAULT)
+          .map((section) => sectionMarkup[section] || "")
+          .filter((part) => part.trim().length > 0)
+          .join("\n");
+
+        const borderWidth = template.tableBorderStyle === "none" ? "0" : "1px";
+        const borderColor = template.tableBorderStyle === "full" ? "#94a3b8" : "#dbe2ea";
+        const headerJustify = template.headerAlignment === "center" ? "center" : "space-between";
+
         const html = `
 <!DOCTYPE html>
 <html>
@@ -2045,31 +3138,187 @@ export async function registerRoutes(
   <meta charset="utf-8">
   <title>Timerapport</title>
   <style>
-    body { font-family: Arial, sans-serif; padding: 40px; }
-    h1 { color: #1e40af; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
-    th { background-color: #1e40af; color: white; }
-    tr:nth-child(even) { background-color: #f9fafb; }
-    .summary { margin-top: 20px; padding: 15px; background: #f0f9ff; border-radius: 8px; }
+    :root {
+      --primary-color: ${template.primaryColor};
+      --accent-color: ${template.accentColor};
+      --font-family: ${fontStack};
+      --base-font-size: ${baseFontSize};
+      --title-font-size: ${titleFontSize};
+      --subtitle-font-size: ${subtitleFontSize};
+      --meta-font-size: ${metaFontSize};
+      --period-font-size: ${periodFontSize};
+      --summary-font-size: ${summaryFontSize};
+      --footer-font-size: ${footerFontSize};
+      --body-line-height: ${lineHeight};
+      --cell-padding: ${cellPadding};
+      --table-font-size: ${tableFontSize};
+      --table-border-width: ${borderWidth};
+      --table-border-color: ${borderColor};
+    }
+    body {
+      font-family: var(--font-family);
+      font-size: var(--base-font-size);
+      line-height: var(--body-line-height);
+      padding: 32px;
+      color: #0f172a;
+      background: #ffffff;
+    }
+    .report-header {
+      display: flex;
+      align-items: center;
+      justify-content: ${headerJustify};
+      gap: 16px;
+      margin-bottom: 16px;
+      border-bottom: 2px solid var(--primary-color);
+      padding-bottom: 12px;
+    }
+    .report-header.align-center {
+      text-align: center;
+      flex-direction: column;
+    }
+    .report-header.logo-left,
+    .report-header.logo-right {
+      flex-direction: row;
+    }
+    .report-header.logo-left {
+      justify-content: flex-start;
+    }
+    .report-header.logo-right {
+      justify-content: space-between;
+    }
+    .logo-top-wrap {
+      width: 100%;
+      display: flex;
+      justify-content: center;
+    }
+    .report-title-wrap h1 {
+      color: var(--primary-color);
+      margin: 0;
+      font-size: var(--title-font-size);
+      line-height: 1.2;
+    }
+    .subtitle {
+      margin: 6px 0 0;
+      color: #334155;
+      font-size: var(--subtitle-font-size);
+    }
+    .meta {
+      margin: 6px 0 0;
+      color: #64748b;
+      font-size: var(--meta-font-size);
+    }
+    .brand-logo {
+      max-height: 56px;
+      max-width: 220px;
+      object-fit: contain;
+      flex-shrink: 0;
+    }
+    .period-wrap {
+      margin: 0 0 14px;
+    }
+    .period {
+      margin: 0 0 8px;
+      color: #334155;
+      font-size: var(--period-font-size);
+      font-weight: 500;
+    }
+    .case-details {
+      margin-top: 6px;
+      border: 1px solid #dbe2ea;
+      border-radius: 10px;
+      background: #f8fafc;
+      padding: 10px 12px;
+      color: #1e293b;
+      font-size: var(--summary-font-size);
+    }
+    .case-details-title {
+      margin: 0 0 6px;
+      font-weight: 700;
+      color: #0f172a;
+    }
+    .case-details-grid {
+      display: grid;
+      gap: 4px;
+    }
+    .case-label {
+      font-weight: 600;
+    }
+    .summary {
+      margin: 0 0 18px;
+      padding: 12px 14px;
+      background: #f8fafc;
+      border-left: 4px solid var(--primary-color);
+      border-radius: 10px;
+      font-size: var(--summary-font-size);
+      line-height: var(--body-line-height);
+    }
+    .table-wrap { margin-top: 4px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+    th, td {
+      border: var(--table-border-width) solid var(--table-border-color);
+      padding: var(--cell-padding);
+      text-align: left;
+      vertical-align: top;
+      font-size: var(--table-font-size);
+    }
+    th {
+      background-color: var(--accent-color);
+      color: white;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    tr.odd { background-color: #f8fafc; }
+    .totals-row td {
+      font-weight: 600;
+      background: #f1f5f9;
+    }
+    .empty-state {
+      text-align: center;
+      color: #64748b;
+      font-style: italic;
+      padding: 20px 12px;
+    }
+    .number { text-align: right; font-variant-numeric: tabular-nums; }
+    .report-footer {
+      margin-top: 20px;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 10px;
+      font-size: var(--footer-font-size);
+      color: #64748b;
+      text-align: center;
+    }
+    .footer-note {
+      margin: 8px 0 0;
+    }
+    .contact-details {
+      text-align: left;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #f8fafc;
+      color: #334155;
+      font-size: var(--footer-font-size);
+    }
+    .contact-title {
+      margin: 0 0 6px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .contact-list {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      display: grid;
+      gap: 4px;
+    }
+    .contact-label {
+      font-weight: 600;
+    }
     @media print { body { padding: 20px; } }
   </style>
 </head>
 <body>
-  <h1>Timerapport - Smart Timing</h1>
-  <p>Generert: ${new Date().toLocaleDateString('nb-NO')}</p>
-  <div class="summary">
-    <strong>Totalt timer:</strong> ${totalHours.toFixed(1)} timer<br>
-    <strong>Antall registreringer:</strong> ${data.length}
-  </div>
-  <table>
-    <thead>
-      <tr>${Object.keys(data[0] || {}).map(k => `<th>${k}</th>`).join('')}</tr>
-    </thead>
-    <tbody>
-      ${data.map((d: any) => `<tr>${Object.values(d).map(v => `<td>${v}</td>`).join('')}</tr>`).join('\n')}
-    </tbody>
-  </table>
+  ${orderedMarkup}
   <script>window.onload = () => window.print();</script>
 </body>
 </html>`;
