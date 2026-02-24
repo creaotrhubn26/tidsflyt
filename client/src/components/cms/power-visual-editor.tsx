@@ -616,7 +616,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
       title: 'Tidum Footer',
       content: {
         columns: [
-          { heading: 'Om Tidum', text: 'Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.', email: 'kontakt@tidum.no' },
+          { heading: 'Om Tidum', text: 'Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.', email: 'support@tidum.no' },
           { heading: 'Snarveier', links: ['Funksjoner', 'Hvorfor Tidum?', 'Kontakt', 'Be om demo'] },
           { heading: 'Trygghet', badges: ['Bygget for norsk arbeidsliv', 'Personvern først', 'Klar for dokumentasjonskrav'] },
         ],
@@ -662,7 +662,7 @@ const COMPONENT_LIBRARY: ComponentTemplate[] = [
       title: 'Kontaktinformasjon',
       content: {
         items: [
-          { icon: 'Mail', label: 'E-post', value: 'kontakt@tidum.no', href: 'mailto:kontakt@tidum.no' },
+          { icon: 'Mail', label: 'E-post', value: 'support@tidum.no', href: 'mailto:support@tidum.no' },
           { icon: 'Phone', label: 'Telefon', value: '+47 97 95 92 94', href: 'tel:+4797959294' },
           { icon: 'MapPin', label: 'Adresse', value: 'Oslo, Norge' },
         ],

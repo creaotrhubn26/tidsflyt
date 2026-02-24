@@ -48,7 +48,7 @@ export default function Contact() {
         "@type": "Organization",
         name: "Tidum",
         telephone: "+47-97-95-92-94",
-        email: "kontakt@tidum.no",
+        email: "support@tidum.no",
         address: { "@type": "PostalAddress", addressLocality: "Oslo", addressCountry: "NO" },
       },
     },
@@ -157,7 +157,7 @@ export default function Contact() {
     title: "Kontakt oss",
     subtitle: "Har du spørsmål? Vi hjelper deg gjerne.",
     content: "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: "kontakt@tidum.no",
+    email: "support@tidum.no",
     phone: "+47 97 95 92 94",
     address: "Oslo, Norge"
   };

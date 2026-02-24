@@ -252,5 +252,5 @@ npm run build
 
 - Documentation: `/docs`
 - API Docs: `/api-docs`
-- Support Email: support@tidsflyt.no
+- Support Email: support@tidum.no
 - GitHub Issues: https://github.com/creaotrhubn26/tidsflyt/issues

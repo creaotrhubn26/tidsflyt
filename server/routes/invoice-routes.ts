@@ -5,13 +5,14 @@ import { eq, and, between, desc } from 'drizzle-orm';
 import { format, addDays } from 'date-fns';
 import { nb } from 'date-fns/locale';
 import { ExportService } from '../lib/export-service';
+import { requireAuth } from '../middleware/auth';
 
 export function registerInvoiceRoutes(app: Express) {
   /**
    * Get invoices for a user
    * GET /api/invoices?userId=default&status=draft
    */
-  app.get('/api/invoices', async (req: Request, res: Response) => {
+  app.get('/api/invoices', requireAuth, async (req: Request, res: Response) => {
     try {
       const { userId, status } = req.query;
 
@@ -39,14 +40,14 @@ export function registerInvoiceRoutes(app: Express) {
    * Get a single invoice with line items
    * GET /api/invoices/:id
    */
-  app.get('/api/invoices/:id', async (req: Request, res: Response) => {
+  app.get('/api/invoices/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
 
       const [invoice] = await db
         .select()
         .from(invoices)
-        .where(eq(invoices.id, parseInt(id)))
+        .where(eq(invoices.id, id))
         .limit(1);
 
       if (!invoice) {
@@ -56,7 +57,7 @@ export function registerInvoiceRoutes(app: Express) {
       const lineItems = await db
         .select()
         .from(invoiceLineItems)
-        .where(eq(invoiceLineItems.invoiceId, parseInt(id)))
+        .where(eq(invoiceLineItems.invoiceId, id))
         .orderBy(invoiceLineItems.displayOrder);
 
       res.json({ ...invoice, lineItems });
@@ -69,7 +70,7 @@ export function registerInvoiceRoutes(app: Express) {
    * Generate invoice from time entries
    * POST /api/invoices/generate
    */
-  app.post('/api/invoices/generate', async (req: Request, res: Response) => {
+  app.post('/api/invoices/generate', requireAuth, async (req: Request, res: Response) => {
     try {
       const {
         userId,
@@ -196,7 +197,7 @@ export function registerInvoiceRoutes(app: Express) {
    * Update invoice
    * PATCH /api/invoices/:id
    */
-  app.patch('/api/invoices/:id', async (req: Request, res: Response) => {
+  app.patch('/api/invoices/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -207,7 +208,7 @@ export function registerInvoiceRoutes(app: Express) {
           ...updates,
           updatedAt: new Date(),
         })
-        .where(eq(invoices.id, parseInt(id)))
+        .where(eq(invoices.id, id))
         .returning();
 
       res.json(updated);
@@ -220,15 +221,15 @@ export function registerInvoiceRoutes(app: Express) {
    * Delete invoice
    * DELETE /api/invoices/:id
    */
-  app.delete('/api/invoices/:id', async (req: Request, res: Response) => {
+  app.delete('/api/invoices/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
 
       // Delete line items first
-      await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, parseInt(id)));
+      await db.delete(invoiceLineItems).where(eq(invoiceLineItems.invoiceId, id));
 
       // Delete invoice
-      await db.delete(invoices).where(eq(invoices.id, parseInt(id)));
+      await db.delete(invoices).where(eq(invoices.id, id));
 
       res.json({ success: true });
     } catch (error: any) {
@@ -240,14 +241,14 @@ export function registerInvoiceRoutes(app: Express) {
    * Export invoice as PDF
    * GET /api/invoices/:id/pdf
    */
-  app.get('/api/invoices/:id/pdf', async (req: Request, res: Response) => {
+  app.get('/api/invoices/:id/pdf', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
 
       const [invoice] = await db
         .select()
         .from(invoices)
-        .where(eq(invoices.id, parseInt(id)))
+        .where(eq(invoices.id, id))
         .limit(1);
 
       if (!invoice) {
@@ -257,7 +258,7 @@ export function registerInvoiceRoutes(app: Express) {
       const lineItems = await db
         .select()
         .from(invoiceLineItems)
-        .where(eq(invoiceLineItems.invoiceId, parseInt(id)))
+        .where(eq(invoiceLineItems.invoiceId, id))
         .orderBy(invoiceLineItems.displayOrder);
 
       // Generate HTML for invoice

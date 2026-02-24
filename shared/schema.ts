@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -905,14 +905,17 @@ export const insertSeoGlobalSettingsSchema = createInsertSchema(seoGlobalSetting
 // Email Templates
 export const emailTemplates = pgTable("email_templates", {
   id: serial("id").primaryKey(),
+  userId: varchar("user_id"),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
   subject: text("subject").notNull(),
+  body: text("body"),
   htmlContent: text("html_content").notNull(),
   textContent: text("text_content"),
-  variables: text("variables").array(),
+  variables: jsonb("variables").default([]),
   category: text("category").default("general"),
   isActive: boolean("is_active").default(true),
+  isPublic: boolean("is_public").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -923,9 +926,14 @@ export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit
 export const emailSendHistory = pgTable("email_send_history", {
   id: serial("id").primaryKey(),
   templateId: integer("template_id").references(() => emailTemplates.id),
+  sentBy: text("sent_by"),
   recipientEmail: text("recipient_email").notNull(),
   recipientName: text("recipient_name"),
+  ccEmail: text("cc_email"),
+  bccEmail: text("bcc_email"),
   subject: text("subject").notNull(),
+  body: text("body"),
+  attachments: jsonb("attachments").default([]),
   status: text("status").default("pending"),
   sentAt: timestamp("sent_at"),
   errorMessage: text("error_message"),
@@ -1373,7 +1381,7 @@ export type UserTaskPrefs = typeof userTaskPrefs.$inferSelect;
 // ========== INVOICES ==========
 
 export const invoices = pgTable("invoices", {
-  id: serial("id").primaryKey(),
+  id: uuid("id").defaultRandom().primaryKey(),
   invoiceNumber: text("invoice_number").notNull(),
   userId: text("user_id").notNull().default("default"),
   clientName: text("client_name").notNull(),
@@ -1396,7 +1404,7 @@ export const invoices = pgTable("invoices", {
 
 export const invoiceLineItems = pgTable("invoice_line_items", {
   id: serial("id").primaryKey(),
-  invoiceId: integer("invoice_id").notNull(),
+  invoiceId: uuid("invoice_id").notNull(),
   description: text("description").notNull(),
   quantity: text("quantity").default("0"),
   unitPrice: text("unit_price").default("0"),
@@ -1468,6 +1476,28 @@ export const overtimeEntries = pgTable("overtime_entries", {
   approvedBy: text("approved_by"),
   approvedAt: timestamp("approved_at"),
 });
+
+// ========== NOTIFICATIONS ==========
+
+export const notifications = pgTable("notifications", {
+  id: varchar("id").primaryKey(),
+  recipientType: text("recipient_type").notNull(),
+  recipientId: varchar("recipient_id").notNull(),
+  type: text("type").notNull(),
+  title: text("title").notNull(),
+  body: text("body"),
+  payload: text("payload"),
+  relatedEntityType: text("related_entity_type"),
+  relatedEntityId: varchar("related_entity_id"),
+  actorType: text("actor_type"),
+  actorId: varchar("actor_id"),
+  actorName: text("actor_name"),
+  readAt: timestamp("read_at"),
+  sentVia: text("sent_via"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
 
 // ========== RECURRING ENTRIES ==========
 

@@ -1,7 +1,7 @@
 import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
 import { GlobalSearch } from "@/components/global-search";
 import { ActivityFeed } from "@/components/portal/activity-feed";
@@ -28,6 +28,7 @@ import {
   Upload,
   UserCheck,
   Send,
+  Mail,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,19 @@ interface HeaderActivity {
   userName?: string;
 }
 
+interface NotificationItem {
+  id: number;
+  user_id: string;
+  type: string;
+  title: string;
+  message: string;
+  link: string | null;
+  is_read: boolean;
+  metadata: Record<string, unknown>;
+  created_by: string | null;
+  created_at: string;
+}
+
 interface NavItem {
   path: string;
   icon: typeof LayoutDashboard;
@@ -99,6 +113,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
   { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder"] },
   { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
+  { path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
   { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
@@ -164,6 +179,41 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     },
     staleTime: 20_000,
     enabled: showHeaderActivityBell,
+  });
+
+  // Notifications query — real targeted notifications
+  const { data: notificationsData = [] } = useQuery<NotificationItem[]>({
+    queryKey: ["/api/notifications"],
+    queryFn: async () => {
+      const response = await fetch("/api/notifications?limit=30", { credentials: "include" });
+      if (!response.ok) return [];
+      return response.json();
+    },
+    staleTime: 15_000,
+    refetchInterval: 30_000, // Poll every 30s for new notifications
+  });
+
+  const unreadNotificationCount = useMemo(
+    () => notificationsData.filter((n) => !n.is_read).length,
+    [notificationsData]
+  );
+
+  const markNotificationRead = useMutation({
+    mutationFn: async (id: number) => {
+      await fetch(`/api/notifications/${id}/read`, { method: "PATCH", credentials: "include" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
+  });
+
+  const markAllRead = useMutation({
+    mutationFn: async () => {
+      await fetch("/api/notifications/mark-all-read", { method: "POST", credentials: "include" });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/notifications"] });
+    },
   });
 
   const checkMilestoneMutation = useMutation({
@@ -439,14 +489,14 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                     variant="ghost"
                     size="icon"
                     className="relative"
-                    aria-label="Åpne aktivitet"
-                    title="Åpne aktivitet"
+                    aria-label="Åpne varsler"
+                    title="Åpne varsler"
                     data-testid="header-activity-bell"
                   >
                     <Bell className="h-5 w-5" />
-                    {headerActivityCount > 0 && (
-                      <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-primary px-1 text-[10px] font-semibold leading-[18px] text-primary-foreground">
-                        {headerActivityCount > 9 ? "9+" : headerActivityCount}
+                    {(unreadNotificationCount > 0 || headerActivityCount > 0) && (
+                      <span className="absolute -right-0.5 -top-0.5 min-w-[18px] rounded-full bg-red-500 px-1 text-[10px] font-semibold leading-[18px] text-white">
+                        {(unreadNotificationCount || headerActivityCount) > 9 ? "9+" : (unreadNotificationCount || headerActivityCount)}
                       </span>
                     )}
                   </Button>
@@ -455,20 +505,77 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   side="top"
                   className="top-16 inset-x-0 md:inset-x-6 lg:inset-x-10 rounded-b-2xl border-x border-b border-[#d6e2de] dark:border-border bg-background/95 p-0 backdrop-blur"
                 >
-                  <div className="border-b border-border px-4 py-3">
-                    <h2 className="text-base font-semibold">Aktivitet</h2>
-                    <p className="text-xs text-muted-foreground">
-                      {isMiljoarbeider ? "Dine siste aktiviteter" : "Siste aktivitet i teamet"}
-                    </p>
+                  <div className="border-b border-border px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <h2 className="text-base font-semibold">Varsler</h2>
+                      <p className="text-xs text-muted-foreground">
+                        {unreadNotificationCount > 0 ? `${unreadNotificationCount} uleste varsler` : "Ingen uleste varsler"}
+                      </p>
+                    </div>
+                    {unreadNotificationCount > 0 && (
+                      <Button variant="ghost" size="sm" onClick={() => markAllRead.mutate()} className="text-xs">
+                        Merk alle som lest
+                      </Button>
+                    )}
                   </div>
-                  <div className="max-h-[calc(100vh-11rem)] overflow-auto p-4">
-                    <ActivityFeed
-                      activities={headerActivityItems}
-                      loading={headerActivitiesLoading}
-                      title=""
-                      variant="compact"
-                      compactLimit={10}
-                    />
+                  <div className="max-h-[calc(100vh-11rem)] overflow-auto">
+                    {/* Notifications section */}
+                    {notificationsData.length > 0 && (
+                      <div className="p-2 space-y-1">
+                        {notificationsData.slice(0, 15).map((notif) => (
+                          <button
+                            key={notif.id}
+                            className={cn(
+                              "w-full text-left p-3 rounded-lg transition-colors hover:bg-muted/80",
+                              !notif.is_read && "bg-blue-50 dark:bg-blue-950/30 border-l-2 border-blue-500"
+                            )}
+                            onClick={() => {
+                              if (!notif.is_read) markNotificationRead.mutate(notif.id);
+                              if (notif.link) {
+                                navigate(notif.link);
+                                setIsHeaderActivityOpen(false);
+                              }
+                            }}
+                          >
+                            <div className="flex items-start gap-2">
+                              <div className={cn(
+                                "mt-1 h-2 w-2 rounded-full flex-shrink-0",
+                                !notif.is_read ? "bg-blue-500" : "bg-transparent"
+                              )} />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium truncate">{notif.title}</p>
+                                <p className="text-xs text-muted-foreground line-clamp-2">{notif.message}</p>
+                                <p className="text-[11px] text-muted-foreground mt-1">
+                                  {new Date(notif.created_at).toLocaleDateString("nb-NO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                                </p>
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {notificationsData.length === 0 && (
+                      <div className="p-6 text-center text-sm text-muted-foreground">
+                        Ingen varsler ennå
+                      </div>
+                    )}
+                    {/* Activity feed section */}
+                    {headerActivityItems.length > 0 && (
+                      <>
+                        <div className="border-t border-border px-4 py-2">
+                          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Aktivitetslogg</p>
+                        </div>
+                        <div className="p-4 pt-0">
+                          <ActivityFeed
+                            activities={headerActivityItems}
+                            loading={headerActivitiesLoading}
+                            title=""
+                            variant="compact"
+                            compactLimit={5}
+                          />
+                        </div>
+                      </>
+                    )}
                   </div>
                 </SheetContent>
               </Sheet>
@@ -523,9 +630,9 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                 <div className="rounded-xl border bg-muted/20 p-4 text-center">
                   <UserCheck className="mx-auto mb-2 h-10 w-10 text-primary" />
                   <p className="text-sm font-medium">Hei, {currentUser.name}!</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                  <div className="mt-1 text-xs text-muted-foreground">
                     Rolle: <Badge variant="secondary" className="ml-1">{normalizedCurrentUserRole}</Badge>
-                  </p>
+                  </div>
                 </div>
                 <p className="text-sm text-muted-foreground text-center">
                   Vi guider deg gjennom oppsettet slik at du kan komme raskt i gang.

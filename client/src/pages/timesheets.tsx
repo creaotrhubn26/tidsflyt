@@ -70,7 +70,8 @@ export default function TimesheetsPage() {
     queryFn: async () => {
       const res = await fetch("/api/timesheets/submissions", { credentials: "include" });
       if (!res.ok) return [];
-      return res.json();
+      const data = await res.json();
+      return data.submissions ?? data;
     },
   });
 
@@ -81,7 +82,8 @@ export default function TimesheetsPage() {
     queryFn: async () => {
       const res = await fetch("/api/admin/timesheets", { credentials: "include" });
       if (!res.ok) return [];
-      return res.json();
+      const data = await res.json();
+      return data.timesheets ?? data;
     },
   });
 

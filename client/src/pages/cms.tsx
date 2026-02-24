@@ -5929,7 +5929,7 @@ function ContactPageEditor({ content }: { content: any }) {
     title: content?.title || "Kontakt oss",
     subtitle: content?.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
     content: content?.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: content?.email || "kontakt@tidum.no",
+    email: content?.email || "support@tidum.no",
     phone: content?.phone || "+47 22 33 44 55",
     address: content?.address || "Oslo, Norge"
   });
@@ -5940,7 +5940,7 @@ function ContactPageEditor({ content }: { content: any }) {
         title: content.title || "Kontakt oss",
         subtitle: content.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
         content: content.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-        email: content.email || "kontakt@tidum.no",
+        email: content.email || "support@tidum.no",
         phone: content.phone || "+47 22 33 44 55",
         address: content.address || "Oslo, Norge"
       });

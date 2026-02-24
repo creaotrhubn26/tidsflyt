@@ -4,13 +4,14 @@ import { logRow } from '@shared/schema';
 import { ExportService } from '../lib/export-service';
 import { between, eq, and } from 'drizzle-orm';
 import { format } from 'date-fns';
+import { requireAuth } from '../middleware/auth';
 
 export function registerExportRoutes(app: Express) {
   /**
    * Export time entries as Excel
    * GET /api/export/excel?startDate=2024-01-01&endDate=2024-01-31&userId=default
    */
-  app.get('/api/export/excel', async (req: Request, res: Response) => {
+  app.get('/api/export/excel', requireAuth, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, userId = 'default', includeNotes = 'true' } = req.query;
 
@@ -86,7 +87,7 @@ export function registerExportRoutes(app: Express) {
    * Export time entries as CSV
    * GET /api/export/csv?startDate=2024-01-01&endDate=2024-01-31&userId=default
    */
-  app.get('/api/export/csv', async (req: Request, res: Response) => {
+  app.get('/api/export/csv', requireAuth, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, userId = 'default', includeNotes = 'true' } = req.query;
 
@@ -158,7 +159,7 @@ export function registerExportRoutes(app: Express) {
    * Export time entries as PDF (HTML preview for now, can be converted server-side with puppeteer)
    * GET /api/export/pdf?startDate=2024-01-01&endDate=2024-01-31&userId=default
    */
-  app.get('/api/export/pdf', async (req: Request, res: Response) => {
+  app.get('/api/export/pdf', requireAuth, async (req: Request, res: Response) => {
     try {
       const { startDate, endDate, userId = 'default', includeNotes = 'true' } = req.query;
 

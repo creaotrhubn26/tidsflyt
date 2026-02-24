@@ -4,13 +4,14 @@ import { recurringEntries, logRow } from '@shared/schema';
 import { eq, and, lte, or, isNull } from 'drizzle-orm';
 import { addDays, addWeeks, addMonths, format, isBefore, isAfter } from 'date-fns';
 import cron from 'node-cron';
+import { requireAuth } from '../middleware/auth';
 
 export function registerRecurringRoutes(app: Express) {
   /**
    * Get recurring entries for a user
    * GET /api/recurring?userId=default
    */
-  app.get('/api/recurring', async (req: Request, res: Response) => {
+  app.get('/api/recurring', requireAuth, async (req: Request, res: Response) => {
     try {
       const { userId = 'default' } = req.query;
 
@@ -30,7 +31,7 @@ export function registerRecurringRoutes(app: Express) {
    * Create a recurring entry
    * POST /api/recurring
    */
-  app.post('/api/recurring', async (req: Request, res: Response) => {
+  app.post('/api/recurring', requireAuth, async (req: Request, res: Response) => {
     try {
       const {
         userId,
@@ -84,7 +85,7 @@ export function registerRecurringRoutes(app: Express) {
    * Update a recurring entry
    * PATCH /api/recurring/:id
    */
-  app.patch('/api/recurring/:id', async (req: Request, res: Response) => {
+  app.patch('/api/recurring/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const updates = req.body;
@@ -108,7 +109,7 @@ export function registerRecurringRoutes(app: Express) {
    * Delete a recurring entry
    * DELETE /api/recurring/:id
    */
-  app.delete('/api/recurring/:id', async (req: Request, res: Response) => {
+  app.delete('/api/recurring/:id', requireAuth, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
 
@@ -124,7 +125,7 @@ export function registerRecurringRoutes(app: Express) {
    * Generate time entries from recurring entries (manual trigger)
    * POST /api/recurring/generate
    */
-  app.post('/api/recurring/generate', async (req: Request, res: Response) => {
+  app.post('/api/recurring/generate', requireAuth, async (req: Request, res: Response) => {
     try {
       const generatedCount = await generateRecurringEntries();
       res.json({ success: true, generated: generatedCount });

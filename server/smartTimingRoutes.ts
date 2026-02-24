@@ -7,6 +7,9 @@ import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
+import { emailService } from "./lib/email-service";
+import { createNotification, notifyByRole } from "./routes/notification-routes";
+import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -1084,7 +1087,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/company/users", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { company_id, user_email, role } = req.body;
+      const { company_id, user_email, role, institution, case_title } = req.body;
       const companyId = Number(company_id) || 1;
       const targetRole = normalizeRole(role || 'member');
       const actorRole = await resolveActorRoleForCompany(req, companyId);
@@ -1104,6 +1107,45 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, true) RETURNING *`,
         [companyId, user_email, targetRole]
       );
+
+      // Auto-assign case if provided
+      if (case_title && result.rows[0]) {
+        try {
+          await pool.query(
+            `INSERT INTO user_cases (company_user_id, case_title, status)
+             VALUES ($1, $2, 'active')`,
+            [result.rows[0].id, case_title]
+          );
+        } catch (_) { /* best-effort case assignment */ }
+      }
+
+      // Store institution metadata on the company user row (add column if missing)
+      if (institution && result.rows[0]) {
+        try {
+          await pool.query(
+            `ALTER TABLE company_users ADD COLUMN IF NOT EXISTS institution TEXT`
+          );
+          await pool.query(
+            `UPDATE company_users SET institution = $1 WHERE id = $2`,
+            [institution, result.rows[0].id]
+          );
+        } catch (_) { /* best-effort */ }
+      }
+
+      // Send invite email to the new user
+      if (user_email) {
+        try {
+          const u = req.user as any;
+          const inviterName = u?.firstName
+            ? `${u.firstName} ${u.lastName || ''}`.trim()
+            : undefined;
+          await emailService.sendCompanyInviteEmail(user_email, targetRole, inviterName);
+          console.log(`✅ Invite email sent to ${user_email}`);
+        } catch (emailErr) {
+          console.error('⚠️ Failed to send invite email:', emailErr);
+        }
+      }
+
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -1135,6 +1177,20 @@ export function registerSmartTimingRoutes(app: Express) {
         [role ? normalizeRole(role) : null, approved, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+      // Send email when user is approved
+      if (approved === true && result.rows[0].user_email) {
+        try {
+          await emailService.sendCompanyInviteEmail(
+            result.rows[0].user_email,
+            result.rows[0].role || 'member'
+          );
+          console.log(`✅ Approval email sent to ${result.rows[0].user_email}`);
+        } catch (emailErr) {
+          console.error('⚠️ Failed to send approval email:', emailErr);
+        }
+      }
+
       res.json(result.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1157,7 +1213,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY LOGS ==========
-  app.get("/api/company/logs", requireAuth, async (req, res) => {
+  app.get("/api/company/logs", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
       const { company_id, user_email, month, year } = req.query;
       
@@ -1190,7 +1246,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== COMPANY AUDIT LOG ==========
-  app.get("/api/company/audit", requireAuth, async (req, res) => {
+  app.get("/api/company/audit", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
       const companyId = req.query.company_id || 1;
       const result = await pool.query(
@@ -1209,7 +1265,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SETUP TABLES ==========
-  app.post("/api/cms/setup", async (_req, res) => {
+  app.post("/api/cms/setup", authenticateAdmin, async (_req, res) => {
     try {
       await pool.query(`
         CREATE TABLE IF NOT EXISTS site_settings (
@@ -1457,7 +1513,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: CLEAR TESTIMONIALS ==========
-  app.post("/api/cms/clear-testimonials", async (_req, res) => {
+  app.post("/api/cms/clear-testimonials", authenticateAdmin, async (_req, res) => {
     try {
       await pool.query('DELETE FROM landing_testimonials WHERE 1=1');
       res.json({ success: true, message: 'All testimonials deleted' });
@@ -1478,7 +1534,7 @@ export function registerSmartTimingRoutes(app: Express) {
   updateTestimonialsTable();
 
   // ========== CMS: SEED DEFAULT CONTENT ==========
-  app.post("/api/cms/seed", async (_req, res) => {
+  app.post("/api/cms/seed", authenticateAdmin, async (_req, res) => {
     try {
       // Check if already seeded
       const heroCheck = await pool.query('SELECT COUNT(*) FROM landing_hero');
@@ -1907,7 +1963,7 @@ export function registerSmartTimingRoutes(app: Express) {
         title: 'Kontakt oss',
         subtitle: 'Har du spørsmål? Vi hjelper deg gjerne.',
         content: 'Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.',
-        email: 'kontakt@tidum.no',
+        email: 'support@tidum.no',
         phone: '+47 97 95 92 94',
         address: 'Oslo, Norge'
       },
@@ -2642,7 +2698,9 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get single case report
-  app.get("/api/case-reports/:id", requireAuth, async (req, res) => {
+  app.get("/api/case-reports/:id", requireAuth, async (req, res, next) => {
+    // Skip non-numeric IDs so named routes like /suggestions can be handled elsewhere
+    if (!/^\d+$/.test(req.params.id)) return next();
     try {
       const { id } = req.params;
       const result = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
@@ -2778,6 +2836,20 @@ export function registerSmartTimingRoutes(app: Express) {
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
+
+      // Notify the report author
+      const cr = result.rows[0];
+      if (cr.user_id) {
+        await createNotification({
+          userId: cr.user_id,
+          type: 'report_approved',
+          title: 'Saksrapport godkjent',
+          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er godkjent.`,
+          link: '/case-reports',
+          metadata: { reportId: cr.id },
+        });
+      }
+
       res.json(result.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2796,6 +2868,20 @@ export function registerSmartTimingRoutes(app: Express) {
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
+
+      // Notify the report author
+      const cr = result.rows[0];
+      if (cr.user_id) {
+        await createNotification({
+          userId: cr.user_id,
+          type: 'report_rejected',
+          title: 'Saksrapport avvist',
+          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er avvist.${reason ? ` Grunn: ${reason}` : ''}`,
+          link: '/case-reports',
+          metadata: { reportId: cr.id, reason },
+        });
+      }
+
       res.json(result.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3013,6 +3099,22 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       const report = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      const cr = report.rows[0];
+
+      // Notify the report author about feedback / revision request
+      if (cr?.user_id) {
+        await createNotification({
+          userId: cr.user_id,
+          type: request_revision ? 'report_revision' : 'report_feedback',
+          title: request_revision ? 'Saksrapport returnert for revidering' : 'Ny tilbakemelding på saksrapport',
+          message: request_revision
+            ? `Din saksrapport «${cr.title || 'Uten tittel'}» er sendt tilbake for revidering.${content ? ` Kommentar: ${content}` : ''}`
+            : `Ny kommentar på saksrapport «${cr.title || 'Uten tittel'}»: ${content?.substring(0, 100) || ''}`,
+          link: '/case-reports',
+          metadata: { reportId: cr.id },
+        });
+      }
+
       res.json(report.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4533,18 +4635,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         return res.status(400).json({ error: 'Alle obligatoriske felt må fylles ut' });
       }
 
-      const nodemailer = await import('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: 'smtp.gmail.com',
-        port: 587,
-        secure: false,
-        auth: {
-          user: process.env.GMAIL_USER || 'noreply@tidum.no',
-          pass: process.env.GMAIL_APP_PASSWORD,
-        },
-      });
-
-      const recipientEmail = 'daniel@creatorhubn.com';
+      const recipientEmail = 'daniel@tidum.no';
       
       // Build company info section
       const hasCompanyInfo = company || orgNumber || website || phone;
@@ -4580,8 +4671,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         </div>
       ` : '';
 
-      await transporter.sendMail({
-        from: `"Tidum Kontaktskjema" <${process.env.GMAIL_USER || 'noreply@tidum.no'}>`,
+      await emailService.sendEmail({
         to: recipientEmail,
         replyTo: email,
         subject: `${company ? `[${company}] ` : ''}Henvendelse: ${subject}`,
@@ -4702,20 +4792,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         }
       }
 
-      // Send email using nodemailer
-      const nodemailer = await import('nodemailer');
-      const transporter = nodemailer.createTransport({
-        host: settings.smtp_host || 'smtp.gmail.com',
-        port: settings.smtp_port || 587,
-        secure: settings.smtp_secure || false,
-        auth: {
-          user: settings.smtp_user || process.env.GMAIL_USER,
-          pass: process.env.GMAIL_APP_PASSWORD,
-        },
-      });
-
-      await transporter.sendMail({
-        from: `"${settings.from_name || 'Smart Timing'}" <${settings.from_email || settings.smtp_user}>`,
+      // Send email using centralized email service
+      await emailService.sendEmail({
         to: recipient_email,
         subject: subject,
         html: htmlContent,
@@ -5488,7 +5566,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // ========== FEEDBACK SYSTEM ROUTES ==========
 
   // Get pending feedback requests for current user
-  app.get("/api/feedback/pending", async (req, res) => {
+  app.get("/api/feedback/pending", requireAuth, async (req, res) => {
     try {
       const userId = req.query.userId as string;
       const vendorId = req.query.vendorId as string;
@@ -5521,7 +5599,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Submit feedback response
-  app.post("/api/feedback/respond", async (req, res) => {
+  app.post("/api/feedback/respond", requireAuth, async (req, res) => {
     try {
       const { requestId, vendorId, userId, ratingScore, npsScore, satisfactionLabel, textualFeedback } = req.body;
       
@@ -5550,7 +5628,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Snooze feedback request
-  app.post("/api/feedback/snooze", async (req, res) => {
+  app.post("/api/feedback/snooze", requireAuth, async (req, res) => {
     try {
       const { requestId, snoozeHours = 24 } = req.body;
       
@@ -5572,7 +5650,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Dismiss feedback request
-  app.post("/api/feedback/dismiss", async (req, res) => {
+  app.post("/api/feedback/dismiss", requireAuth, async (req, res) => {
     try {
       const { requestId } = req.body;
       
@@ -5648,7 +5726,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Check and trigger feedback request for user milestones
-  app.post("/api/feedback/check-milestone", async (req, res) => {
+  app.post("/api/feedback/check-milestone", requireAuth, async (req, res) => {
     try {
       const { userId, vendorId } = req.body;
       
@@ -5739,7 +5817,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Check and trigger feedback request for vendor milestones
-  app.post("/api/feedback/check-vendor-milestone", async (req, res) => {
+  app.post("/api/feedback/check-vendor-milestone", requireAuth, async (req, res) => {
     try {
       const { vendorId } = req.body;
       
@@ -6754,7 +6832,6 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Calculate total hours for the month
       const startDate = `${month}-01`;
-      const endDate = `${month}-31`;
       const hoursResult = await pool.query(
         `SELECT COUNT(*) as entry_count,
                 COALESCE(SUM(
@@ -6762,8 +6839,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
                   COALESCE(break_hours::numeric, 0)
                 ), 0) as total_hours
          FROM log_row
-         WHERE user_id = $1 AND date >= $2 AND date <= $3`,
-        [userId, startDate, endDate]
+         WHERE user_id = $1 AND date >= $2::date AND date < ($2::date + INTERVAL '1 month')`,
+        [userId, startDate]
       );
 
       const totalHours = parseFloat(hoursResult.rows[0]?.total_hours || '0');
@@ -6790,6 +6867,21 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           [userId, `Timeliste for ${month} sendt inn (${totalHours.toFixed(1)} timer, ${entryCount} oppføringer)`]
         );
       } catch (_) { /* activity logging is best-effort */ }
+
+      // Notify tiltaksleder(s) about new timesheet submission
+      try {
+        const userInfo = await pool.query('SELECT first_name, last_name, vendor_id FROM users WHERE id = $1', [userId]);
+        const userName = userInfo.rows[0] ? `${userInfo.rows[0].first_name || ''} ${userInfo.rows[0].last_name || ''}`.trim() : 'En bruker';
+        const vendorId = userInfo.rows[0]?.vendor_id || req.user?.vendorId || null;
+        await notifyByRole('tiltaksleder', vendorId, {
+          type: 'timesheet_submitted',
+          title: 'Ny timeliste sendt inn',
+          message: `${userName} har sendt inn timeliste for ${month} (${totalHours.toFixed(1)} timer).`,
+          link: '/timesheets',
+          metadata: { submissionId: result.rows[0].id, month, userId },
+          createdBy: userId,
+        });
+      } catch (_) { /* notification is best-effort */ }
 
       res.json({ success: true, submission: result.rows[0] });
     } catch (err: any) {
@@ -6867,6 +6959,16 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         );
       } catch (_) { /* best-effort */ }
 
+      // Notify the submitter that their timesheet was approved
+      await createNotification({
+        userId: ts.user_id,
+        type: 'timesheet_approved',
+        title: 'Timeliste godkjent',
+        message: `Din timeliste for ${ts.month} er godkjent av ${approvedBy}.`,
+        link: '/timesheets',
+        metadata: { submissionId: ts.id, month: ts.month },
+      });
+
       res.json({ success: true, submission: result.rows[0] });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6900,6 +7002,16 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           [ts.user_id, `Timeliste for ${ts.month} avvist: ${reason || 'Ingen begrunnelse'}`]
         );
       } catch (_) { /* best-effort */ }
+
+      // Notify the submitter that their timesheet was rejected
+      await createNotification({
+        userId: ts.user_id,
+        type: 'timesheet_rejected',
+        title: 'Timeliste avvist',
+        message: `Din timeliste for ${ts.month} er avvist. ${reason ? `Begrunnelse: ${reason}` : ''}`,
+        link: '/timesheets',
+        metadata: { submissionId: ts.id, month: ts.month, reason },
+      });
 
       res.json({ success: true, submission: result.rows[0] });
     } catch (err: any) {

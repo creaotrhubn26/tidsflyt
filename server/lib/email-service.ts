@@ -11,6 +11,7 @@ interface EmailOptions {
   to: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
+  replyTo?: string;
   subject: string;
   html?: string;
   text?: string;
@@ -33,10 +34,8 @@ export class EmailService {
     const {
       SMTP_HOST,
       SMTP_PORT,
-      SMTP_SECURE,
       SMTP_USER,
       SMTP_PASS,
-      SMTP_FROM,
       NODE_ENV,
     } = process.env;
 
@@ -52,11 +51,13 @@ export class EmailService {
       return;
     }
 
+    const port = parseInt(SMTP_PORT || '587');
+
     try {
       this.transporter = nodemailer.createTransport({
         host: SMTP_HOST,
-        port: parseInt(SMTP_PORT || '587'),
-        secure: SMTP_SECURE === 'true',
+        port,
+        secure: port === 465, // SSL on 465, STARTTLS on 587
         auth: {
           user: SMTP_USER,
           pass: SMTP_PASS,
@@ -64,11 +65,25 @@ export class EmailService {
       });
 
       this.isConfigured = true;
-      console.log('✅ Email service configured successfully');
+
+      // Verify connection asynchronously
+      this.transporter.verify().then(() => {
+        console.log('✅ Email service connected to', SMTP_HOST);
+      }).catch((err) => {
+        console.error('⚠️ Email SMTP verify failed:', err.message);
+        // Keep isConfigured true — verify can fail transiently
+      });
     } catch (error) {
       console.error('Failed to configure email service:', error);
       this.isConfigured = false;
     }
+  }
+
+  /**
+   * Check if SMTP is configured
+   */
+  getIsConfigured(): boolean {
+    return this.isConfigured;
   }
 
   /**
@@ -81,8 +96,14 @@ export class EmailService {
     }
 
     try {
+      const fromName = process.env.SMTP_FROM_NAME || 'Tidum';
+      const fromEmail = process.env.SMTP_FROM_EMAIL || process.env.SMTP_FROM || process.env.SMTP_USER;
+      const from = `"${fromName}" <${fromEmail}>`;
+      const replyTo = options.replyTo || process.env.SMTP_REPLY_TO || undefined;
+
       const info = await this.transporter.sendMail({
-        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        from,
+        replyTo,
         to: Array.isArray(options.to) ? options.to.join(', ') : options.to,
         cc: options.cc ? (Array.isArray(options.cc) ? options.cc.join(', ') : options.cc) : undefined,
         bcc: options.bcc ? (Array.isArray(options.bcc) ? options.bcc.join(', ') : options.bcc) : undefined,
@@ -231,6 +252,122 @@ export class EmailService {
       `,
       text: `Din timeregistrering for uke ${weekNumber} er vedlagt. Totalt timer: ${totalHours}`,
       attachments: attachment ? [attachment] : undefined,
+    });
+  }
+
+  /**
+   * Send welcome / access-approved email
+   */
+  async sendAccessApprovedEmail(
+    to: string,
+    fullName: string,
+    company?: string
+  ): Promise<boolean> {
+    const appUrl = process.env.APP_URL || 'https://tidsflyt.no';
+    return this.sendEmail({
+      to,
+      replyTo: 'daniel@tidum.no',
+      subject: 'Velkommen til Tidum – tilgangen din er godkjent!',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #0066cc, #0ea5e9); padding: 30px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 24px;">Velkommen til Tidum!</h1>
+          </div>
+          <div style="padding: 30px; border: 1px solid #e2e8f0; border-top: 0; border-radius: 0 0 12px 12px;">
+            <p style="font-size: 16px;">Hei ${fullName},</p>
+            <p>Vi er glade for å bekrefte at tilgangsforespørselen din${company ? ` for <strong>${company}</strong>` : ''} er godkjent.</p>
+            <p>Du kan nå logge inn og begynne å bruke Smart Timing for timeregistrering og rapportering.</p>
+            <a href="${appUrl}/auth"
+               style="display: inline-block; background: #0066cc; color: white; padding: 14px 28px;
+                      text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 600;">
+              Logg inn nå
+            </a>
+            <div style="background: #f8fafc; padding: 20px; border-radius: 8px; margin: 20px 0;">
+              <h3 style="margin: 0 0 10px; color: #0f172a;">Kom i gang:</h3>
+              <ul style="margin: 0; padding-left: 20px; color: #475569;">
+                <li>Registrer timer under «Timeregistrering»</li>
+                <li>Se rapporter og statistikk</li>
+                <li>Kontakt din tiltaksleder ved spørsmål</li>
+              </ul>
+            </div>
+            <p style="color: #64748b; font-size: 13px;">
+              Har du spørsmål? Svar på denne e-posten eller kontakt oss på
+              <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>.
+            </p>
+          </div>
+        </div>
+      `,
+      text: `Hei ${fullName},\n\nTilgangsforespørselen din${company ? ` for ${company}` : ''} er godkjent!\n\nLogg inn her: ${appUrl}/auth\n\nVelkommen til Tidum!\n\nHar du spørsmål? Kontakt oss på daniel@tidum.no`,
+    });
+  }
+
+  /**
+   * Send rejection notification email
+   */
+  async sendAccessRejectedEmail(
+    to: string,
+    fullName: string,
+    reason?: string
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to,
+      replyTo: 'daniel@tidum.no',
+      subject: 'Oppdatering om din tilgangsforespørsel – Tidum',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="padding: 30px; border: 1px solid #e2e8f0; border-radius: 12px;">
+            <h2 style="color: #0f172a;">Tilgangsforespørsel</h2>
+            <p>Hei ${fullName},</p>
+            <p>Dessverre kan vi ikke godkjenne din tilgangsforespørsel på dette tidspunktet.</p>
+            ${reason ? `<div style="background: #f8fafc; padding: 15px; border-radius: 8px; border-left: 4px solid #94a3b8; margin: 20px 0;">
+              <strong>Begrunnelse:</strong><br>${reason}
+            </div>` : ''}
+            <p>Ta gjerne kontakt med oss om du har spørsmål eller ønsker å sende inn en ny forespørsel.</p>
+            <p style="color: #64748b; font-size: 13px;">
+              Kontakt: <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>
+            </p>
+          </div>
+        </div>
+      `,
+      text: `Hei ${fullName},\n\nDessverre kan vi ikke godkjenne din tilgangsforespørsel på dette tidspunktet.${reason ? `\n\nBegrunnelse: ${reason}` : ''}\n\nTa gjerne kontakt på daniel@tidum.no om du har spørsmål.`,
+    });
+  }
+
+  /**
+   * Send company invite email
+   */
+  async sendCompanyInviteEmail(
+    to: string,
+    roleName: string,
+    inviterName?: string
+  ): Promise<boolean> {
+    const appUrl = process.env.APP_URL || 'https://tidsflyt.no';
+    return this.sendEmail({
+      to,
+      replyTo: 'daniel@tidum.no',
+      subject: 'Du er invitert til Tidum',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <div style="background: linear-gradient(135deg, #0066cc, #0ea5e9); padding: 30px; border-radius: 12px 12px 0 0;">
+            <h1 style="color: #fff; margin: 0; font-size: 24px;">Du er invitert!</h1>
+          </div>
+          <div style="padding: 30px; border: 1px solid #e2e8f0; border-top: 0; border-radius: 0 0 12px 12px;">
+            <p style="font-size: 16px;">Hei,</p>
+            <p>${inviterName ? `${inviterName} har invitert deg` : 'Du er invitert'} som <strong>${roleName}</strong> i Tidum Smart Timing.</p>
+            <p>Klikk knappen nedenfor for å logge inn og komme i gang.</p>
+            <a href="${appUrl}/auth"
+               style="display: inline-block; background: #0066cc; color: white; padding: 14px 28px;
+                      text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: 600;">
+              Kom i gang
+            </a>
+            <p style="color: #64748b; font-size: 13px; margin-top: 30px;">
+              Har du spørsmål? Kontakt oss på
+              <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>.
+            </p>
+          </div>
+        </div>
+      `,
+      text: `Hei,\n\n${inviterName ? `${inviterName} har invitert deg` : 'Du er invitert'} som ${roleName} i Tidum Smart Timing.\n\nLogg inn her: ${appUrl}/auth\n\nKontakt: daniel@tidum.no`,
     });
   }
 

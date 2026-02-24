@@ -35,6 +35,7 @@ const OvertimePage = lazy(() => import("@/pages/overtime"));
 const RecurringPage = lazy(() => import("@/pages/recurring"));
 const TimesheetsPage = lazy(() => import("@/pages/timesheets"));
 const ForwardPage = lazy(() => import("@/pages/forward"));
+const EmailComposerPage = lazy(() => import("@/pages/email-composer"));
 const WhyTidum = lazy(() => import("@/pages/why-tidum"));
 const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 const BuilderPage = lazy(() => import("@/pages/builder-page"));
@@ -85,6 +86,7 @@ function Router() {
         <Route path="/recurring">{() => <AuthGuard><RecurringPage /></AuthGuard>}</Route>
         <Route path="/timesheets">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
+        <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
 
         {/* Admin routes */}
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>

@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -54,9 +55,13 @@ interface OvertimeSummary {
   entriesCount: number;
 }
 
+const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
+
 export default function OvertimePage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
+  const isAdmin = user?.role ? ADMIN_ROLES.includes(user.role.toLowerCase().replace(/[\s-]/g, '_')) : false;
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
 
@@ -72,9 +77,10 @@ export default function OvertimePage() {
   });
 
   // Fetch entries
-  const { data: entries = [], isLoading: entriesLoading } = useQuery<OvertimeEntry[]>({
+  const { data: entriesData, isLoading: entriesLoading } = useQuery<{ entries: OvertimeEntry[]; totals: any }>({
     queryKey: ["/api/overtime/entries"],
   });
+  const entries = entriesData?.entries ?? [];
 
   // Fetch summary
   const monthStr = format(selectedMonth, "yyyy-MM");
@@ -106,7 +112,7 @@ export default function OvertimePage() {
 
   // Calculate overtime mutation
   const calculateMutation = useMutation({
-    mutationFn: async (data: { startDate: string; endDate: string }) => {
+    mutationFn: async (data: { userId: string; startDate: string; endDate: string }) => {
       const res = await fetch("/api/overtime/calculate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,7 +162,7 @@ export default function OvertimePage() {
   const handleCalculate = () => {
     const startDate = format(selectedMonth, "yyyy-MM-01");
     const endDate = format(new Date(selectedMonth.getFullYear(), selectedMonth.getMonth() + 1, 0), "yyyy-MM-dd");
-    calculateMutation.mutate({ startDate, endDate });
+    calculateMutation.mutate({ userId: user?.id ?? "1", startDate, endDate });
   };
 
   // Load settings into form
@@ -192,6 +198,7 @@ export default function OvertimePage() {
             </p>
           </div>
           <div className="flex gap-2">
+            {isAdmin && (
             <Dialog open={isSettingsOpen} onOpenChange={setIsSettingsOpen}>
               <DialogTrigger asChild>
                 <Button variant="outline">
@@ -269,6 +276,7 @@ export default function OvertimePage() {
                 </DialogFooter>
               </DialogContent>
             </Dialog>
+            )}
 
             <Button onClick={handleCalculate} disabled={calculateMutation.isPending}>
               <TrendingUp className="h-4 w-4 mr-2" />
@@ -374,7 +382,7 @@ export default function OvertimePage() {
                       </TableCell>
                       <TableCell>{getStatusBadge(entry.status)}</TableCell>
                       <TableCell>
-                        {entry.status === "pending" && (
+                        {isAdmin && entry.status === "pending" && (
                           <div className="flex gap-1">
                             <Button
                               size="sm"

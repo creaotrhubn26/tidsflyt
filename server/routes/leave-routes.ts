@@ -5,13 +5,14 @@ import { eq, and, desc, sql } from 'drizzle-orm';
 import { emailService } from '../lib/email-service';
 import { format } from 'date-fns';
 import { nb } from 'date-fns/locale';
+import { requireAuth, requireAdminRole } from '../middleware/auth';
 
 export function registerLeaveRoutes(app: Express) {
   /**
    * Get all leave types
    * GET /api/leave/types
    */
-  app.get('/api/leave/types', async (req: Request, res: Response) => {
+  app.get('/api/leave/types', requireAuth, async (req: Request, res: Response) => {
     try {
       const types = await db
         .select()
@@ -29,7 +30,7 @@ export function registerLeaveRoutes(app: Express) {
    * Get leave balance for a user
    * GET /api/leave/balance?userId=default&year=2024
    */
-  app.get('/api/leave/balance', async (req: Request, res: Response) => {
+  app.get('/api/leave/balance', requireAuth, async (req: Request, res: Response) => {
     try {
       const { userId = 'default', year = new Date().getFullYear() } = req.query;
 
@@ -66,7 +67,7 @@ export function registerLeaveRoutes(app: Express) {
    * Initialize leave balance for user (if not exists)
    * POST /api/leave/balance/initialize
    */
-  app.post('/api/leave/balance/initialize', async (req: Request, res: Response) => {
+  app.post('/api/leave/balance/initialize', requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { userId, year = new Date().getFullYear() } = req.body;
 
@@ -105,7 +106,7 @@ export function registerLeaveRoutes(app: Express) {
    * Get leave requests for a user
    * GET /api/leave/requests?userId=default&status=pending
    */
-  app.get('/api/leave/requests', async (req: Request, res: Response) => {
+  app.get('/api/leave/requests', requireAuth, async (req: Request, res: Response) => {
     try {
       const { userId, status } = req.query;
 
@@ -155,7 +156,7 @@ export function registerLeaveRoutes(app: Express) {
    * Create a new leave request
    * POST /api/leave/requests
    */
-  app.post('/api/leave/requests', async (req: Request, res: Response) => {
+  app.post('/api/leave/requests', requireAuth, async (req: Request, res: Response) => {
     try {
       const { userId, leaveTypeId, startDate, endDate, days, reason } = req.body;
 
@@ -216,7 +217,7 @@ export function registerLeaveRoutes(app: Express) {
    * Update leave request status (approve/reject)
    * PATCH /api/leave/requests/:id
    */
-  app.patch('/api/leave/requests/:id', async (req: Request, res: Response) => {
+  app.patch('/api/leave/requests/:id', requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { status, reviewedBy, reviewComment } = req.body;

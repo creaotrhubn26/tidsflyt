@@ -950,7 +950,7 @@ export const InteractiveGuide: React.FC = () => {
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
               <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                kontakt@tidum.no
+                support@tidum.no
               </Link>
             </div>
 

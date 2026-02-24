@@ -66,7 +66,7 @@ Du har rett til å:
 Vi bruker informasjonskapsler for å forbedre brukeropplevelsen. Du kan administrere dine preferanser i nettleserinnstillingene.
 
 ## 8. Kontakt
-Har du spørsmål om personvern? Kontakt oss på personvern@tidum.no
+Har du spørsmål om personvern? Kontakt oss på support@tidum.no
     `,
     last_updated: "20. desember 2025"
   };
@@ -141,7 +141,7 @@ Har du spørsmål om personvern? Kontakt oss på personvern@tidum.no
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
               <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                kontakt@tidum.no
+                support@tidum.no
               </Link>
             </div>
 

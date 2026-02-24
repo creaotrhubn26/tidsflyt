@@ -11,6 +11,9 @@ import { registerOvertimeRoutes } from "./routes/overtime-routes";
 import { registerRecurringRoutes } from "./routes/recurring-routes";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
+import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
+import { registerNotificationRoutes, createNotification, notifyByRole } from "./routes/notification-routes";
+import { emailService } from "./lib/email-service";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
@@ -22,6 +25,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
+import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
@@ -1433,6 +1437,29 @@ export async function registerRoutes(
         .where(eq(accessRequests.id, parseInt(id)))
         .returning();
 
+      // Send email notification to applicant
+      if (request.email) {
+        try {
+          if (status === "approved") {
+            await emailService.sendAccessApprovedEmail(
+              request.email,
+              request.fullName,
+              request.company || undefined
+            );
+            console.log(`✅ Access approved email sent to ${request.email}`);
+          } else if (status === "rejected") {
+            await emailService.sendAccessRejectedEmail(
+              request.email,
+              request.fullName
+            );
+            console.log(`✅ Access rejected email sent to ${request.email}`);
+          }
+        } catch (emailErr) {
+          console.error('⚠️ Failed to send access notification email:', emailErr);
+          // Don't fail the request — the status update already succeeded
+        }
+      }
+
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -1470,7 +1497,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/users", isAuthenticated, async (_req, res) => {
+  app.get("/api/users", isAuthenticated, requireAdminRole, async (_req, res) => {
     try {
       const users = await storage.getAllUsers();
       res.json(users.map(u => ({ ...u, password: undefined })));
@@ -1491,6 +1518,17 @@ export async function registerRoutes(
 
   app.patch("/api/users/:id", isAuthenticated, async (req, res) => {
     try {
+      // If changing role, require admin privileges
+      if (req.body.role) {
+        const callerRole = normalizeRole((req.user as any)?.role || '');
+        if (!ADMIN_ROLES.includes(callerRole)) {
+          return res.status(403).json({ error: 'Kun admin kan endre brukerroller' });
+        }
+        // Prevent non-super-admins from setting super_admin
+        if (normalizeRole(req.body.role) === 'super_admin' && callerRole !== 'super_admin') {
+          return res.status(403).json({ error: 'Kun super_admin kan tildele super_admin-rollen' });
+        }
+      }
       const user = await storage.updateUser(req.params.id, req.body);
       if (!user) return res.status(404).json({ error: "User not found" });
       cache.del("userMap"); // invalidate enrichment cache
@@ -3389,7 +3427,7 @@ export async function registerRoutes(
   });
 
   // Create a new builder page
-  app.post("/api/cms/builder-pages", async (req, res) => {
+  app.post("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const data = insertBuilderPageSchema.parse(req.body);
       const [page] = await db.insert(builderPages).values(data).returning();
@@ -3401,7 +3439,7 @@ export async function registerRoutes(
   });
 
   // Update a builder page
-  app.put("/api/cms/builder-pages/:id", async (req, res) => {
+  app.put("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { title, slug, description, sections: pageSections, themeKey, status,
@@ -3455,7 +3493,7 @@ export async function registerRoutes(
   });
 
   // Delete a builder page
-  app.delete("/api/cms/builder-pages/:id", async (req, res) => {
+  app.delete("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [page] = await db.delete(builderPages).where(eq(builderPages.id, id)).returning();
@@ -3479,7 +3517,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cms/section-templates", async (req, res) => {
+  app.post("/api/cms/section-templates", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const [template] = await db.insert(sectionTemplates).values({
         name: req.body.name,
@@ -3494,7 +3532,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cms/section-templates/:id", async (req, res) => {
+  app.delete("/api/cms/section-templates/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(sectionTemplates).where(eq(sectionTemplates.id, id));
@@ -3521,7 +3559,7 @@ export async function registerRoutes(
   });
 
   // Restore a specific version
-  app.post("/api/cms/page-versions/:pageId/restore/:versionId", async (req, res) => {
+  app.post("/api/cms/page-versions/:pageId/restore/:versionId", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
       const versionId = parseInt(req.params.versionId);
@@ -3594,7 +3632,7 @@ export async function registerRoutes(
     }
   });
 
-  app.put("/api/cms/form-submissions/:id/status", async (req, res) => {
+  app.put("/api/cms/form-submissions/:id/status", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [sub] = await db.update(formSubmissions)
@@ -3811,6 +3849,8 @@ export async function registerRoutes(
   registerRecurringRoutes(app);
   registerExportRoutes(app);
   registerForwardRoutes(app);
+  registerEmailComposerRoutes(app);
+  registerNotificationRoutes(app);
 
   return httpServer;
 }

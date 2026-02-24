@@ -10,8 +10,8 @@ const options: swaggerJsdoc.Options = {
       version: '1.0.0',
       description: 'Time tracking and reporting API for Norwegian social work and consulting',
       contact: {
-        name: 'Tidsflyt Support',
-        email: 'support@tidsflyt.no',
+        name: 'Tidum Support',
+        email: 'support@tidum.no',
       },
     },
     servers: [

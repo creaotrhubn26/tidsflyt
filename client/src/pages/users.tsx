@@ -114,6 +114,8 @@ export default function UsersPage() {
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
+  const [inviteInstitution, setInviteInstitution] = useState("");
+  const [inviteCaseTitle, setInviteCaseTitle] = useState("");
   const [filterRole, setFilterRole] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
@@ -135,7 +137,7 @@ export default function UsersPage() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: async (data: { user_email: string; role: string }) => {
+    mutationFn: async (data: { user_email: string; role: string; institution?: string; case_title?: string }) => {
       return apiRequest('POST', '/api/company/users', { company_id: companyId, ...data });
     },
     onSuccess: () => {
@@ -143,7 +145,9 @@ export default function UsersPage() {
       setInviteDialogOpen(false);
       setInviteEmail("");
       setInviteRole("miljoarbeider");
-      toast({ title: "Invitasjon sendt", description: "Brukeren har blitt lagt til." });
+      setInviteInstitution("");
+      setInviteCaseTitle("");
+      toast({ title: "Invitasjon sendt", description: "Brukeren har blitt lagt til og e-post sendt." });
     },
     onError: (error: any) => {
       toast({ title: "Feil", description: error.message, variant: "destructive" });
@@ -303,13 +307,38 @@ export default function UsersPage() {
                   </Select>
                   <p className="text-xs text-muted-foreground">Rollen kan endres etter godkjenning.</p>
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="institution" className="text-sm font-medium">Institusjon / Oppdragsgiver</Label>
+                  <Input
+                    id="institution"
+                    placeholder="F.eks. Oslo kommune, Barnevernstjenesten"
+                    value={inviteInstitution}
+                    onChange={(e) => setInviteInstitution(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Skole, kommune eller annen oppdragsgiver brukeren jobber for.</p>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="caseTitle" className="text-sm font-medium">Sak / Tiltak</Label>
+                  <Input
+                    id="caseTitle"
+                    placeholder="F.eks. Oppfølging elev A, Miljøarbeid gruppe B"
+                    value={inviteCaseTitle}
+                    onChange={(e) => setInviteCaseTitle(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">Tilordne en sak ved invitasjon (valgfritt).</p>
+                </div>
               </div>
               <DialogFooter className="mt-2">
                 <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
                   Avbryt
                 </Button>
                 <Button 
-                  onClick={() => inviteMutation.mutate({ user_email: inviteEmail, role: inviteRole })} 
+                  onClick={() => inviteMutation.mutate({ 
+                    user_email: inviteEmail, 
+                    role: inviteRole,
+                    institution: inviteInstitution || undefined,
+                    case_title: inviteCaseTitle || undefined,
+                  })} 
                   disabled={!inviteEmail || inviteMutation.isPending || allowedInviteRoles.length === 0}
                   data-testid="send-invite-button"
                   className="gap-2"

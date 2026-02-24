@@ -175,7 +175,7 @@ export default function TidumPageLayout({
                 onClick={() => navigate('/kontakt')}
                 className="mt-3 text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
-                kontakt@tidum.no
+                support@tidum.no
               </button>
             </div>
 

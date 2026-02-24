@@ -1,8 +1,23 @@
-import type { Express, Request, Response } from 'express';
+import type { Express, Request, Response, NextFunction } from 'express';
 import { db } from '../db';
 import { overtimeSettings, overtimeEntries, logRow } from '@shared/schema';
 import { eq, and, between, desc } from 'drizzle-orm';
 import { format, parseISO, eachDayOfInterval } from 'date-fns';
+
+const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
+const isDevMode = process.env.NODE_ENV !== 'production';
+
+/** Middleware: only allow admin-level roles (tiltaksleder+) */
+function requireAdminRole(req: Request, res: Response, next: NextFunction) {
+  if (isDevMode) return next(); // dev auto-login is super_admin
+  const user = (req as any).user;
+  if (!user) return res.status(401).json({ error: 'Authentication required' });
+  const role = (user.role || '').toLowerCase().replace(/[\s-]/g, '_');
+  if (!ADMIN_ROLES.includes(role)) {
+    return res.status(403).json({ error: 'Kun tiltaksleder eller admin kan utføre denne handlingen' });
+  }
+  next();
+}
 
 export function registerOvertimeRoutes(app: Express) {
   /**
@@ -39,10 +54,10 @@ export function registerOvertimeRoutes(app: Express) {
   });
 
   /**
-   * Update overtime settings for a user
+   * Update overtime settings for a user (admin only)
    * PUT /api/overtime/settings
    */
-  app.put('/api/overtime/settings', async (req: Request, res: Response) => {
+  app.put('/api/overtime/settings', requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { userId, ...settings } = req.body;
 
@@ -212,10 +227,10 @@ export function registerOvertimeRoutes(app: Express) {
   });
 
   /**
-   * Approve/reject overtime entry
+   * Approve/reject overtime entry (admin only)
    * PATCH /api/overtime/entries/:id
    */
-  app.patch('/api/overtime/entries/:id', async (req: Request, res: Response) => {
+  app.patch('/api/overtime/entries/:id', requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
       const { status, approvedBy } = req.body;
