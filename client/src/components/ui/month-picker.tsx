@@ -52,10 +52,20 @@ export function MonthPicker({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
+      {/* Backward compatibility for tests/tools that fill a real input */}
+      <input
+        type="month"
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        data-testid={testId}
+        tabIndex={-1}
+        aria-hidden="true"
+        className="absolute left-0 top-0 h-px w-px opacity-0"
+      />
       <PopoverTrigger asChild>
         <button
           type="button"
-          data-testid={testId}
+          data-testid={testId ? `${testId}-trigger` : undefined}
           className={cn(
             "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background",
             "hover:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-colors",

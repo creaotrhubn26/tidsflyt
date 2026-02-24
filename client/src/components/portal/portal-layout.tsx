@@ -111,7 +111,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
   { path: "/overtime", icon: Clock, label: "Overtid" },
   { path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
-  { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder"] },
+  { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder", "miljoarbeider"] },
   { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
   { path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
@@ -193,9 +193,14 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     refetchInterval: 30_000, // Poll every 30s for new notifications
   });
 
+  const notificationItems = useMemo(
+    () => (Array.isArray(notificationsData) ? notificationsData : []),
+    [notificationsData],
+  );
+
   const unreadNotificationCount = useMemo(
-    () => notificationsData.filter((n) => !n.is_read).length,
-    [notificationsData]
+    () => notificationItems.filter((n) => !n.is_read).length,
+    [notificationItems]
   );
 
   const markNotificationRead = useMutation({
@@ -520,9 +525,9 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   </div>
                   <div className="max-h-[calc(100vh-11rem)] overflow-auto">
                     {/* Notifications section */}
-                    {notificationsData.length > 0 && (
+                    {notificationItems.length > 0 && (
                       <div className="p-2 space-y-1">
-                        {notificationsData.slice(0, 15).map((notif) => (
+                        {notificationItems.slice(0, 15).map((notif) => (
                           <button
                             key={notif.id}
                             className={cn(
@@ -554,7 +559,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                         ))}
                       </div>
                     )}
-                    {notificationsData.length === 0 && (
+                    {notificationItems.length === 0 && (
                       <div className="p-6 text-center text-sm text-muted-foreground">
                         Ingen varsler ennå
                       </div>

@@ -531,7 +531,11 @@ export default function UsersPage() {
                           const RoleIcon = roleIcons[user.role as keyof typeof roleIcons] ?? User;
                           const roleColor = roleColors[user.role as keyof typeof roleColors] ?? roleColors.member;
                           return (
-                            <div key={user.id} className="flex items-center gap-4 p-4 rounded-xl border border-orange-200/60 dark:border-orange-800/30 bg-orange-50/40 dark:bg-orange-950/10">
+                            <div
+                              key={user.id}
+                              className="flex items-center gap-4 p-4 rounded-xl border border-orange-200/60 dark:border-orange-800/30 bg-orange-50/40 dark:bg-orange-950/10"
+                              data-testid={`user-row-${user.id}`}
+                            >
                               <Avatar className="h-10 w-10 flex-shrink-0">
                                 <AvatarFallback className="bg-orange-100 dark:bg-orange-900/40 text-orange-700 dark:text-orange-400 font-semibold">
                                   {user.name.split(" ").map(n => n[0]).join("").slice(0,2)}
@@ -592,7 +596,11 @@ export default function UsersPage() {
                           const RoleIcon = roleIcons[user.role as keyof typeof roleIcons] ?? User;
                           const roleColor = roleColors[user.role as keyof typeof roleColors] ?? roleColors.member;
                           return (
-                            <div key={user.id} className="flex items-center gap-4 p-4 rounded-xl border bg-card">
+                            <div
+                              key={user.id}
+                              className="flex items-center gap-4 p-4 rounded-xl border bg-card"
+                              data-testid={`user-row-${user.id}`}
+                            >
                               <Avatar className="h-10 w-10 flex-shrink-0">
                                 <AvatarFallback className="bg-primary text-primary-foreground font-semibold">
                                   {user.name.split(" ").map(n => n[0]).join("").slice(0,2)}

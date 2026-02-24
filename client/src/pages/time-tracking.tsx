@@ -156,12 +156,14 @@ export default function TimeTrackingPage() {
   });
 
   const workTypeOptions = useMemo(
-    () => workTypeSettingsData?.workTypes || [],
+    () => (Array.isArray(workTypeSettingsData?.workTypes) ? workTypeSettingsData.workTypes : []),
     [workTypeSettingsData],
   );
 
   const isTimeTrackingEnabledForRole = useMemo(() => {
-    if (workTypeSettingsData) return workTypeSettingsData.timeTrackingEnabled;
+    if (typeof workTypeSettingsData?.timeTrackingEnabled === "boolean") {
+      return workTypeSettingsData.timeTrackingEnabled;
+    }
     return normalizedRole !== "tiltaksleder";
   }, [normalizedRole, workTypeSettingsData]);
 
@@ -170,8 +172,21 @@ export default function TimeTrackingPage() {
     enabled: Boolean(user?.email),
   });
 
+  const safeTodayEntries = useMemo(
+    () => (Array.isArray(todayEntries) ? todayEntries : []),
+    [todayEntries],
+  );
+  const safeLast30DaysEntries = useMemo(
+    () => (Array.isArray(last30DaysEntries) ? last30DaysEntries : []),
+    [last30DaysEntries],
+  );
+  const safeAssignedCasesData = useMemo(
+    () => (Array.isArray(assignedCasesData) ? assignedCasesData : []),
+    [assignedCasesData],
+  );
+
   const assignedCaseOptions = useMemo<AssignedCaseOption[]>(() => {
-    const options = assignedCasesData
+    const options = safeAssignedCasesData
       .filter((assignedCase) => {
         const normalizedStatus = (assignedCase.status || "active").toLowerCase();
         return normalizedStatus !== "inactive";
@@ -191,7 +206,7 @@ export default function TimeTrackingPage() {
     return options.filter(
       (option, index, array) => array.findIndex((candidate) => candidate.id === option.id) === index,
     );
-  }, [assignedCasesData]);
+  }, [safeAssignedCasesData]);
 
   const workTypeById = useMemo(
     () => new Map(workTypeOptions.map((workType) => [workType.id, workType])),
@@ -673,18 +688,18 @@ export default function TimeTrackingPage() {
     setClientSickNote("");
   };
 
-  const totalToday = todayEntries.reduce((sum, e) => {
+  const totalToday = safeTodayEntries.reduce((sum, e) => {
     // Don't count "client_sick" entries in the total
     if (e.caseNumber === "client_sick") return sum;
     return sum + e.hours;
   }, 0);
 
   const totalLast30Days = useMemo(() => {
-    return last30DaysEntries.reduce((sum, e) => {
+    return safeLast30DaysEntries.reduce((sum, e) => {
       if (e.caseNumber === "client_sick") return sum;
       return sum + e.hours;
     }, 0);
-  }, [last30DaysEntries]);
+  }, [safeLast30DaysEntries]);
 
   const averageLast30Days = useMemo(() => totalLast30Days / 30, [totalLast30Days]);
 
@@ -694,7 +709,7 @@ export default function TimeTrackingPage() {
     const dayRange = eachDayOfInterval({ start: startDate, end: endDate });
     const hoursByDay = new Map<string, number>();
 
-    last30DaysEntries.forEach((entry) => {
+    safeLast30DaysEntries.forEach((entry) => {
       if (entry.caseNumber === "client_sick") return;
       const dayKey = (entry.date || entry.createdAt || "").slice(0, 10);
       if (!dayKey) return;
@@ -711,7 +726,7 @@ export default function TimeTrackingPage() {
         percentage: Math.min((hours / 8) * 100, 100),
       };
     });
-  }, [last30DaysEntries]);
+  }, [safeLast30DaysEntries]);
 
   const activeDaysLast30 = useMemo(
     () => last30DailySeries.filter((day) => day.hours > 0).length,
@@ -734,7 +749,7 @@ export default function TimeTrackingPage() {
     const weekDays = eachDayOfInterval({ start: startOfWeek, end: endOfWeek });
     
     return weekDays.map(day => {
-      const dayEntries = todayEntries.filter(e => {
+      const dayEntries = safeTodayEntries.filter(e => {
         const entryDate = new Date(e.createdAt);
         return isSameDay(entryDate, day) && e.caseNumber !== "client_sick";
       });
@@ -747,7 +762,7 @@ export default function TimeTrackingPage() {
         percentage: Math.min((hours / 8) * 100, 100),
       };
     });
-  }, [todayEntries]);
+  }, [safeTodayEntries]);
 
   // Weekly totals
   const weeklyTotal = useMemo(() => weeklyData.reduce((sum, d) => sum + d.hours, 0), [weeklyData]);
@@ -794,7 +809,7 @@ export default function TimeTrackingPage() {
   // Project breakdown
   const projectBreakdown = useMemo(() => {
     const breakdown: Record<string, number> = {};
-    todayEntries.forEach(e => {
+    safeTodayEntries.forEach(e => {
       if (e.caseNumber !== "client_sick") {
         const caseLabel = resolveCaseLabel(e.caseNumber);
         breakdown[caseLabel] = (breakdown[caseLabel] || 0) + e.hours;
@@ -809,12 +824,12 @@ export default function TimeTrackingPage() {
         percentage: totalForBreakdown > 0 ? (hours / totalForBreakdown) * 100 : 0,
       }))
       .sort((a, b) => b.hours - a.hours);
-  }, [resolveCaseLabel, todayEntries]);
+  }, [resolveCaseLabel, safeTodayEntries]);
 
   const projectFilterOptions = useMemo(() => {
     const uniqueCaseIds = new Set<string>();
     assignedCaseOptions.forEach((option) => uniqueCaseIds.add(option.id));
-    todayEntries.forEach((entry) => {
+    safeTodayEntries.forEach((entry) => {
       if (entry.caseNumber && entry.caseNumber !== "client_sick") {
         uniqueCaseIds.add(entry.caseNumber);
       }
@@ -827,11 +842,11 @@ export default function TimeTrackingPage() {
         color: workTypeById.get(id)?.color || "bg-primary/60",
       }))
       .sort((a, b) => a.name.localeCompare(b.name, "nb"));
-  }, [assignedCaseOptions, resolveCaseLabel, todayEntries, workTypeById]);
+  }, [assignedCaseOptions, resolveCaseLabel, safeTodayEntries, workTypeById]);
 
   // Filtered entries based on active filters
   const filteredEntries = useMemo(() => {
-    let entries = todayEntries;
+    let entries = safeTodayEntries;
     if (projectFilter && projectFilter !== "all") {
       entries = entries.filter(e => e.caseNumber === projectFilter);
     }
@@ -842,7 +857,7 @@ export default function TimeTrackingPage() {
       entries = entries.filter(e => new Date(e.createdAt) <= dateFilter.to!);
     }
     return entries;
-  }, [todayEntries, projectFilter, dateFilter]);
+  }, [safeTodayEntries, projectFilter, dateFilter]);
 
   const projectSuggestion = smartSuggestions?.suggestion?.project;
   const descriptionSuggestion = smartSuggestions?.suggestion?.description;
@@ -911,7 +926,7 @@ export default function TimeTrackingPage() {
     const previousWeekStart = startOfISOWeek(previousWeekAnchor);
     const previousWeekEnd = endOfISOWeek(previousWeekAnchor);
 
-    return last30DaysEntries.reduce((sum, entry) => {
+    return safeLast30DaysEntries.reduce((sum, entry) => {
       if (entry.caseNumber === "client_sick") return sum;
 
       const sourceDate = entry.date || entry.createdAt;
@@ -923,12 +938,12 @@ export default function TimeTrackingPage() {
 
       return sum + entry.hours;
     }, 0);
-  }, [last30DaysEntries]);
+  }, [safeLast30DaysEntries]);
 
   const followUpHistoryRows = useMemo(() => {
     const groupedEntries = new Map<string, TimeEntry[]>();
 
-    last30DaysEntries.forEach((entry) => {
+    safeLast30DaysEntries.forEach((entry) => {
       if (entry.caseNumber === "client_sick") return;
       const dayKey = (entry.date || entry.createdAt || "").slice(0, 10);
       if (!dayKey) return;
@@ -962,7 +977,7 @@ export default function TimeTrackingPage() {
       })
       .sort((a, b) => b.dayKey.localeCompare(a.dayKey))
       .slice(0, 4);
-  }, [last30DaysEntries]);
+  }, [safeLast30DaysEntries]);
 
   const analogHourRotation = useMemo(
     () =>

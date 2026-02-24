@@ -84,7 +84,7 @@ function Router() {
         <Route path="/invoices">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><InvoicesPage /></AuthGuard>}</Route>
         <Route path="/overtime">{() => <AuthGuard><OvertimePage /></AuthGuard>}</Route>
         <Route path="/recurring">{() => <AuthGuard><RecurringPage /></AuthGuard>}</Route>
-        <Route path="/timesheets">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
+        <Route path="/timesheets">{() => <AuthGuard requiredRoles={["miljoarbeider", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
 
