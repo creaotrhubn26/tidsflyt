@@ -34,10 +34,11 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getRoleLabel, normalizeRole } from "@shared/roles";
+import { canAccessVendorApiAdmin, getRoleLabel, normalizeRole } from "@shared/roles";
 import { useToast } from "@/hooks/use-toast";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { type SuggestionMode, type SuggestionFrequency, type SuggestionBlockCategory } from "@/lib/suggestion-settings";
@@ -1024,6 +1025,8 @@ export default function ProfilePage() {
             </Card>
           )}
         </div>
+
+        <IntegrationRequestsPanel showAdminTools={canAccessVendorApiAdmin(normalizedRole)} />
 
         {/* ── Notifications ── */}
         <Card data-testid="notifications-card">

@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
+import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
 import { Key, Plus, Trash2, Copy, CheckCircle, XCircle, Clock, Shield, RefreshCw, ExternalLink, LogIn, Lock } from "lucide-react";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -419,6 +420,8 @@ export default function VendorApiAdminPage() {
             )}
           </CardContent>
         </Card>
+
+        <IntegrationRequestsPanel showAdminTools />
       </div>
     </div>
   );

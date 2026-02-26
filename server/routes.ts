@@ -27,6 +27,7 @@ import { z } from "zod";
 import { setupCustomAuth, isAuthenticated } from "./custom-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
 
@@ -37,6 +38,7 @@ const bulkTimeEntrySchema = z.object({
   hours: z.number().min(0, "Hours cannot be negative").max(24, "Hours cannot exceed 24"),
   description: z.string().min(1, "Description is required").max(500, "Description too long"),
   caseNumber: z.string().nullable().optional(),
+  expenseCoverage: z.number().min(0, "Expense cannot be negative").max(1000000, "Expense too high").optional(),
 });
 
 const bulkRequestSchema = z.object({
@@ -218,6 +220,55 @@ const timeTrackingPdfTemplatePatchSchema = z.object({
   || data.visibleColumns !== undefined
 ), {
   message: "At least one setting must be provided",
+});
+
+const INTEGRATION_KEYS = ["fiken", "tripletex", "other"] as const;
+const INTEGRATION_ROADMAP_STATUSES = [
+  "requested",
+  "evaluating",
+  "planned",
+  "in_development",
+  "beta",
+  "launched",
+  "not_now",
+] as const;
+
+const integrationKeySchema = z.enum(INTEGRATION_KEYS);
+const integrationRoadmapStatusSchema = z.enum(INTEGRATION_ROADMAP_STATUSES);
+
+const integrationPrimaryRequestSchema = z.object({
+  integrationKey: integrationKeySchema,
+  requestNote: z.string().trim().max(1000).optional(),
+  useCase: z.string().trim().max(1000).optional(),
+  estimatedMonthlyVolume: z.number().int().min(0).max(100000000).optional(),
+  urgency: z.enum(["low", "normal", "high"]).optional(),
+  vendorId: z.number().int().positive().optional(),
+});
+
+const integrationSignalRequestSchema = z.object({
+  integrationKey: integrationKeySchema,
+  vendorId: z.number().int().positive().optional(),
+  note: z.string().trim().max(500).optional(),
+});
+
+const integrationRoadmapPatchSchema = z.object({
+  status: integrationRoadmapStatusSchema.optional(),
+  statusReason: z.string().trim().max(1000).nullable().optional(),
+  targetQuarter: z.string().trim().max(20).nullable().optional(),
+  fitScore: z.number().int().min(1).max(5).optional(),
+  changeNote: z.string().trim().max(1000).nullable().optional(),
+}).refine((value) => (
+  value.status !== undefined
+  || value.statusReason !== undefined
+  || value.targetQuarter !== undefined
+  || value.fitScore !== undefined
+  || value.changeNote !== undefined
+), {
+  message: "At least one field must be provided",
+});
+
+const integrationAnalyticsFilterSchema = z.object({
+  days: z.coerce.number().int().min(1).max(365).optional(),
 });
 
 type FeedbackStatsMap = Record<string, { accepted: number; rejected: number }>;
@@ -1113,6 +1164,664 @@ export async function registerRoutes(
   
   // Register Smart Timing API routes
   registerSmartTimingRoutes(app);
+
+  const onboardingRoleLabels: Record<string, string> = {
+    tiltaksleder: "Tiltaksleder",
+    miljoarbeider: "Miljøarbeider",
+  };
+
+  const onboardingManualStateTaskIds = new Set([
+    "profile_confirmed",
+    "guide_viewed",
+    "logo_uploaded",
+  ]);
+
+  const onboardingAutoTaskIdsByRole: Record<OnboardingRoleKey, Set<string>> = {
+    tiltaksleder: new Set([
+      "invite_worker",
+      "create_case",
+      "configure_compensation",
+      "approve_timesheet",
+    ]),
+    miljoarbeider: new Set([
+      "assigned_case",
+      "first_time_entry",
+      "submit_timesheet",
+      "submit_case_report",
+    ]),
+  };
+
+  type OnboardingTask = {
+    id: string;
+    title: string;
+    description: string;
+    done: boolean;
+    required: boolean;
+    kind: "manual" | "auto";
+    actionPath: string | null;
+    actionLabel: string | null;
+    group: "profil" | "oppsett" | "arbeidsflyt";
+  };
+
+  type OnboardingDialogContent = {
+    step0Title: string;
+    step0Description: string;
+    step1Title: string;
+    step1Description: string;
+    step2Title: string;
+    step2Description: string;
+    welcomeMessage: string;
+    completionHint: string;
+  };
+
+  function parseManualTaskCompletions(value: unknown): Record<string, boolean> {
+    if (!value) {
+      return {};
+    }
+
+    let parsed: unknown = value;
+    if (typeof value === "string") {
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return {};
+      }
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {};
+    }
+
+    const result: Record<string, boolean> = {};
+    Object.entries(parsed as Record<string, unknown>).forEach(([taskId, completed]) => {
+      const normalizedTaskId = taskId.trim();
+      if (!normalizedTaskId || completed !== true) {
+        return;
+      }
+      result[normalizedTaskId] = true;
+    });
+
+    return result;
+  }
+
+  async function ensureUserOnboardingStateTable() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS user_onboarding_state (
+        user_id TEXT PRIMARY KEY,
+        role TEXT,
+        profile_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+        guide_viewed BOOLEAN NOT NULL DEFAULT FALSE,
+        logo_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
+        manual_task_completions JSONB NOT NULL DEFAULT '{}'::jsonb,
+        dismissed_at TIMESTAMP,
+        snoozed_until TIMESTAMP,
+        completed_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS role TEXT`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS profile_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS guide_viewed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS logo_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS manual_task_completions JSONB NOT NULL DEFAULT '{}'::jsonb`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+  }
+
+  await ensureUserOnboardingStateTable();
+
+  async function ensureSiteSettingsTableForOnboarding() {
+    try {
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS site_settings (
+          id SERIAL PRIMARY KEY,
+          key TEXT NOT NULL UNIQUE,
+          value TEXT,
+          updated_at TIMESTAMP DEFAULT NOW()
+        )
+      `);
+    } catch {
+      // Ignore here; fallback content will be used if table is unavailable.
+    }
+  }
+
+  await ensureSiteSettingsTableForOnboarding();
+
+  async function ensureIntegrationRequestTables() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS integration_catalog (
+        id SERIAL PRIMARY KEY,
+        key TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        description TEXT,
+        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS integration_interest_primary (
+        id SERIAL PRIMARY KEY,
+        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        requested_by_user_id TEXT NOT NULL REFERENCES users(id),
+        request_note TEXT,
+        use_case TEXT,
+        estimated_monthly_volume INTEGER,
+        urgency TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(integration_key, vendor_id)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS integration_interest_signals (
+        id SERIAL PRIMARY KEY,
+        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        user_id TEXT NOT NULL REFERENCES users(id),
+        note TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW(),
+        UNIQUE(integration_key, user_id)
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS integration_roadmap (
+        id SERIAL PRIMARY KEY,
+        integration_key TEXT NOT NULL UNIQUE REFERENCES integration_catalog(key),
+        status TEXT NOT NULL DEFAULT 'requested',
+        status_reason TEXT,
+        target_quarter TEXT,
+        fit_score_input INTEGER NOT NULL DEFAULT 3,
+        score_total REAL NOT NULL DEFAULT 0,
+        score_demand REAL NOT NULL DEFAULT 0,
+        score_mrr REAL NOT NULL DEFAULT 0,
+        score_fit REAL NOT NULL DEFAULT 0,
+        updated_by TEXT,
+        updated_at TIMESTAMP DEFAULT NOW(),
+        created_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS integration_roadmap_history (
+        id SERIAL PRIMARY KEY,
+        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        from_status TEXT,
+        to_status TEXT NOT NULL,
+        changed_by TEXT,
+        change_note TEXT,
+        changed_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS note TEXT`);
+    await pool.query(`ALTER TABLE integration_roadmap ADD COLUMN IF NOT EXISTS fit_score_input INTEGER NOT NULL DEFAULT 3`);
+    await pool.query(`ALTER TABLE integration_roadmap ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE integration_interest_primary ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE integration_interest_primary ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+
+    await pool.query(`
+      INSERT INTO integration_catalog (key, name, description, is_active)
+      VALUES
+        ('fiken', 'Fiken', 'Regnskap og faktura-integrasjon mot Fiken'),
+        ('tripletex', 'Tripletex', 'Regnskap og lønnsdata-integrasjon mot Tripletex'),
+        ('other', 'Annet', 'Foreslå annen integrasjon')
+      ON CONFLICT (key)
+      DO UPDATE SET
+        name = EXCLUDED.name,
+        description = EXCLUDED.description,
+        is_active = TRUE,
+        updated_at = NOW()
+    `);
+
+    await pool.query(`
+      INSERT INTO integration_roadmap (integration_key, status, fit_score_input, updated_at)
+      SELECT c.key, 'requested', 3, NOW()
+      FROM integration_catalog c
+      LEFT JOIN integration_roadmap r ON r.integration_key = c.key
+      WHERE r.id IS NULL
+    `);
+  }
+
+  await ensureIntegrationRequestTables();
+
+  async function readOnboardingContentConfig(): Promise<OnboardingContentTemplate> {
+    try {
+      const result = await pool.query(
+        `SELECT value
+         FROM site_settings
+         WHERE key = $1
+         LIMIT 1`,
+        ["onboarding_content_v1"],
+      );
+      const rawValue = result.rows[0]?.value;
+      if (!rawValue) {
+        return DEFAULT_ONBOARDING_CONTENT;
+      }
+      return normalizeOnboardingContent(JSON.parse(rawValue));
+    } catch {
+      return DEFAULT_ONBOARDING_CONTENT;
+    }
+  }
+
+  async function safeCount(query: string, params: unknown[] = []): Promise<number> {
+    try {
+      const result = await pool.query(query, params);
+      if (!result.rows[0]) return 0;
+      const firstValue = Number(Object.values(result.rows[0])[0] ?? 0);
+      return Number.isFinite(firstValue) ? firstValue : 0;
+    } catch {
+      return 0;
+    }
+  }
+
+  async function getOrCreateOnboardingState(userId: string, role: string) {
+    const existing = await pool.query(
+      `SELECT user_id, role, profile_confirmed, guide_viewed, logo_confirmed, manual_task_completions, dismissed_at, snoozed_until, completed_at, created_at, updated_at
+       FROM user_onboarding_state
+       WHERE user_id = $1
+       LIMIT 1`,
+      [userId],
+    );
+    if (existing.rows[0]) {
+      return existing.rows[0];
+    }
+    const inserted = await pool.query(
+      `INSERT INTO user_onboarding_state (user_id, role)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE
+         SET role = EXCLUDED.role, updated_at = NOW()
+       RETURNING user_id, role, profile_confirmed, guide_viewed, logo_confirmed, manual_task_completions, dismissed_at, snoozed_until, completed_at, created_at, updated_at`,
+      [userId, role],
+    );
+    return inserted.rows[0];
+  }
+
+  async function resolveCompanyIdForOnboarding(email: string, vendorIdRaw: number | null) {
+    if (email) {
+      const companyResult = await pool.query(
+        `SELECT company_id
+         FROM company_users
+         WHERE LOWER(user_email) = LOWER($1)
+         ORDER BY id ASC
+         LIMIT 1`,
+        [email],
+      );
+      const companyId = Number(companyResult.rows[0]?.company_id);
+      if (Number.isFinite(companyId) && companyId > 0) {
+        return companyId;
+      }
+    }
+
+    if (Number.isFinite(vendorIdRaw) && vendorIdRaw && vendorIdRaw > 0) {
+      return vendorIdRaw;
+    }
+
+    return null;
+  }
+
+  async function buildOnboardingStatus(sessionUser: any) {
+    const userId = String(sessionUser?.id || "").trim();
+    const email = String(sessionUser?.email || "").trim().toLowerCase();
+    const role = normalizeRole(sessionUser?.role || "");
+    const vendorIdRaw = Number(sessionUser?.vendorId);
+
+    if (!userId) {
+      return {
+        userId: "",
+        role,
+        roleLabel: onboardingRoleLabels[role] || role || "Bruker",
+        completed: true,
+        dismissed: false,
+        progressPercent: 100,
+        completedCount: 0,
+        totalCount: 0,
+        tasks: [] as OnboardingTask[],
+        content: null,
+        nextActionPath: null,
+        snoozedUntil: null,
+        updatedAt: null,
+      };
+    }
+
+    if (role !== "tiltaksleder" && role !== "miljoarbeider") {
+      return {
+        userId,
+        role,
+        roleLabel: onboardingRoleLabels[role] || role || "Bruker",
+        completed: true,
+        dismissed: false,
+        progressPercent: 100,
+        completedCount: 0,
+        totalCount: 0,
+        tasks: [] as OnboardingTask[],
+        content: null,
+        nextActionPath: null,
+        snoozedUntil: null,
+        updatedAt: null,
+      };
+    }
+
+    const state = await getOrCreateOnboardingState(userId, role);
+    const onboardingContentConfig = await readOnboardingContentConfig();
+    const roleContentTemplate = onboardingContentConfig.roles[role as OnboardingRoleKey]
+      || DEFAULT_ONBOARDING_CONTENT.roles[role as OnboardingRoleKey];
+    const companyId = await resolveCompanyIdForOnboarding(email, Number.isFinite(vendorIdRaw) ? vendorIdRaw : null);
+
+    const [
+      hasTimeEntriesCount,
+      hasSubmittedTimesheetCount,
+      hasSubmittedCaseReportCount,
+      hasApprovedTimesheetCount,
+      assignedCasesCount,
+      invitedUsersCount,
+      companyCasesCount,
+      compensationConfiguredCount,
+    ] = await Promise.all([
+      safeCount(`SELECT COUNT(*)::int AS count FROM log_row WHERE user_id = $1`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM timesheet_submissions WHERE user_id = $1 AND status IN ('submitted', 'approved')`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM case_reports WHERE user_id = $1 AND status IN ('submitted', 'approved', 'needs_revision')`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM timesheet_submissions WHERE approved_by = $1 AND status = 'approved'`, [userId]),
+      email
+        ? safeCount(
+            `SELECT COUNT(*)::int AS count
+             FROM user_cases uc
+             JOIN company_users cu ON cu.id = uc.company_user_id
+             WHERE LOWER(cu.user_email) = LOWER($1)`,
+            [email],
+          )
+        : Promise.resolve(0),
+      companyId
+        ? safeCount(
+            `SELECT COUNT(*)::int AS count
+             FROM company_users
+             WHERE company_id = $1
+               AND LOWER(COALESCE(user_email, '')) <> LOWER($2)`,
+            [companyId, email],
+          )
+        : Promise.resolve(0),
+      companyId
+        ? safeCount(
+            `SELECT COUNT(*)::int AS count
+             FROM user_cases uc
+             JOIN company_users cu ON cu.id = uc.company_user_id
+             WHERE cu.company_id = $1`,
+            [companyId],
+          )
+        : Promise.resolve(0),
+      companyId
+        ? safeCount(
+            `SELECT COUNT(*)::int AS count
+             FROM user_cases uc
+             JOIN company_users cu ON cu.id = uc.company_user_id
+             WHERE cu.company_id = $1
+               AND (
+                 uc.hourly_rate IS NOT NULL
+                 OR COALESCE(uc.expenses_enabled, FALSE) = TRUE
+               )`,
+            [companyId],
+          )
+        : Promise.resolve(0),
+    ]);
+
+    let hasLogo = false;
+    if (Number.isFinite(vendorIdRaw) && vendorIdRaw > 0) {
+      try {
+        const logoResult = await pool.query(
+          `SELECT logo_url FROM vendors WHERE id = $1 LIMIT 1`,
+          [vendorIdRaw],
+        );
+        hasLogo = Boolean(String(logoResult.rows[0]?.logo_url || "").trim());
+      } catch {
+        hasLogo = false;
+      }
+    }
+
+    const manualTaskCompletions = parseManualTaskCompletions(state.manual_task_completions);
+
+    const tasks: OnboardingTask[] = role === "tiltaksleder"
+      ? [
+          {
+            id: "profile_confirmed",
+            title: "Bekreft profil",
+            description: "Bekreft at virksomhetsinformasjon og kontaktdata er korrekt.",
+            done: Boolean(state.profile_confirmed),
+            required: true,
+            kind: "manual",
+            actionPath: "/profile",
+            actionLabel: "Åpne profil",
+            group: "profil",
+          },
+          {
+            id: "guide_viewed",
+            title: "Se Get Started-guide",
+            description: "Gå gjennom rolleflyten for tiltaksleder før oppstart.",
+            done: Boolean(state.guide_viewed),
+            required: true,
+            kind: "manual",
+            actionPath: "/guide",
+            actionLabel: "Åpne guide",
+            group: "profil",
+          },
+          {
+            id: "invite_worker",
+            title: "Inviter miljøarbeider",
+            description: "Inviter minst én miljøarbeider til virksomheten.",
+            done: invitedUsersCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/invites",
+            actionLabel: "Inviter nå",
+            group: "oppsett",
+          },
+          {
+            id: "create_case",
+            title: "Opprett eller tildel sak",
+            description: "Sørg for at minst én sak er opprettet i portalen.",
+            done: companyCasesCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/cases",
+            actionLabel: "Gå til saker",
+            group: "oppsett",
+          },
+          {
+            id: "configure_compensation",
+            title: "Sett timesats/utgift per sak",
+            description: "Konfigurer timesats og eventuelt utgiftspost på minst én sak.",
+            done: compensationConfiguredCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/invites",
+            actionLabel: "Konfigurer sats",
+            group: "oppsett",
+          },
+          {
+            id: "logo_uploaded",
+            title: "Legg til firmalogo (valgfritt)",
+            description: "Logo brukes i rapporter og PDF-er.",
+            done: Boolean(state.logo_confirmed) || hasLogo,
+            required: false,
+            kind: "manual",
+            actionPath: "/profile",
+            actionLabel: "Legg til logo",
+            group: "profil",
+          },
+          {
+            id: "approve_timesheet",
+            title: "Godkjenn første timeliste (valgfritt)",
+            description: "Når første innsending kommer inn, godkjenn den for å fullføre flyten.",
+            done: hasApprovedTimesheetCount > 0,
+            required: false,
+            kind: "auto",
+            actionPath: "/timesheets",
+            actionLabel: "Åpne timelister",
+            group: "arbeidsflyt",
+          },
+        ]
+      : [
+          {
+            id: "profile_confirmed",
+            title: "Bekreft profil",
+            description: "Bekreft at kontaktopplysninger og språkvalg stemmer.",
+            done: Boolean(state.profile_confirmed),
+            required: true,
+            kind: "manual",
+            actionPath: "/profile",
+            actionLabel: "Åpne profil",
+            group: "profil",
+          },
+          {
+            id: "guide_viewed",
+            title: "Se Get Started-guide",
+            description: "Gå gjennom onboarding for miljøarbeider før føring.",
+            done: Boolean(state.guide_viewed),
+            required: true,
+            kind: "manual",
+            actionPath: "/guide",
+            actionLabel: "Åpne guide",
+            group: "profil",
+          },
+          {
+            id: "assigned_case",
+            title: "Sikre tildelt sak",
+            description: "Du må ha minst én sak tildelt av tiltaksleder.",
+            done: assignedCasesCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/time-tracking",
+            actionLabel: "Gå til timeføring",
+            group: "oppsett",
+          },
+          {
+            id: "first_time_entry",
+            title: "Registrer første timer",
+            description: "Før første arbeidsøkt i den nye timerseksjonen.",
+            done: hasTimeEntriesCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/time-tracking",
+            actionLabel: "Registrer tid",
+            group: "arbeidsflyt",
+          },
+          {
+            id: "submit_timesheet",
+            title: "Send første timeliste",
+            description: "Send månedens timeliste til tiltaksleder for godkjenning.",
+            done: hasSubmittedTimesheetCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/timesheets",
+            actionLabel: "Åpne timelister",
+            group: "arbeidsflyt",
+          },
+          {
+            id: "submit_case_report",
+            title: "Send første saksrapport",
+            description: "Opprett og send inn en saksrapport i rapportflyten.",
+            done: hasSubmittedCaseReportCount > 0,
+            required: true,
+            kind: "auto",
+            actionPath: "/case-reports",
+            actionLabel: "Åpne saksrapporter",
+            group: "arbeidsflyt",
+          },
+        ];
+
+    const defaultTaskMap = new Map(tasks.map((task) => [task.id, task] as const));
+    const templatedTasks = roleContentTemplate.tasks
+      .map((templateTask) => {
+        if (templateTask.enabled === false) {
+          return null;
+        }
+
+        const defaultTask = defaultTaskMap.get(templateTask.id);
+        if (defaultTask) {
+          return {
+            ...defaultTask,
+            title: templateTask.title,
+            description: templateTask.description,
+            required: templateTask.required,
+            actionPath: templateTask.actionPath,
+            actionLabel: templateTask.actionLabel,
+            group: templateTask.group,
+          };
+        }
+
+        return {
+          id: templateTask.id,
+          title: templateTask.title,
+          description: templateTask.description,
+          done: Boolean(manualTaskCompletions[templateTask.id]),
+          required: templateTask.required,
+          kind: "manual" as const,
+          actionPath: templateTask.actionPath,
+          actionLabel: templateTask.actionLabel,
+          group: templateTask.group,
+        };
+      })
+      .filter((task): task is OnboardingTask => Boolean(task));
+
+    const requiredTasks = templatedTasks.filter((task) => task.required);
+    const completedCount = requiredTasks.filter((task) => task.done).length;
+    const totalCount = requiredTasks.length;
+    const progressPercent = totalCount > 0
+      ? Math.round((completedCount / totalCount) * 100)
+      : 100;
+    const autoCompleted = completedCount === totalCount;
+    const completed = Boolean(state.completed_at) || autoCompleted;
+    const dismissed = !completed && Boolean(state.dismissed_at);
+    const snoozedUntil = !completed ? (state.snoozed_until || null) : null;
+    const nextActionPath = requiredTasks.find((task) => !task.done)?.actionPath || null;
+
+    if (autoCompleted && !state.completed_at) {
+      await pool.query(
+        `UPDATE user_onboarding_state
+         SET completed_at = NOW(),
+             dismissed_at = NULL,
+             snoozed_until = NULL,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [userId],
+      );
+    }
+
+    return {
+      userId,
+      role,
+      roleLabel: onboardingRoleLabels[role] || role || "Bruker",
+      completed,
+      dismissed,
+      progressPercent,
+      completedCount,
+      totalCount,
+      tasks: templatedTasks,
+      content: {
+        step0Title: roleContentTemplate.step0Title,
+        step0Description: roleContentTemplate.step0Description,
+        step1Title: roleContentTemplate.step1Title,
+        step1Description: roleContentTemplate.step1Description,
+        step2Title: roleContentTemplate.step2Title,
+        step2Description: roleContentTemplate.step2Description,
+        welcomeMessage: roleContentTemplate.welcomeMessage,
+        completionHint: roleContentTemplate.completionHint,
+      } as OnboardingDialogContent,
+      nextActionPath,
+      snoozedUntil,
+      updatedAt: state.updated_at || null,
+    };
+  }
   
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
@@ -1197,6 +1906,1202 @@ export async function registerRoutes(
       next();
     });
   };
+
+  type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
+  type IntegrationRoadmapStatus = (typeof INTEGRATION_ROADMAP_STATUSES)[number];
+
+  const integrationRoadmapNotifyStatuses = new Set<IntegrationRoadmapStatus>([
+    "planned",
+    "in_development",
+    "beta",
+    "launched",
+    "not_now",
+  ]);
+
+  const integrationStatusLabels: Record<IntegrationRoadmapStatus, string> = {
+    requested: "Forespurt",
+    evaluating: "Vurderes",
+    planned: "Planlagt",
+    in_development: "Under utvikling",
+    beta: "Beta",
+    launched: "Lansert",
+    not_now: "Ikke nå",
+  };
+
+  function canManageIntegrationRoadmap(role: string | null | undefined): boolean {
+    const normalized = normalizeRole(role);
+    return normalized === "super_admin" || normalized === "hovedadmin" || normalized === "admin";
+  }
+
+  function canCreatePrimaryIntegrationRequest(role: string | null | undefined): boolean {
+    return canAccessVendorApiAdmin(role);
+  }
+
+  const requireVerifiedUser = (req: any, res: any, next: any) => {
+    const userId = String(req.user?.id || "").trim();
+    const userEmail = String(req.user?.email || "").trim();
+    if (!userId) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    if (!userEmail) {
+      return res.status(403).json({ error: "Kun verifiserte brukere kan bruke integrasjonsforespørsler" });
+    }
+    next();
+  };
+
+  async function resolveVendorIdForIntegrationRequest(req: any, explicitVendorId?: number): Promise<number | null> {
+    const sessionVendorId = Number(req.user?.vendorId);
+    if (Number.isFinite(sessionVendorId) && sessionVendorId > 0) {
+      return sessionVendorId;
+    }
+
+    const normalizedRole = normalizeRole(req.user?.role);
+    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
+      return explicitVendorId;
+    }
+
+    const authUserId = String(req.user?.id || "").trim();
+    if (!authUserId) {
+      return null;
+    }
+
+    const userResult = await pool.query(
+      `SELECT vendor_id
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [authUserId],
+    );
+
+    const dbVendorId = Number(userResult.rows[0]?.vendor_id);
+    if (Number.isFinite(dbVendorId) && dbVendorId > 0) {
+      return dbVendorId;
+    }
+
+    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
+      return explicitVendorId;
+    }
+
+    return null;
+  }
+
+  function validateIntegrationKey(keyRaw: string): IntegrationKey | null {
+    if (!keyRaw) return null;
+    const key = keyRaw.trim().toLowerCase();
+    if (!INTEGRATION_KEYS.includes(key as IntegrationKey)) return null;
+    return key as IntegrationKey;
+  }
+
+  async function ensureIntegrationCatalogKeyExists(integrationKey: IntegrationKey): Promise<boolean> {
+    const result = await pool.query(
+      `SELECT key
+       FROM integration_catalog
+       WHERE key = $1
+       LIMIT 1`,
+      [integrationKey],
+    );
+    return Boolean(result.rows[0]?.key);
+  }
+
+  type IntegrationPiiWarning = {
+    type: "name" | "full_name" | "email" | "phone" | "ssn";
+    field: string;
+    confidence: "high" | "medium";
+  };
+
+  function scanIntegrationOtherTextForPii(fields: Record<string, string | undefined>): IntegrationPiiWarning[] {
+    const warnings: IntegrationPiiWarning[] = [];
+    const emailPattern = /\\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}\\b/g;
+    const phonePattern = /\\b(?:\\+47\\s?)?\\d{2}\\s?\\d{2}\\s?\\d{2}\\s?\\d{2}\\b/g;
+    const ssnPattern = /\\b\\d{6}\\s?\\d{5}\\b/g;
+    const fullNamePattern = /\\b([A-ZÆØÅ][a-zæøå]{2,})\\s+([A-ZÆØÅ][a-zæøå]{2,})\\b/g;
+    const contextualNamePattern = /\\b(?:møte|snakket|samtale|kontakt|ringte)\\s+med\\s+([A-ZÆØÅ][a-zæøå]{2,})\\b/gi;
+
+    Object.entries(fields).forEach(([field, value]) => {
+      if (!value) return;
+
+      if (emailPattern.test(value)) {
+        warnings.push({ type: "email", field, confidence: "high" });
+      }
+      emailPattern.lastIndex = 0;
+
+      if (phonePattern.test(value)) {
+        warnings.push({ type: "phone", field, confidence: "high" });
+      }
+      phonePattern.lastIndex = 0;
+
+      if (ssnPattern.test(value)) {
+        warnings.push({ type: "ssn", field, confidence: "high" });
+      }
+      ssnPattern.lastIndex = 0;
+
+      if (fullNamePattern.test(value)) {
+        warnings.push({ type: "full_name", field, confidence: "medium" });
+      }
+      fullNamePattern.lastIndex = 0;
+
+      if (contextualNamePattern.test(value)) {
+        warnings.push({ type: "name", field, confidence: "medium" });
+      }
+      contextualNamePattern.lastIndex = 0;
+    });
+
+    return warnings;
+  }
+
+  async function recalculateIntegrationScores(targetIntegrationKey?: IntegrationKey) {
+    const statsResult = await pool.query(
+      `SELECT c.key AS integration_key,
+              COALESCE(primary_votes.primary_votes, 0) AS primary_votes,
+              COALESCE(signal_votes.team_signals, 0) AS team_signals,
+              COALESCE(mrr_values.estimated_mrr_value, 0) AS estimated_mrr_value,
+              COALESCE(r.fit_score_input, 3) AS fit_score_input
+         FROM integration_catalog c
+    LEFT JOIN (
+               SELECT integration_key, COUNT(DISTINCT vendor_id)::int AS primary_votes
+                 FROM integration_interest_primary
+             GROUP BY integration_key
+              ) primary_votes
+           ON primary_votes.integration_key = c.key
+    LEFT JOIN (
+               SELECT integration_key, COUNT(*)::int AS team_signals
+                 FROM integration_interest_signals
+             GROUP BY integration_key
+              ) signal_votes
+           ON signal_votes.integration_key = c.key
+    LEFT JOIN (
+               SELECT p.integration_key,
+                      SUM(
+                        CASE LOWER(COALESCE(v.subscription_plan, 'standard'))
+                          WHEN 'enterprise' THEN 2.8
+                          WHEN 'premium' THEN 2.1
+                          WHEN 'standard' THEN 1.4
+                          WHEN 'basic' THEN 1.0
+                          ELSE 1.2
+                        END * GREATEST(COALESCE(v.max_users, 0), 0)
+                      )::float8 AS estimated_mrr_value
+                 FROM integration_interest_primary p
+                 JOIN vendors v ON v.id = p.vendor_id
+             GROUP BY p.integration_key
+              ) mrr_values
+           ON mrr_values.integration_key = c.key
+    LEFT JOIN integration_roadmap r
+           ON r.integration_key = c.key
+        WHERE c.is_active = TRUE`,
+    );
+
+    const rows = statsResult.rows.map((row) => {
+      const integrationKey = validateIntegrationKey(String(row.integration_key || "")) || "other";
+      const primaryVotes = Number(row.primary_votes || 0);
+      const teamSignals = Number(row.team_signals || 0);
+      const mrrRaw = Number(row.estimated_mrr_value || 0);
+      const fitInput = clampNumber(Number(row.fit_score_input || 3), 1, 5);
+      const demandRaw = primaryVotes + (teamSignals * 0.2);
+      return {
+        integrationKey,
+        primaryVotes,
+        teamSignals,
+        mrrRaw,
+        fitInput,
+        demandRaw,
+      };
+    });
+
+    const maxDemandRaw = rows.reduce((max, row) => Math.max(max, row.demandRaw), 0);
+    const maxMrrRaw = rows.reduce((max, row) => Math.max(max, row.mrrRaw), 0);
+
+    const updatedScores: Array<{
+      integrationKey: IntegrationKey;
+      demand: number;
+      mrr: number;
+      fit: number;
+      total: number;
+    }> = [];
+
+    for (const row of rows) {
+      const demandScore = maxDemandRaw > 0
+        ? clampNumber((row.demandRaw / maxDemandRaw) * 100, 0, 100)
+        : 0;
+      const mrrScore = maxMrrRaw > 0
+        ? clampNumber((row.mrrRaw / maxMrrRaw) * 100, 0, 100)
+        : 0;
+      const fitScore = clampNumber(((row.fitInput - 1) / 4) * 100, 0, 100);
+      const totalScore = clampNumber((0.5 * demandScore) + (0.3 * mrrScore) + (0.2 * fitScore), 0, 100);
+
+      await pool.query(
+        `INSERT INTO integration_roadmap (integration_key, status, fit_score_input, score_total, score_demand, score_mrr, score_fit, updated_at)
+         VALUES ($1, 'requested', $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (integration_key)
+         DO UPDATE SET
+           fit_score_input = integration_roadmap.fit_score_input,
+           score_total = EXCLUDED.score_total,
+           score_demand = EXCLUDED.score_demand,
+           score_mrr = EXCLUDED.score_mrr,
+           score_fit = EXCLUDED.score_fit,
+           updated_at = NOW()`,
+        [
+          row.integrationKey,
+          row.fitInput,
+          Number(totalScore.toFixed(2)),
+          Number(demandScore.toFixed(2)),
+          Number(mrrScore.toFixed(2)),
+          Number(fitScore.toFixed(2)),
+        ],
+      );
+
+      updatedScores.push({
+        integrationKey: row.integrationKey,
+        demand: Number(demandScore.toFixed(2)),
+        mrr: Number(mrrScore.toFixed(2)),
+        fit: Number(fitScore.toFixed(2)),
+        total: Number(totalScore.toFixed(2)),
+      });
+    }
+
+    if (targetIntegrationKey) {
+      return {
+        updatedScores,
+        target: updatedScores.find((entry) => entry.integrationKey === targetIntegrationKey) || null,
+      };
+    }
+
+    return { updatedScores, target: null };
+  }
+
+  async function readIntegrationRoadmapRows() {
+    const result = await pool.query(
+      `SELECT c.key AS integration_key,
+              c.name,
+              c.description,
+              c.is_active,
+              COALESCE(r.status, 'requested') AS status,
+              r.status_reason,
+              r.target_quarter,
+              COALESCE(r.fit_score_input, 3) AS fit_score_input,
+              COALESCE(r.score_total, 0) AS score_total,
+              COALESCE(r.score_demand, 0) AS score_demand,
+              COALESCE(r.score_mrr, 0) AS score_mrr,
+              COALESCE(r.score_fit, 0) AS score_fit,
+              COALESCE(primary_votes.vendor_count, 0) AS primary_vendors,
+              COALESCE(signal_votes.signal_count, 0) AS team_signals,
+              COALESCE(r.updated_at, c.updated_at, c.created_at) AS updated_at,
+              r.updated_by
+         FROM integration_catalog c
+    LEFT JOIN integration_roadmap r
+           ON r.integration_key = c.key
+    LEFT JOIN (
+               SELECT integration_key, COUNT(DISTINCT vendor_id)::int AS vendor_count
+                 FROM integration_interest_primary
+             GROUP BY integration_key
+              ) primary_votes
+           ON primary_votes.integration_key = c.key
+    LEFT JOIN (
+               SELECT integration_key, COUNT(*)::int AS signal_count
+                 FROM integration_interest_signals
+             GROUP BY integration_key
+              ) signal_votes
+           ON signal_votes.integration_key = c.key
+        WHERE c.is_active = TRUE
+     ORDER BY CASE COALESCE(r.status, 'requested')
+                WHEN 'in_development' THEN 1
+                WHEN 'planned' THEN 2
+                WHEN 'beta' THEN 3
+                WHEN 'evaluating' THEN 4
+                WHEN 'requested' THEN 5
+                WHEN 'launched' THEN 6
+                WHEN 'not_now' THEN 7
+                ELSE 8
+              END,
+              COALESCE(r.score_total, 0) DESC,
+              c.name ASC`,
+    );
+
+    return result.rows.map((row) => ({
+      integrationKey: row.integration_key as IntegrationKey,
+      name: row.name,
+      description: row.description,
+      isActive: Boolean(row.is_active),
+      status: row.status as IntegrationRoadmapStatus,
+      statusReason: row.status_reason || null,
+      targetQuarter: row.target_quarter || null,
+      scoreTotal: Number(row.score_total || 0),
+      scoreDemand: Number(row.score_demand || 0),
+      scoreMrr: Number(row.score_mrr || 0),
+      scoreFit: Number(row.score_fit || 0),
+      fitScoreInput: Number(row.fit_score_input || 3),
+      primaryVendors: Number(row.primary_vendors || 0),
+      teamSignals: Number(row.team_signals || 0),
+      updatedAt: row.updated_at || null,
+      updatedBy: row.updated_by || null,
+    }));
+  }
+
+  async function readUserIntegrationInterest(userId: string) {
+    const [primaryResult, signalResult] = await Promise.all([
+      pool.query(
+        `SELECT integration_key
+           FROM integration_interest_primary
+          WHERE requested_by_user_id = $1`,
+        [userId],
+      ),
+      pool.query(
+        `SELECT integration_key
+           FROM integration_interest_signals
+          WHERE user_id = $1`,
+        [userId],
+      ),
+    ]);
+
+    return {
+      primaryKeys: new Set(
+        primaryResult.rows
+          .map((row) => validateIntegrationKey(String(row.integration_key || "")))
+          .filter((value): value is IntegrationKey => Boolean(value)),
+      ),
+      signalKeys: new Set(
+        signalResult.rows
+          .map((row) => validateIntegrationKey(String(row.integration_key || "")))
+          .filter((value): value is IntegrationKey => Boolean(value)),
+      ),
+    };
+  }
+
+  async function notifyIntegrationRoadmapStatusChange(opts: {
+    integrationKey: IntegrationKey;
+    fromStatus: IntegrationRoadmapStatus | null;
+    toStatus: IntegrationRoadmapStatus;
+    statusReason: string | null;
+    changedBy: string | null;
+  }) {
+    const integrationMetaResult = await pool.query(
+      `SELECT name
+       FROM integration_catalog
+       WHERE key = $1
+       LIMIT 1`,
+      [opts.integrationKey],
+    );
+    const integrationName = integrationMetaResult.rows[0]?.name || opts.integrationKey;
+    const toLabel = integrationStatusLabels[opts.toStatus] || opts.toStatus;
+    const fromLabel = opts.fromStatus ? (integrationStatusLabels[opts.fromStatus] || opts.fromStatus) : null;
+
+    const recipientResult = await pool.query(
+      `SELECT DISTINCT u.id, u.email, u.first_name, u.notification_email
+         FROM users u
+   INNER JOIN (
+               SELECT requested_by_user_id AS user_id
+                 FROM integration_interest_primary
+                WHERE integration_key = $1
+                UNION
+               SELECT user_id
+                 FROM integration_interest_signals
+                WHERE integration_key = $1
+              ) interested
+           ON interested.user_id = u.id`,
+      [opts.integrationKey],
+    );
+
+    const statusLine = fromLabel
+      ? `${integrationName}: ${fromLabel} → ${toLabel}`
+      : `${integrationName}: ${toLabel}`;
+    const reasonLine = opts.statusReason ? `Begrunnelse: ${opts.statusReason}` : null;
+    const notificationMessage = reasonLine
+      ? `${statusLine}. ${reasonLine}`
+      : `${statusLine}.`;
+
+    await Promise.all(recipientResult.rows.map(async (recipient) => {
+      const recipientUserId = String(recipient.id || "").trim();
+      if (!recipientUserId) return;
+
+      await createNotification({
+        userId: recipientUserId,
+        type: "integration_roadmap_status",
+        title: "Oppdatering på integrasjonsroadmap",
+        message: notificationMessage,
+        link: "/vendor-api-admin",
+        metadata: {
+          integrationKey: opts.integrationKey,
+          fromStatus: opts.fromStatus,
+          toStatus: opts.toStatus,
+        },
+        createdBy: opts.changedBy || undefined,
+      });
+
+      const recipientEmail = String(recipient.email || "").trim();
+      const emailOptIn = recipient.notification_email !== false;
+      if (!recipientEmail || !emailOptIn) {
+        return;
+      }
+
+      const greetingName = String(recipient.first_name || "").trim() || "der";
+      const appUrl = process.env.APP_URL || "https://tidsflyt.no";
+      await emailService.sendEmail({
+        to: recipientEmail,
+        subject: `Tidum: ${integrationName} er nå ${toLabel.toLowerCase()}`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto;">
+            <h2 style="color: #0f172a;">Integrasjonsroadmap oppdatert</h2>
+            <p>Hei ${greetingName},</p>
+            <p>Status for <strong>${integrationName}</strong> er oppdatert.</p>
+            <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0;">
+              <p style="margin: 0 0 8px 0;"><strong>Ny status:</strong> ${toLabel}</p>
+              ${fromLabel ? `<p style="margin: 0 0 8px 0;"><strong>Forrige status:</strong> ${fromLabel}</p>` : ""}
+              ${opts.statusReason ? `<p style="margin: 0;"><strong>Begrunnelse:</strong> ${opts.statusReason}</p>` : ""}
+            </div>
+            <a href="${appUrl}/vendor-api-admin"
+               style="display: inline-block; background: #0f766e; color: #fff; text-decoration: none; padding: 10px 18px; border-radius: 8px;">
+              Se integrasjoner i Tidum
+            </a>
+          </div>
+        `,
+        text: [
+          `Hei ${greetingName},`,
+          "",
+          `Status for ${integrationName} er oppdatert til ${toLabel}.`,
+          fromLabel ? `Forrige status: ${fromLabel}.` : null,
+          opts.statusReason ? `Begrunnelse: ${opts.statusReason}.` : null,
+          "",
+          `Se roadmap: ${appUrl}/vendor-api-admin`,
+        ].filter(Boolean).join("\n"),
+      });
+    }));
+  }
+
+  function resolveAdminVendorScope(req: any): { vendorId: number | null; error: string | null } {
+    const normalizedRole = normalizeRole(req.user?.role);
+    const sessionVendorId = Number(req.user?.vendorId);
+    const requestedVendorId = Number(req.query.vendorId);
+
+    if (normalizedRole === "vendor_admin") {
+      if (!Number.isFinite(sessionVendorId) || sessionVendorId <= 0) {
+        return { vendorId: null, error: "Vendor admin mangler vendor-tilknytning" };
+      }
+      return { vendorId: sessionVendorId, error: null };
+    }
+
+    if (Number.isFinite(requestedVendorId) && requestedVendorId > 0) {
+      return { vendorId: requestedVendorId, error: null };
+    }
+
+    return { vendorId: null, error: null };
+  }
+
+  // Integration catalog + roadmap (request-driven MVP)
+  app.get("/api/integrations/catalog", isAuthenticated, requireVerifiedUser, async (_req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT key, name, description, is_active AS "isActive", updated_at AS "updatedAt"
+           FROM integration_catalog
+          WHERE is_active = TRUE
+       ORDER BY CASE key
+                  WHEN 'fiken' THEN 1
+                  WHEN 'tripletex' THEN 2
+                  WHEN 'other' THEN 3
+                  ELSE 4
+                END`,
+      );
+      res.json({ catalog: result.rows });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/integrations/roadmap", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      const [roadmapRows, myInterest] = await Promise.all([
+        readIntegrationRoadmapRows(),
+        readUserIntegrationInterest(authUserId),
+      ]);
+
+      const roadmap = roadmapRows.map((row) => ({
+        ...row,
+        mine: {
+          hasPrimaryRequest: myInterest.primaryKeys.has(row.integrationKey),
+          hasTeamSignal: myInterest.signalKeys.has(row.integrationKey),
+        },
+      }));
+
+      res.json({
+        statuses: INTEGRATION_ROADMAP_STATUSES,
+        roadmap,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/integrations/requests/primary", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const parsed = integrationPrimaryRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+      }
+
+      const userRole = normalizeRole((req.user as any)?.role);
+      if (!canCreatePrimaryIntegrationRequest(userRole)) {
+        return res.status(403).json({ error: "Kun admin/vendor_admin kan sende hovedforespørsel" });
+      }
+
+      const authUserId = String((req.user as any)?.id || "").trim();
+      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      if (!vendorId) {
+        return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for forespørselen" });
+      }
+
+      const integrationKey = parsed.data.integrationKey;
+      const catalogExists = await ensureIntegrationCatalogKeyExists(integrationKey);
+      if (!catalogExists) {
+        return res.status(404).json({ error: "Integrasjonen finnes ikke i katalogen" });
+      }
+
+      const requestNote = parsed.data.requestNote?.trim() || null;
+      const useCase = parsed.data.useCase?.trim() || null;
+      if (integrationKey === "other") {
+        const mergedOtherText = [requestNote, useCase].filter(Boolean).join("\n").trim();
+        if (!mergedOtherText) {
+          return res.status(400).json({ error: "Annet krever beskrivelse av ønsket integrasjon" });
+        }
+        const piiWarnings = scanIntegrationOtherTextForPii({
+          request_note: requestNote || undefined,
+          use_case: useCase || undefined,
+        });
+        if (piiWarnings.length > 0) {
+          return res.status(400).json({
+            error: "Forespørselen inneholder mulig personidentifiserbar informasjon. Fjern navn/personopplysninger.",
+            piiWarnings: piiWarnings.slice(0, 5).map((warning) => ({
+              type: warning.type,
+              field: warning.field,
+              confidence: warning.confidence,
+            })),
+          });
+        }
+      }
+
+      const insertResult = await pool.query(
+        `INSERT INTO integration_interest_primary (
+           integration_key,
+           vendor_id,
+           requested_by_user_id,
+           request_note,
+           use_case,
+           estimated_monthly_volume,
+           urgency,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+         ON CONFLICT (integration_key, vendor_id)
+         DO NOTHING
+         RETURNING id, integration_key, vendor_id, requested_by_user_id, request_note, use_case, estimated_monthly_volume, urgency, created_at, updated_at`,
+        [
+          integrationKey,
+          vendorId,
+          authUserId,
+          requestNote,
+          useCase,
+          parsed.data.estimatedMonthlyVolume ?? null,
+          parsed.data.urgency ?? null,
+        ],
+      );
+
+      if (!insertResult.rows[0]) {
+        return res.status(409).json({
+          error: "Virksomheten har allerede sendt hovedforespørsel for denne integrasjonen",
+        });
+      }
+
+      await recalculateIntegrationScores(integrationKey);
+      const roadmapRows = await readIntegrationRoadmapRows();
+      const roadmapEntry = roadmapRows.find((row) => row.integrationKey === integrationKey) || null;
+
+      res.status(201).json({
+        request: insertResult.rows[0],
+        roadmap: roadmapEntry,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/integrations/requests/signal", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const parsed = integrationSignalRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+      }
+
+      const authUserId = String((req.user as any)?.id || "").trim();
+      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      if (!vendorId) {
+        return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for signalet" });
+      }
+
+      const integrationKey = parsed.data.integrationKey;
+      const catalogExists = await ensureIntegrationCatalogKeyExists(integrationKey);
+      if (!catalogExists) {
+        return res.status(404).json({ error: "Integrasjonen finnes ikke i katalogen" });
+      }
+
+      const signalNote = parsed.data.note?.trim() || null;
+      if (integrationKey === "other") {
+        if (!signalNote) {
+          return res.status(400).json({ error: "Annet krever beskrivelse i signal-feltet" });
+        }
+        const piiWarnings = scanIntegrationOtherTextForPii({ note: signalNote });
+        if (piiWarnings.length > 0) {
+          return res.status(400).json({
+            error: "Signalet inneholder mulig personidentifiserbar informasjon. Fjern navn/personopplysninger.",
+            piiWarnings: piiWarnings.slice(0, 5).map((warning) => ({
+              type: warning.type,
+              field: warning.field,
+              confidence: warning.confidence,
+            })),
+          });
+        }
+      }
+
+      const insertResult = await pool.query(
+        `INSERT INTO integration_interest_signals (
+           integration_key,
+           vendor_id,
+           user_id,
+           note,
+           created_at,
+           updated_at
+         )
+         VALUES ($1, $2, $3, $4, NOW(), NOW())
+         ON CONFLICT (integration_key, user_id)
+         DO NOTHING
+         RETURNING id, integration_key, vendor_id, user_id, note, created_at, updated_at`,
+        [
+          integrationKey,
+          vendorId,
+          authUserId,
+          signalNote,
+        ],
+      );
+
+      if (!insertResult.rows[0]) {
+        return res.status(409).json({
+          error: "Du har allerede sendt team-signal for denne integrasjonen",
+        });
+      }
+
+      await recalculateIntegrationScores(integrationKey);
+      const roadmapRows = await readIntegrationRoadmapRows();
+      const roadmapEntry = roadmapRows.find((row) => row.integrationKey === integrationKey) || null;
+
+      res.status(201).json({
+        signal: insertResult.rows[0],
+        roadmap: roadmapEntry,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/integrations/requests/me", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+
+      const [primaryResult, signalsResult] = await Promise.all([
+        pool.query(
+          `SELECT p.id,
+                  p.integration_key,
+                  c.name AS integration_name,
+                  p.vendor_id,
+                  v.name AS vendor_name,
+                  p.request_note,
+                  p.use_case,
+                  p.estimated_monthly_volume,
+                  p.urgency,
+                  p.created_at,
+                  p.updated_at
+             FROM integration_interest_primary p
+        LEFT JOIN integration_catalog c ON c.key = p.integration_key
+        LEFT JOIN vendors v ON v.id = p.vendor_id
+            WHERE p.requested_by_user_id = $1
+         ORDER BY p.created_at DESC`,
+          [authUserId],
+        ),
+        pool.query(
+          `SELECT s.id,
+                  s.integration_key,
+                  c.name AS integration_name,
+                  s.vendor_id,
+                  v.name AS vendor_name,
+                  s.note,
+                  s.created_at,
+                  s.updated_at
+             FROM integration_interest_signals s
+        LEFT JOIN integration_catalog c ON c.key = s.integration_key
+        LEFT JOIN vendors v ON v.id = s.vendor_id
+            WHERE s.user_id = $1
+         ORDER BY s.created_at DESC`,
+          [authUserId],
+        ),
+      ]);
+
+      res.json({
+        primary: primaryResult.rows,
+        signals: signalsResult.rows,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/integrations/requests", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const userRole = normalizeRole((req.user as any)?.role);
+      if (!canAccessVendorApiAdmin(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const { vendorId: scopedVendorId, error } = resolveAdminVendorScope(req);
+      if (error) {
+        return res.status(403).json({ error });
+      }
+
+      const integrationKeyFilter = validateIntegrationKey(String(req.query.integrationKey || ""));
+
+      const primaryConditions: string[] = [];
+      const primaryParams: unknown[] = [];
+
+      if (Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0) {
+        primaryParams.push(scopedVendorId);
+        primaryConditions.push(`p.vendor_id = $${primaryParams.length}`);
+      }
+      if (integrationKeyFilter) {
+        primaryParams.push(integrationKeyFilter);
+        primaryConditions.push(`p.integration_key = $${primaryParams.length}`);
+      }
+
+      const signalConditions: string[] = [];
+      const signalParams: unknown[] = [];
+
+      if (Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0) {
+        signalParams.push(scopedVendorId);
+        signalConditions.push(`s.vendor_id = $${signalParams.length}`);
+      }
+      if (integrationKeyFilter) {
+        signalParams.push(integrationKeyFilter);
+        signalConditions.push(`s.integration_key = $${signalParams.length}`);
+      }
+
+      const [primaryResult, signalsResult] = await Promise.all([
+        pool.query(
+          `SELECT p.id,
+                  p.integration_key,
+                  c.name AS integration_name,
+                  p.vendor_id,
+                  v.name AS vendor_name,
+                  p.requested_by_user_id,
+                  requester.email AS requester_email,
+                  requester.first_name AS requester_first_name,
+                  requester.last_name AS requester_last_name,
+                  p.request_note,
+                  p.use_case,
+                  p.estimated_monthly_volume,
+                  p.urgency,
+                  p.created_at,
+                  p.updated_at
+             FROM integration_interest_primary p
+        LEFT JOIN integration_catalog c ON c.key = p.integration_key
+        LEFT JOIN vendors v ON v.id = p.vendor_id
+        LEFT JOIN users requester ON requester.id = p.requested_by_user_id
+            ${primaryConditions.length ? `WHERE ${primaryConditions.join(" AND ")}` : ""}
+         ORDER BY p.created_at DESC`,
+          primaryParams,
+        ),
+        pool.query(
+          `SELECT s.id,
+                  s.integration_key,
+                  c.name AS integration_name,
+                  s.vendor_id,
+                  v.name AS vendor_name,
+                  s.user_id,
+                  signal_user.email AS user_email,
+                  signal_user.first_name AS user_first_name,
+                  signal_user.last_name AS user_last_name,
+                  s.note,
+                  s.created_at,
+                  s.updated_at
+             FROM integration_interest_signals s
+        LEFT JOIN integration_catalog c ON c.key = s.integration_key
+        LEFT JOIN vendors v ON v.id = s.vendor_id
+        LEFT JOIN users signal_user ON signal_user.id = s.user_id
+            ${signalConditions.length ? `WHERE ${signalConditions.join(" AND ")}` : ""}
+         ORDER BY s.created_at DESC`,
+          signalParams,
+        ),
+      ]);
+
+      res.json({
+        scope: {
+          vendorId: scopedVendorId || null,
+        },
+        primary: primaryResult.rows,
+        signals: signalsResult.rows,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/admin/integrations/analytics", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const userRole = normalizeRole((req.user as any)?.role);
+      if (!canAccessVendorApiAdmin(userRole)) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
+
+      const parsedFilter = integrationAnalyticsFilterSchema.safeParse({
+        days: req.query.days,
+      });
+      if (!parsedFilter.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsedFilter.error.flatten() });
+      }
+
+      const selectedDays = parsedFilter.data.days ?? 30;
+      const { vendorId: scopedVendorId, error } = resolveAdminVendorScope(req);
+      if (error) {
+        return res.status(403).json({ error });
+      }
+
+      await recalculateIntegrationScores();
+
+      const catalogResult = await pool.query(
+        `SELECT key, name, description
+           FROM integration_catalog
+          WHERE is_active = TRUE
+       ORDER BY name ASC`,
+      );
+      const roadmapRows = await readIntegrationRoadmapRows();
+
+      const primaryResult = Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0
+        ? await pool.query(
+          `SELECT integration_key, vendor_id, created_at
+             FROM integration_interest_primary
+            WHERE vendor_id = $1`,
+          [scopedVendorId],
+        )
+        : await pool.query(
+          `SELECT integration_key, vendor_id, created_at
+             FROM integration_interest_primary`,
+        );
+
+      const signalsResult = Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0
+        ? await pool.query(
+          `SELECT integration_key, vendor_id, user_id, created_at
+             FROM integration_interest_signals
+            WHERE vendor_id = $1`,
+          [scopedVendorId],
+        )
+        : await pool.query(
+          `SELECT integration_key, vendor_id, user_id, created_at
+             FROM integration_interest_signals`,
+        );
+
+      const now = Date.now();
+      const windows = [7, 30, 90] as const;
+      const windowThresholds = new Map<number, number>(
+        windows.map((days) => [days, now - (days * 24 * 60 * 60 * 1000)]),
+      );
+
+      const uniqueVendorsByIntegration = new Map<string, Set<number>>();
+      const signalCountByIntegration = new Map<string, number>();
+      const trendPrimaryByWindow = new Map<number, Map<string, number>>();
+      const trendSignalsByWindow = new Map<number, Map<string, number>>();
+
+      windows.forEach((days) => {
+        trendPrimaryByWindow.set(days, new Map());
+        trendSignalsByWindow.set(days, new Map());
+      });
+
+      for (const row of primaryResult.rows) {
+        const integrationKey = validateIntegrationKey(String(row.integration_key || ""));
+        if (!integrationKey) continue;
+        const vendorId = Number(row.vendor_id);
+        if (!Number.isFinite(vendorId)) continue;
+
+        const set = uniqueVendorsByIntegration.get(integrationKey) || new Set<number>();
+        set.add(vendorId);
+        uniqueVendorsByIntegration.set(integrationKey, set);
+
+        const createdAtMs = Date.parse(String(row.created_at || ""));
+        if (Number.isFinite(createdAtMs)) {
+          windows.forEach((days) => {
+            const threshold = windowThresholds.get(days) || 0;
+            if (createdAtMs >= threshold) {
+              const windowMap = trendPrimaryByWindow.get(days)!;
+              windowMap.set(integrationKey, (windowMap.get(integrationKey) || 0) + 1);
+            }
+          });
+        }
+      }
+
+      for (const row of signalsResult.rows) {
+        const integrationKey = validateIntegrationKey(String(row.integration_key || ""));
+        if (!integrationKey) continue;
+        signalCountByIntegration.set(integrationKey, (signalCountByIntegration.get(integrationKey) || 0) + 1);
+
+        const createdAtMs = Date.parse(String(row.created_at || ""));
+        if (Number.isFinite(createdAtMs)) {
+          windows.forEach((days) => {
+            const threshold = windowThresholds.get(days) || 0;
+            if (createdAtMs >= threshold) {
+              const windowMap = trendSignalsByWindow.get(days)!;
+              windowMap.set(integrationKey, (windowMap.get(integrationKey) || 0) + 1);
+            }
+          });
+        }
+      }
+
+      const roadmapByIntegration = new Map(
+        roadmapRows.map((row) => [row.integrationKey, row] as const),
+      );
+
+      const summaryByIntegration = catalogResult.rows.map((catalogRow) => {
+        const integrationKey = validateIntegrationKey(String(catalogRow.key || "")) || "other";
+        const roadmap = roadmapByIntegration.get(integrationKey);
+        return {
+          integrationKey,
+          name: catalogRow.name,
+          description: catalogRow.description || "",
+          uniqueVendors: uniqueVendorsByIntegration.get(integrationKey)?.size || 0,
+          teamSignals: signalCountByIntegration.get(integrationKey) || 0,
+          status: roadmap?.status || "requested",
+          score: {
+            total: roadmap?.scoreTotal || 0,
+            demand: roadmap?.scoreDemand || 0,
+            mrr: roadmap?.scoreMrr || 0,
+            fit: roadmap?.scoreFit || 0,
+            fitInput: roadmap?.fitScoreInput || 3,
+          },
+          updatedAt: roadmap?.updatedAt || null,
+        };
+      });
+
+      const trendsByWindow = windows.reduce<Record<string, Array<{
+        integrationKey: IntegrationKey;
+        primaryRequests: number;
+        teamSignals: number;
+      }>>>((acc, days) => {
+        acc[String(days)] = summaryByIntegration.map((row) => ({
+          integrationKey: row.integrationKey,
+          primaryRequests: trendPrimaryByWindow.get(days)?.get(row.integrationKey) || 0,
+          teamSignals: trendSignalsByWindow.get(days)?.get(row.integrationKey) || 0,
+        }));
+        return acc;
+      }, {});
+
+      const selectedThreshold = windowThresholds.get(selectedDays) || (now - (selectedDays * 24 * 60 * 60 * 1000));
+      const selectedTrendTotals = {
+        primaryRequests: primaryResult.rows.filter((row) => {
+          const createdAtMs = Date.parse(String(row.created_at || ""));
+          return Number.isFinite(createdAtMs) && createdAtMs >= selectedThreshold;
+        }).length,
+        teamSignals: signalsResult.rows.filter((row) => {
+          const createdAtMs = Date.parse(String(row.created_at || ""));
+          return Number.isFinite(createdAtMs) && createdAtMs >= selectedThreshold;
+        }).length,
+      };
+
+      const integrationsWithDemand = summaryByIntegration.filter((row) => (row.uniqueVendors + row.teamSignals) > 0).length;
+      const plannedOrBeyondCount = summaryByIntegration.filter((row) => (
+        row.status === "planned"
+        || row.status === "in_development"
+        || row.status === "beta"
+        || row.status === "launched"
+      )).length;
+      const launchedCount = summaryByIntegration.filter((row) => row.status === "launched").length;
+
+      res.json({
+        scope: {
+          vendorId: scopedVendorId || null,
+        },
+        periodDays: selectedDays,
+        summaryByIntegration,
+        trends: {
+          byWindow: trendsByWindow,
+          selectedPeriod: selectedTrendTotals,
+        },
+        conversion: {
+          requestedToPlanned: {
+            numerator: plannedOrBeyondCount,
+            denominator: integrationsWithDemand,
+            percent: integrationsWithDemand > 0
+              ? Number(((plannedOrBeyondCount / integrationsWithDemand) * 100).toFixed(2))
+              : 0,
+          },
+          plannedToLaunched: {
+            numerator: launchedCount,
+            denominator: plannedOrBeyondCount,
+            percent: plannedOrBeyondCount > 0
+              ? Number(((launchedCount / plannedOrBeyondCount) * 100).toFixed(2))
+              : 0,
+          },
+        },
+        generatedAt: new Date().toISOString(),
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/admin/integrations/roadmap/:integrationKey", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const userRole = normalizeRole((req.user as any)?.role);
+      if (!canManageIntegrationRoadmap(userRole)) {
+        return res.status(403).json({ error: "Kun produkt/admin kan oppdatere roadmap-status" });
+      }
+
+      const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
+      if (!integrationKey) {
+        return res.status(400).json({ error: "Ugyldig integrationKey" });
+      }
+
+      const parsed = integrationRoadmapPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
+      }
+
+      const catalogExists = await ensureIntegrationCatalogKeyExists(integrationKey);
+      if (!catalogExists) {
+        return res.status(404).json({ error: "Integrasjonen finnes ikke i katalogen" });
+      }
+
+      await pool.query(
+        `INSERT INTO integration_roadmap (integration_key, status, fit_score_input, updated_at)
+         VALUES ($1, 'requested', 3, NOW())
+         ON CONFLICT (integration_key) DO NOTHING`,
+        [integrationKey],
+      );
+
+      const existingResult = await pool.query(
+        `SELECT integration_key, status, status_reason, target_quarter, fit_score_input
+           FROM integration_roadmap
+          WHERE integration_key = $1
+          LIMIT 1`,
+        [integrationKey],
+      );
+      const existing = existingResult.rows[0];
+      if (!existing) {
+        return res.status(500).json({ error: "Kunne ikke hente roadmap-rad etter opprettelse" });
+      }
+
+      const nextStatus = (parsed.data.status || existing.status || "requested") as IntegrationRoadmapStatus;
+      const nextStatusReason = parsed.data.statusReason !== undefined
+        ? parsed.data.statusReason
+        : (existing.status_reason || null);
+      const nextTargetQuarter = parsed.data.targetQuarter !== undefined
+        ? parsed.data.targetQuarter
+        : (existing.target_quarter || null);
+      const nextFitScore = parsed.data.fitScore !== undefined
+        ? clampNumber(parsed.data.fitScore, 1, 5)
+        : clampNumber(Number(existing.fit_score_input || 3), 1, 5);
+      const changedBy = String((req.user as any)?.id || "").trim() || null;
+
+      await pool.query(
+        `UPDATE integration_roadmap
+            SET status = $2,
+                status_reason = $3,
+                target_quarter = $4,
+                fit_score_input = $5,
+                updated_by = $6,
+                updated_at = NOW()
+          WHERE integration_key = $1`,
+        [
+          integrationKey,
+          nextStatus,
+          nextStatusReason,
+          nextTargetQuarter,
+          nextFitScore,
+          changedBy,
+        ],
+      );
+
+      const previousStatus = INTEGRATION_ROADMAP_STATUSES.includes(existing.status as IntegrationRoadmapStatus)
+        ? (existing.status as IntegrationRoadmapStatus)
+        : null;
+      const statusChanged = existing.status !== nextStatus;
+
+      if (statusChanged) {
+        await pool.query(
+          `INSERT INTO integration_roadmap_history (
+             integration_key,
+             from_status,
+             to_status,
+             changed_by,
+             change_note,
+             changed_at
+           )
+           VALUES ($1, $2, $3, $4, $5, NOW())`,
+          [
+            integrationKey,
+            existing.status || null,
+            nextStatus,
+            changedBy,
+            parsed.data.changeNote ?? parsed.data.statusReason ?? null,
+          ],
+        );
+      }
+
+      await recalculateIntegrationScores(integrationKey);
+
+      if (statusChanged && integrationRoadmapNotifyStatuses.has(nextStatus)) {
+        await notifyIntegrationRoadmapStatusChange({
+          integrationKey,
+          fromStatus: previousStatus,
+          toStatus: nextStatus,
+          statusReason: nextStatusReason || null,
+          changedBy,
+        });
+      }
+
+      const roadmapRows = await readIntegrationRoadmapRows();
+      const updatedRoadmap = roadmapRows.find((row) => row.integrationKey === integrationKey) || null;
+
+      res.json({
+        roadmap: updatedRoadmap,
+        statusChanged,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/admin/integrations/roadmap/:integrationKey/recalculate-score", isAuthenticated, requireVerifiedUser, async (req, res) => {
+    try {
+      const userRole = normalizeRole((req.user as any)?.role);
+      if (!canManageIntegrationRoadmap(userRole)) {
+        return res.status(403).json({ error: "Kun produkt/admin kan recalculere score" });
+      }
+
+      const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
+      if (!integrationKey) {
+        return res.status(400).json({ error: "Ugyldig integrationKey" });
+      }
+
+      const catalogExists = await ensureIntegrationCatalogKeyExists(integrationKey);
+      if (!catalogExists) {
+        return res.status(404).json({ error: "Integrasjonen finnes ikke i katalogen" });
+      }
+
+      const scoreResult = await recalculateIntegrationScores(integrationKey);
+      const roadmapRows = await readIntegrationRoadmapRows();
+      const roadmap = roadmapRows.find((row) => row.integrationKey === integrationKey) || null;
+
+      res.json({
+        integrationKey,
+        score: scoreResult.target,
+        roadmap,
+      });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
 
   // Vendor API management routes (for admin UI)
   app.get("/api/vendor/api-status", requireVendorAuth, async (req: any, res) => {
@@ -1548,6 +3453,177 @@ export async function registerRoutes(
     notificationEmail: z.boolean().optional(),
     notificationPush: z.boolean().optional(),
     notificationWeekly: z.boolean().optional(),
+  });
+
+  const onboardingStatusPatchSchema = z.object({
+    profileConfirmed: z.boolean().optional(),
+    guideViewed: z.boolean().optional(),
+    logoConfirmed: z.boolean().optional(),
+    dismissed: z.boolean().optional(),
+    reopen: z.boolean().optional(),
+    completed: z.boolean().optional(),
+    taskId: z.string().trim().min(1).max(120).optional(),
+    taskDone: z.boolean().optional(),
+    snoozeHours: z.number().int().min(1).max(24 * 30).optional(),
+    clearSnooze: z.boolean().optional(),
+  }).refine((value) => (
+    value.profileConfirmed !== undefined
+    || value.guideViewed !== undefined
+    || value.logoConfirmed !== undefined
+    || value.dismissed !== undefined
+    || value.reopen !== undefined
+    || value.completed !== undefined
+    || value.taskId !== undefined
+    || value.taskDone !== undefined
+    || value.snoozeHours !== undefined
+    || value.clearSnooze !== undefined
+  ), {
+    message: "At least one field must be provided",
+  }).refine((value) => (
+    value.taskDone === undefined || value.taskId !== undefined
+  ), {
+    message: "taskDone requires taskId",
+    path: ["taskDone"],
+  });
+
+  app.get("/api/onboarding/status", isAuthenticated, async (req, res) => {
+    try {
+      const status = await buildOnboardingStatus(req.user as any);
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.patch("/api/onboarding/status", isAuthenticated, async (req, res) => {
+    try {
+      const parsed = onboardingStatusPatchSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten().fieldErrors,
+        });
+      }
+
+      const sessionUser = req.user as any;
+      const userId = String(sessionUser?.id || "").trim();
+      if (!userId) {
+        return res.status(401).json({ error: "Unauthorized" });
+      }
+      const role = normalizeRole(sessionUser?.role || "");
+
+      const state = await getOrCreateOnboardingState(userId, role);
+      const patch = parsed.data;
+      const now = new Date();
+
+      let nextProfileConfirmed = patch.profileConfirmed ?? Boolean(state.profile_confirmed);
+      let nextGuideViewed = patch.guideViewed ?? Boolean(state.guide_viewed);
+      let nextLogoConfirmed = patch.logoConfirmed ?? Boolean(state.logo_confirmed);
+      const nextManualTaskCompletions = parseManualTaskCompletions(state.manual_task_completions);
+
+      let nextDismissedAt = state.dismissed_at ?? null;
+      let nextSnoozedUntil = state.snoozed_until ?? null;
+      if (patch.reopen) {
+        nextDismissedAt = null;
+        nextSnoozedUntil = null;
+      }
+      if (patch.dismissed !== undefined) {
+        nextDismissedAt = patch.dismissed ? now : null;
+        if (patch.dismissed) {
+          nextSnoozedUntil = null;
+        }
+      }
+
+      let nextCompletedAt = state.completed_at ?? null;
+      if (patch.completed !== undefined) {
+        nextCompletedAt = patch.completed ? now : null;
+        if (patch.completed) {
+          nextDismissedAt = null;
+          nextSnoozedUntil = null;
+        }
+      }
+
+      if (patch.clearSnooze) {
+        nextSnoozedUntil = null;
+      }
+
+      if (patch.snoozeHours !== undefined) {
+        nextSnoozedUntil = new Date(now.getTime() + patch.snoozeHours * 60 * 60 * 1000);
+        nextDismissedAt = null;
+      }
+
+      if (patch.taskId) {
+        const taskId = patch.taskId.trim();
+        const roleKey = role === "tiltaksleder" || role === "miljoarbeider"
+          ? (role as OnboardingRoleKey)
+          : null;
+
+        if (!roleKey) {
+          return res.status(400).json({ error: "Onboarding task updates er ikke tilgjengelig for denne rollen" });
+        }
+
+        const onboardingContentConfig = await readOnboardingContentConfig();
+        const roleTemplate = onboardingContentConfig.roles[roleKey] || DEFAULT_ONBOARDING_CONTENT.roles[roleKey];
+        const templateTask = roleTemplate.tasks.find((task) => task.id === taskId && task.enabled !== false);
+
+        if (!templateTask) {
+          return res.status(400).json({ error: "Onboarding-oppgaven finnes ikke eller er deaktivert" });
+        }
+
+        const nextTaskDone = patch.taskDone ?? true;
+        if (taskId === "profile_confirmed") {
+          nextProfileConfirmed = nextTaskDone;
+        } else if (taskId === "guide_viewed") {
+          nextGuideViewed = nextTaskDone;
+        } else if (taskId === "logo_uploaded") {
+          nextLogoConfirmed = nextTaskDone;
+        } else if (onboardingAutoTaskIdsByRole[roleKey]?.has(taskId)) {
+          return res.status(400).json({ error: "Automatiske onboarding-oppgaver kan ikke oppdateres manuelt" });
+        } else if (onboardingManualStateTaskIds.has(taskId)) {
+          if (nextTaskDone) {
+            nextManualTaskCompletions[taskId] = true;
+          } else {
+            delete nextManualTaskCompletions[taskId];
+          }
+        } else {
+          if (nextTaskDone) {
+            nextManualTaskCompletions[taskId] = true;
+          } else {
+            delete nextManualTaskCompletions[taskId];
+          }
+        }
+      }
+
+      await pool.query(
+        `UPDATE user_onboarding_state
+         SET role = $2,
+             profile_confirmed = $3,
+             guide_viewed = $4,
+             logo_confirmed = $5,
+             manual_task_completions = $6::jsonb,
+             dismissed_at = $7,
+             snoozed_until = $8,
+             completed_at = $9,
+             updated_at = NOW()
+         WHERE user_id = $1`,
+        [
+          userId,
+          role,
+          nextProfileConfirmed,
+          nextGuideViewed,
+          nextLogoConfirmed,
+          JSON.stringify(nextManualTaskCompletions),
+          nextDismissedAt,
+          nextSnoozedUntil,
+          nextCompletedAt,
+        ],
+      );
+
+      const status = await buildOnboardingStatus(sessionUser);
+      res.json(status);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
   });
 
   app.get("/api/profile", isAuthenticated, async (req, res) => {
@@ -2020,7 +4096,11 @@ export async function registerRoutes(
       const companyId = Number.isFinite(companyIdRaw) && companyIdRaw > 0 ? companyIdRaw : 1;
 
       const result = await pool.query(
-        `SELECT uc.id, uc.case_id, uc.case_title, uc.status, uc.assigned_at
+        `SELECT uc.id, uc.case_id, uc.case_title, uc.status, uc.assigned_at,
+                uc.hourly_rate, uc.rate_effective_from, uc.rate_effective_to,
+                COALESCE(uc.expenses_enabled, false) AS expenses_enabled,
+                uc.expense_monthly_cap,
+                uc.expense_policy_note
          FROM company_users cu
          JOIN user_cases uc ON uc.company_user_id = cu.id
          WHERE cu.company_id = $1
@@ -2526,13 +4606,14 @@ export async function registerRoutes(
 
   app.post("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
-      const { caseNumber, description, hours, date, status, createdAt } = req.body;
+      const { caseNumber, description, hours, expenseCoverage, date, status, createdAt } = req.body;
       const userId = (req.user as any)?.id as string;
       const entry = await storage.createTimeEntry({
         userId,
         caseNumber,
         description,
         hours,
+        expenseCoverage: Number.isFinite(Number(expenseCoverage)) ? Number(expenseCoverage) : 0,
         date,
         status: status || 'pending',
         createdAt: createdAt || new Date().toISOString(),
@@ -2656,7 +4737,10 @@ export async function registerRoutes(
       const existingByDate = new Map(existingInRange.map(e => [e.date, e]));
 
       for (const entry of entries) {
-        const { date, hours, description, caseNumber } = entry;
+        const { date, hours, description, caseNumber, expenseCoverage: entryExpenseCoverage } = entry;
+        const expenseCoverage = Number.isFinite(Number(entryExpenseCoverage))
+          ? Number(entryExpenseCoverage)
+          : 0;
         const existing = existingByDate.get(date);
 
         if (existing) {
@@ -2665,6 +4749,7 @@ export async function registerRoutes(
               description: description.trim(),
               hours,
               caseNumber: caseNumber || null,
+              expenseCoverage,
               status: 'pending',
             });
             results.overwritten++;
@@ -2676,6 +4761,7 @@ export async function registerRoutes(
           const created = await storage.createTimeEntry({
             userId,
             caseNumber: caseNumber || null,
+            expenseCoverage,
             description: description.trim(),
             hours,
             date,

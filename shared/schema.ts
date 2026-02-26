@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -38,6 +38,13 @@ export const userCases = pgTable("user_cases", {
   companyUserId: integer("company_user_id"),
   caseId: text("case_id"),
   caseTitle: text("case_title"),
+  hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  expensesEnabled: boolean("expenses_enabled").default(false),
+  expenseMonthlyCap: numeric("expense_monthly_cap", { precision: 12, scale: 2 }),
+  expensePolicyNote: text("expense_policy_note"),
+  rateEffectiveFrom: date("rate_effective_from"),
+  rateEffectiveTo: date("rate_effective_to"),
+  updatedBy: text("updated_by"),
   status: text("status").default("active"),
   assignedAt: timestamp("assigned_at").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
@@ -1300,6 +1307,7 @@ export type TimeEntry = {
   caseNumber: string | null;
   description: string;
   hours: number;
+  expenseCoverage?: number;
   date: string;
   status: string;
   createdAt: string;
@@ -1324,6 +1332,22 @@ export const timesheetSubmissions = pgTable("timesheet_submissions", {
   vendorId: integer("vendor_id"),
   month: text("month").notNull(), // YYYY-MM format
   totalHours: numeric("total_hours", { precision: 10, scale: 2 }).default("0"),
+  billableWorkHours: numeric("billable_work_hours", { precision: 10, scale: 2 }).default("0"),
+  nonBillableWorkHours: numeric("non_billable_work_hours", { precision: 10, scale: 2 }).default("0"),
+  paidLeaveHours: numeric("paid_leave_hours", { precision: 10, scale: 2 }).default("0"),
+  unpaidLeaveHours: numeric("unpaid_leave_hours", { precision: 10, scale: 2 }).default("0"),
+  overtime50Hours: numeric("overtime_50_hours", { precision: 10, scale: 2 }).default("0"),
+  overtime100Hours: numeric("overtime_100_hours", { precision: 10, scale: 2 }).default("0"),
+  billableHoursTotal: numeric("billable_hours_total", { precision: 10, scale: 2 }).default("0"),
+  baseAmount: numeric("base_amount", { precision: 12, scale: 2 }).default("0"),
+  leaveAmount: numeric("leave_amount", { precision: 12, scale: 2 }).default("0"),
+  overtimeAmount: numeric("overtime_amount", { precision: 12, scale: 2 }).default("0"),
+  expenseRequestedAmount: numeric("expense_requested_amount", { precision: 12, scale: 2 }).default("0"),
+  expenseCoveredAmount: numeric("expense_covered_amount", { precision: 12, scale: 2 }).default("0"),
+  expenseNoncoveredAmount: numeric("expense_noncovered_amount", { precision: 12, scale: 2 }).default("0"),
+  totalPayableAmount: numeric("total_payable_amount", { precision: 12, scale: 2 }).default("0"),
+  caseBreakdown: jsonb("case_breakdown").default([]),
+  expenseBreakdown: jsonb("expense_breakdown").default([]),
   entryCount: integer("entry_count").default(0),
   status: text("status").default("draft").notNull(), // draft, submitted, approved, rejected
   submittedAt: timestamp("submitted_at"),
@@ -1418,6 +1442,9 @@ export const leaveTypes = pgTable("leave_types", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug"),
+  requiresApproval: boolean("requires_approval").default(true),
+  isPaid: boolean("is_paid").default(true),
+  payPercent: numeric("pay_percent", { precision: 5, scale: 2 }).default("100"),
   color: text("color"),
   icon: text("icon"),
   isActive: boolean("is_active").default(true),
@@ -1498,6 +1525,79 @@ export const notifications = pgTable("notifications", {
 });
 
 export type Notification = typeof notifications.$inferSelect;
+
+// ========== INTEGRATION REQUESTS ==========
+
+export const integrationCatalog = pgTable("integration_catalog", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const integrationInterestPrimary = pgTable(
+  "integration_interest_primary",
+  {
+    id: serial("id").primaryKey(),
+    integrationKey: text("integration_key").notNull(),
+    vendorId: integer("vendor_id").notNull(),
+    requestedByUserId: text("requested_by_user_id").notNull(),
+    requestNote: text("request_note"),
+    useCase: text("use_case"),
+    estimatedMonthlyVolume: integer("estimated_monthly_volume"),
+    urgency: text("urgency"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    uniqueIntegrationVendor: uniqueIndex("integration_interest_primary_integration_vendor_uidx").on(table.integrationKey, table.vendorId),
+  }),
+);
+
+export const integrationInterestSignals = pgTable(
+  "integration_interest_signals",
+  {
+    id: serial("id").primaryKey(),
+    integrationKey: text("integration_key").notNull(),
+    vendorId: integer("vendor_id").notNull(),
+    userId: text("user_id").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    uniqueIntegrationUser: uniqueIndex("integration_interest_signals_integration_user_uidx").on(table.integrationKey, table.userId),
+  }),
+);
+
+export const integrationRoadmap = pgTable("integration_roadmap", {
+  id: serial("id").primaryKey(),
+  integrationKey: text("integration_key").notNull().unique(),
+  status: text("status").notNull().default("requested"),
+  statusReason: text("status_reason"),
+  targetQuarter: text("target_quarter"),
+  fitScoreInput: integer("fit_score_input").notNull().default(3),
+  scoreTotal: real("score_total").notNull().default(0),
+  scoreDemand: real("score_demand").notNull().default(0),
+  scoreMrr: real("score_mrr").notNull().default(0),
+  scoreFit: real("score_fit").notNull().default(0),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const integrationRoadmapHistory = pgTable("integration_roadmap_history", {
+  id: serial("id").primaryKey(),
+  integrationKey: text("integration_key").notNull(),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  changedBy: text("changed_by"),
+  changeNote: text("change_note"),
+  changedAt: timestamp("changed_at").defaultNow(),
+});
 
 // ========== RECURRING ENTRIES ==========
 
