@@ -6412,6 +6412,7 @@ interface AnalyticsSettingsData {
   id?: number;
   ga4_measurement_id: string | null;
   ga4_stream_id: string | null;
+  gtm_container_id: string | null;
   enable_tracking: boolean;
   enable_page_views: boolean;
   enable_events: boolean;
@@ -6426,6 +6427,7 @@ function AnalyticsEditor() {
   const [formData, setFormData] = useState<AnalyticsSettingsData>({
     ga4_measurement_id: '',
     ga4_stream_id: '',
+    gtm_container_id: '',
     enable_tracking: false,
     enable_page_views: true,
     enable_events: true,
@@ -6445,6 +6447,7 @@ function AnalyticsEditor() {
       setFormData({
         ga4_measurement_id: settings.ga4_measurement_id || '',
         ga4_stream_id: settings.ga4_stream_id || '',
+        gtm_container_id: settings.gtm_container_id || '',
         enable_tracking: settings.enable_tracking || false,
         enable_page_views: settings.enable_page_views ?? true,
         enable_events: settings.enable_events ?? true,
@@ -6529,6 +6532,19 @@ function AnalyticsEditor() {
                 data-testid="input-ga4-stream"
               />
             </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="gtm-id">Google Tag Manager Container ID</Label>
+              <Input
+                id="gtm-id"
+                value={formData.gtm_container_id || ''}
+                onChange={(e) => setFormData({ ...formData, gtm_container_id: e.target.value })}
+                placeholder="GTM-XXXXXXX"
+                data-testid="input-gtm-id"
+              />
+              <p className="text-xs text-muted-foreground">
+                Tidum laster GTM separat fra GA4, slik at dere kan styre egne tags for nettstedet uten å blande det med Creatorhub.
+              </p>
+            </div>
           </div>
 
           <div className="space-y-4">
@@ -6604,14 +6620,21 @@ function AnalyticsEditor() {
 
       <Card>
         <CardHeader>
-          <CardTitle>GA4 Integrasjonskode</CardTitle>
+          <CardTitle>Integrasjonskode</CardTitle>
           <CardDescription>
             Denne koden legges automatisk til på nettstedet når sporing er aktivert
           </CardDescription>
         </CardHeader>
         <CardContent>
           <pre className="bg-muted p-4 rounded-md text-xs overflow-x-auto">
-{`<!-- Google Analytics 4 -->
+{`${formData.gtm_container_id ? `<!-- Google Tag Manager -->
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+</script>
+<script async src="https://www.googletagmanager.com/gtm.js?id=${formData.gtm_container_id || 'GTM-XXXXXXX'}"></script>
+
+` : ''}<!-- Google Analytics 4 -->
 <script async src="https://www.googletagmanager.com/gtag/js?id=${formData.ga4_measurement_id || 'G-XXXXXXXXXX'}"></script>
 <script>
   window.dataLayer = window.dataLayer || [];

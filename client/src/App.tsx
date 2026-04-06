@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthGuard } from "@/components/auth-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { AnalyticsRuntime } from "@/components/analytics-runtime";
 import NotFound from "@/pages/not-found";
 
 const Landing = lazy(() => import("@/pages/landing"));
@@ -60,8 +61,10 @@ function Router() {
         {/* Public routes */}
         <Route path="/" component={Landing} />
         <Route path="/kontakt" component={Contact} />
+        <Route path="/privacy" component={Privacy} />
         <Route path="/personvern" component={Privacy} />
         <Route path="/privacy-policy" component={Privacy} />
+        <Route path="/terms" component={Terms} />
         <Route path="/vilkar" component={Terms} />
         <Route path="/terms-and-conditions" component={Terms} />
         <Route path="/hvorfor" component={WhyTidum} />
@@ -112,6 +115,7 @@ function App() {
         <ThemeProvider defaultTheme="system" storageKey="smart-timing-theme">
           <TooltipProvider>
             <Toaster />
+            <AnalyticsRuntime />
             <main id="main-content">
               <Router />
             </main>

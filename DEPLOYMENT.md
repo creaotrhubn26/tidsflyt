@@ -48,11 +48,15 @@ SMTP_FROM_EMAIL=support@tidum.no
 SMTP_REPLY_TO=support@tidum.no
 MANAGER_EMAIL=support@tidum.no
 GITHUB_TOKEN=...
+DEFAULT_GA4_MEASUREMENT_ID=G-LTGH4LNPE3
+DEFAULT_GA4_STREAM_ID=14316357971
+DEFAULT_GTM_CONTAINER_ID=GTM-55SPZGMD
+DEFAULT_ENABLE_ANALYTICS=true
 ```
 
-## Google OAuth i `Creatorhubn1`
+## Google OAuth i `tidum-no`
 
-Bruk det eksisterende Google Cloud-prosjektet `Creatorhubn1`, men opprett en egen OAuth web client for Tidum.
+Bruk Google Cloud-prosjektet `tidum-no`, med en egen OAuth web client for Tidum.
 
 ### Consent screen
 
@@ -160,6 +164,8 @@ Når Vercel og Render er oppe:
 5. Test `https://tidum.no/api/health`
 6. Test Google-login via Tidum
 7. Bekreft at callback ender tilbake på Tidum-domenet
+8. Bekreft at GTM-container `GTM-55SPZGMD` lastes på offentlige sider
+9. Bekreft at GA4-property `Tidum` mottar `page_view`
 
 ## Notater
 

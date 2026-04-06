@@ -45,3 +45,11 @@ services:
         sync: false
       - key: GITHUB_TOKEN
         sync: false
+      - key: DEFAULT_GA4_MEASUREMENT_ID
+        value: G-LTGH4LNPE3
+      - key: DEFAULT_GA4_STREAM_ID
+        value: "14316357971"
+      - key: DEFAULT_GTM_CONTAINER_ID
+        value: GTM-55SPZGMD
+      - key: DEFAULT_ENABLE_ANALYTICS
+        value: "true"

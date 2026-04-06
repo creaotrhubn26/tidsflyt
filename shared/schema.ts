@@ -849,6 +849,7 @@ export const analyticsSettings = pgTable("analytics_settings", {
   id: serial("id").primaryKey(),
   ga4MeasurementId: text("ga4_measurement_id"),
   ga4StreamId: text("ga4_stream_id"),
+  gtmContainerId: text("gtm_container_id"),
   enableTracking: boolean("enable_tracking").default(false),
   enablePageViews: boolean("enable_page_views").default(true),
   enableEvents: boolean("enable_events").default(true),

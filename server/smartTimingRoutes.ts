@@ -115,6 +115,61 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
 
 const isDevMode = process.env.NODE_ENV !== 'production';
 
+const DEFAULT_ANALYTICS_EXCLUDED_PATHS = [
+  "/dashboard",
+  "/time-tracking",
+  "/time",
+  "/reports",
+  "/case-reports",
+  "/cases",
+  "/profile",
+  "/settings",
+  "/invites",
+  "/users",
+  "/leave",
+  "/invoices",
+  "/overtime",
+  "/recurring",
+  "/timesheets",
+  "/forward",
+  "/email",
+  "/admin",
+  "/vendors",
+  "/cms",
+  "/cms-legacy",
+  "/api-docs",
+  "/vendor/api",
+];
+
+const DEFAULT_GA4_MEASUREMENT_ID =
+  process.env.DEFAULT_GA4_MEASUREMENT_ID || "G-LTGH4LNPE3";
+const DEFAULT_GA4_STREAM_ID =
+  process.env.DEFAULT_GA4_STREAM_ID || "14316357971";
+const DEFAULT_GTM_CONTAINER_ID =
+  process.env.DEFAULT_GTM_CONTAINER_ID || "GTM-55SPZGMD";
+
+function readBooleanEnv(name: string, fallback: boolean) {
+  const value = process.env[name];
+  if (!value) return fallback;
+  return ["1", "true", "yes", "on"].includes(value.toLowerCase());
+}
+
+function buildDefaultAnalyticsSettings() {
+  const hasTrackingTarget = Boolean(DEFAULT_GTM_CONTAINER_ID || DEFAULT_GA4_MEASUREMENT_ID);
+
+  return {
+    ga4MeasurementId: DEFAULT_GA4_MEASUREMENT_ID,
+    ga4StreamId: DEFAULT_GA4_STREAM_ID,
+    gtmContainerId: DEFAULT_GTM_CONTAINER_ID,
+    enableTracking: readBooleanEnv("DEFAULT_ENABLE_ANALYTICS", hasTrackingTarget),
+    enablePageViews: true,
+    enableEvents: true,
+    enableConsentMode: true,
+    cookieConsent: "required",
+    excludedPaths: DEFAULT_ANALYTICS_EXCLUDED_PATHS,
+  };
+}
+
 function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // DEV MODE: bypass auth
   if (isDevMode) {
@@ -4167,10 +4222,33 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const result = await pool.query('SELECT * FROM analytics_settings WHERE id = 1');
       if (result.rows.length === 0) {
+        const defaults = buildDefaultAnalyticsSettings();
         // Create default settings
         const insertResult = await pool.query(
-          `INSERT INTO analytics_settings (id, enable_tracking, enable_page_views, enable_events, enable_consent_mode) 
-           VALUES (1, false, true, true, true) RETURNING *`
+          `INSERT INTO analytics_settings (
+             id,
+             ga4_measurement_id,
+             ga4_stream_id,
+             gtm_container_id,
+             enable_tracking,
+             enable_page_views,
+             enable_events,
+             enable_consent_mode,
+             cookie_consent,
+             excluded_paths
+           ) 
+           VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+          [
+            defaults.ga4MeasurementId,
+            defaults.ga4StreamId,
+            defaults.gtmContainerId,
+            defaults.enableTracking,
+            defaults.enablePageViews,
+            defaults.enableEvents,
+            defaults.enableConsentMode,
+            defaults.cookieConsent,
+            defaults.excludedPaths,
+          ]
         );
         return res.json(insertResult.rows[0]);
       }
@@ -4184,18 +4262,19 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/analytics", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const {
-        ga4_measurement_id, ga4_stream_id, enable_tracking, enable_page_views,
+        ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, enable_page_views,
         enable_events, enable_consent_mode, cookie_consent, excluded_paths, custom_events
       } = req.body;
 
       const result = await pool.query(
-        `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, enable_tracking, 
+        `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, 
          enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
          custom_events, updated_at)
-         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+         VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
          ON CONFLICT (id) DO UPDATE SET
          ga4_measurement_id = EXCLUDED.ga4_measurement_id,
          ga4_stream_id = EXCLUDED.ga4_stream_id,
+         gtm_container_id = EXCLUDED.gtm_container_id,
          enable_tracking = EXCLUDED.enable_tracking,
          enable_page_views = EXCLUDED.enable_page_views,
          enable_events = EXCLUDED.enable_events,
@@ -4205,7 +4284,7 @@ export function registerSmartTimingRoutes(app: Express) {
          custom_events = EXCLUDED.custom_events,
          updated_at = NOW()
          RETURNING *`,
-        [ga4_measurement_id, ga4_stream_id, enable_tracking, enable_page_views,
+        [ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, enable_page_views,
          enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
          custom_events ? JSON.stringify(custom_events) : null]
       );
@@ -4220,9 +4299,29 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/analytics/config", async (_req, res) => {
     try {
       const result = await pool.query(
-        'SELECT ga4_measurement_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent FROM analytics_settings WHERE id = 1 AND is_active = true'
+        'SELECT ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths FROM analytics_settings WHERE id = 1 AND is_active = true'
       );
-      if (result.rows.length === 0 || !result.rows[0].enable_tracking) {
+      if (result.rows.length === 0) {
+        const defaults = buildDefaultAnalyticsSettings();
+        if (!defaults.enableTracking) {
+          return res.json({ enabled: false });
+        }
+
+        return res.json({
+          enabled: true,
+          ga4_measurement_id: defaults.ga4MeasurementId,
+          ga4_stream_id: defaults.ga4StreamId,
+          gtm_container_id: defaults.gtmContainerId,
+          enable_tracking: defaults.enableTracking,
+          enable_page_views: defaults.enablePageViews,
+          enable_events: defaults.enableEvents,
+          enable_consent_mode: defaults.enableConsentMode,
+          cookie_consent: defaults.cookieConsent,
+          excluded_paths: defaults.excludedPaths,
+        });
+      }
+
+      if (!result.rows[0].enable_tracking) {
         return res.json({ enabled: false });
       }
       res.json({ enabled: true, ...result.rows[0] });
@@ -6806,6 +6905,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       await pool.query(`
         ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER;
         ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+      `);
+
+      await pool.query(`
+        ALTER TABLE analytics_settings ADD COLUMN IF NOT EXISTS gtm_container_id TEXT;
       `);
       
       // Create landing_partners table if it doesn't exist
