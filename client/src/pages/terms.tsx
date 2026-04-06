@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { LegalRichText } from "@/components/legal-rich-text";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -27,60 +28,64 @@ export default function Terms() {
     queryKey: ['/api/cms/pages/terms'],
   });
 
-  const content = pageContent || {
+  const defaultContent: PageContent = {
     title: "Brukervilkår",
     subtitle: "Vilkår for bruk av Tidum",
     content: `
-## 1. Aksept av vilkår
-Ved å bruke Tidum aksepterer du disse brukervilkårene. Hvis du ikke aksepterer vilkårene, må du ikke bruke tjenesten.
+## 1. Om vilkårene
+Disse vilkårene gjelder bruk av Tidum, som leveres og driftes av **Creatorhub AS**. Ved å bruke løsningen aksepterer virksomheten og autoriserte brukere disse vilkårene.
 
-## 2. Beskrivelse av tjenesten
-Tidum er en tidsregistrerings- og prosjektstyringsplattform. Tjenesten lar deg:
-- Registrere arbeidstimer
-- Administrere prosjekter og saker
-- Generere rapporter
-- Samarbeide med kolleger
+## 2. Hvem Tidum er laget for
+Tidum tilbys til virksomheter og autoriserte brukere som arbeider med drift, dokumentasjon, arbeidstid og oppfølging innenfor blant annet barn, omsorg og miljøarbeid. Tilgang gis etter vurdering, invitasjon eller godkjenning.
 
-## 3. Brukerkontoer
-- Du må oppgi nøyaktig informasjon ved registrering
-- Du er ansvarlig for å holde passordet ditt konfidensielt
-- Du må varsle oss umiddelbart ved uautorisert bruk
+## 3. Tilgang, roller og kontoansvar
+- virksomhetsledere eller administratorer kan få opprettet konto og tildele tilgang videre,
+- miljøarbeidere og andre brukere kan bare få tilgang når virksomheten eller systemadministrator har godkjent dette,
+- du er ansvarlig for å beskytte innloggingsinformasjonen din og for aktivitet som skjer gjennom din konto,
+- du skal varsle oss uten ugrunnet opphold ved mistanke om misbruk eller uautorisert tilgang.
 
-## 4. Akseptabel bruk
-Du samtykker i å ikke:
-- Bruke tjenesten til ulovlige formål
-- Forsøke å få uautorisert tilgang
-- Dele din konto med andre
-- Laste opp skadelig programvare
+## 4. Tillatt bruk
+Tidum skal bare brukes til lovlige og avtalte formål. Det er ikke tillatt å:
+- forsøke å skaffe seg uautorisert tilgang til kontoer, data eller infrastruktur,
+- dele tilgang med uvedkommende,
+- laste opp eller spre skadelig kode,
+- bruke løsningen på en måte som kan skade tjenesten, andre kunder eller tredjeparter.
 
-## 5. Immaterielle rettigheter
-Tidum er et produkt levert av Creatorhub AS. Alt innhold og programvare i Tidum er eid av Creatorhub AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
+## 5. Kundedata og ansvar
+Virksomhetskunden er ansvarlig for at registrerte opplysninger, rapporter og dokumentasjon som legges inn i Tidum har et lovlig grunnlag. Kunden er også ansvarlig for å gi riktige tilgangsnivåer til ansatte, miljøarbeidere og ledere.
 
-## 6. Databehandling
-Vi behandler data i henhold til vår personvernerklæring. Ved å bruke tjenesten samtykker du til denne behandlingen.
+## 6. Integrasjoner og tredjepartstjenester
+Tidum kan bruke eller integreres med tredjepartstjenester som autentisering, hosting, analyse og kommunikasjonsverktøy. Slike tjenester brukes som en del av leveransen eller etter nærmere avtale.
 
-## 7. Ansvarsbegrensning
-Tidum leveres "som den er". Vi garanterer ikke uavbrutt tilgang eller fravær av feil. Vårt maksimale ansvar er begrenset til beløpet du har betalt for tjenesten.
+## 7. Tilgjengelighet og endringer
+Vi arbeider for stabil drift, men garanterer ikke at tjenesten alltid er uten avbrudd eller feil. Vi kan oppdatere, forbedre eller endre funksjonalitet når det er nødvendig for drift, sikkerhet, lovkrav eller videre produktutvikling.
 
-## 8. Abonnement og betaling
-- Abonnementer faktureres forskuddsvis
-- Priser kan endres med 30 dagers varsel
-- Refusjoner gis i henhold til gjeldende lovgivning
+## 8. Pris og kommersielle vilkår
+Pris, omfang, implementering og eventuelle tilleggstjenester avtales særskilt med virksomhetskunden. Med mindre annet er avtalt, gjelder avtalte betalingsfrister og kommersielle vilkår i tilbud, ordre eller egen avtale.
 
-## 9. Oppsigelse
-Du kan si opp din konto når som helst. Vi kan si opp din tilgang ved brudd på vilkårene. Ved oppsigelse slettes dine data i henhold til personvernerklæringen.
+## 9. Immaterielle rettigheter
+Tidum, herunder programvare, design, innhold, struktur, navn og dokumentasjon, tilhører Creatorhub AS eller våre lisensgivere. Kunden får en begrenset, ikke-eksklusiv rett til å bruke løsningen i avtaleperioden.
 
-## 10. Endringer i vilkårene
-Vi kan oppdatere disse vilkårene. Fortsatt bruk etter endringer utgjør aksept av de nye vilkårene.
+## 10. Oppsigelse, sperring og avslutning
+Vi kan suspendere eller stenge tilgang ved mislighold, sikkerhetsrisiko, misbruk eller brudd på disse vilkårene. Kunden kan avslutte bruken i henhold til avtalt oppsigelsestid. Ved avslutning håndteres data i samsvar med avtale og personvernerklæring.
 
-## 11. Gjeldende lov
-Disse vilkårene er underlagt norsk lov. Tvister skal løses ved Oslo tingrett.
+## 11. Ansvarsbegrensning
+Så langt loven tillater, er Creatorhub AS ikke ansvarlig for indirekte tap, følgeskader, tapt fortjeneste eller tap som skyldes forhold utenfor vår rimelige kontroll. Eventuelt direkte ansvar er begrenset til det kunden har betalt for tjenesten i den relevante avtaleperioden, med mindre annet følger av ufravikelig lov.
 
-## 12. Kontakt
-Spørsmål om vilkårene kan rettes til juridisk@creatorhubn.com
+## 12. Endringer i vilkårene
+Vi kan oppdatere disse vilkårene når det er nødvendig. Vesentlige endringer varsles på en rimelig måte. Fortsatt bruk etter ikrafttredelse innebærer aksept av oppdaterte vilkår.
+
+## 13. Lovvalg og verneting
+Vilkårene er underlagt norsk rett. Tvister søkes løst i minnelighet. Dersom det ikke lykkes, er **Oslo tingrett** avtalt verneting, med mindre annet følger av ufravikelig lov eller særskilt avtale.
+
+## 14. Kontakt
+Spørsmål om vilkårene kan rettes til **support@tidum.no** eller **juridisk@creatorhubn.com**.
     `,
-    last_updated: "20. desember 2025"
+    last_updated: "6. april 2026"
   };
+
+  const hasRichCmsContent = Boolean(pageContent?.content && pageContent.content.trim().length > 800);
+  const content = hasRichCmsContent ? pageContent! : defaultContent;
 
   const resolvedContent = {
     ...content,
@@ -134,18 +139,9 @@ Spørsmål om vilkårene kan rettes til juridisk@creatorhubn.com
 
         {/* ── Content ── */}
         <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8 md:p-10" data-testid="card-terms-content">
-          <div
-            className="prose max-w-none text-[var(--color-text-main)]"
-            data-testid="text-terms-content"
-            dangerouslySetInnerHTML={{
-              __html: resolvedContent.content
-                .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-8 mb-4 text-[#15343D]">$1</h2>')
-                .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3 text-[#15343D]">$1</h3>')
-                .replace(/^\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
-                .replace(/^- (.*$)/gim, '<li class="ml-4 text-[#5F6B6D]">$1</li>')
-                .replace(/\n\n/g, '</p><p class="mb-4 text-[#5F6B6D]">')
-            }}
-          />
+          <div className="max-w-none" data-testid="text-terms-content">
+            <LegalRichText content={resolvedContent.content} />
+          </div>
         </section>
 
         {/* ── Footer ── */}

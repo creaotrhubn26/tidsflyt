@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { Link } from "wouter";
 import {
   TidumAnalyticsConfig,
   applyAnalyticsConsent,
@@ -73,10 +74,35 @@ export function AnalyticsRuntime() {
           "sm:flex-row sm:items-end sm:justify-between",
         )}
       >
-        <div className="space-y-1">
+        <div className="space-y-3">
           <p className="text-sm font-semibold text-slate-900">Analyse og innsikt for Tidum</p>
           <p className="text-sm text-slate-600">
-            Vi bruker egne analyseverktøy for å forstå hvordan den offentlige Tidum-siden brukes, forbedre innholdet og måle henvendelser.
+            Vi bruker informasjonskapsler og tilsvarende lagring på den offentlige Tidum-siden for å holde siden sikker og for å forstå hvilke sider og henvendelser som faktisk brukes.
+          </p>
+          <div className="grid gap-2 text-sm text-slate-600">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="font-medium text-slate-900">Kun nødvendige</p>
+              <p className="mt-1">
+                Holder innlogging, sikkerhet, sesjon og samtykkevalget ditt i gang. Disse brukes for at nettstedet og forespørselsflyten skal fungere som den skal.
+              </p>
+            </div>
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+              <p className="font-medium text-slate-900">Analyse</p>
+              <p className="mt-1">
+                Måler sidevisninger, CTA-klikk og bruk av de offentlige sidene på <strong>tidum.no</strong>, slik at vi kan forbedre innhold, navigasjon og forespørselsflyt.
+              </p>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500">
+            Les mer i{" "}
+            <Link href="/personvern" className="font-medium text-slate-700 underline underline-offset-2">
+              personvernerklæringen
+            </Link>{" "}
+            og{" "}
+            <Link href="/vilkar" className="font-medium text-slate-700 underline underline-offset-2">
+              vilkårene
+            </Link>
+            .
           </p>
         </div>
         <div className="flex flex-col gap-2 sm:min-w-[240px] sm:flex-row sm:justify-end">

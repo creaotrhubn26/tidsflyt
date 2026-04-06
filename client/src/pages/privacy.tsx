@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { LegalRichText } from "@/components/legal-rich-text";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -27,54 +28,72 @@ export default function Privacy() {
     queryKey: ['/api/cms/pages/privacy'],
   });
 
-  const content = pageContent || {
+  const defaultContent: PageContent = {
     title: "Personvernerklæring",
     subtitle: "Slik beskytter vi dine personopplysninger",
     content: `
-## 1. Innledning
-Tidum er en tjeneste levert av Creatorhub AS ("vi", "oss", "vår"). Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger når du bruker Tidum.
+## 1. Hvem denne erklæringen gjelder for
+Denne personvernerklæringen gjelder for den offentlige nettsiden til Tidum, tilgangsforespørsler, supporthenvendelser og bruk av Tidum-plattformen. Tidum er et produkt levert av **Creatorhub AS**.
 
-## 2. Hvilke opplysninger vi samler inn
-Vi samler inn følgende typer personopplysninger:
-- **Kontaktinformasjon**: Navn, e-postadresse, telefonnummer
-- **Kontoopplysninger**: Brukernavn, passord (kryptert)
-- **Arbeidsdata**: Timeregistreringer, prosjektdata, saksnumre
-- **Tekniske data**: IP-adresse, nettlesertype, enhetsdata
+## 2. Roller og behandlingsansvar
+For opplysninger som gjelder kontakt med oss, markedsdialog og bruk av den offentlige nettsiden, er **Creatorhub AS behandlingsansvarlig**.
+Når en virksomhetskunde bruker Tidum til arbeidstidsregistrering, dokumentasjon og oppfølging av egne ansatte eller innleide, vil kunden som hovedregel være **behandlingsansvarlig**, mens Creatorhub AS behandler data som **databehandler** på vegne av kunden.
 
-## 3. Hvordan vi bruker opplysningene
-Vi bruker personopplysningene til å:
-- Levere og forbedre våre tjenester
-- Kommunisere med deg om din konto
-- Sende viktige oppdateringer og varsler
-- Overholde juridiske forpliktelser
+## 3. Hvilke opplysninger vi kan behandle
+Vi kan behandle følgende kategorier opplysninger:
+- **Kontakt- og virksomhetsopplysninger**: navn, e-post, telefon, virksomhetsnavn, rolle og informasjon du sender i skjemaer eller dialog med oss.
+- **Konto- og tilgangsopplysninger**: innloggingsinformasjon, organisasjonstilknytning, invitasjoner, roller og godkjenninger.
+- **Bruks- og arbeidsdata**: tidsregistreringer, rapporter, notater, saksreferanser og annet innhold som registreres i løsningen av autoriserte brukere.
+- **Tekniske opplysninger**: IP-adresse, nettleser, enhet, tidspunkt, feillogger og sikkerhetshendelser.
+- **Analyse på offentlige sider**: sidevisninger, knappetrykk og anonymiserte innsiktssignaler når du godtar analyse.
 
-## 4. Deling av opplysninger
-Vi deler ikke personopplysninger med tredjeparter, med unntak av:
-- Når du har gitt samtykke
-- For å oppfylle juridiske forpliktelser
-- Med tjenesteleverandører som behandler data på våre vegne
+## 4. Hvorfor vi behandler opplysningene
+Vi behandler opplysninger for å:
+- levere, drifte og sikre Tidum,
+- administrere tilgang, invitasjoner og godkjenninger,
+- yte support og følge opp forespørsler,
+- forbedre offentlig informasjon, onboarding og tjenestekvalitet,
+- oppfylle rettslige forpliktelser knyttet til sikkerhet, regnskap og dokumentasjon.
 
-## 5. Behandlingsansvarlig
-Behandlingsansvarlig for Tidum er Creatorhub AS. Tidum beholder egen produktidentitet, men driftes og leveres av Creatorhub AS.
+## 5. Behandlingsgrunnlag
+Våre behandlingsgrunnlag kan være ett eller flere av følgende:
+- **avtale**, når behandling er nødvendig for å levere tjenesten,
+- **rettslig forpliktelse**, når vi må oppbevare eller dokumentere forhold etter lov,
+- **berettiget interesse**, for sikkerhet, drift, support og forbedring av tjenesten,
+- **samtykke**, der dette kreves, for eksempel for analyse på offentlige sider.
 
-## 6. Lagring og sikkerhet
-Vi lagrer personopplysninger så lenge det er nødvendig for formålene beskrevet i denne erklæringen. Vi bruker bransjestandarder for sikkerhet, inkludert kryptering og sikre servere.
+## 6. Deling og databehandlere
+Vi deler ikke personopplysninger unødvendig. Opplysninger kan behandles av underleverandører som leverer hosting, databaser, autentisering, analyse, supportverktøy og annen teknisk infrastruktur på våre vegne. Når vi bruker databehandlere, inngår vi nødvendige avtaler og stiller krav til sikkerhet og konfidensialitet.
 
-## 7. Dine rettigheter
-Du har rett til å:
-- Be om innsyn i dine personopplysninger
-- Be om retting eller sletting
-- Protestere mot behandling
-- Trekke tilbake samtykke
+## 7. Overføring utenfor EU/EØS
+Dersom vi eller våre underleverandører behandler opplysninger utenfor EU/EØS, skal dette være basert på gyldig overføringsgrunnlag, for eksempel EU-kommisjonens standard kontraktsklausuler og supplerende sikkerhetstiltak der det er nødvendig.
 
-## 8. Informasjonskapsler (cookies)
-Vi bruker informasjonskapsler for å forbedre brukeropplevelsen. Du kan administrere dine preferanser i nettleserinnstillingene.
+## 8. Lagring og sletting
+Vi lagrer opplysninger så lenge det er nødvendig for formålet de ble samlet inn for, eller så lenge lovpålagte krav krever det. Kundedata slettes eller anonymiseres når kundeforholdet avsluttes, med mindre annet følger av avtale eller lov.
 
-## 9. Kontakt
-Har du spørsmål om personvern? Kontakt oss på support@tidum.no eller juridisk@creatorhubn.com
+## 9. Informasjonskapsler og analyse
+Tidum bruker **nødvendige** mekanismer for sikkerhet, sesjonshåndtering og for å huske samtykkevalget ditt. Dersom du godtar analyse på offentlige sider, kan vi i tillegg registrere sidevisninger, CTA-klikk og generell bruk av offentlige innholdssider for å forbedre nettstedet. Analyse brukes ikke for å låse opp funksjoner i selve arbeidsflaten.
+
+## 10. Dine rettigheter
+Du kan be om:
+- innsyn i hvilke personopplysninger vi behandler om deg,
+- retting av uriktige eller ufullstendige opplysninger,
+- sletting når det ikke lenger finnes lovlig grunnlag for videre behandling,
+- begrensning eller innsigelse mot behandling,
+- dataportabilitet der dette er aktuelt,
+- å trekke tilbake samtykke for behandling som bygger på samtykke.
+
+## 11. Sikkerhet
+Vi arbeider med tilgangskontroll, logging, sikre overføringer og tekniske og organisatoriske tiltak for å beskytte data mot uautorisert tilgang, endring, tap eller misbruk. Ingen løsning er helt risikofri, men vi arbeider fortløpende med sikkerhetsforbedringer.
+
+## 12. Kontakt og klage
+Spørsmål om personvern kan rettes til **support@tidum.no** eller **juridisk@creatorhubn.com**. Dersom du mener behandlingen vår er i strid med regelverket, kan du også kontakte **Datatilsynet**.
     `,
-    last_updated: "20. desember 2025"
+    last_updated: "6. april 2026"
   };
+
+  const hasRichCmsContent = Boolean(pageContent?.content && pageContent.content.trim().length > 800);
+  const content = hasRichCmsContent ? pageContent! : defaultContent;
 
   const resolvedContent = {
     ...content,
@@ -128,18 +147,9 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no eller juridisk
 
         {/* ── Content ── */}
         <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8 md:p-10" data-testid="card-privacy-content">
-          <div
-            className="prose max-w-none text-[var(--color-text-main)]"
-            data-testid="text-privacy-content"
-            dangerouslySetInnerHTML={{
-              __html: resolvedContent.content
-                .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-8 mb-4 text-[#15343D]">$1</h2>')
-                .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3 text-[#15343D]">$1</h3>')
-                .replace(/^\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
-                .replace(/^- (.*$)/gim, '<li class="ml-4 text-[#5F6B6D]">$1</li>')
-                .replace(/\n\n/g, '</p><p class="mb-4 text-[#5F6B6D]">')
-            }}
-          />
+          <div className="max-w-none" data-testid="text-privacy-content">
+            <LegalRichText content={resolvedContent.content} />
+          </div>
         </section>
 
         {/* ── Footer ── */}
