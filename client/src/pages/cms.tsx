@@ -5929,7 +5929,7 @@ function ContactPageEditor({ content }: { content: any }) {
     title: content?.title || "Kontakt oss",
     subtitle: content?.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
     content: content?.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-    email: content?.email || "support@tidum.no",
+    email: content?.email || "hello@creatorhubn.com",
     phone: content?.phone || "+47 22 33 44 55",
     address: content?.address || "Oslo, Norge"
   });
@@ -5940,7 +5940,7 @@ function ContactPageEditor({ content }: { content: any }) {
         title: content.title || "Kontakt oss",
         subtitle: content.subtitle || "Har du spørsmål? Vi hjelper deg gjerne.",
         content: content.content || "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
-        email: content.email || "support@tidum.no",
+        email: content.email || "hello@creatorhubn.com",
         phone: content.phone || "+47 22 33 44 55",
         address: content.address || "Oslo, Norge"
       });
@@ -7022,7 +7022,7 @@ function EmailEditor() {
                     id="reply-to"
                     value={settingsForm.reply_to_email || ''}
                     onChange={(e) => setSettingsForm({ ...settingsForm, reply_to_email: e.target.value })}
-                    placeholder="support@tidum.no"
+                    placeholder="hello@creatorhubn.com"
                   />
                 </div>
               </div>

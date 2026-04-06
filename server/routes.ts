@@ -30,6 +30,8 @@ import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole 
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
+import { hasValidCreatorhubSyncSecret, syncTidumAccessRequestToCreatorhub } from "./lib/creatorhub-sync";
+import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 
 
 // Zod schema for bulk time entry validation
@@ -101,6 +103,151 @@ async function syncApprovedPortalUser(email: string, role: string, vendorId: num
       );
     }
   }
+}
+
+function buildTidumAccessRequestSyncPayload(
+  request: typeof accessRequests.$inferSelect,
+  approvalRole?: string | null,
+) {
+  return {
+    requestId: request.id,
+    fullName: request.fullName,
+    email: request.email,
+    orgNumber: request.orgNumber ?? null,
+    company: request.company ?? null,
+    phone: request.phone ?? null,
+    message: request.message ?? null,
+    brregVerified: request.brregVerified ?? false,
+    institutionType: request.institutionType ?? null,
+    status: request.status ?? "pending",
+    vendorId: request.vendorId ?? null,
+    approvalRole: approvalRole ?? null,
+    reviewedBy: request.reviewedBy ?? null,
+    reviewedAt: request.reviewedAt ?? null,
+    createdAt: request.createdAt ?? null,
+    updatedAt: request.updatedAt ?? null,
+  };
+}
+
+async function notifyTidumSupportAboutAccessRequest(
+  request: typeof accessRequests.$inferSelect,
+) {
+  if (!request.email) {
+    return;
+  }
+
+  await emailService.sendEmail({
+    to: TIDUM_SUPPORT_EMAIL,
+    replyTo: request.email,
+    subject: `Ny tilgangsforespørsel til Tidum fra ${request.fullName}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+        <h2 style="color: #0f172a;">Ny tilgangsforespørsel</h2>
+        <p><strong>Navn:</strong> ${request.fullName}</p>
+        <p><strong>E-post:</strong> ${request.email}</p>
+        <p><strong>Virksomhet:</strong> ${request.company || "Ikke oppgitt"}</p>
+        <p><strong>Org.nr:</strong> ${request.orgNumber || "Ikke oppgitt"}</p>
+        <p><strong>Telefon:</strong> ${request.phone || "Ikke oppgitt"}</p>
+        <p><strong>Type virksomhet:</strong> ${request.institutionType || "Ikke oppgitt"}</p>
+        <p><strong>BRREG-verifisert:</strong> ${request.brregVerified ? "Ja" : "Nei"}</p>
+        <div style="margin-top: 20px; padding: 16px; background: #f8fafc; border-radius: 12px;">
+          <strong>Melding</strong>
+          <p style="margin: 8px 0 0;">${request.message || "Ingen melding sendt."}</p>
+        </div>
+      </div>
+    `,
+    text: [
+      "Ny tilgangsforespørsel til Tidum",
+      `Navn: ${request.fullName}`,
+      `E-post: ${request.email}`,
+      `Virksomhet: ${request.company || "Ikke oppgitt"}`,
+      `Org.nr: ${request.orgNumber || "Ikke oppgitt"}`,
+      `Telefon: ${request.phone || "Ikke oppgitt"}`,
+      `Type virksomhet: ${request.institutionType || "Ikke oppgitt"}`,
+      `BRREG-verifisert: ${request.brregVerified ? "Ja" : "Nei"}`,
+      "",
+      `Melding: ${request.message || "Ingen melding sendt."}`,
+    ].join("\n"),
+  });
+}
+
+async function applyAccessRequestDecision({
+  requestId,
+  status,
+  vendorId,
+  role,
+  reviewedBy,
+}: {
+  requestId: number;
+  status: "approved" | "rejected";
+  vendorId?: number | null;
+  role?: string | null;
+  reviewedBy?: string | null;
+}) {
+  const approvedRole = normalizeRole(role || "tiltaksleder");
+
+  const [request] = await db
+    .select()
+    .from(accessRequests)
+    .where(eq(accessRequests.id, requestId))
+    .limit(1);
+
+  if (!request) {
+    throw new Error("Request not found");
+  }
+
+  const updateData: Record<string, unknown> = {
+    status,
+    reviewedBy: reviewedBy ?? null,
+    reviewedAt: new Date(),
+    updatedAt: new Date(),
+  };
+
+  if (status === "approved" && vendorId) {
+    updateData.vendorId = vendorId;
+  }
+
+  const [updated] = await db
+    .update(accessRequests)
+    .set(updateData)
+    .where(eq(accessRequests.id, requestId))
+    .returning();
+
+  if (status === "approved" && request.email) {
+    await syncApprovedPortalUser(
+      request.email,
+      approvedRole,
+      vendorId ? Number(vendorId) : null,
+    );
+  }
+
+  if (request.email) {
+    try {
+      if (status === "approved") {
+        await emailService.sendAccessApprovedEmail(
+          request.email,
+          request.fullName,
+          request.company || undefined,
+        );
+      } else {
+        await emailService.sendAccessRejectedEmail(
+          request.email,
+          request.fullName,
+        );
+      }
+    } catch (emailErr) {
+      console.error("⚠️ Failed to send access notification email:", emailErr);
+    }
+  }
+
+  await syncTidumAccessRequestToCreatorhub(
+    buildTidumAccessRequestSyncPayload(
+      updated,
+      status === "approved" ? approvedRole : null,
+    ),
+  );
+
+  return updated;
 }
 
 const timeSuggestionFeedbackSchema = z.object({
@@ -3326,6 +3473,11 @@ export async function registerRoutes(
         .values(parsed.data)
         .returning();
 
+      await notifyTidumSupportAboutAccessRequest(request);
+      await syncTidumAccessRequestToCreatorhub(
+        buildTidumAccessRequestSyncPayload(request),
+      );
+
       res.status(201).json({ success: true, id: request.id });
     } catch (error: any) {
       console.error("Access request error:", error);
@@ -3360,69 +3512,83 @@ export async function registerRoutes(
       const { id } = req.params;
       const { status, vendorId, role } = req.body;
       const userId = req.user?.id;
-      const approvedRole = normalizeRole(role || "tiltaksleder");
 
       if (!["approved", "rejected"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
       }
 
-      const [request] = await db
-        .select()
-        .from(accessRequests)
-        .where(eq(accessRequests.id, parseInt(id)))
-        .limit(1);
-
-      if (!request) {
-        return res.status(404).json({ error: "Request not found" });
-      }
-
-      const updateData: any = {
+      const updated = await applyAccessRequestDecision({
+        requestId: parseInt(id),
         status,
-        reviewedBy: userId,
-        reviewedAt: new Date(),
-        updatedAt: new Date(),
-      };
-
-      if (status === "approved" && vendorId) {
-        updateData.vendorId = vendorId;
-      }
-
-      const [updated] = await db
-        .update(accessRequests)
-        .set(updateData)
-        .where(eq(accessRequests.id, parseInt(id)))
-        .returning();
-
-      if (status === "approved" && request.email) {
-        await syncApprovedPortalUser(request.email, approvedRole, vendorId ? Number(vendorId) : null);
-      }
-
-      // Send email notification to applicant
-      if (request.email) {
-        try {
-          if (status === "approved") {
-            await emailService.sendAccessApprovedEmail(
-              request.email,
-              request.fullName,
-              request.company || undefined
-            );
-            console.log(`✅ Access approved email sent to ${request.email}`);
-          } else if (status === "rejected") {
-            await emailService.sendAccessRejectedEmail(
-              request.email,
-              request.fullName
-            );
-            console.log(`✅ Access rejected email sent to ${request.email}`);
-          }
-        } catch (emailErr) {
-          console.error('⚠️ Failed to send access notification email:', emailErr);
-          // Don't fail the request — the status update already succeeded
-        }
-      }
+        vendorId: vendorId ? Number(vendorId) : null,
+        role,
+        reviewedBy: typeof userId === "string" ? userId : null,
+      });
 
       res.json(updated);
     } catch (error: any) {
+      if (String(error?.message || "").includes("Request not found")) {
+        return res.status(404).json({ error: "Request not found" });
+      }
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/internal/creatorhub/vendors", async (req, res) => {
+    try {
+      if (!hasValidCreatorhubSyncSecret(req)) {
+        return res.status(401).json({ error: "Unauthorized sync request" });
+      }
+
+      const { rows } = await pool.query(
+        `SELECT id, name FROM vendors ORDER BY LOWER(name) ASC`,
+      );
+      res.json(rows);
+    } catch (error: any) {
+      console.error("CreatorHub vendor sync error:", error);
+      res.status(500).json({ error: "Could not fetch Tidum vendors" });
+    }
+  });
+
+  app.post("/api/internal/creatorhub/access-requests/:id/status", async (req, res) => {
+    try {
+      if (!hasValidCreatorhubSyncSecret(req)) {
+        return res.status(401).json({ error: "Unauthorized sync request" });
+      }
+
+      const requestId = Number.parseInt(String(req.params.id), 10);
+      if (!Number.isFinite(requestId)) {
+        return res.status(400).json({ error: "Invalid request id" });
+      }
+
+      const status = req.body?.status;
+      if (status !== "approved" && status !== "rejected") {
+        return res.status(400).json({ error: "Invalid status" });
+      }
+
+      const updated = await applyAccessRequestDecision({
+        requestId,
+        status,
+        vendorId:
+          typeof req.body?.vendorId === "number"
+            ? req.body.vendorId
+            : req.body?.vendorId
+              ? Number(req.body.vendorId)
+              : null,
+        role: typeof req.body?.role === "string" ? req.body.role : null,
+        reviewedBy:
+          typeof req.body?.reviewedBy === "string"
+            ? req.body.reviewedBy
+            : "creatorhub-admin",
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      if (String(error?.message || "").includes("Request not found")) {
+        return res.status(404).json({ error: "Request not found" });
+      }
+      console.error("CreatorHub status sync error:", error);
+      res.status(500).json({ error: error.message || "Could not update request" });
     }
   });
   

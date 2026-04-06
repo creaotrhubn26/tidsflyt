@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'wouter';
+import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 import {
   Clock,
   BarChart3,
@@ -952,7 +953,7 @@ export const InteractiveGuide: React.FC = () => {
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
               <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                support@tidum.no
+                {TIDUM_SUPPORT_EMAIL}
               </Link>
             </div>
 

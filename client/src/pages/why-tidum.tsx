@@ -27,6 +27,7 @@ import {
   LucideIcon
 } from "lucide-react";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 
 const WHY_TIDUM_OG_IMAGE = "https://tidum.no/screenshots/time-tracking.png";
 
@@ -482,7 +483,7 @@ export default function WhyTidum() {
                 onClick={goToContact}
                 className="mt-3 text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
-                support@tidum.no
+                {TIDUM_SUPPORT_EMAIL}
               </button>
             </div>
 

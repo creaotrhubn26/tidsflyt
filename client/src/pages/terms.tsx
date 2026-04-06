@@ -7,6 +7,7 @@ import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { LegalRichText } from "@/components/legal-rich-text";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import { TIDUM_LEGAL_EMAIL, TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 
 interface PageContent {
   title: string;
@@ -79,7 +80,7 @@ Vi kan oppdatere disse vilkårene når det er nødvendig. Vesentlige endringer v
 Vilkårene er underlagt norsk rett. Tvister søkes løst i minnelighet. Dersom det ikke lykkes, er **Oslo tingrett** avtalt verneting, med mindre annet følger av ufravikelig lov eller særskilt avtale.
 
 ## 14. Kontakt
-Spørsmål om vilkårene kan rettes til **support@tidum.no** eller **juridisk@creatorhubn.com**.
+Spørsmål om vilkårene kan rettes til **${TIDUM_SUPPORT_EMAIL}** eller **${TIDUM_LEGAL_EMAIL}**.
     `,
     last_updated: "6. april 2026"
   };
@@ -153,7 +154,7 @@ Spørsmål om vilkårene kan rettes til **support@tidum.no** eller **juridisk@cr
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
               <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                support@tidum.no
+                {TIDUM_SUPPORT_EMAIL}
               </Link>
             </div>
 

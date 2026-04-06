@@ -525,8 +525,8 @@ export default function EmailComposer() {
                 <p className="text-xs text-muted-foreground">
                   <strong>Svar-til (Reply-To):</strong>{" "}
                   {['timesheet', 'case-report', 'overtime'].includes(resolvedCategory)
-                    ? "Svar sendes til tiltaksleder (eller support@tidum.no som reserve)"
-                    : "Svar sendes til support@tidum.no"}
+                    ? "Svar sendes til tiltaksleder (eller hello@creatorhubn.com som reserve)"
+                    : "Svar sendes til hello@creatorhubn.com"}
                 </p>
               </CardContent>
             </Card>

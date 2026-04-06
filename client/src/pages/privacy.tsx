@@ -7,6 +7,7 @@ import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { LegalRichText } from "@/components/legal-rich-text";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import { TIDUM_LEGAL_EMAIL, TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 
 interface PageContent {
   title: string;
@@ -87,7 +88,7 @@ Du kan be om:
 Vi arbeider med tilgangskontroll, logging, sikre overføringer og tekniske og organisatoriske tiltak for å beskytte data mot uautorisert tilgang, endring, tap eller misbruk. Ingen løsning er helt risikofri, men vi arbeider fortløpende med sikkerhetsforbedringer.
 
 ## 12. Kontakt og klage
-Spørsmål om personvern kan rettes til **support@tidum.no** eller **juridisk@creatorhubn.com**. Dersom du mener behandlingen vår er i strid med regelverket, kan du også kontakte **Datatilsynet**.
+Spørsmål om personvern kan rettes til **${TIDUM_SUPPORT_EMAIL}** eller **${TIDUM_LEGAL_EMAIL}**. Dersom du mener behandlingen vår er i strid med regelverket, kan du også kontakte **Datatilsynet**.
     `,
     last_updated: "6. april 2026"
   };
@@ -161,7 +162,7 @@ Spørsmål om personvern kan rettes til **support@tidum.no** eller **juridisk@cr
                 Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
               </p>
               <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                support@tidum.no
+                {TIDUM_SUPPORT_EMAIL}
               </Link>
             </div>
 

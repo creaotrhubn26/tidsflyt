@@ -10,6 +10,7 @@
  */
 
 import type { Request, Response, NextFunction } from "express";
+import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 import { pool } from "./db";
 
 // ── Bot detection ────────────────────────────────────────────────────
@@ -433,7 +434,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
                   mainEntity: {
                     "@type": "Organization",
                     name: "Tidum",
-                    email: "support@tidum.no",
+                    email: TIDUM_SUPPORT_EMAIL,
                     telephone: "+47-97-95-92-94",
                     address: { "@type": "PostalAddress", addressLocality: "Oslo", addressCountry: "NO" },
                   },

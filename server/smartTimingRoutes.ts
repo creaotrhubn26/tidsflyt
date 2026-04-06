@@ -12,6 +12,11 @@ import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
 import { db } from "./db";
 import { users } from "@shared/schema";
+import {
+  TIDUM_SUPPORT_ADDRESS,
+  TIDUM_SUPPORT_EMAIL,
+  TIDUM_SUPPORT_PHONE,
+} from "@shared/brand";
 import { eq } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
@@ -2056,9 +2061,9 @@ export function registerSmartTimingRoutes(app: Express) {
         title: 'Kontakt oss',
         subtitle: 'Har du spørsmål? Vi hjelper deg gjerne.',
         content: 'Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.',
-        email: 'support@tidum.no',
-        phone: '+47 97 95 92 94',
-        address: 'Oslo, Norge'
+        email: TIDUM_SUPPORT_EMAIL,
+        phone: TIDUM_SUPPORT_PHONE,
+        address: TIDUM_SUPPORT_ADDRESS
       },
       privacy: {
         title: 'Personvernerklæring',
@@ -4772,7 +4777,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         return res.status(400).json({ error: 'Alle obligatoriske felt må fylles ut' });
       }
 
-      const recipientEmail = 'daniel@tidum.no';
+      const recipientEmail = TIDUM_SUPPORT_EMAIL;
       
       // Build company info section
       const hasCompanyInfo = company || orgNumber || website || phone;

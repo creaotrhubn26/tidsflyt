@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { getAppBaseUrl } from './app-base-url';
+import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 
 interface EmailTemplate {
   subject: string;
@@ -268,7 +269,7 @@ export class EmailService {
     const appUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
-      replyTo: 'daniel@tidum.no',
+      replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Velkommen til Tidum – tilgangen din er godkjent!',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -294,12 +295,12 @@ export class EmailService {
             </div>
             <p style="color: #64748b; font-size: 13px;">
               Har du spørsmål? Svar på denne e-posten eller kontakt oss på
-              <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>.
+              <a href="mailto:${TIDUM_SUPPORT_EMAIL}" style="color: #0066cc;">${TIDUM_SUPPORT_EMAIL}</a>.
             </p>
           </div>
         </div>
       `,
-      text: `Hei ${fullName},\n\nTilgangsforespørselen din${company ? ` for ${company}` : ''} er godkjent!\n\nLogg inn her: ${appUrl}/auth\n\nVelkommen til Tidum!\n\nHar du spørsmål? Kontakt oss på daniel@tidum.no`,
+      text: `Hei ${fullName},\n\nTilgangsforespørselen din${company ? ` for ${company}` : ''} er godkjent!\n\nLogg inn her: ${appUrl}/auth\n\nVelkommen til Tidum!\n\nHar du spørsmål? Kontakt oss på ${TIDUM_SUPPORT_EMAIL}`,
     });
   }
 
@@ -313,7 +314,7 @@ export class EmailService {
   ): Promise<boolean> {
     return this.sendEmail({
       to,
-      replyTo: 'daniel@tidum.no',
+      replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Oppdatering om din tilgangsforespørsel – Tidum',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -326,12 +327,12 @@ export class EmailService {
             </div>` : ''}
             <p>Ta gjerne kontakt med oss om du har spørsmål eller ønsker å sende inn en ny forespørsel.</p>
             <p style="color: #64748b; font-size: 13px;">
-              Kontakt: <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>
+              Kontakt: <a href="mailto:${TIDUM_SUPPORT_EMAIL}" style="color: #0066cc;">${TIDUM_SUPPORT_EMAIL}</a>
             </p>
           </div>
         </div>
       `,
-      text: `Hei ${fullName},\n\nDessverre kan vi ikke godkjenne din tilgangsforespørsel på dette tidspunktet.${reason ? `\n\nBegrunnelse: ${reason}` : ''}\n\nTa gjerne kontakt på daniel@tidum.no om du har spørsmål.`,
+      text: `Hei ${fullName},\n\nDessverre kan vi ikke godkjenne din tilgangsforespørsel på dette tidspunktet.${reason ? `\n\nBegrunnelse: ${reason}` : ''}\n\nTa gjerne kontakt på ${TIDUM_SUPPORT_EMAIL} om du har spørsmål.`,
     });
   }
 
@@ -346,7 +347,7 @@ export class EmailService {
     const appUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
-      replyTo: 'daniel@tidum.no',
+      replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Du er invitert til Tidum',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
@@ -364,12 +365,12 @@ export class EmailService {
             </a>
             <p style="color: #64748b; font-size: 13px; margin-top: 30px;">
               Har du spørsmål? Kontakt oss på
-              <a href="mailto:daniel@tidum.no" style="color: #0066cc;">daniel@tidum.no</a>.
+              <a href="mailto:${TIDUM_SUPPORT_EMAIL}" style="color: #0066cc;">${TIDUM_SUPPORT_EMAIL}</a>.
             </p>
           </div>
         </div>
       `,
-      text: `Hei,\n\n${inviterName ? `${inviterName} har invitert deg` : 'Du er invitert'} som ${roleName} i Tidum Smart Timing.\n\nLogg inn her: ${appUrl}/auth\n\nKontakt: daniel@tidum.no`,
+      text: `Hei,\n\n${inviterName ? `${inviterName} har invitert deg` : 'Du er invitert'} som ${roleName} i Tidum Smart Timing.\n\nLogg inn her: ${appUrl}/auth\n\nKontakt: ${TIDUM_SUPPORT_EMAIL}`,
     });
   }
 

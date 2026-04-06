@@ -2,6 +2,7 @@ import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { Express } from 'express';
 import { getAppBaseUrl } from './lib/app-base-url';
+import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -12,7 +13,7 @@ const options: swaggerJsdoc.Options = {
       description: 'Time tracking and reporting API for Norwegian social work and consulting',
       contact: {
         name: 'Tidum Support',
-        email: 'support@tidum.no',
+        email: TIDUM_SUPPORT_EMAIL,
       },
     },
     servers: [

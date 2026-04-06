@@ -13,6 +13,11 @@ import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import {
+  TIDUM_SUPPORT_ADDRESS,
+  TIDUM_SUPPORT_EMAIL,
+  TIDUM_SUPPORT_PHONE,
+} from "@shared/brand";
 
 const CONTACT_OG_IMAGE = "https://tidum.no/screenshots/landing.png";
 
@@ -55,8 +60,8 @@ export default function Contact() {
       mainEntity: {
         "@type": "Organization",
         name: "Tidum",
-        telephone: "+47-97-95-92-94",
-        email: "support@tidum.no",
+        telephone: TIDUM_SUPPORT_PHONE,
+        email: TIDUM_SUPPORT_EMAIL,
         address: { "@type": "PostalAddress", addressLocality: "Oslo", addressCountry: "NO" },
       },
     },
@@ -170,9 +175,9 @@ export default function Contact() {
     title: "Be om tilgang til Tidum",
     subtitle: "Tidum er tilgjengelig på forespørsel for relevante virksomheter og ledere.",
     content: "Fyll ut skjemaet nedenfor hvis virksomheten din jobber innen barn, omsorg eller miljøarbeid. Godkjente ledere kan deretter invitere og følge opp miljøarbeidere internt i løsningen.",
-    email: "support@tidum.no",
-    phone: "+47 97 95 92 94",
-    address: "Oslo, Norge"
+    email: TIDUM_SUPPORT_EMAIL,
+    phone: TIDUM_SUPPORT_PHONE,
+    address: TIDUM_SUPPORT_ADDRESS
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

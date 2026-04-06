@@ -20,6 +20,7 @@ import { ArrowRight, CheckCircle2, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { tidumPageStyles } from '@/lib/tidum-page-styles';
 import tidumWordmark from '@assets/tidum-wordmark.png';
+import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 
 export interface NavLink {
   label: string;
@@ -175,7 +176,7 @@ export default function TidumPageLayout({
                 onClick={() => navigate('/kontakt')}
                 className="mt-3 text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
-                support@tidum.no
+                {TIDUM_SUPPORT_EMAIL}
               </button>
             </div>
 
