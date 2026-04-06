@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { getAppBaseUrl } from './app-base-url';
 
 interface EmailTemplate {
   subject: string;
@@ -125,6 +126,7 @@ export class EmailService {
    * Send time entry reminder
    */
   async sendTimeReminder(to: string, name: string, weekNumber: number): Promise<boolean> {
+    const appBaseUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
       subject: 'Påminnelse: Registrer timene dine',
@@ -133,7 +135,7 @@ export class EmailService {
           <h2 style="color: #0066cc;">Timeregistrering</h2>
           <p>Hei ${name},</p>
           <p>Dette er en påminnelse om å registrere timene dine for uke ${weekNumber}.</p>
-          <a href="${process.env.APP_URL || 'https://tidsflyt.no'}/time-tracking" 
+          <a href="${appBaseUrl}/time-tracking" 
              style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; margin: 20px 0;">
             Registrer timer
@@ -143,9 +145,7 @@ export class EmailService {
           </p>
         </div>
       `,
-      text: `Hei ${name},\n\nHusk å registrere timene dine for uke ${weekNumber}.\n\nGå til: ${
-        process.env.APP_URL || 'https://tidsflyt.no'
-      }/time-tracking`,
+      text: `Hei ${name},\n\nHusk å registrere timene dine for uke ${weekNumber}.\n\nGå til: ${appBaseUrl}/time-tracking`,
     });
   }
 
@@ -164,6 +164,7 @@ export class EmailService {
     const isApproved = status === 'approved';
     const statusText = isApproved ? 'godkjent' : 'avvist';
     const color = isApproved ? '#22c55e' : '#ef4444';
+    const appBaseUrl = getAppBaseUrl();
 
     return this.sendEmail({
       to,
@@ -176,7 +177,7 @@ export class EmailService {
           ${comment ? `<div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin: 20px 0;">
             <strong>Kommentar:</strong><br>${comment}
           </div>` : ''}
-          <a href="${process.env.APP_URL || 'https://tidsflyt.no'}/time-tracking" 
+          <a href="${appBaseUrl}/time-tracking" 
              style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; margin: 20px 0;">
             Se mine timer
@@ -200,6 +201,7 @@ export class EmailService {
     endDate: string,
     days: number
   ): Promise<boolean> {
+    const appBaseUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
       subject: `Ny ferieforespørsel fra ${employeeName}`,
@@ -213,7 +215,7 @@ export class EmailService {
             <strong>Til:</strong> ${endDate}<br>
             <strong>Antall dager:</strong> ${days}
           </div>
-          <a href="${process.env.APP_URL || 'https://tidsflyt.no'}/leave-requests" 
+          <a href="${appBaseUrl}/leave-requests" 
              style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; margin: 20px 0;">
             Behandle forespørsel
@@ -263,7 +265,7 @@ export class EmailService {
     fullName: string,
     company?: string
   ): Promise<boolean> {
-    const appUrl = process.env.APP_URL || 'https://tidsflyt.no';
+    const appUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
       replyTo: 'daniel@tidum.no',
@@ -341,7 +343,7 @@ export class EmailService {
     roleName: string,
     inviterName?: string
   ): Promise<boolean> {
-    const appUrl = process.env.APP_URL || 'https://tidsflyt.no';
+    const appUrl = getAppBaseUrl();
     return this.sendEmail({
       to,
       replyTo: 'daniel@tidum.no',

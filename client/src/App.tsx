@@ -61,7 +61,9 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/kontakt" component={Contact} />
         <Route path="/personvern" component={Privacy} />
+        <Route path="/privacy-policy" component={Privacy} />
         <Route path="/vilkar" component={Terms} />
+        <Route path="/terms-and-conditions" component={Terms} />
         <Route path="/hvorfor" component={WhyTidum} />
         <Route path="/guide" component={InteractiveGuide} />
         <Route path="/blog" component={Blog} />

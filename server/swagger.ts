@@ -1,6 +1,7 @@
 import swaggerJsdoc from 'swagger-jsdoc';
 import swaggerUi from 'swagger-ui-express';
 import { Express } from 'express';
+import { getAppBaseUrl } from './lib/app-base-url';
 
 const options: swaggerJsdoc.Options = {
   definition: {
@@ -16,9 +17,7 @@ const options: swaggerJsdoc.Options = {
     },
     servers: [
       {
-        url: process.env.NODE_ENV === 'production'
-          ? 'https://api.tidsflyt.no'
-          : 'http://localhost:5000',
+        url: getAppBaseUrl(),
         description: process.env.NODE_ENV === 'production' ? 'Production' : 'Development',
       },
     ],

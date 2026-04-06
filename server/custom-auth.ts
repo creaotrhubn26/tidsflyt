@@ -7,6 +7,7 @@ import { db } from "./db";
 import { users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
+import { getGoogleCallbackUrl } from "./lib/app-base-url";
 
 interface AuthUser {
   id: string;
@@ -99,17 +100,11 @@ export async function setupCustomAuth(app: Express) {
     });
   }
 
-  const baseUrl = process.env.REPLIT_DEV_DOMAIN 
-    ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-    : process.env.REPL_SLUG 
-      ? `https://${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co`
-      : "http://localhost:5000";
-
   if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: `${baseUrl}/api/auth/google/callback`,
+      callbackURL: process.env.GOOGLE_REDIRECT_URI || getGoogleCallbackUrl(),
       scope: ["profile", "email"],
     }, async (_accessToken, _refreshToken, profile, done) => {
       try {

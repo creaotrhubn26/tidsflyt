@@ -385,7 +385,7 @@ export function GlobalLayoutEditor({ globalHeader, globalFooter, onHeaderChange,
       { text: 'Vilkår', href: '/vilkar' },
       { text: 'Kontakt', href: '/kontakt' },
     ],
-    copyright: `© ${new Date().getFullYear()} Tidum AS`,
+    copyright: `© ${new Date().getFullYear()} Tidum. Driftet av Creatorhub AS`,
   };
 
   return (

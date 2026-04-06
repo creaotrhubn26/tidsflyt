@@ -1970,13 +1970,13 @@ export function registerSmartTimingRoutes(app: Express) {
       privacy: {
         title: 'Personvernerklæring',
         subtitle: 'Slik beskytter vi dine personopplysninger',
-        content: '## 1. Innledning\nTidum er opptatt av å beskytte personvernet til våre brukere.',
+        content: '## 1. Innledning\nTidum er en tjeneste levert av Creatorhub AS og beskytter personvernet til våre brukere.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       },
       terms: {
         title: 'Brukervilkår',
         subtitle: 'Vilkår for bruk av Tidum',
-        content: '## 1. Aksept av vilkår\nVed å bruke Tidum aksepterer du disse brukervilkårene.',
+        content: '## 1. Aksept av vilkår\nVed å bruke Tidum, levert av Creatorhub AS, aksepterer du disse brukervilkårene.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
       }
     };
@@ -4732,7 +4732,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
               <!-- Footer -->
               <div style="text-align: center; padding: 24px; color: #64748b; font-size: 12px;">
                 <p style="margin: 0 0 8px 0;">Denne meldingen ble sendt via kontaktskjemaet på <a href="https://tidum.no" style="color: #0ea5e9; text-decoration: none;">tidum.no</a></p>
-                <p style="margin: 0;">Tidum AS | Timeregistrering for norske bedrifter</p>
+                <p style="margin: 0;">Tidum | Driftet av Creatorhub AS</p>
               </div>
             </div>
           </body>

@@ -6,6 +6,11 @@ async function getAccessToken() {
   if (connectionSettings && connectionSettings.settings.expires_at && new Date(connectionSettings.settings.expires_at).getTime() > Date.now()) {
     return connectionSettings.settings.access_token;
   }
+
+  const staticAccessToken = process.env.GITHUB_TOKEN || process.env.GITHUB_ACCESS_TOKEN;
+  if (staticAccessToken) {
+    return staticAccessToken;
+  }
   
   const hostname = process.env.REPLIT_CONNECTORS_HOSTNAME
   const xReplitToken = process.env.REPL_IDENTITY 

@@ -52,7 +52,7 @@ Du samtykker i å ikke:
 - Laste opp skadelig programvare
 
 ## 5. Immaterielle rettigheter
-Alt innhold og programvare i Tidum er eid av Tidum AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
+Tidum er et produkt levert av Creatorhub AS. Alt innhold og programvare i Tidum er eid av Creatorhub AS eller våre lisensgivere. Du får en begrenset lisens til å bruke tjenesten.
 
 ## 6. Databehandling
 Vi behandler data i henhold til vår personvernerklæring. Ved å bruke tjenesten samtykker du til denne behandlingen.
@@ -75,9 +75,14 @@ Vi kan oppdatere disse vilkårene. Fortsatt bruk etter endringer utgjør aksept 
 Disse vilkårene er underlagt norsk lov. Tvister skal løses ved Oslo tingrett.
 
 ## 12. Kontakt
-Spørsmål om vilkårene kan rettes til juridisk@tidum.no
+Spørsmål om vilkårene kan rettes til juridisk@creatorhubn.com
     `,
     last_updated: "20. desember 2025"
+  };
+
+  const resolvedContent = {
+    ...content,
+    content: content.content.replaceAll("Tidum AS", "Creatorhub AS"),
   };
 
   return (
@@ -115,12 +120,12 @@ Spørsmål om vilkårene kan rettes til juridisk@tidum.no
                 <FileText className="h-7 w-7 text-[#3A8B73]" />
               </div>
             </div>
-            <h1 className="tidum-title" data-testid="text-terms-title">{content.title}</h1>
+            <h1 className="tidum-title" data-testid="text-terms-title">{resolvedContent.title}</h1>
             <p className="tidum-text mt-4 max-w-2xl mx-auto" data-testid="text-terms-subtitle">
-              {content.subtitle}
+              {resolvedContent.subtitle}
             </p>
             <p className="text-sm text-[var(--color-text-muted)] mt-3" data-testid="text-last-updated">
-              Sist oppdatert: {content.last_updated}
+              Sist oppdatert: {resolvedContent.last_updated}
             </p>
           </div>
         </section>
@@ -131,7 +136,7 @@ Spørsmål om vilkårene kan rettes til juridisk@tidum.no
             className="prose max-w-none text-[var(--color-text-main)]"
             data-testid="text-terms-content"
             dangerouslySetInnerHTML={{
-              __html: content.content
+              __html: resolvedContent.content
                 .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-8 mb-4 text-[#15343D]">$1</h2>')
                 .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3 text-[#15343D]">$1</h3>')
                 .replace(/^\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
@@ -194,7 +199,7 @@ Spørsmål om vilkårene kan rettes til juridisk@tidum.no
           </div>
 
           <div className="mt-7 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-text-muted)]">
-            <p data-testid="text-copyright">© {new Date().getFullYear()} Tidum. Alle rettigheter reservert.</p>
+            <p data-testid="text-copyright">© {new Date().getFullYear()} Tidum. Driftet av Creatorhub AS.</p>
             <p>Enkel registrering. Trygg dokumentasjon. Full oversikt.</p>
           </div>
         </footer>
@@ -202,4 +207,3 @@ Spørsmål om vilkårene kan rettes til juridisk@tidum.no
     </main>
   );
 }
-

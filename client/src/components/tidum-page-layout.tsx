@@ -209,7 +209,7 @@ export default function TidumPageLayout({
           </div>
 
           <div className="mt-7 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-text-muted)]">
-            <p>&copy; {new Date().getFullYear()} Tidum. Alle rettigheter reservert.</p>
+            <p>&copy; {new Date().getFullYear()} Tidum. Driftet av Creatorhub AS.</p>
             <p>Enkel registrering. Trygg dokumentasjon. Full oversikt.</p>
           </div>
         </footer>

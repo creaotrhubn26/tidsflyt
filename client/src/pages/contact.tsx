@@ -548,7 +548,7 @@ export default function Contact() {
             <Link href="/personvern" className="transition-colors hover:text-[#1F6B73]" data-testid="link-privacy">Personvern</Link>
             <Link href="/vilkar" className="transition-colors hover:text-[#1F6B73]" data-testid="link-terms">Vilkår</Link>
           </div>
-          <p className="mt-4 text-center" data-testid="text-copyright">© 2025 Tidum. Alle rettigheter reservert.</p>
+          <p className="mt-4 text-center" data-testid="text-copyright">© 2025 Tidum. Driftet av Creatorhub AS.</p>
         </footer>
       </div>
     </main>

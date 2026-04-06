@@ -30,7 +30,7 @@ export default function Privacy() {
     subtitle: "Slik beskytter vi dine personopplysninger",
     content: `
 ## 1. Innledning
-Tidum AS ("vi", "oss", "vår") er opptatt av å beskytte personvernet til våre brukere. Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger.
+Tidum er en tjeneste levert av Creatorhub AS ("vi", "oss", "vår"). Denne personvernerklæringen forklarer hvordan vi samler inn, bruker, deler og beskytter personopplysninger når du bruker Tidum.
 
 ## 2. Hvilke opplysninger vi samler inn
 Vi samler inn følgende typer personopplysninger:
@@ -52,23 +52,31 @@ Vi deler ikke personopplysninger med tredjeparter, med unntak av:
 - For å oppfylle juridiske forpliktelser
 - Med tjenesteleverandører som behandler data på våre vegne
 
-## 5. Lagring og sikkerhet
+## 5. Behandlingsansvarlig
+Behandlingsansvarlig for Tidum er Creatorhub AS. Tidum beholder egen produktidentitet, men driftes og leveres av Creatorhub AS.
+
+## 6. Lagring og sikkerhet
 Vi lagrer personopplysninger så lenge det er nødvendig for formålene beskrevet i denne erklæringen. Vi bruker bransjestandarder for sikkerhet, inkludert kryptering og sikre servere.
 
-## 6. Dine rettigheter
+## 7. Dine rettigheter
 Du har rett til å:
 - Be om innsyn i dine personopplysninger
 - Be om retting eller sletting
 - Protestere mot behandling
 - Trekke tilbake samtykke
 
-## 7. Informasjonskapsler (cookies)
+## 8. Informasjonskapsler (cookies)
 Vi bruker informasjonskapsler for å forbedre brukeropplevelsen. Du kan administrere dine preferanser i nettleserinnstillingene.
 
-## 8. Kontakt
-Har du spørsmål om personvern? Kontakt oss på support@tidum.no
+## 9. Kontakt
+Har du spørsmål om personvern? Kontakt oss på support@tidum.no eller juridisk@creatorhubn.com
     `,
     last_updated: "20. desember 2025"
+  };
+
+  const resolvedContent = {
+    ...content,
+    content: content.content.replaceAll("Tidum AS", "Creatorhub AS"),
   };
 
   return (
@@ -106,12 +114,12 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no
                 <Shield className="h-7 w-7 text-[#3A8B73]" />
               </div>
             </div>
-            <h1 className="tidum-title" data-testid="text-privacy-title">{content.title}</h1>
+            <h1 className="tidum-title" data-testid="text-privacy-title">{resolvedContent.title}</h1>
             <p className="tidum-text mt-4 max-w-2xl mx-auto" data-testid="text-privacy-subtitle">
-              {content.subtitle}
+              {resolvedContent.subtitle}
             </p>
             <p className="text-sm text-[var(--color-text-muted)] mt-3" data-testid="text-last-updated">
-              Sist oppdatert: {content.last_updated}
+              Sist oppdatert: {resolvedContent.last_updated}
             </p>
           </div>
         </section>
@@ -122,7 +130,7 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no
             className="prose max-w-none text-[var(--color-text-main)]"
             data-testid="text-privacy-content"
             dangerouslySetInnerHTML={{
-              __html: content.content
+              __html: resolvedContent.content
                 .replace(/^## (.*$)/gim, '<h2 class="text-xl font-semibold mt-8 mb-4 text-[#15343D]">$1</h2>')
                 .replace(/^### (.*$)/gim, '<h3 class="text-lg font-semibold mt-6 mb-3 text-[#15343D]">$1</h3>')
                 .replace(/^\*\*(.*?)\*\*/gim, '<strong>$1</strong>')
@@ -185,7 +193,7 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no
           </div>
 
           <div className="mt-7 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-text-muted)]">
-            <p data-testid="text-copyright">© {new Date().getFullYear()} Tidum. Alle rettigheter reservert.</p>
+            <p data-testid="text-copyright">© {new Date().getFullYear()} Tidum. Driftet av Creatorhub AS.</p>
             <p>Enkel registrering. Trygg dokumentasjon. Full oversikt.</p>
           </div>
         </footer>
@@ -193,4 +201,3 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no
     </main>
   );
 }
-
