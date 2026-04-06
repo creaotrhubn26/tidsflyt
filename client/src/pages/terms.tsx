@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -14,6 +15,7 @@ interface PageContent {
 }
 
 export default function Terms() {
+  usePublicLightTheme();
   useSEO({
     title: "Brukervilkår – Tidum",
     description: "Les Tidums brukervilkår for bruk av plattformen. Detaljer om rettigheter, ansvar og betingelser.",
@@ -86,7 +88,7 @@ Spørsmål om vilkårene kan rettes til juridisk@creatorhubn.com
   };
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">

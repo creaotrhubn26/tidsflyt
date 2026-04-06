@@ -43,6 +43,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { tidumPageStyles } from '@/lib/tidum-page-styles';
 import { useSEO } from '@/hooks/use-seo';
+import { usePublicLightTheme } from '@/hooks/use-public-light-theme';
 import tidumWordmark from '@assets/tidum-wordmark.png';
 
 const COLORS = {
@@ -316,6 +317,7 @@ const AccessRequestSVG: React.FC = () => (
 
 export const InteractiveGuide: React.FC = () => {
   const observerRef = useRef<IntersectionObserver | null>(null);
+  usePublicLightTheme();
 
   useSEO({
     title: "Interaktiv guide – Lær Tidum",
@@ -344,7 +346,7 @@ export const InteractiveGuide: React.FC = () => {
   }, []);
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}
       {`
         .ig-page { --ig-primary: ${COLORS.primary}; --ig-secondary: ${COLORS.secondary}; --ig-accent: ${COLORS.accent}; --ig-text-dark: ${COLORS.textDark}; --ig-text-light: ${COLORS.textLight}; --ig-bg-light: ${COLORS.bgLight}; --ig-border: ${COLORS.border}; }

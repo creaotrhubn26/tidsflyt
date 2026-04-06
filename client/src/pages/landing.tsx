@@ -1,6 +1,7 @@
 import { useLocation } from "wouter";
 import { LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import {
   ArrowRight,
   BarChart3,
@@ -24,128 +25,86 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
-import tidumMockup from "@assets/tidum-mockup.png";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import tidumWordmarkWhite from "@assets/tidum-logo_white_text.png";
 
 function HeroMockup() {
   return (
     <div className="pointer-events-none relative mx-auto w-full max-w-[820px] select-none pt-2" aria-hidden="true">
-      <div className="absolute left-[7%] top-[14%] hidden h-52 w-[70%] rounded-[999px] bg-[var(--color-secondary)]/12 blur-3xl md:block" />
-      <div className="absolute left-[19%] top-[31%] hidden h-60 w-[63%] rounded-[999px] bg-[var(--color-primary)]/8 blur-3xl md:block" />
+      <div className="absolute left-[6%] top-[10%] h-40 w-[58%] rounded-[999px] bg-[var(--color-secondary)]/14 blur-3xl" />
+      <div className="absolute right-[2%] top-[22%] h-52 w-[46%] rounded-[999px] bg-[var(--color-primary)]/10 blur-3xl" />
 
-      <div className="absolute left-[13.5%] top-[26.4%] z-10 hidden h-[41.75%] w-[50.17%] overflow-hidden rounded-[8px] bg-[#fbfcfb] md:block">
-        <div className="flex items-center justify-between border-b border-[#e6ece9] px-2.5 py-1.5 text-[8.5px] text-[#5f6b6d]">
-          <div className="flex items-center gap-1.5">
-            <img src="/favicon-32x32.png" alt="" className="h-2.5 w-2.5 rounded-full" />
-            <span className="font-medium text-[#233136]">Tidum</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span>Funksjoner</span>
-            <span className="rounded-sm bg-[#1F6B73] px-1.5 py-0.5 text-[7.5px] font-medium text-white">Se demo</span>
-          </div>
-        </div>
+      <div className="relative z-20 overflow-hidden rounded-[28px] border border-white/80 bg-[linear-gradient(180deg,rgba(255,255,255,0.9),rgba(247,250,248,0.85))] p-3 shadow-[0_24px_60px_rgba(23,41,46,0.16)] backdrop-blur md:rounded-[34px] md:p-5">
+        <div className="overflow-hidden rounded-[24px] border border-[#d7e3de] bg-[linear-gradient(180deg,#f4f7f5,#eef4f1)] px-4 pb-6 pt-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.65)] sm:px-6 sm:pb-7 sm:pt-6 md:px-8 md:pb-8">
+          <div className="relative mx-auto h-[236px] w-full max-w-[640px] sm:hidden">
+            <div className="absolute inset-x-[4%] bottom-[9%] h-[14%] rounded-[999px] bg-[radial-gradient(circle,rgba(49,70,76,0.2),rgba(49,70,76,0))] blur-2xl" />
 
-        <div className="grid gap-2 p-2.5 grid-cols-[1.35fr,0.95fr]">
-          <div className="space-y-2">
-            <div>
-              <h4 className="text-[12px] font-semibold tracking-tight text-[#1f2f33]">Hei, Maria!</h4>
-            </div>
-            <div className="rounded-md border border-[#dde5e2] bg-white p-2">
-              <div className="flex items-center gap-1.5 text-[#1E2A2C]">
-                <Clock3 className="h-3 w-3 text-[#2f8a72]" />
-                <p className="text-[7.5px] font-semibold">Registrer tid</p>
-              </div>
-              <div className="mt-1 flex items-end justify-between">
-                <p className="text-[7.5px] font-semibold text-[#1E2A2C]">08:00 - 16:00</p>
-                <p className="text-[7px] text-[#5f6b6d]">30 min</p>
-              </div>
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="rounded bg-[#1F6B73] px-1.5 py-0.5 text-[7px] font-medium text-white">Starttid</span>
-                <span className="rounded border border-[#d5dcda] px-1 py-0.5 text-[7px] text-[#5f6b6d]">+</span>
-              </div>
-            </div>
-
-            <div className="overflow-hidden rounded-md border border-[#dde5e2] bg-white">
-              <div className="grid grid-cols-4 border-b border-[#edf1ef] px-2 py-1 text-[6.5px] uppercase tracking-wide text-[#758185]">
-                <span>Fravalg</span>
-                <span className="text-center">Satt</span>
-                <span className="text-center">Pluss/min</span>
-                <span className="text-center">OK</span>
-              </div>
-              {[
-                ["Man", "08:00", "14:00", "-"],
-                ["Tir", "08:00", "16:00", "+"],
-                ["Ons", "08:00", "16:00", "+"],
-              ].map((row) => (
-                <div key={row[0]} className="grid grid-cols-4 px-2 py-1 text-[7px] text-[#354146]">
-                  <span>{row[0]}</span>
-                  <span className="text-center">{row[1]}</span>
-                  <span className="text-center">{row[2]}</span>
-                  <span className="text-center text-[#7f8b8e]">{row[3]}</span>
+            <div className="absolute left-[4%] top-[31%] w-[72%] aspect-[1.43/1]">
+              <div className="absolute inset-0 rounded-[26px] border border-[#dfe5e8] bg-[linear-gradient(180deg,#f6f8f9,#d8e0e4_36%,#c4cdd2_72%,#b7c1c6)] p-[4px] shadow-[0_18px_32px_rgba(22,43,49,0.12)]">
+                <div className="absolute inset-[4px] overflow-hidden rounded-[22px] bg-[#171d21] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]">
+                  <div className="absolute left-1/2 top-[7px] z-20 h-[5px] w-[5px] -translate-x-1/2 rounded-full bg-[#4f5b62]" />
+                  <div className="absolute inset-[8px] overflow-hidden rounded-[15px] bg-[#f8fbfa]">
+                  <img
+                    src="/screenshots/tidum-time-desktop.png"
+                    alt=""
+                    className="h-full w-full object-cover object-left-top"
+                  />
+                  </div>
                 </div>
-              ))}
+              </div>
+              <div className="absolute inset-x-[12%] bottom-[-10px] h-[16px] rounded-[999px] bg-[radial-gradient(circle,rgba(49,70,76,0.22),rgba(49,70,76,0))] blur-md" />
+            </div>
+
+            <div className="absolute right-[6%] top-[4%] z-10 w-[42%] min-w-[126px]">
+              <div className="relative rounded-[34px] border-[5px] border-[#2f363a] bg-[#151d20] p-[5px] shadow-[0_30px_56px_rgba(22,43,49,0.28)]">
+                <div className="absolute left-1/2 top-[7px] z-20 h-[18px] w-[42%] -translate-x-1/2 rounded-b-[12px] rounded-t-[10px] bg-[#11181b]" />
+                <div className="absolute right-[28%] top-[12px] z-20 h-[4px] w-[4px] rounded-full bg-[#273036]" />
+                <div className="overflow-hidden rounded-[28px] bg-[#fbfcfb]">
+                  <img
+                    src="/screenshots/tidum-time-mobile.png"
+                    alt=""
+                    className="block h-auto w-full object-cover object-top"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="rounded-md border border-[#e1e6e4] bg-[#f8faf8] p-2">
-              <div className="mb-1.5 h-1.5 w-14 rounded-full bg-[#dbe2de]" />
-              <div className="h-1.5 w-10 rounded-full bg-[#dbe2de]" />
-            </div>
-            <div className="rounded-md border border-[#e1e6e4] bg-white p-2">
-              <p className="mb-1 text-[7px] font-medium text-[#5f6b6d]">Tidlag</p>
-              <div className="space-y-1 text-[7px] text-[#314043]">
-                <div className="flex justify-between"><span>08:00</span><span>-</span></div>
-                <div className="flex justify-between"><span>16:00</span><span>-</span></div>
+          <div className="relative mx-auto hidden h-[296px] w-full max-w-[640px] sm:block md:h-[348px]">
+            <div className="absolute inset-x-[2%] bottom-[3%] h-[14%] rounded-[999px] bg-[radial-gradient(circle,rgba(49,70,76,0.18),rgba(49,70,76,0))] blur-2xl" />
+
+            <div className="absolute left-[3%] top-[15%] w-[66%] aspect-[1.43/1]">
+              <div className="absolute inset-0 rounded-[28px] border border-[#e0e5e8] bg-[linear-gradient(180deg,#f7f9fa,#dce3e7_34%,#c7d0d5_70%,#bcc6cb)] p-[5px] shadow-[0_22px_38px_rgba(22,43,49,0.14)] md:rounded-[32px]">
+                <div className="absolute inset-[5px] overflow-hidden rounded-[24px] bg-[#171d21] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)] md:rounded-[27px]">
+                  <div className="absolute left-1/2 top-[8px] z-20 h-[6px] w-[6px] -translate-x-1/2 rounded-full bg-[#556168]" />
+                  <div className="absolute inset-[10px] overflow-hidden rounded-[17px] bg-[#f8fbfa] md:rounded-[20px]">
+                  <img
+                    src="/screenshots/tidum-time-desktop.png"
+                    alt=""
+                    className="h-full w-full object-cover object-left-top"
+                  />
+                  </div>
+                </div>
               </div>
+              <div className="absolute inset-x-[13%] bottom-[-12px] h-[18px] rounded-[999px] bg-[radial-gradient(circle,rgba(49,70,76,0.2),rgba(49,70,76,0))] blur-md" />
             </div>
-            <div className="rounded-md border border-[#e1e6e4] bg-white p-2">
-              <div className="h-1.5 w-full rounded-full bg-[#e7ecea]" />
-              <div className="mt-1.5 h-1.5 w-3/4 rounded-full bg-[#e7ecea]" />
-              <div className="mt-1.5 h-1.5 w-2/3 rounded-full bg-[#e7ecea]" />
+
+            <div className="absolute bottom-[7%] right-[0%] z-10 w-[29%] min-w-[102px] max-w-[168px] sm:right-[1%] sm:w-[27%]">
+              <div className="relative rounded-[34px] border-[5px] border-[#2f363a] bg-[#151d20] p-[5px] shadow-[0_28px_54px_rgba(22,43,49,0.26)]">
+                <div className="absolute left-1/2 top-[7px] z-20 h-[18px] w-[42%] -translate-x-1/2 rounded-b-[12px] rounded-t-[10px] bg-[#11181b]" />
+                <div className="absolute right-[28%] top-[12px] z-20 h-[4px] w-[4px] rounded-full bg-[#273036]" />
+                <div className="overflow-hidden rounded-[28px] bg-[#fbfcfb]">
+                  <img
+                    src="/screenshots/tidum-time-mobile.png"
+                    alt=""
+                    className="block h-auto w-full object-cover object-top"
+                  />
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
-
-      <div className="absolute left-[75.08%] top-[35.63%] z-10 hidden h-[40%] w-[12.42%] overflow-hidden rounded-[18px] bg-white md:block">
-        <div className="h-full bg-[#fcfdfd] px-2 py-1.5">
-          <div className="mb-1.5 flex items-center justify-between">
-            <div className="flex items-center gap-1">
-              <img src="/favicon-16x16.png" alt="" className="h-2 w-2 rounded-full" />
-              <span className="text-[7px] font-medium text-[#243237]">Tidum</span>
-            </div>
-            <span className="text-[6px] text-[#6a7579]">⌕</span>
-          </div>
-          <p className="mb-1 text-[6.5px] font-medium text-[#29363a]">Registrer arbeidstid</p>
-          <div className="space-y-1 rounded-md border border-[#e1e6e4] p-1.5">
-            {[
-              ["Stasjon", "08:00"],
-              ["Skift", "15:30"],
-              ["Pause", "30 min"],
-            ].map((item) => (
-              <div key={item[0]} className="flex items-center justify-between text-[6.5px] text-[#3a474b]">
-                <span>{item[0]}</span>
-                <span>{item[1]}</span>
-              </div>
-            ))}
-          </div>
-          <div className="mt-1.5 rounded-sm bg-[#1F6B73] py-1 text-center text-[7px] font-medium text-white">Lagre</div>
-          <div className="mt-1.5 flex items-center justify-between px-0.5 text-[6px] text-[#7a8589]">
-            <span>◻</span>
-            <span>▢</span>
-            <span>◎</span>
-            <span>◉</span>
-          </div>
-        </div>
-      </div>
-
-      <img
-        src={tidumMockup}
-        alt=""
-        className="relative z-20 h-auto w-full object-contain drop-shadow-[0_12px_24px_rgba(23,41,46,0.2)] md:drop-shadow-[0_24px_44px_rgba(23,41,46,0.28)]"
-      />
     </div>
   );
 }
@@ -497,6 +456,7 @@ const howItWorksSteps = [
 
 export default function LandingPage() {
   const [, setLocation] = useLocation();
+  usePublicLightTheme();
   const authError =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("error")
@@ -557,7 +517,7 @@ export default function LandingPage() {
   };
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -624,6 +584,9 @@ export default function LandingPage() {
                 Tidum er et moderne arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid.
                 Enkel registrering, trygg dokumentasjon og full oversikt for ledere, team og miljøarbeidere.
               </p>
+              <div className="mt-6 lg:hidden">
+                <HeroMockup />
+              </div>
               <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[var(--color-text-muted)]">
                 Tilgang gis på forespørsel gjennom Tidum.no. Virksomhetsledere godkjennes av admin, og godkjente
                 ledere kan deretter invitere og følge opp miljøarbeidere i egen virksomhet.
@@ -646,12 +609,14 @@ export default function LandingPage() {
               </div>
             </div>
 
-            <HeroMockup />
+            <div className="hidden lg:block">
+              <HeroMockup />
+            </div>
           </div>
 
           <div id="funksjoner" className="relative z-10 border-t border-[var(--color-border)] px-6 pb-10 pt-8 sm:px-8 sm:pb-12 sm:pt-10">
             <h2 className="text-center text-[clamp(2rem,4.1vw,3.6rem)] font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec]">
-              Et system bygget for virkeligheten
+              Utviklet for arbeidshverdagen i barn, omsorg og miljøarbeid
             </h2>
 
             <div className="mt-7 grid gap-4 md:grid-cols-3">
@@ -692,7 +657,7 @@ export default function LandingPage() {
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-tr from-[#10191f]/55 via-transparent to-transparent" />
                   <div className="absolute bottom-3 left-3 rounded-md bg-[#0F2028]/90 px-3 py-1.5 text-sm font-semibold text-white shadow-lg">
-                    Flere systemer. Flere tolkninger.
+                    Fragmentert oversikt. Uklare beslutningsgrunnlag.
                   </div>
                 </div>
 
@@ -735,7 +700,7 @@ export default function LandingPage() {
                   </div>
                   <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-[#EFF6F3]/80 via-transparent to-transparent" />
                   <div className="absolute bottom-3 left-3 rounded-md bg-[#1F6B73]/95 px-3 py-1.5 text-sm font-semibold text-white shadow-lg">
-                    Ett system. Én trygg sannhet.
+                    Samlet oversikt. Sporbar dokumentasjon.
                   </div>
                 </div>
 
@@ -885,7 +850,15 @@ export default function LandingPage() {
               <Card key={title} className="overflow-hidden rounded-2xl border-[var(--color-border)] bg-white/95 dark:bg-[#141e21]/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
                 <div className="border-b border-[var(--color-border)] bg-[#E9F1EE] dark:bg-[#142920]">
                   <div className="h-[170px] w-full">
-                    <HowStepIllustration variant={variant} />
+                    {variant === "time" ? (
+                      <img
+                        src="/screenshots/tidum-time-desktop.png"
+                        alt=""
+                        className="h-full w-full object-cover object-top"
+                      />
+                    ) : (
+                      <HowStepIllustration variant={variant} />
+                    )}
                   </div>
                 </div>
                 <CardContent className="p-5 sm:p-6">

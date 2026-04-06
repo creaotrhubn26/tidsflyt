@@ -55,6 +55,10 @@ export const tidumPageStyles = `
     min-height: 100vh;
   }
 
+  .tidum-page--public {
+    color-scheme: light;
+  }
+
   /* ── Dark mode overrides ── */
   .dark .tidum-page {
     --color-bg-main: #0c1214;

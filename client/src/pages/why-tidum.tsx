@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { 
   ArrowRight, 
   Clock, 
@@ -161,6 +162,7 @@ interface FeedbackStats {
 }
 
 export default function WhyTidum() {
+  usePublicLightTheme();
   const [, setLocation] = useLocation();
 
   useSEO({
@@ -226,7 +228,7 @@ export default function WhyTidum() {
 
   if (isLoading) {
     return (
-      <main className="tidum-page">
+      <main className="tidum-page tidum-page--public">
         <style>{tidumPageStyles}</style>
         <div className="rt-container pb-20 pt-8">
           <div className="tidum-panel rounded-[28px] p-6 sm:p-8">
@@ -244,7 +246,7 @@ export default function WhyTidum() {
   }
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">

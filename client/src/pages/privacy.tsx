@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -14,6 +15,7 @@ interface PageContent {
 }
 
 export default function Privacy() {
+  usePublicLightTheme();
   useSEO({
     title: "Personvernerklæring – Tidum",
     description: "Les Tidums personvernerklæring. Vi behandler dine data trygt i samsvar med GDPR og norsk personvernlovgivning.",
@@ -80,7 +82,7 @@ Har du spørsmål om personvern? Kontakt oss på support@tidum.no eller juridisk
   };
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">

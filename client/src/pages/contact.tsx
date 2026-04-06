@@ -10,6 +10,7 @@ import { useState, useRef, useEffect } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 interface PageContent {
@@ -34,6 +35,7 @@ interface BrregCompany {
 
 export default function Contact() {
   const { toast } = useToast();
+  usePublicLightTheme();
 
   useSEO({
     title: "Be om tilgang – Tidum",
@@ -212,7 +214,7 @@ export default function Contact() {
   };
 
   return (
-    <main className="tidum-page">
+    <main className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
       <style>{`
         .tidum-contact-card {
