@@ -785,7 +785,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { username, password } = req.body;
       const result = await pool.query(
-        `SELECT a.*, v.business_name as vendor_name, v.id as vendor_slug 
+        `SELECT a.*, v.name as vendor_name, v.slug as vendor_slug 
          FROM admin_users a 
          LEFT JOIN vendors v ON a.vendor_id::text = v.id::text 
          WHERE (a.username = $1 OR a.email = $1) AND a.is_active = true`,
