@@ -8,6 +8,7 @@ import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
 import { emailService } from "./lib/email-service";
+import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
 import { db } from "./db";
@@ -7164,6 +7165,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       res.status(500).json({ error: err.message });
     }
   });
+
+  void ensureDefaultBlogSeed();
 
   console.log("Smart Timing API routes registered");
 }

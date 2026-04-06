@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Mail, Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2 } from "lucide-react";
+import { Mail, Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2, Newspaper } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useState, useRef, useEffect } from "react";
@@ -294,12 +294,18 @@ export default function Contact() {
               <span className="sr-only" data-testid="text-page-title">Tidum</span>
             </div>
 
-            <Link href="/">
-              <Button variant="outline" className="tidum-btn-secondary h-auto px-5 py-2.5 text-base font-medium" data-testid="button-back">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Tilbake
-              </Button>
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href="/blog" className="hidden items-center gap-2 text-sm font-medium text-[#294048] transition-colors hover:text-[var(--color-primary)] sm:inline-flex">
+                <Newspaper className="h-4 w-4" />
+                Blogg
+              </Link>
+              <Link href="/">
+                <Button variant="outline" className="tidum-btn-secondary h-auto px-5 py-2.5 text-base font-medium" data-testid="button-back">
+                  <ArrowLeft className="mr-2 h-4 w-4" />
+                  Tilbake
+                </Button>
+              </Link>
+            </div>
           </header>
 
           <div className="relative z-10 grid gap-6 px-6 py-8 sm:px-8 sm:py-10 lg:grid-cols-[0.95fr,1.3fr]">

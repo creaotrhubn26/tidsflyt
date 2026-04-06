@@ -15,6 +15,7 @@ import {
   FileCheck2,
   FileSpreadsheet,
   MapPin,
+  Newspaper,
   Search,
   ShieldCheck,
   Smartphone,
@@ -580,6 +581,13 @@ export default function LandingPage() {
                 <ClipboardList className="h-4 w-4" />
                 Funksjoner
               </button>
+              <Link
+                href="/blog"
+                className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
+              >
+                <Newspaper className="h-4 w-4" />
+                Blogg
+              </Link>
               <a
                 href="/api/auth/google"
                 onClick={() => trackGoogleLoginClick("header_navigation")}
@@ -1039,6 +1047,13 @@ export default function LandingPage() {
                   <ChevronRight className="h-4 w-4" />
                   Hvordan det fungerer
                 </button>
+                <Link
+                  href="/blog"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
+                >
+                  <Newspaper className="h-4 w-4" />
+                  Blogg
+                </Link>
                 <button
                   type="button"
                   onClick={() => goToContact("footer_navigation")}

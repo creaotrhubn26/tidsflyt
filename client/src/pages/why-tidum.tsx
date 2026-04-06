@@ -22,6 +22,7 @@ import {
   TrendingUp,
   Award,
   Heart,
+  Newspaper,
   ChevronRight,
   ClipboardList,
   LucideIcon
@@ -271,6 +272,10 @@ export default function WhyTidum() {
               <Link href="/" className="hidden items-center gap-2 text-base text-[#26373C] transition-colors hover:text-[var(--color-primary)] sm:inline-flex">
                 <ClipboardList className="h-4 w-4" />
                 Forside
+              </Link>
+              <Link href="/blog" className="hidden items-center gap-2 text-base text-[#26373C] transition-colors hover:text-[var(--color-primary)] sm:inline-flex">
+                <Newspaper className="h-4 w-4" />
+                Blogg
               </Link>
               <Button
                 onClick={goToContact}

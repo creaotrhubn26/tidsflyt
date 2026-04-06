@@ -100,7 +100,7 @@ const STATIC_PAGE_SEO: Record<string, PageMeta> = {
   "/blog": {
     title: "Blogg – Tidum",
     description:
-      "Les siste nytt, tips og guider om timeregistrering, effektivitet og arbeidsadministrasjon fra Tidum.",
+      "Les guider om timeregistrering, turnus, arbeidstid og dokumentasjonskrav for barn, omsorg og miljøarbeid.",
     ogType: "blog",
     ogImage: DEFAULT_OG_IMAGE,
   },

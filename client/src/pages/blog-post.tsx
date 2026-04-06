@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useParams } from "wouter";
 import DOMPurify from "dompurify";
 import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import {
   ArrowLeft,
   Calendar,
@@ -68,6 +69,7 @@ interface RelatedPost {
 }
 
 export default function BlogPost() {
+  usePublicLightTheme();
   const { slug } = useParams<{ slug: string }>();
   const { toast } = useToast();
   const queryClient = useQueryClient();
