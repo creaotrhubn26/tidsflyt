@@ -32,6 +32,7 @@ import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-
 import { cache } from "./micro-cache";
 import { hasValidCreatorhubSyncSecret, syncTidumAccessRequestToCreatorhub } from "./lib/creatorhub-sync";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
+import { getRequestIp, verifyTurnstileToken } from "./lib/turnstile";
 
 
 // Zod schema for bulk time entry validation
@@ -3433,6 +3434,25 @@ export async function registerRoutes(
       const submissionTime = parseInt(req.body._timestamp) || 0;
       if (submissionTime && (now - submissionTime) < 3000) {
         return res.json({ success: true, id: 0 });
+      }
+
+      const turnstileResult = await verifyTurnstileToken({
+        token:
+          typeof req.body.turnstile_token === "string"
+            ? req.body.turnstile_token
+            : null,
+        remoteIp: getRequestIp(
+          req.headers,
+          req.ip || req.socket.remoteAddress || null,
+        ),
+        expectedAction: "tidum_access_request",
+      });
+
+      if (!turnstileResult.success) {
+        return res.status(400).json({
+          error: "Sikkerhetskontrollen kunne ikke verifiseres. Prøv igjen.",
+          code: "turnstile_verification_failed",
+        });
       }
 
       const parsed = insertAccessRequestSchema.safeParse({

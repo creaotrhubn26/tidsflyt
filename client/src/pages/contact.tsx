@@ -12,6 +12,7 @@ import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
+import { CloudflareTurnstile } from "@/components/cloudflare-turnstile";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import {
   TIDUM_SUPPORT_ADDRESS,
@@ -81,12 +82,15 @@ export default function Contact() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [formLoadTime] = useState(() => Date.now());
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const [turnstileWidgetKey, setTurnstileWidgetKey] = useState(0);
   const [brregSearchResults, setBrregSearchResults] = useState<BrregCompany[]>([]);
   const [brregLoading, setBrregLoading] = useState(false);
   const [brregVerified, setBrregVerified] = useState(false);
   const [showBrregDropdown, setShowBrregDropdown] = useState(false);
   const brregDropdownRef = useRef<HTMLDivElement>(null);
   const brregInputRef = useRef<HTMLInputElement>(null);
+  const turnstileSiteKey = import.meta.env.VITE_CF_TURNSTILE_SITE_KEY?.trim() || "";
 
   // Close dropdown when clicking outside
   useEffect(() => {
@@ -193,6 +197,16 @@ export default function Contact() {
       has_website: Boolean(formData.website),
       has_phone: Boolean(formData.phone),
     };
+
+    if (turnstileSiteKey && !turnstileToken) {
+      toast({
+        title: "Bekreft sikkerhetskontrollen",
+        description: "Fullfør Cloudflare Turnstile før du sender inn skjemaet.",
+        variant: "destructive",
+      });
+      setIsSubmitting(false);
+      return;
+    }
     
     try {
       const response = await fetch('/api/access-requests', {
@@ -207,6 +221,7 @@ export default function Contact() {
           message: formData.message || formData.subject,
           brreg_verified: brregVerified,
           institution_type: formData.institutionType || null,
+          turnstile_token: turnstileToken,
           _honeypot: honeypot,
           _timestamp: formLoadTime,
         }),
@@ -223,6 +238,8 @@ export default function Contact() {
         });
         setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "", institutionType: "" });
         setBrregVerified(false);
+        setTurnstileToken(null);
+        setTurnstileWidgetKey((value) => value + 1);
       } else {
         trackTidumPublicEvent("tidum_access_request_submit_error", {
           ...leadPayload,
@@ -233,6 +250,8 @@ export default function Contact() {
           description: result.error || "Kunne ikke sende melding. Prøv igjen.",
           variant: "destructive"
         });
+        setTurnstileToken(null);
+        setTurnstileWidgetKey((value) => value + 1);
       }
     } catch (error) {
       trackTidumPublicEvent("tidum_access_request_submit_error", {
@@ -244,6 +263,8 @@ export default function Contact() {
         description: "Kunne ikke sende melding. Prøv igjen senere.",
         variant: "destructive"
       });
+      setTurnstileToken(null);
+      setTurnstileWidgetKey((value) => value + 1);
     }
     
     setIsSubmitting(false);
@@ -267,7 +288,9 @@ export default function Contact() {
 
           <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
             <div className="flex items-center gap-3">
-              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11" />
+              <Link href="/">
+                <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto cursor-pointer sm:h-11" />
+              </Link>
               <span className="sr-only" data-testid="text-page-title">Tidum</span>
             </div>
 
@@ -580,6 +603,12 @@ export default function Contact() {
                       data-testid="textarea-contact-message"
                     />
                   </div>
+                  <CloudflareTurnstile
+                    key={turnstileWidgetKey}
+                    siteKey={turnstileSiteKey}
+                    action="tidum_access_request"
+                    onTokenChange={setTurnstileToken}
+                  />
                   <Button type="submit" className="tidum-btn-primary h-auto w-full py-3 text-base font-semibold" disabled={isSubmitting} data-testid="button-submit-contact">
                     {isSubmitting ? (
                       <>

@@ -560,8 +560,15 @@ export default function LandingPage() {
 
           <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
             <div className="flex items-center gap-3">
-              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11 dark:hidden" />
-              <img src={tidumWordmarkWhite} alt="Tidum" className="hidden h-10 w-auto sm:h-11 dark:block" />
+              <button
+                type="button"
+                onClick={() => setLocation("/")}
+                className="inline-flex items-center"
+                aria-label="Gå til forsiden"
+              >
+                <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11 dark:hidden" />
+                <img src={tidumWordmarkWhite} alt="Tidum" className="hidden h-10 w-auto sm:h-11 dark:block" />
+              </button>
             </div>
 
             <div className="flex items-center gap-4 sm:gap-6">
