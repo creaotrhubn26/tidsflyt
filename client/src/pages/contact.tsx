@@ -11,7 +11,10 @@ import { useToast } from "@/hooks/use-toast";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { trackTidumPublicEvent } from "@/lib/analytics";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+
+const CONTACT_OG_IMAGE = "https://tidum.no/screenshots/landing.png";
 
 interface PageContent {
   title: string;
@@ -40,6 +43,9 @@ export default function Contact() {
   useSEO({
     title: "Be om tilgang – Tidum",
     description: "Be om tilgang til Tidum for virksomheter innen barn, omsorg og miljøarbeid. Creatorhub AS vurderer og aktiverer nye virksomheter fortløpende.",
+    ogDescription: "Send tilgangsforespørsel til Tidum for virksomheter innen barn, omsorg og miljøarbeid.",
+    ogImage: CONTACT_OG_IMAGE,
+    ogImageAlt: "Kontakt og tilgangsforespørsel til Tidum",
     canonical: "https://tidum.no/kontakt",
     jsonLd: {
       "@context": "https://schema.org",
@@ -135,6 +141,11 @@ export default function Contact() {
   };
 
   const selectBrregCompany = (company: BrregCompany) => {
+    trackTidumPublicEvent("tidum_brreg_company_selected", {
+      company_name: company.navn,
+      org_number: company.organisasjonsnummer,
+      has_website: Boolean(company.hjemmeside),
+    });
     setFormData(prev => ({
       ...prev,
       orgNumber: company.organisasjonsnummer,
@@ -167,6 +178,16 @@ export default function Contact() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
+
+    const leadPayload = {
+      lead_type: "access_request",
+      form_name: "tidum_access_request",
+      institution_type: formData.institutionType || "unknown",
+      brreg_verified: brregVerified,
+      has_org_number: Boolean(formData.orgNumber),
+      has_website: Boolean(formData.website),
+      has_phone: Boolean(formData.phone),
+    };
     
     try {
       const response = await fetch('/api/access-requests', {
@@ -189,6 +210,8 @@ export default function Contact() {
       const result = await response.json();
       
       if (response.ok) {
+        trackTidumPublicEvent("generate_lead", leadPayload);
+        trackTidumPublicEvent("tidum_access_request_submitted", leadPayload);
         toast({
           title: "Forespørsel sendt",
           description: "Vi har mottatt din tilgangsforespørsel og vil behandle den så snart som mulig."
@@ -196,6 +219,10 @@ export default function Contact() {
         setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "", institutionType: "" });
         setBrregVerified(false);
       } else {
+        trackTidumPublicEvent("tidum_access_request_submit_error", {
+          ...leadPayload,
+          error_type: result.error || "api_error",
+        });
         toast({
           title: "Feil",
           description: result.error || "Kunne ikke sende melding. Prøv igjen.",
@@ -203,6 +230,10 @@ export default function Contact() {
         });
       }
     } catch (error) {
+      trackTidumPublicEvent("tidum_access_request_submit_error", {
+        ...leadPayload,
+        error_type: "network_error",
+      });
       toast({
         title: "Feil",
         description: "Kunne ikke sende melding. Prøv igjen senere.",
@@ -268,7 +299,14 @@ export default function Contact() {
                     </div>
                     <div>
                       <p className="font-medium text-[#203138]">E-post</p>
-                      <a href={`mailto:${content.email}`} className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]">
+                      <a
+                        href={`mailto:${content.email}`}
+                        onClick={() => trackTidumPublicEvent("tidum_contact_channel_click", {
+                          channel: "email",
+                          destination: content.email,
+                        })}
+                        className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]"
+                      >
                         {content.email}
                       </a>
                     </div>
@@ -280,7 +318,15 @@ export default function Contact() {
                     </div>
                     <div>
                       <p className="font-medium text-[#203138]">Telefon</p>
-                      <a href={`tel:${content.phone}`} className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]" data-testid="link-phone">
+                      <a
+                        href={`tel:${content.phone}`}
+                        onClick={() => trackTidumPublicEvent("tidum_contact_channel_click", {
+                          channel: "phone",
+                          destination: content.phone,
+                        })}
+                        className="text-[#4B5A5E] transition-colors hover:text-[#1F6B73]"
+                        data-testid="link-phone"
+                      >
                         {content.phone}
                       </a>
                     </div>

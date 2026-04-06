@@ -19,6 +19,7 @@ export interface TidumAnalyticsConfig {
 }
 
 const TIDUM_CONSENT_KEY = "tidum-analytics-consent";
+const TIDUM_DEFAULT_PATH = "/";
 
 const DEFAULT_EXCLUDED_PREFIXES = [
   "/dashboard",
@@ -156,7 +157,10 @@ export function shouldTrackPath(config: TidumAnalyticsConfig, pathname: string):
 }
 
 export function initializeAnalytics(config: TidumAnalyticsConfig) {
-  if (!isBrowser() || !config.enabled) return;
+  if (!isBrowser()) return;
+
+  window.__tidumAnalyticsConfig = config;
+  if (!config.enabled) return;
 
   ensureDataLayer();
   if (config.enable_consent_mode) {
@@ -217,6 +221,25 @@ export function trackTidumEvent(
       ...params,
     });
   }
+}
+
+export function getTidumAnalyticsConfig(): TidumAnalyticsConfig | null {
+  if (!isBrowser()) return null;
+  return window.__tidumAnalyticsConfig ?? null;
+}
+
+export function trackTidumPublicEvent(
+  eventName: string,
+  params: Record<string, unknown> = {},
+) {
+  const config = getTidumAnalyticsConfig();
+  if (!config) return;
+
+  trackTidumEvent(config, eventName, {
+    page_path: window.location.pathname || TIDUM_DEFAULT_PATH,
+    page_title: document.title,
+    ...params,
+  });
 }
 
 export function needsConsentPrompt(config: TidumAnalyticsConfig, pathname: string): boolean {

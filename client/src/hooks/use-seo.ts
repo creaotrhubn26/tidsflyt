@@ -15,6 +15,7 @@ interface SEOOptions {
   ogTitle?: string;
   ogDescription?: string;
   ogImage?: string;
+  ogImageAlt?: string;
   ogType?: string;
   ogUrl?: string;
   twitterCard?: "summary" | "summary_large_image";
@@ -54,9 +55,14 @@ function removeEl(selector: string) {
   document.querySelector(selector)?.remove();
 }
 
+const DEFAULT_OG_IMAGE = "https://tidum.no/screenshots/landing.png";
+const DEFAULT_OG_IMAGE_ALT = "Tidum arbeidstidssystem med timeføring på mobil og nettbrett";
+
 export function useSEO(opts: SEOOptions) {
   useEffect(() => {
     const prevTitle = document.title;
+    const ogImage = opts.ogImage || DEFAULT_OG_IMAGE;
+    const ogImageAlt = opts.ogImageAlt || DEFAULT_OG_IMAGE_ALT;
 
     // Title
     document.title = opts.title;
@@ -73,13 +79,15 @@ export function useSEO(opts: SEOOptions) {
     setMeta("og:url", opts.ogUrl || window.location.href);
     setMeta("og:site_name", "Tidum");
     setMeta("og:locale", "nb_NO");
-    if (opts.ogImage) setMeta("og:image", opts.ogImage);
+    setMeta("og:image", ogImage);
+    setMeta("og:image:alt", ogImageAlt);
 
     // Twitter Card
     setMeta("twitter:card", opts.twitterCard || "summary_large_image");
     setMeta("twitter:title", opts.ogTitle || opts.title);
     setMeta("twitter:description", opts.ogDescription || opts.description || "");
-    if (opts.ogImage) setMeta("twitter:image", opts.ogImage);
+    setMeta("twitter:image", ogImage);
+    setMeta("twitter:image:alt", ogImageAlt);
 
     // Canonical
     if (opts.canonical) {
@@ -123,6 +131,7 @@ export function useSEO(opts: SEOOptions) {
     opts.ogTitle,
     opts.ogDescription,
     opts.ogImage,
+    opts.ogImageAlt,
     opts.ogType,
     opts.ogUrl,
     opts.canonical,

@@ -1,7 +1,8 @@
 import { useLocation } from "wouter";
-import { LogIn } from "lucide-react";
+import { AlertCircle, LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { trackTidumPublicEvent } from "@/lib/analytics";
 import {
   ArrowRight,
   BarChart3,
@@ -27,6 +28,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import tidumWordmarkWhite from "@assets/tidum-logo_white_text.png";
+
+const LANDING_OG_IMAGE = "https://tidum.no/screenshots/landing.png";
 
 function HeroMockup() {
   return (
@@ -463,8 +466,11 @@ export default function LandingPage() {
       : null;
 
   useSEO({
-    title: "Tidum – Profesjonell timeføring for norske bedrifter",
-    description: "Tidum er Norges mest brukervennlige plattform for timeføring, rapportering og ressursplanlegging. Spar tid, øk lønnsomhet og hold full kontroll over timer og prosjekter.",
+    title: "Tidum – arbeidstidssystem for barn, omsorg og miljøarbeid",
+    description: "Tidum er et arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid. Enkel timeføring, trygg dokumentasjon og full oversikt for ledere og miljøarbeidere.",
+    ogDescription: "Tidum samler timeføring, dokumentasjon og oversikt for virksomheter innen barn, omsorg og miljøarbeid.",
+    ogImage: LANDING_OG_IMAGE,
+    ogImageAlt: "Tidum med timeføring på mobil og iPad",
     ogType: "website",
     canonical: "https://tidum.no/",
     jsonLd: [
@@ -473,7 +479,7 @@ export default function LandingPage() {
         "@type": "Organization",
         name: "Tidum",
         url: "https://tidum.no",
-        logo: "https://tidum.no/favicon-512x512.png",
+        logo: "https://tidum.no/apple-touch-icon.png",
         sameAs: [],
         contactPoint: {
           "@type": "ContactPoint",
@@ -488,7 +494,7 @@ export default function LandingPage() {
         name: "Tidum",
         url: "https://tidum.no",
         inLanguage: "nb",
-        description: "Profesjonell timeføring for norske bedrifter",
+        description: "Arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid",
       },
       {
         "@context": "https://schema.org",
@@ -496,23 +502,50 @@ export default function LandingPage() {
         name: "Tidum",
         applicationCategory: "BusinessApplication",
         operatingSystem: "Web",
+        image: LANDING_OG_IMAGE,
         offers: {
           "@type": "Offer",
           price: "0",
           priceCurrency: "NOK",
         },
-        description: "Norges mest brukervennlige plattform for timeføring, rapportering og ressursplanlegging.",
+        description: "Arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid.",
       },
     ],
   });
 
-  const goToContact = () => setLocation("/kontakt");
+  const goToContact = (source: string) => {
+    trackTidumPublicEvent("tidum_request_access_click", {
+      source,
+      destination: "/kontakt",
+    });
+    setLocation("/kontakt");
+  };
 
-  const scrollToFeatures = () => {
+  const trackGoogleLoginClick = (source: string) => {
+    trackTidumPublicEvent("tidum_google_login_click", {
+      source,
+      destination: "/api/auth/google",
+    });
+  };
+
+  const startGoogleLogin = (source: string) => {
+    trackGoogleLoginClick(source);
+    window.location.href = "/api/auth/google";
+  };
+
+  const scrollToFeatures = (source: string) => {
+    trackTidumPublicEvent("tidum_section_navigation_click", {
+      source,
+      target_section: "funksjoner",
+    });
     document.getElementById("funksjoner")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
-  const scrollToHow = () => {
+  const scrollToHow = (source: string) => {
+    trackTidumPublicEvent("tidum_section_navigation_click", {
+      source,
+      target_section: "hvordan",
+    });
     document.getElementById("hvordan")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -534,7 +567,7 @@ export default function LandingPage() {
             <div className="flex items-center gap-4 sm:gap-6">
               <button
                 type="button"
-                onClick={scrollToFeatures}
+                onClick={() => scrollToFeatures("header_navigation")}
                 className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
               >
                 <ClipboardList className="h-4 w-4" />
@@ -542,13 +575,14 @@ export default function LandingPage() {
               </button>
               <a
                 href="/api/auth/google"
+                onClick={() => trackGoogleLoginClick("header_navigation")}
                 className="inline-flex items-center gap-2 text-base font-medium text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)]"
               >
                 <LogIn className="h-4 w-4" />
                 <span className="hidden sm:inline">Logg inn med Google</span>
               </a>
               <Button
-                onClick={goToContact}
+                onClick={() => goToContact("header_primary")}
                 className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold"
               >
                 Be om tilgang
@@ -593,14 +627,14 @@ export default function LandingPage() {
               </p>
               <div className="mt-8 flex flex-wrap gap-3 sm:gap-4">
                 <Button
-                  onClick={goToContact}
+                  onClick={() => goToContact("hero_primary")}
                   className="tidum-btn-primary h-auto px-6 py-3 text-lg font-semibold"
                 >
                   Be om tilgang
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => { window.location.href = "/api/auth/google"; }}
+                  onClick={() => startGoogleLogin("hero_secondary")}
                   variant="outline"
                   className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
@@ -945,7 +979,7 @@ export default function LandingPage() {
           </p>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
             <Button
-              onClick={goToContact}
+              onClick={() => goToContact("cta_primary")}
               className="h-auto rounded-xl bg-white px-6 py-3 text-[var(--color-primary)] hover:bg-white/90"
             >
               Be om tilgang
@@ -953,7 +987,7 @@ export default function LandingPage() {
             </Button>
             <Button
               variant="outline"
-              onClick={goToContact}
+              onClick={() => goToContact("cta_secondary")}
               className="h-auto rounded-xl border-white/70 px-6 py-3 text-white hover:bg-white/10"
             >
               Ta kontakt
@@ -972,7 +1006,7 @@ export default function LandingPage() {
               </p>
               <button
                 type="button"
-                onClick={goToContact}
+                onClick={() => goToContact("footer_primary")}
                 className="mt-3 text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
                 Be om tilgang via tidum.no/kontakt
@@ -984,7 +1018,7 @@ export default function LandingPage() {
               <div className="mt-3 grid gap-2 text-sm">
                 <button
                   type="button"
-                  onClick={scrollToFeatures}
+                  onClick={() => scrollToFeatures("footer_navigation")}
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -992,7 +1026,7 @@ export default function LandingPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={scrollToHow}
+                  onClick={() => scrollToHow("footer_navigation")}
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1000,7 +1034,7 @@ export default function LandingPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={goToContact}
+                  onClick={() => goToContact("footer_navigation")}
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
@@ -1008,6 +1042,7 @@ export default function LandingPage() {
                 </button>
                 <a
                   href="/api/auth/google"
+                  onClick={() => trackGoogleLoginClick("footer_navigation")}
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <LogIn className="h-4 w-4" />

@@ -28,6 +28,8 @@ import {
 } from "lucide-react";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
+const WHY_TIDUM_OG_IMAGE = "https://tidum.no/screenshots/time-tracking.png";
+
 const iconMap: Record<string, LucideIcon> = {
   Clock,
   Shield,
@@ -166,8 +168,11 @@ export default function WhyTidum() {
   const [, setLocation] = useLocation();
 
   useSEO({
-    title: "Hvorfor Tidum? – Fordeler og funksjoner",
-    description: "Oppdag hvorfor norske bedrifter velger Tidum for timeføring. Brukervennlig, GDPR-kompatibel, og bygget for norske arbeidsforhold.",
+    title: "Hvorfor Tidum? – trygg timeføring for barn, omsorg og miljøarbeid",
+    description: "Se hvorfor virksomheter innen barn, omsorg og miljøarbeid velger Tidum for timeføring, dokumentasjon og oversikt.",
+    ogDescription: "Tidum er laget for virksomheter som trenger enkel timeføring, tydelig dokumentasjon og trygg oversikt i norsk arbeidshverdag.",
+    ogImage: WHY_TIDUM_OG_IMAGE,
+    ogImageAlt: "Tidum oversiktsside for timeføring og rapportering",
     canonical: "https://tidum.no/hvorfor",
     jsonLd: {
       "@context": "https://schema.org",

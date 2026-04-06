@@ -26,44 +26,82 @@ interface PageMeta {
   description: string;
   ogType?: string;
   canonical?: string;
+  ogImage?: string;
 }
+
+const DEFAULT_OG_IMAGE = "https://tidum.no/screenshots/landing.png";
 
 const STATIC_PAGE_SEO: Record<string, PageMeta> = {
   "/": {
-    title: "Tidum – Profesjonell timeføring for norske bedrifter",
+    title: "Tidum – arbeidstidssystem for barn, omsorg og miljøarbeid",
     description:
-      "Tidum gjør timeføring enkelt. Profesjonell timeregistrering, rapportering og arbeidsadministrasjon for norske bedrifter. Start gratis i dag.",
+      "Tidum er et arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid. Enkel timeføring, trygg dokumentasjon og full oversikt for ledere og miljøarbeidere.",
+    ogImage: DEFAULT_OG_IMAGE,
   },
   "/kontakt": {
-    title: "Kontakt oss – Tidum",
+    title: "Be om tilgang – Tidum",
     description:
-      "Ta kontakt med Tidum for spørsmål om timeregistrering, priser eller support. Vi hjelper deg gjerne.",
+      "Be om tilgang til Tidum for virksomheter innen barn, omsorg og miljøarbeid. Creatorhub AS vurderer og aktiverer nye virksomheter fortløpende.",
+    ogImage: DEFAULT_OG_IMAGE,
   },
   "/personvern": {
     title: "Personvernerklæring – Tidum",
     description:
       "Les Tidums personvernerklæring. Vi tar ditt personvern på alvor og følger GDPR.",
+    ogImage: DEFAULT_OG_IMAGE,
+  },
+  "/privacy": {
+    title: "Personvernerklæring – Tidum",
+    description:
+      "Les Tidums personvernerklæring. Vi tar ditt personvern på alvor og følger GDPR.",
+    canonical: "https://tidum.no/personvern",
+    ogImage: DEFAULT_OG_IMAGE,
+  },
+  "/privacy-policy": {
+    title: "Personvernerklæring – Tidum",
+    description:
+      "Les Tidums personvernerklæring. Vi tar ditt personvern på alvor og følger GDPR.",
+    canonical: "https://tidum.no/personvern",
+    ogImage: DEFAULT_OG_IMAGE,
   },
   "/vilkar": {
     title: "Brukervilkår – Tidum",
     description:
       "Les Tidums brukervilkår for bruk av tjenesten.",
+    ogImage: DEFAULT_OG_IMAGE,
+  },
+  "/terms": {
+    title: "Brukervilkår – Tidum",
+    description:
+      "Les Tidums brukervilkår for bruk av tjenesten.",
+    canonical: "https://tidum.no/vilkar",
+    ogImage: DEFAULT_OG_IMAGE,
+  },
+  "/terms-and-conditions": {
+    title: "Brukervilkår – Tidum",
+    description:
+      "Les Tidums brukervilkår for bruk av tjenesten.",
+    canonical: "https://tidum.no/vilkar",
+    ogImage: DEFAULT_OG_IMAGE,
   },
   "/hvorfor": {
-    title: "Hvorfor Tidum? – Fordeler og funksjoner",
+    title: "Hvorfor Tidum? – trygg timeføring for barn, omsorg og miljøarbeid",
     description:
-      "Oppdag hvorfor Tidum er det beste valget for timeføring. Spar tid, få kontroll og forenkle arbeidsadministrasjonen.",
+      "Se hvorfor virksomheter innen barn, omsorg og miljøarbeid velger Tidum for timeføring, dokumentasjon og oversikt.",
+    ogImage: "https://tidum.no/screenshots/time-tracking.png",
   },
   "/guide": {
     title: "Interaktiv guide – Tidum",
     description:
       "Lær hvordan du bruker Tidum med vår interaktive guide. Kom i gang på minutter.",
+    ogImage: DEFAULT_OG_IMAGE,
   },
   "/blog": {
     title: "Blogg – Tidum",
     description:
       "Les siste nytt, tips og guider om timeregistrering, effektivitet og arbeidsadministrasjon fra Tidum.",
     ogType: "blog",
+    ogImage: DEFAULT_OG_IMAGE,
   },
 };
 
@@ -253,7 +291,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
               description: post.meta_description || post.excerpt || "",
               ogTitle: title,
               ogDescription: post.meta_description || post.excerpt || "",
-              ogImage: post.og_image || post.featured_image || globalSeo?.default_og_image,
+              ogImage: post.og_image || post.featured_image || globalSeo?.default_og_image || DEFAULT_OG_IMAGE,
               ogType: "article",
               ogUrl: fullUrl,
               canonical: fullUrl,
@@ -305,7 +343,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
             html = injectMeta(html, {
               title: pg.meta_title || pg.title || "Tidum",
               description: pg.meta_description || "",
-              ogImage: pg.og_image || globalSeo?.default_og_image,
+              ogImage: pg.og_image || globalSeo?.default_og_image || DEFAULT_OG_IMAGE,
               ogUrl: fullUrl,
               canonical: pg.canonical_url || fullUrl,
               googleVerification: globalSeo?.google_verification,
@@ -323,7 +361,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
           description: dbPage.meta_description || "",
           ogTitle: dbPage.og_title,
           ogDescription: dbPage.og_description,
-          ogImage: dbPage.og_image || globalSeo?.default_og_image,
+          ogImage: dbPage.og_image || globalSeo?.default_og_image || DEFAULT_OG_IMAGE,
           ogType: dbPage.og_type || "website",
           ogUrl: fullUrl,
           twitterTitle: dbPage.twitter_title,
@@ -343,22 +381,75 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
       if (staticMeta) {
         const jsonLd =
           path === "/"
-            ? {
-                "@context": "https://schema.org",
-                "@type": "WebSite",
-                name: "Tidum",
-                url: baseUrl,
-                description: staticMeta.description,
-                inLanguage: "nb-NO",
-                potentialAction: {
-                  "@type": "SearchAction",
-                  target: `${baseUrl}/blog?q={search_term_string}`,
-                  "query-input": "required name=search_term_string",
+            ? [
+                {
+                  "@context": "https://schema.org",
+                  "@type": "Organization",
+                  name: "Tidum",
+                  url: baseUrl,
+                  logo: `${baseUrl}/apple-touch-icon.png`,
+                  contactPoint: {
+                    "@type": "ContactPoint",
+                    telephone: "+47-97-95-92-94",
+                    contactType: "customer service",
+                    availableLanguage: "nb-NO",
+                  },
                 },
-              }
-            : path === "/blog"
+                {
+                  "@context": "https://schema.org",
+                  "@type": "WebSite",
+                  name: "Tidum",
+                  url: baseUrl,
+                  description: staticMeta.description,
+                  inLanguage: "nb-NO",
+                  potentialAction: {
+                    "@type": "SearchAction",
+                    target: `${baseUrl}/blog?q={search_term_string}`,
+                    "query-input": "required name=search_term_string",
+                  },
+                },
+                {
+                  "@context": "https://schema.org",
+                  "@type": "SoftwareApplication",
+                  name: "Tidum",
+                  applicationCategory: "BusinessApplication",
+                  operatingSystem: "Web",
+                  image: staticMeta.ogImage || DEFAULT_OG_IMAGE,
+                  description: "Arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid.",
+                  offers: {
+                    "@type": "Offer",
+                    price: "0",
+                    priceCurrency: "NOK",
+                  },
+                },
+              ]
+            : path === "/kontakt"
               ? {
                   "@context": "https://schema.org",
+                  "@type": "ContactPage",
+                  name: "Be om tilgang til Tidum",
+                  url: `${baseUrl}/kontakt`,
+                  description: staticMeta.description,
+                  mainEntity: {
+                    "@type": "Organization",
+                    name: "Tidum",
+                    email: "support@tidum.no",
+                    telephone: "+47-97-95-92-94",
+                    address: { "@type": "PostalAddress", addressLocality: "Oslo", addressCountry: "NO" },
+                  },
+                }
+              : path === "/hvorfor"
+                ? {
+                    "@context": "https://schema.org",
+                    "@type": "WebPage",
+                    name: "Hvorfor Tidum?",
+                    url: `${baseUrl}/hvorfor`,
+                    description: staticMeta.description,
+                    isPartOf: { "@type": "WebSite", name: "Tidum", url: baseUrl },
+                  }
+              : path === "/blog"
+                ? {
+                    "@context": "https://schema.org",
                   "@type": "Blog",
                   name: "Tidum Blogg",
                   url: `${baseUrl}/blog`,
@@ -376,6 +467,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
           title: staticMeta.title,
           description: staticMeta.description,
           ogType: staticMeta.ogType || "website",
+          ogImage: staticMeta.ogImage || globalSeo?.default_og_image || DEFAULT_OG_IMAGE,
           ogUrl: fullUrl,
           canonical: staticMeta.canonical || fullUrl,
           googleVerification: globalSeo?.google_verification,
@@ -387,8 +479,9 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
 
       // ── Fallback: inject verification only ──
       html = injectMeta(html, {
-        title: "Tidum – Profesjonell timeføring for norske bedrifter",
-        description: "Profesjonell timeregistrering og arbeidsadministrasjon for norske bedrifter.",
+        title: "Tidum – arbeidstidssystem for barn, omsorg og miljøarbeid",
+        description: "Tidum er et arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid.",
+        ogImage: globalSeo?.default_og_image || DEFAULT_OG_IMAGE,
         ogUrl: fullUrl,
         canonical: fullUrl,
         googleVerification: globalSeo?.google_verification,
