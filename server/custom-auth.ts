@@ -105,7 +105,7 @@ export async function setupCustomAuth(app: Express) {
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
       callbackURL: process.env.GOOGLE_REDIRECT_URI || getGoogleCallbackUrl(),
-      scope: ["profile", "email"],
+      scope: ["openid", "email"],
     }, async (_accessToken, _refreshToken, profile, done) => {
       try {
         const user = await findOrCreateUser(profile, "google");
@@ -132,7 +132,7 @@ export async function setupCustomAuth(app: Express) {
       return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
     }
     passport.authenticate("google", { 
-      scope: ["profile", "email"],
+      scope: ["openid", "email"],
       prompt: "select_account"
     })(req, res, next);
   });
