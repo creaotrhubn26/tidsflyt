@@ -1419,9 +1419,9 @@ export async function registerRoutes(
     await pool.query(`
       INSERT INTO integration_catalog (key, name, description, is_active)
       VALUES
-        ('fiken', 'Fiken', 'Regnskap og faktura-integrasjon mot Fiken'),
-        ('tripletex', 'Tripletex', 'Regnskap og lønnsdata-integrasjon mot Tripletex'),
-        ('other', 'Annet', 'Foreslå annen integrasjon')
+        ('fiken', 'Fiken', 'Regnskap og faktura-integrasjon mot Fiken', TRUE),
+        ('tripletex', 'Tripletex', 'Regnskap og lønnsdata-integrasjon mot Tripletex', TRUE),
+        ('other', 'Annet', 'Foreslå annen integrasjon', TRUE)
       ON CONFLICT (key)
       DO UPDATE SET
         name = EXCLUDED.name,
