@@ -16,7 +16,7 @@ import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckC
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
-import { isSuperAdminLikeRole } from "@shared/roles";
+import { getRoleLabel, isSuperAdminLikeRole } from "@shared/roles";
 
 interface AccessRequest {
   id: number;
@@ -27,6 +27,7 @@ interface AccessRequest {
   phone: string | null;
   message: string | null;
   brregVerified: boolean;
+  institutionType: string | null;
   status: string;
   reviewedBy: string | null;
   reviewedAt: string | null;
@@ -39,6 +40,19 @@ interface Vendor {
   name: string;
 }
 
+const approvalRoleOptions = [
+  "tiltaksleder",
+  "teamleder",
+  "case_manager",
+  "admin",
+] as const;
+
+const institutionTypeLabels: Record<string, string> = {
+  privat: "Privat virksomhet",
+  offentlig: "Offentlig virksomhet",
+  nav: "NAV / tiltak",
+};
+
 export default function AccessRequestsPage() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
@@ -46,6 +60,7 @@ export default function AccessRequestsPage() {
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
   const [selectedVendorId, setSelectedVendorId] = useState<string>("");
+  const [selectedRole, setSelectedRole] = useState<string>("tiltaksleder");
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
@@ -82,8 +97,8 @@ export default function AccessRequestsPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, status, vendorId }: { id: number; status: string; vendorId?: number }) => {
-      await apiRequest("PATCH", `/api/access-requests/${id}`, { status, vendorId });
+    mutationFn: async ({ id, status, vendorId, role }: { id: number; status: string; vendorId?: number; role?: string }) => {
+      await apiRequest("PATCH", `/api/access-requests/${id}`, { status, vendorId, role });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/access-requests"] });
@@ -91,6 +106,7 @@ export default function AccessRequestsPage() {
       setApproveDialogOpen(false);
       setSelectedRequest(null);
       setSelectedVendorId("");
+      setSelectedRole("tiltaksleder");
     },
     onError: () => {
       toast({ title: "Kunne ikke oppdatere foresporsel", variant: "destructive" });
@@ -99,6 +115,8 @@ export default function AccessRequestsPage() {
 
   const handleApprove = (request: AccessRequest) => {
     setSelectedRequest(request);
+    setSelectedVendorId(request.vendorId ? String(request.vendorId) : "");
+    setSelectedRole("tiltaksleder");
     setApproveDialogOpen(true);
   };
 
@@ -112,6 +130,7 @@ export default function AccessRequestsPage() {
         id: selectedRequest.id,
         status: "approved",
         vendorId: parseInt(selectedVendorId),
+        role: selectedRole,
       });
     }
   };
@@ -135,10 +154,10 @@ export default function AccessRequestsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
-            <a href="/api/login">
+            <a href="/api/auth/google">
               <Button data-testid="button-login">
                 <LogIn className="h-4 w-4 mr-2" />
-                Logg inn
+                Logg inn med Google
               </Button>
             </a>
           </CardContent>
@@ -272,7 +291,7 @@ export default function AccessRequestsPage() {
           </div>
           <h3 className="text-2xl font-semibold mb-3">Ingen forespørsler ennå</h3>
           <p className="text-muted-foreground text-center max-w-sm mb-8 leading-relaxed">
-            Tilgangsforespørsler fra vendorer vil vises her når de søker om tilgang.
+            Forespørsler fra virksomheter og ledere i barn, omsorg og miljøarbeid vises her når de ber om tilgang til Tidum.
           </p>
           <div className="flex flex-wrap justify-center gap-2">
             <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-green-500/10 border border-green-500/20 text-xs font-medium text-green-700 dark:text-green-400">
@@ -354,6 +373,11 @@ export default function AccessRequestsPage() {
                     )}
                   </div>
                 )}
+                {request.institutionType && (
+                  <div className="text-sm text-muted-foreground">
+                    Målgruppe: {institutionTypeLabels[request.institutionType] || request.institutionType}
+                  </div>
+                )}
                 {request.message && (
                   <div className="flex items-start gap-2 text-sm">
                     <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -402,7 +426,7 @@ export default function AccessRequestsPage() {
           <DialogHeader>
             <DialogTitle>Godkjenn tilgang</DialogTitle>
             <DialogDescription>
-              Velg hvilken leverandor brukeren skal tilhorere
+              Velg hvilken virksomhet brukeren skal tilhøre og hvilken lederrolle som skal opprettes for Google-login.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
@@ -411,10 +435,10 @@ export default function AccessRequestsPage() {
               <p className="text-sm text-muted-foreground">{selectedRequest?.fullName} ({selectedRequest?.email})</p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="vendor-select">Leverandor</Label>
+              <Label htmlFor="vendor-select">Virksomhet</Label>
               <Select value={selectedVendorId} onValueChange={setSelectedVendorId}>
                 <SelectTrigger id="vendor-select" data-testid="select-vendor">
-                  <SelectValue placeholder="Velg leverandor" />
+                  <SelectValue placeholder="Velg virksomhet" />
                 </SelectTrigger>
                 <SelectContent>
                   {vendors?.map((vendor) => (
@@ -425,6 +449,24 @@ export default function AccessRequestsPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="role-select">Startrolle</Label>
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
+                <SelectTrigger id="role-select" data-testid="select-access-role">
+                  <SelectValue placeholder="Velg rolle" />
+                </SelectTrigger>
+                <SelectContent>
+                  {approvalRoleOptions.map((role) => (
+                    <SelectItem key={role} value={role}>
+                      {getRoleLabel(role)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Velg en lederrolle her. Miljøarbeidere inviteres og godkjennes videre av leder inne i Tidum.
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setApproveDialogOpen(false)}>
@@ -432,7 +474,7 @@ export default function AccessRequestsPage() {
             </Button>
             <Button 
               onClick={confirmApprove} 
-              disabled={!selectedVendorId || updateMutation.isPending}
+              disabled={!selectedVendorId || !selectedRole || updateMutation.isPending}
               data-testid="button-confirm-approve"
             >
               <Check className="h-4 w-4 mr-1" />

@@ -58,6 +58,51 @@ const timerSessionSchema = z.object({
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
 
+async function syncApprovedPortalUser(email: string, role: string, vendorId: number | null) {
+  const normalizedRole = normalizeRole(role);
+  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+  if (existingUser) {
+    await db
+      .update(users)
+      .set({
+        email,
+        role: normalizedRole,
+        vendorId,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existingUser.id));
+  } else {
+    await db.insert(users).values({
+      email,
+      role: normalizedRole,
+      vendorId,
+    });
+  }
+
+  if (vendorId) {
+    const existingCompanyUser = await pool.query(
+      `SELECT id FROM company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
+      [vendorId, email]
+    );
+
+    if (existingCompanyUser.rows.length > 0) {
+      await pool.query(
+        `UPDATE company_users
+         SET role = $1, approved = true, updated_at = NOW()
+         WHERE id = $2`,
+        [normalizedRole, existingCompanyUser.rows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO company_users (company_id, user_email, role, approved)
+         VALUES ($1, $2, $3, true)`,
+        [vendorId, email, normalizedRole]
+      );
+    }
+  }
+}
+
 const timeSuggestionFeedbackSchema = z.object({
   suggestionType: z.enum([
     "project",
@@ -3292,12 +3337,17 @@ export async function registerRoutes(
   app.get("/api/access-requests", requireSuperAdmin, async (req: any, res) => {
     try {
       const status = req.query.status || "pending";
-      
-      const requests = await db
-        .select()
-        .from(accessRequests)
-        .where(eq(accessRequests.status, status as string))
-        .orderBy(desc(accessRequests.createdAt));
+
+      const requests = status === "all"
+        ? await db
+            .select()
+            .from(accessRequests)
+            .orderBy(desc(accessRequests.createdAt))
+        : await db
+            .select()
+            .from(accessRequests)
+            .where(eq(accessRequests.status, status as string))
+            .orderBy(desc(accessRequests.createdAt));
 
       res.json(requests);
     } catch (error: any) {
@@ -3308,8 +3358,9 @@ export async function registerRoutes(
   app.patch("/api/access-requests/:id", requireSuperAdmin, async (req: any, res) => {
     try {
       const { id } = req.params;
-      const { status, vendorId } = req.body;
+      const { status, vendorId, role } = req.body;
       const userId = req.user?.id;
+      const approvedRole = normalizeRole(role || "tiltaksleder");
 
       if (!["approved", "rejected"].includes(status)) {
         return res.status(400).json({ error: "Invalid status" });
@@ -3341,6 +3392,10 @@ export async function registerRoutes(
         .set(updateData)
         .where(eq(accessRequests.id, parseInt(id)))
         .returning();
+
+      if (status === "approved" && request.email) {
+        await syncApprovedPortalUser(request.email, approvedRole, vendorId ? Number(vendorId) : null);
+      }
 
       // Send email notification to applicant
       if (request.email) {

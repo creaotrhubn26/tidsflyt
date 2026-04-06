@@ -1,4 +1,4 @@
-import { Link, useLocation } from "wouter";
+import { useLocation } from "wouter";
 import { LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
 import {
@@ -497,6 +497,10 @@ const howItWorksSteps = [
 
 export default function LandingPage() {
   const [, setLocation] = useLocation();
+  const authError =
+    typeof window !== "undefined"
+      ? new URLSearchParams(window.location.search).get("error")
+      : null;
 
   useSEO({
     title: "Tidum – Profesjonell timeføring for norske bedrifter",
@@ -576,44 +580,68 @@ export default function LandingPage() {
                 <ClipboardList className="h-4 w-4" />
                 Funksjoner
               </button>
-              <Link
-                href="/dashboard"
+              <a
+                href="/api/auth/google"
                 className="inline-flex items-center gap-2 text-base font-medium text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)]"
               >
                 <LogIn className="h-4 w-4" />
-                <span className="hidden sm:inline">Logg inn</span>
-              </Link>
+                <span className="hidden sm:inline">Logg inn med Google</span>
+              </a>
               <Button
                 onClick={goToContact}
                 className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold"
               >
-                Be om demo
+                Be om tilgang
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             </div>
           </header>
 
+          {authError && (
+            <div className="relative z-10 border-b border-[var(--color-border)] bg-[#F6FBF8] px-6 py-4 text-sm sm:px-8 dark:bg-[#122026]">
+              <div className="flex max-w-4xl items-start gap-3 rounded-2xl border border-[#D4E6DD] bg-white/90 px-4 py-3 text-[#234049] shadow-[0_8px_24px_rgba(22,43,49,0.05)] dark:border-[#1d3a35] dark:bg-[#17252b] dark:text-[#c8e8ec]">
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-primary)]" />
+                <div>
+                  <p className="font-semibold">
+                    {authError === "access_request_required"
+                      ? "Denne Google-kontoen er ikke aktivert i Tidum ennå."
+                      : "Vi kunne ikke logge deg inn akkurat nå."}
+                  </p>
+                  <p className="mt-1 text-[13px] text-[#4F656B] dark:text-[#8fa3a8]">
+                    {authError === "access_request_required"
+                      ? "Virksomhetsledere må godkjennes av Creatorhub AS først. Miljøarbeidere får tilgang via leder eller admin inne i løsningen."
+                      : "Prøv igjen, eller send en tilgangsforespørsel hvis virksomheten din ikke er aktivert ennå."}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           <div className="relative z-10 grid gap-12 px-6 py-10 sm:px-8 sm:py-12 lg:grid-cols-[1.1fr,1.2fr] lg:items-center lg:gap-10">
             <div>
               <h1 className="tidum-title">Arbeidstid, gjort enkelt</h1>
               <p className="tidum-text mt-6 max-w-2xl">
-                Tidum er et moderne arbeidstidssystem for felt og turnus. Enkel registrering, trygg
-                dokumentasjon og full oversikt - for både ansatte og ledelse.
+                Tidum er et moderne arbeidstidssystem for virksomheter innen barn, omsorg og miljøarbeid.
+                Enkel registrering, trygg dokumentasjon og full oversikt for ledere, team og miljøarbeidere.
+              </p>
+              <p className="mt-4 max-w-2xl text-sm leading-relaxed text-[var(--color-text-muted)]">
+                Tilgang gis på forespørsel gjennom Tidum.no. Virksomhetsledere godkjennes av admin, og godkjente
+                ledere kan deretter invitere og følge opp miljøarbeidere i egen virksomhet.
               </p>
               <div className="mt-8 flex flex-wrap gap-3 sm:gap-4">
                 <Button
                   onClick={goToContact}
                   className="tidum-btn-primary h-auto px-6 py-3 text-lg font-semibold"
                 >
-                  Be om demo
+                  Be om tilgang
                 </Button>
                 <Button
                   type="button"
-                  onClick={scrollToHow}
+                  onClick={() => { window.location.href = "/api/auth/google"; }}
                   variant="outline"
                   className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
-                  Se hvordan det fungerer
+                  Logg inn med Google
                 </Button>
               </div>
             </div>
@@ -747,23 +775,23 @@ export default function LandingPage() {
                 </p>
               </div>
               <div className="mt-6 grid gap-3">
-                {[
-                  {
-                    icon: ShieldCheck,
-                    title: "Ikke overvåkning",
-                    description: "Kun nødvendig registrering for trygg dokumentasjon.",
-                  },
-                  {
-                    icon: Clock3,
-                    title: "Ikke stress",
-                    description: "Rask føring som passer arbeidshverdagen.",
-                  },
-                  {
-                    icon: ClipboardList,
-                    title: "Ikke komplisert",
-                    description: "Tydelig oppsett uten unødvendige steg.",
-                  },
-                ].map(({ icon: Icon, title, description }) => (
+              {[
+                {
+                  icon: ShieldCheck,
+                  title: "Tilgang på forespørsel",
+                  description: "Virksomheter blir vurdert og aktivert før de får logge inn.",
+                },
+                {
+                  icon: Clock3,
+                  title: "Ledere styrer teamtilgang",
+                  description: "Godkjente ledere kan invitere og godkjenne miljøarbeidere videre.",
+                },
+                {
+                  icon: ClipboardList,
+                  title: "Tydelig onboarding",
+                  description: "Én offentlig forespørselsvei og én intern lederflyt for ansatte.",
+                },
+              ].map(({ icon: Icon, title, description }) => (
                   <div key={title} className="flex min-h-[102px] rounded-xl border border-[var(--color-border)] bg-white/90 dark:bg-[#141e21]/90 px-4 py-3">
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 rounded-lg bg-[#E7F3EE] dark:bg-[#1a2d2a] p-2">
@@ -947,7 +975,7 @@ export default function LandingPage() {
               onClick={goToContact}
               className="h-auto rounded-xl bg-white px-6 py-3 text-[var(--color-primary)] hover:bg-white/90"
             >
-              Be om demo
+              Be om tilgang
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
             <Button
@@ -974,7 +1002,7 @@ export default function LandingPage() {
                 onClick={goToContact}
                 className="mt-3 text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
-                support@tidum.no
+                Be om tilgang via tidum.no/kontakt
               </button>
             </div>
 
@@ -1003,15 +1031,15 @@ export default function LandingPage() {
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <ChevronRight className="h-4 w-4" />
-                  Be om demo
+                  Be om tilgang
                 </button>
-                <Link
-                  href="/dashboard"
+                <a
+                  href="/api/auth/google"
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >
                   <LogIn className="h-4 w-4" />
-                  Logg inn
-                </Link>
+                  Logg inn med Google
+                </a>
               </div>
             </div>
 

@@ -10,6 +10,9 @@ import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
 import { emailService } from "./lib/email-service";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
+import { db } from "./db";
+import { users } from "@shared/schema";
+import { eq } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -62,6 +65,29 @@ function getRequestUserEmail(req: AuthRequest): string | null {
   }
 
   return null;
+}
+
+async function syncCompanyUserToPortalAccess(email: string, role: string, companyId: number) {
+  const normalizedRole = normalizeRole(role);
+  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+
+  if (existingUser) {
+    await db
+      .update(users)
+      .set({
+        email,
+        role: normalizedRole,
+        vendorId: companyId,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, existingUser.id));
+  } else {
+    await db.insert(users).values({
+      email,
+      role: normalizedRole,
+      vendorId: companyId,
+    });
+  }
 }
 
 async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): Promise<string> {
@@ -1108,6 +1134,10 @@ export function registerSmartTimingRoutes(app: Express) {
         [companyId, user_email, targetRole]
       );
 
+      if (user_email) {
+        await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+      }
+
       // Auto-assign case if provided
       if (case_title && result.rows[0]) {
         try {
@@ -1177,6 +1207,14 @@ export function registerSmartTimingRoutes(app: Express) {
         [role ? normalizeRole(role) : null, approved, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+
+      if (result.rows[0].approved === true && result.rows[0].user_email) {
+        await syncCompanyUserToPortalAccess(
+          result.rows[0].user_email,
+          result.rows[0].role || 'member',
+          companyId
+        );
+      }
 
       // Send email when user is approved
       if (approved === true && result.rows[0].user_email) {

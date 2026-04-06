@@ -36,8 +36,8 @@ export default function Contact() {
   const { toast } = useToast();
 
   useSEO({
-    title: "Kontakt oss – Tidum",
-    description: "Ta kontakt med Tidum for spørsmål om timeføring, priser eller demo. Vi hjelper norske bedrifter med effektiv tidsregistrering.",
+    title: "Be om tilgang – Tidum",
+    description: "Be om tilgang til Tidum for virksomheter innen barn, omsorg og miljøarbeid. Creatorhub AS vurderer og aktiverer nye virksomheter fortløpende.",
     canonical: "https://tidum.no/kontakt",
     jsonLd: {
       "@context": "https://schema.org",
@@ -154,9 +154,9 @@ export default function Contact() {
   });
 
   const content = pageContent || {
-    title: "Kontakt oss",
-    subtitle: "Har du spørsmål? Vi hjelper deg gjerne.",
-    content: "Fyll ut skjemaet nedenfor, så tar vi kontakt med deg så snart som mulig.",
+    title: "Be om tilgang til Tidum",
+    subtitle: "Tidum er tilgjengelig på forespørsel for relevante virksomheter og ledere.",
+    content: "Fyll ut skjemaet nedenfor hvis virksomheten din jobber innen barn, omsorg eller miljøarbeid. Godkjente ledere kan deretter invitere og følge opp miljøarbeidere internt i løsningen.",
     email: "support@tidum.no",
     phone: "+47 97 95 92 94",
     address: "Oslo, Norge"
@@ -257,6 +257,9 @@ export default function Contact() {
                   <CardTitle className="text-2xl font-semibold tracking-tight text-[#15343D]">Kontaktinformasjon</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-5">
+                  <div className="rounded-2xl border border-[rgba(31,107,115,0.18)] bg-[rgba(31,107,115,0.06)] px-4 py-3 text-sm leading-relaxed text-[#20434A]">
+                    Virksomhetsledere søker om tilgang her. Miljøarbeidere inviteres og godkjennes senere av leder eller admin inne i Tidum.
+                  </div>
                   <div className="flex items-start gap-3.5">
                     <div className="rounded-lg bg-[#E7F3EE] p-2.5">
                       <Mail className="h-5 w-5 text-[#1F6B73]" />

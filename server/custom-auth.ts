@@ -138,9 +138,27 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/google/callback", 
-    passport.authenticate("google", { failureRedirect: "/?error=auth_failed" }),
-    (_req, res) => {
-      res.redirect("/dashboard");
+    (req, res, next) => {
+      passport.authenticate("google", (err: Error | null, user: AuthUser | false, info?: { message?: string }) => {
+        if (err) {
+          return next(err);
+        }
+
+        if (!user) {
+          const normalizedMessage = info?.message?.toLowerCase() || "";
+          const errorCode = normalizedMessage.includes("tilgangsforespørsel")
+            ? "access_request_required"
+            : "auth_failed";
+          return res.redirect(`/?error=${errorCode}`);
+        }
+
+        req.logIn(user, (loginError) => {
+          if (loginError) {
+            return next(loginError);
+          }
+          return res.redirect("/dashboard");
+        });
+      })(req, res, next);
     }
   );
 
