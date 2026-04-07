@@ -5,7 +5,7 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import { db } from "./db";
 import { adminUsers, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
 import { getGoogleCallbackUrl } from "./lib/app-base-url";
 
@@ -51,9 +51,18 @@ export function getSession() {
 async function findOrCreateUser(profile: GoogleProfile, provider: string): Promise<AuthUser | null> {
   const email = profile.emails?.[0]?.value;
   if (!email) return null;
+  const normalizedEmail = email.trim().toLowerCase();
 
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  const [matchingAdmin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+  const [existingUser] = await db
+    .select()
+    .from(users)
+    .where(sql`lower(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
+  const [matchingAdmin] = await db
+    .select()
+    .from(adminUsers)
+    .where(sql`lower(${adminUsers.email}) = ${normalizedEmail}`)
+    .limit(1);
 
   const adminIsActive = matchingAdmin?.isActive !== false;
   const adminRole = matchingAdmin?.role || "vendor_admin";
@@ -110,7 +119,7 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
     const [createdUser] = await db
       .insert(users)
       .values({
-        email,
+        email: normalizedEmail,
         firstName,
         lastName,
         profileImageUrl,
