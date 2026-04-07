@@ -242,6 +242,110 @@ const emptyFormData = {
   notes: "",
 };
 
+type ReportEditorSection = {
+  key: CaseReportSuggestionFieldKey;
+  label: string;
+  shortLabel: string;
+  description: string;
+  hint?: string;
+  placeholder: string;
+  required: boolean;
+  input: "richText" | "textarea";
+  minHeight?: string;
+  rows?: number;
+};
+
+const REPORT_EDITOR_SECTIONS: ReportEditorSection[] = [
+  {
+    key: "background",
+    label: "Bakgrunn for tiltaket",
+    shortLabel: "Bakgrunn",
+    description: "Sett rammen for perioden og hvorfor tiltaket fortsatt er relevant.",
+    hint: "Brukeren har hatt behov for tett oppfølging i perioden grunnet endringer i hjemmesituasjonen.",
+    placeholder: "Beskriv bakgrunnen for tiltaket...",
+    required: true,
+    input: "richText",
+    minHeight: "120px",
+  },
+  {
+    key: "actions",
+    label: "Arbeid og tiltak som er gjennomført",
+    shortLabel: "Tiltak",
+    description: "Beskriv hva som faktisk er gjort, og hvilke tiltak som har vært viktigst.",
+    hint: "Det er gjennomført ukentlige samtaler med ungdommen, samt samarbeidsmøte med skolen.",
+    placeholder: "Beskriv arbeidet som er gjennomført...",
+    required: true,
+    input: "richText",
+    minHeight: "150px",
+  },
+  {
+    key: "progress",
+    label: "Fremgang og utvikling",
+    shortLabel: "Fremgang",
+    description: "Fang opp positive endringer, små steg og stabil utvikling siden sist.",
+    hint: "Brukeren viser positiv utvikling i sosiale ferdigheter og har økt oppmøte på skolen.",
+    placeholder: "Beskriv fremgangen...",
+    required: false,
+    input: "richText",
+    minHeight: "120px",
+  },
+  {
+    key: "challenges",
+    label: "Utfordringer",
+    shortLabel: "Utfordringer",
+    description: "Beskriv hva som bremser utviklingen eller gjør oppfølgingen krevende.",
+    hint: "Ungdommen har vist varierende motivasjon, noe som gjør jevn oppfølging utfordrende.",
+    placeholder: "Beskriv eventuelle utfordringer...",
+    required: false,
+    input: "richText",
+    minHeight: "120px",
+  },
+  {
+    key: "factors",
+    label: "Faktorer som påvirker",
+    shortLabel: "Faktorer",
+    description: "Noter ytre forhold eller støttefaktorer som forklarer utviklingen.",
+    hint: "Stabil bosituasjon og godt nettverk rundt brukeren bidrar positivt til utviklingen.",
+    placeholder: "Beskriv faktorer som påvirker...",
+    required: false,
+    input: "richText",
+    minHeight: "100px",
+  },
+  {
+    key: "assessment",
+    label: "Vurdering",
+    shortLabel: "Vurdering",
+    description: "Gi din faglige vurdering av situasjonen og effekten av tiltakene.",
+    hint: "Tiltaket vurderes som hensiktsmessig og bør videreføres med noen justeringer i neste periode.",
+    placeholder: "Din vurdering...",
+    required: true,
+    input: "richText",
+    minHeight: "120px",
+  },
+  {
+    key: "recommendations",
+    label: "Anbefalinger",
+    shortLabel: "Anbefalinger",
+    description: "Beskriv konkrete neste steg og anbefalte endringer for kommende periode.",
+    hint: "Det anbefales å øke frekvensen av samtaler og involvere foresatte i større grad.",
+    placeholder: "Dine anbefalinger...",
+    required: false,
+    input: "richText",
+    minHeight: "120px",
+  },
+  {
+    key: "notes",
+    label: "Notater",
+    shortLabel: "Notater",
+    description: "Samle korte tilleggsopplysninger som ikke passer naturlig inn i hovedseksjonene.",
+    hint: "Neste samarbeidsmøte er planlagt til starten av neste måned.",
+    placeholder: "Eventuelle notater...",
+    required: false,
+    input: "textarea",
+    rows: 3,
+  },
+];
+
 /** Check whether form data has meaningful content worth persisting */
 function formHasContent(data: typeof emptyFormData): boolean {
   return (
@@ -342,15 +446,11 @@ function PiiFieldWrapper({
 
 // ─── Section progress indicator ──────────────────────────────────────────────
 
-const FORM_SECTIONS = [
-  { key: "background", label: "Bakgrunn", required: true },
-  { key: "actions", label: "Tiltak", required: true },
-  { key: "progress", label: "Fremgang", required: false },
-  { key: "challenges", label: "Utfordringer", required: false },
-  { key: "factors", label: "Faktorer", required: false },
-  { key: "assessment", label: "Vurdering", required: true },
-  { key: "recommendations", label: "Anbefalinger", required: false },
-] as const;
+const FORM_SECTIONS = REPORT_EDITOR_SECTIONS.map((section) => ({
+  key: section.key,
+  label: section.shortLabel,
+  required: section.required,
+})) as const;
 
 const REQUIRED_SECTIONS = FORM_SECTIONS.filter((s) => s.required).map((s) => s.key);
 const REPORT_SUGGESTION_FIELD_KEYS: CaseReportSuggestionFieldKey[] = [
@@ -429,6 +529,292 @@ function SectionProgress({ formData }: { formData: typeof emptyFormData }) {
   );
 }
 
+function formatReportMonthLabel(month: string) {
+  if (!month) return "Ikke valgt";
+  try {
+    return format(new Date(`${month}-01`), "MMMM yyyy", { locale: nb });
+  } catch {
+    return month;
+  }
+}
+
+function ReportSectionCard({
+  index,
+  section,
+  value,
+  fieldResults,
+  onChange,
+  onBlur,
+}: {
+  index: number;
+  section: ReportEditorSection;
+  value: string;
+  fieldResults: Record<string, PiiScanResult>;
+  onChange: (value: string) => void;
+  onBlur: () => void;
+}) {
+  const isCompleted = sectionHasContent(value);
+
+  return (
+    <Card
+      id={`report-section-${section.key}`}
+      className="scroll-mt-24 border-border/70 bg-background/70 shadow-sm"
+    >
+      <CardHeader className="space-y-3 pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="text-[11px]">
+            Del {index + 1}
+          </Badge>
+          {section.required && (
+            <Badge variant="secondary" className="text-[11px]">
+              Påkrevd
+            </Badge>
+          )}
+          <Badge
+            variant="outline"
+            className={isCompleted ? "border-green-500/30 text-green-700 dark:text-green-400" : "text-muted-foreground"}
+          >
+            {isCompleted ? "Utfylt" : "Ikke fylt ut"}
+          </Badge>
+        </div>
+        <div>
+          <CardTitle className="text-lg">{section.label}</CardTitle>
+          <CardDescription className="mt-1 text-sm">
+            {section.description}
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-0">
+        <PiiFieldWrapper
+          fieldName={section.key}
+          label={section.label}
+          hint={section.hint}
+          fieldResults={fieldResults}
+        >
+          {section.input === "textarea" ? (
+            <Textarea
+              id={section.key}
+              className="bg-muted/30 dark:bg-muted/10 focus:bg-background transition-colors"
+              value={value}
+              onChange={(event) => onChange(event.target.value)}
+              onBlur={onBlur}
+              placeholder={section.placeholder}
+              rows={section.rows ?? 3}
+              data-testid={`input-${section.key}`}
+            />
+          ) : (
+            <RichTextEditor
+              value={value}
+              onChange={onChange}
+              onBlur={onBlur}
+              placeholder={section.placeholder}
+              minHeight={section.minHeight ?? "120px"}
+              testId={`editor-${section.key}`}
+            />
+          )}
+        </PiiFieldWrapper>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ReportComposerSidebar({
+  editingReport,
+  formData,
+  isAutoSaving,
+  lastSavedAt,
+  reportSuggestions,
+  shouldRenderReportSuggestions,
+  duplicateReport,
+  onJumpToSection,
+  onApplyCaseIdSuggestion,
+  onNeverSuggestCaseIdAgain,
+  onApplyFieldSuggestions,
+  onApplyPreviousMonthCopy,
+  onDismissReportSuggestions,
+}: {
+  editingReport: CaseReport | null;
+  formData: typeof emptyFormData;
+  isAutoSaving: boolean;
+  lastSavedAt: string | null;
+  reportSuggestions: CaseReportSuggestionsResponse | null;
+  shouldRenderReportSuggestions: boolean;
+  duplicateReport: CaseReport | null;
+  onJumpToSection: (key: CaseReportSuggestionFieldKey) => void;
+  onApplyCaseIdSuggestion: () => void;
+  onNeverSuggestCaseIdAgain: () => void;
+  onApplyFieldSuggestions: (onlyEmptyFields: boolean) => void;
+  onApplyPreviousMonthCopy: () => void;
+  onDismissReportSuggestions: () => void;
+}) {
+  const missingRequired = FORM_SECTIONS.filter(
+    (section) => section.required && !sectionHasContent((formData as Record<string, string>)[section.key] ?? ""),
+  );
+  const completedSections = FORM_SECTIONS.filter((section) =>
+    sectionHasContent((formData as Record<string, string>)[section.key] ?? ""),
+  ).length;
+  const isReady = isReadyToSubmit(formData);
+
+  return (
+    <div className="order-first space-y-4 xl:order-last xl:sticky xl:top-24">
+      <Card className="border-border/70 bg-background/80 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Skriveoversikt</CardTitle>
+          <CardDescription>
+            Hold oversikt over fremdrift, lagring og hva som mangler før innsending.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Sak</p>
+              <p className="mt-1 font-medium">{formData.case_id || "Ikke valgt ennå"}</p>
+            </div>
+            <div className="rounded-xl border border-border/70 bg-muted/30 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Periode</p>
+              <p className="mt-1 font-medium">{formatReportMonthLabel(formData.month)}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border/70 bg-muted/20 p-3 space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium">Fremdrift</span>
+              <span className="text-xs text-muted-foreground">{completedSections}/{FORM_SECTIONS.length} seksjoner</span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Status</span>
+              <span className={isReady ? "text-green-700 dark:text-green-400 font-medium" : "text-amber-700 dark:text-amber-400 font-medium"}>
+                {isReady ? "Klar til innsending" : `${missingRequired.length} påkrevde mangler`}
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-muted-foreground">Lagring</span>
+              <span className="text-right text-xs text-muted-foreground">
+                {isAutoSaving
+                  ? "Lagrer automatisk..."
+                  : lastSavedAt
+                    ? `Sist lagret ${format(new Date(lastSavedAt), "HH:mm", { locale: nb })}`
+                    : editingReport
+                      ? "Redigerer eksisterende utkast"
+                      : "Utkast lagres lokalt"}
+              </span>
+            </div>
+          </div>
+
+          {duplicateReport && (
+            <Alert className="border-orange-500/20 bg-orange-50/70 dark:bg-orange-950/10">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Rapport finnes allerede</AlertTitle>
+              <AlertDescription>
+                Det finnes allerede en rapport for {duplicateReport.caseId} i {duplicateReport.month}.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          <div className="space-y-2">
+            <p className="font-medium">Hopp til seksjon</p>
+            <div className="grid gap-2">
+              {REPORT_EDITOR_SECTIONS.map((section) => {
+                const done = sectionHasContent((formData as Record<string, string>)[section.key] ?? "");
+                return (
+                  <Button
+                    key={section.key}
+                    type="button"
+                    variant="outline"
+                    className="justify-between"
+                    onClick={() => onJumpToSection(section.key)}
+                  >
+                    <span>{section.shortLabel}</span>
+                    <span className={done ? "text-green-700 dark:text-green-400 text-xs" : "text-muted-foreground text-xs"}>
+                      {done ? "Utfylt" : section.required ? "Påkrevd" : "Valgfritt"}
+                    </span>
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {!editingReport && shouldRenderReportSuggestions && reportSuggestions && (
+        <Card
+          className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent shadow-sm"
+          data-testid="case-report-suggestions-card"
+        >
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Smarte forslag</CardTitle>
+            <CardDescription>
+              Basert på {reportSuggestions.analyzedReports} tidligere rapporter i samme arbeidsflyt.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3 text-sm">
+            <div className="rounded-xl border bg-background/80 p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Foreslått sak</p>
+              <p className="mt-1 font-medium">{reportSuggestions.suggestion.caseId.value || "Ingen forslag ennå"}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{reportSuggestions.suggestion.caseId.reason}</p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={onApplyCaseIdSuggestion}
+                disabled={!reportSuggestions.suggestion.caseId.value}
+                data-testid="case-report-suggestion-apply-caseid"
+              >
+                Bruk sak
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => onApplyFieldSuggestions(true)}
+                data-testid="case-report-suggestion-apply-empty"
+              >
+                Fyll tomme felt
+              </Button>
+              {reportSuggestions.suggestion.copyPreviousMonth.value && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={onApplyPreviousMonthCopy}
+                  data-testid="case-report-suggestion-copy-previous-month"
+                >
+                  Kopier forrige måned
+                </Button>
+              )}
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onNeverSuggestCaseIdAgain}
+                disabled={!reportSuggestions.suggestion.caseId.value}
+                data-testid="case-report-suggestion-never-caseid"
+              >
+                Ikke foreslå saken igjen
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={onDismissReportSuggestions}
+                data-testid="case-report-suggestion-dismiss"
+              >
+                Skjul forslag
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
 export default function CaseReportsPage() {
   const [location, setLocation] = useLocation();
   const locationSearch = useMemo(() => {
@@ -487,6 +873,8 @@ export default function CaseReportsPage() {
     restoreDraft: restoreDraftRaw,
     discardDraft,
     clearDraft,
+    isAutoSaving,
+    lastSavedAt,
   } = useDraft<typeof emptyFormData>({
     storageKey: "tidum_case_report_draft",
     formData,
@@ -535,6 +923,13 @@ export default function CaseReportsPage() {
   const handleFieldBlur = useCallback(() => {
     triggerPiiScanNow();
   }, [triggerPiiScanNow]);
+
+  const jumpToSection = useCallback((key: CaseReportSuggestionFieldKey) => {
+    document.getElementById(`report-section-${key}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "start",
+    });
+  }, []);
 
   // ── One-click PII anonymization ──────────────────────────────────────────
   const handlePiiReplace = useCallback(
@@ -1000,6 +1395,8 @@ export default function CaseReportsPage() {
       setEditingReport(null);
       setFormData(emptyFormData);
       setShowForm(false);
+      setPiiDismissed(false);
+      setPiiDismissReason(null);
       clearDraft();
       toast({ 
         title: editingReport ? "Oppdatert" : "Lagret", 
@@ -1044,8 +1441,7 @@ export default function CaseReportsPage() {
   });
 
   const startEdit = (report: CaseReport) => {
-    setEditingReport(report);
-    setFormData({
+    const nextFormData = {
       case_id: report.caseId,
       month: report.month,
       background: report.background || "",
@@ -1056,8 +1452,13 @@ export default function CaseReportsPage() {
       assessment: report.assessment || "",
       recommendations: report.recommendations || "",
       notes: report.notes || "",
-    });
+    };
+    setEditingReport(report);
+    setFormData(nextFormData);
     setShowForm(true);
+    setPiiDismissed(false);
+    setPiiDismissReason(null);
+    triggerPiiScan(nextFormData);
     toast({ title: "Redigerer", description: "Utkast åpnet for redigering." });
   };
 
@@ -1190,6 +1591,8 @@ export default function CaseReportsPage() {
     setEditingReport(null);
     setFormData(emptyFormData);
     setShowForm(false);
+    setPiiDismissed(false);
+    setPiiDismissReason(null);
     clearDraft();
   };
 
@@ -1253,7 +1656,16 @@ export default function CaseReportsPage() {
                 <Download className="h-4 w-4 mr-2" />
                 Eksporter
               </Button>
-              <Button onClick={() => setShowForm(true)} data-testid="button-new-report">
+              <Button
+                onClick={() => {
+                  setEditingReport(null);
+                  setFormData(emptyFormData);
+                  setPiiDismissed(false);
+                  setPiiDismissReason(null);
+                  setShowForm(true);
+                }}
+                data-testid="button-new-report"
+              >
                 <Plus className="h-4 w-4 mr-2" />
                 Ny rapport
               </Button>
@@ -1281,378 +1693,232 @@ export default function CaseReportsPage() {
 
           <TabsContent value="reports" className="space-y-6">
             {showForm ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>{editingReport ? "Rediger rapport" : "Ny saksrapport"}</CardTitle>
-              <CardDescription>
-                {editingReport ? "Oppdater rapporten og lagre endringene." : "Fyll ut felene og lagre som utkast."}
-              </CardDescription>
-              {/* Lifecycle strip */}
-              <div className="pt-2">
-                <ReportLifecycleStrip status={(editingReport?.status as ReportStatus) ?? "draft"} />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSave} className="space-y-4">
-                {/* Compact GDPR reminder */}
-                <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
-                  <ShieldAlert className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                  <span>
-                    Navn og personlig informasjon er ikke tillatt i Tidum.
-                    Unngå personnavn, fødselsdato, adresser og andre personopplysninger. Bruk «brukeren», «ungdom», «gutten/jenta» i stedet.
-                  </span>
-                </div>
-
-                {/* PII Summary Banner — click opens the drawer */}
-                {!piiDismissed && (
-                  <PiiSummaryBanner
-                    totalWarnings={totalWarnings}
-                    highCount={Object.values(fieldResults).flatMap(r => r.warnings).filter(w => w.confidence === 'high').length}
-                    onClick={() => setPiiDrawerOpen(true)}
-                    isPending={piiScanning}
-                  />
-                )}
-
-                {/* PII Summary Drawer (side panel) */}
-                <PiiSummaryDrawer
-                  open={piiDrawerOpen}
-                  onOpenChange={setPiiDrawerOpen}
-                  fieldResults={fieldResults}
-                  onReplace={handlePiiReplace}
-                  onReplaceAll={handlePiiReplaceAll}
-                />
-
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="case_id">Saksnummer *</Label>
-                    <Input
-                      id="case_id"
-                      value={formData.case_id}
-                      onChange={(e) => setFormData({ ...formData, case_id: e.target.value })}
-                      placeholder="F.eks. SAK-2024-001"
-                      data-testid="input-case-id"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="month">Måned *</Label>
-                    <MonthPicker
-                      value={formData.month}
-                      onChange={(v) => setFormData({ ...formData, month: v })}
-                      data-testid="input-month"
-                    />
-                  </div>
-                </div>
-
-                {/* Duplicate report warning */}
-                {duplicateReport && (
-                  <Alert variant="destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertTitle>Duplikat oppdaget</AlertTitle>
-                    <AlertDescription>
-                      Det finnes allerede en rapport for sak <strong>{duplicateReport.caseId}</strong> i{" "}
-                      <strong>{duplicateReport.month}</strong> (status: {statusLabels[duplicateReport.status as ReportStatus] ?? duplicateReport.status}).
-                      Vil du heller redigere den eksisterende rapporten?
-                      <Button
-                        variant="ghost"
-                        className="px-1 h-auto text-primary underline"
-                        onClick={() => startEdit(duplicateReport)}
-                      >
-                        Åpne eksisterende rapport
-                      </Button>
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {/* Section progress indicator */}
-                <SectionProgress formData={formData} />
-
-                {/* Smart suggestions */}
-                {shouldRenderReportSuggestions && reportSuggestions && (
-                  <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent" data-testid="case-report-suggestions-card">
-                    <CardContent className="p-4 space-y-3">
-                      <div className="flex items-start justify-between gap-3 flex-wrap">
-                        <div>
-                          <p className="text-sm font-semibold">Personlige forslag</p>
-                          <p className="text-xs text-muted-foreground">
-                            Basert på {reportSuggestions.analyzedReports} tidligere rapporter.
-                          </p>
-                          {reportSuggestions.policy && (
-                            <p className="text-[11px] text-muted-foreground mt-1">
-                              Kilde: {reportSuggestions.policy.source} · terskel {Math.round(reportSuggestions.policy.confidenceThreshold * 100)}%
-                            </p>
-                          )}
-                        </div>
-                        {reportSuggestions.personalization.totalFeedback > 0 && (
-                          <Badge variant="secondary">
-                            Treffrate: {reportSuggestions.personalization.acceptanceRate != null
-                              ? `${Math.round(reportSuggestions.personalization.acceptanceRate * 100)}%`
-                              : "–"}
-                          </Badge>
-                        )}
+              <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <Card>
+                  <CardHeader>
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div>
+                        <CardTitle>{editingReport ? "Rediger rapport" : "Ny saksrapport"}</CardTitle>
+                        <CardDescription>
+                          {editingReport
+                            ? "Oppdater rapporten og lagre endringene."
+                            : "Skriv rapporten i rolige, tydelige seksjoner og lagre underveis."}
+                        </CardDescription>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge variant="outline">{formData.case_id || "Ingen sak valgt"}</Badge>
+                        <Badge variant="secondary">{formatReportMonthLabel(formData.month)}</Badge>
+                      </div>
+                    </div>
+                    <div className="pt-2">
+                      <ReportLifecycleStrip status={(editingReport?.status as ReportStatus) ?? "draft"} />
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <form onSubmit={handleSave} className="space-y-5">
+                      <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+                        <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                        <span>
+                          Navn og personlig informasjon er ikke tillatt i Tidum. Bruk rolleord som «brukeren», «ungdom»
+                          eller «foresatte» i stedet for identifiserende detaljer.
+                        </span>
                       </div>
 
-                      <div className="rounded-md border bg-background/70 p-3 space-y-2" data-testid="case-report-suggestion-caseid">
-                        <p className="text-xs text-muted-foreground">Foreslått sak</p>
-                        <p className="font-medium">{reportSuggestions.suggestion.caseId.value || "Ingen forslag ennå"}</p>
-                        <p className="text-xs text-muted-foreground">{reportSuggestions.suggestion.caseId.reason}</p>
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] text-muted-foreground">
-                            Sikkerhet: {Math.round(reportSuggestions.suggestion.caseId.confidence * 100)}%
-                          </span>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={applyCaseIdSuggestion}
-                            disabled={!reportSuggestions.suggestion.caseId.value}
-                            data-testid="case-report-suggestion-apply-caseid"
-                          >
-                            Bruk sak
-                          </Button>
+                      {!piiDismissed && (
+                        <PiiSummaryBanner
+                          totalWarnings={totalWarnings}
+                          highCount={Object.values(fieldResults).flatMap(r => r.warnings).filter(w => w.confidence === 'high').length}
+                          onClick={() => setPiiDrawerOpen(true)}
+                          isPending={piiScanning}
+                        />
+                      )}
+
+                      <PiiSummaryDrawer
+                        open={piiDrawerOpen}
+                        onOpenChange={setPiiDrawerOpen}
+                        fieldResults={fieldResults}
+                        onReplace={handlePiiReplace}
+                        onReplaceAll={handlePiiReplaceAll}
+                      />
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="case_id">Saksnummer *</Label>
+                          <Input
+                            id="case_id"
+                            value={formData.case_id}
+                            onChange={(e) => setFormData({ ...formData, case_id: e.target.value })}
+                            placeholder="F.eks. SAK-2024-001"
+                            data-testid="input-case-id"
+                          />
                         </div>
-                        <div className="flex justify-end">
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            disabled={!reportSuggestions.suggestion.caseId.value}
-                            onClick={() => { void neverSuggestCaseIdAgain(); }}
-                            data-testid="case-report-suggestion-never-caseid"
-                          >
-                            Ikke foreslå igjen
-                          </Button>
+                        <div className="space-y-2">
+                          <Label htmlFor="month">Måned *</Label>
+                          <MonthPicker
+                            value={formData.month}
+                            onChange={(v) => setFormData({ ...formData, month: v })}
+                            data-testid="input-month"
+                          />
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Button
-                          type="button"
-                          size="sm"
-                          onClick={() => applyFieldSuggestions(true)}
-                          data-testid="case-report-suggestion-apply-empty"
-                        >
-                          Bruk forslag i tomme felt
-                        </Button>
-                        {reportSuggestions.suggestion.copyPreviousMonth.value && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="outline"
-                            onClick={applyPreviousMonthCopy}
-                            data-testid="case-report-suggestion-copy-previous-month"
-                          >
-                            Kopier forrige måned ({Math.round(reportSuggestions.suggestion.copyPreviousMonth.confidence * 100)}%)
-                          </Button>
-                        )}
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="ghost"
-                          onClick={dismissReportSuggestions}
-                          data-testid="case-report-suggestion-dismiss"
-                        >
-                          Ikke nå
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
+                      {duplicateReport && (
+                        <Alert variant="destructive">
+                          <AlertTriangle className="h-4 w-4" />
+                          <AlertTitle>Duplikat oppdaget</AlertTitle>
+                          <AlertDescription>
+                            Det finnes allerede en rapport for sak <strong>{duplicateReport.caseId}</strong> i{" "}
+                            <strong>{duplicateReport.month}</strong> (status: {statusLabels[duplicateReport.status as ReportStatus] ?? duplicateReport.status}).
+                            <Button
+                              variant="ghost"
+                              className="ml-1 h-auto px-1 text-primary underline"
+                              onClick={() => startEdit(duplicateReport)}
+                            >
+                              Åpne eksisterende rapport
+                            </Button>
+                          </AlertDescription>
+                        </Alert>
+                      )}
 
-                {/* Template selector */}
-                {!editingReport && (
-                  <div className="flex items-center gap-2">
-                    <Label className="text-xs text-muted-foreground whitespace-nowrap">Mal:</Label>
-                    <Select
-                      onValueChange={(templateId) => {
-                        const template = REPORT_TEMPLATES.find((t) => t.id === templateId);
-                        if (!template) return;
-                        setFormData((prev) => {
-                          const next = { ...prev };
-                          for (const [key, value] of Object.entries(template.content)) {
-                            if (value && !sectionHasContent((next as any)[key])) {
-                              (next as any)[key] = value;
-                            }
-                          }
-                          return next;
-                        });
-                        toast({
-                          title: "Mal brukt",
-                          description: `«${template.label}» ble satt inn i tomme seksjoner.`,
-                        });
-                      }}
-                    >
-                      <SelectTrigger className="w-[240px] h-8 text-xs">
-                        <Wand2 className="h-3.5 w-3.5 mr-1.5 text-muted-foreground" />
-                        <SelectValue placeholder="Velg en rapportmal..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {REPORT_TEMPLATES.map((t) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            <div>
-                              <span className="font-medium">{t.label}</span>
-                              <span className="ml-2 text-xs text-muted-foreground">{t.description}</span>
-                            </div>
-                          </SelectItem>
+                      <SectionProgress formData={formData} />
+
+                      {!editingReport && (
+                        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border/70 bg-muted/20 px-3 py-2">
+                          <Label className="text-xs text-muted-foreground whitespace-nowrap">Mal</Label>
+                          <Select
+                            onValueChange={(templateId) => {
+                              const template = REPORT_TEMPLATES.find((t) => t.id === templateId);
+                              if (!template) return;
+                              setFormData((prev) => {
+                                const next = { ...prev };
+                                for (const [key, value] of Object.entries(template.content)) {
+                                  if (value && !sectionHasContent((next as any)[key])) {
+                                    (next as any)[key] = value;
+                                  }
+                                }
+                                return next;
+                              });
+                              toast({
+                                title: "Mal brukt",
+                                description: `«${template.label}» ble satt inn i tomme seksjoner.`,
+                              });
+                            }}
+                          >
+                            <SelectTrigger className="h-9 w-full text-xs sm:w-[280px] sm:max-w-[320px]">
+                              <Wand2 className="mr-1.5 h-3.5 w-3.5 text-muted-foreground" />
+                              <SelectValue placeholder="Velg en rapportmal..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {REPORT_TEMPLATES.map((t) => (
+                                <SelectItem key={t.id} value={t.id}>
+                                  <div>
+                                    <span className="font-medium">{t.label}</span>
+                                    <span className="ml-2 text-xs text-muted-foreground">{t.description}</span>
+                                  </div>
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <div className="space-y-4">
+                        {REPORT_EDITOR_SECTIONS.map((section, index) => (
+                          <ReportSectionCard
+                            key={section.key}
+                            index={index}
+                            section={section}
+                            value={(formData as Record<string, string>)[section.key] ?? ""}
+                            fieldResults={fieldResults}
+                            onChange={(value) => updateField(section.key, value)}
+                            onBlur={handleFieldBlur}
+                          />
                         ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                )}
+                      </div>
 
-                <PiiFieldWrapper fieldName="background" label="Bakgrunn for tiltaket" hint="Brukeren har hatt behov for tett oppfølging i perioden grunnet endringer i hjemmesituasjonen." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.background}
-                    onChange={(value) => updateField('background', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Beskriv bakgrunnen for tiltaket..."
-                    minHeight="120px"
-                    testId="editor-background"
-                  />
-                </PiiFieldWrapper>
+                      <div className="h-20" />
+                    </form>
 
-                <PiiFieldWrapper fieldName="actions" label="Arbeid og tiltak som er gjennomført" hint="Det er gjennomført ukentlige samtaler med ungdommen, samt samarbeidsmøte med skolen." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.actions}
-                    onChange={(value) => updateField('actions', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Beskriv arbeidet som er gjennomført..."
-                    minHeight="150px"
-                    testId="editor-actions"
-                  />
-                </PiiFieldWrapper>
+                    <div className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background/95 px-6 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] backdrop-blur supports-[backdrop-filter]:bg-background/80">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={handleSave}
+                          disabled={saveMutation.isPending || (hasPii && !piiDismissed)}
+                          data-testid="button-save-report"
+                          className="gap-2"
+                        >
+                          <Save className="h-4 w-4" />
+                          {saveMutation.isPending ? "Lagrer..." : editingReport ? "Oppdater utkast" : "Lagre utkast"}
+                        </Button>
+                        {editingReport && (
+                          <Button
+                            type="button"
+                            className="gap-2"
+                            disabled={submitMutation.isPending || (hasPii && !piiDismissed)}
+                            onClick={() => handleSubmit(editingReport.id)}
+                          >
+                            <Send className="h-4 w-4" />
+                            {submitMutation.isPending ? "Sender..." : "Send inn for godkjenning"}
+                          </Button>
+                        )}
+                        <Button type="button" variant="ghost" onClick={cancelEdit} data-testid="button-cancel">
+                          Avbryt
+                        </Button>
 
-                <PiiFieldWrapper fieldName="progress" label="Fremgang og utvikling" hint="Brukeren viser positiv utvikling i sosiale ferdigheter og har økt oppmøte på skolen." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.progress}
-                    onChange={(value) => updateField('progress', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Beskriv fremgangen..."
-                    minHeight="120px"
-                    testId="editor-progress"
-                  />
-                </PiiFieldWrapper>
+                        <div className="ml-auto flex items-center gap-2" aria-live="polite" aria-atomic="true">
+                          {piiScanning && (
+                            <span className="text-xs text-muted-foreground animate-pulse" role="status">
+                              Skanner…
+                            </span>
+                          )}
+                          {hasPii && !piiDismissed ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 gap-1.5 text-destructive"
+                              onClick={() => setPiiDrawerOpen(true)}
+                            >
+                              <ShieldAlert className="h-4 w-4" />
+                              {totalWarnings} PII
+                            </Button>
+                          ) : !piiScanning && totalWarnings === 0 && formHasContent(formData) ? (
+                            <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                              <CheckCircle2 className="h-3.5 w-3.5" />
+                              Ingen PII
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <p className="mt-1.5 text-[11px] text-muted-foreground/70">
+                        {isAutoSaving
+                          ? "Lagrer utkast automatisk…"
+                          : lastSavedAt
+                            ? `Sist lagret ${format(new Date(lastSavedAt), "d. MMM 'kl.' HH:mm", { locale: nb })}.`
+                            : "Utkast lagres automatisk mens du skriver."}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
 
-                <PiiFieldWrapper fieldName="challenges" label="Utfordringer" hint="Ungdommen har vist varierende motivasjon, noe som gjør jevn oppfølging utfordrende." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.challenges}
-                    onChange={(value) => updateField('challenges', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Beskriv eventuelle utfordringer..."
-                    minHeight="120px"
-                    testId="editor-challenges"
-                  />
-                </PiiFieldWrapper>
-
-                <PiiFieldWrapper fieldName="factors" label="Faktorer som påvirker" hint="Stabil bosituasjon og godt nettverk rundt brukeren bidrar positivt til utviklingen." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.factors}
-                    onChange={(value) => updateField('factors', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Beskriv faktorer som påvirker..."
-                    minHeight="100px"
-                    testId="editor-factors"
-                  />
-                </PiiFieldWrapper>
-
-                <PiiFieldWrapper fieldName="assessment" label="Vurdering" hint="Tiltaket vurderes som hensiktsmessig og bør videreføres med noen justeringer i neste periode." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.assessment}
-                    onChange={(value) => updateField('assessment', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Din vurdering..."
-                    minHeight="120px"
-                    testId="editor-assessment"
-                  />
-                </PiiFieldWrapper>
-
-                <PiiFieldWrapper fieldName="recommendations" label="Anbefalinger" hint="Det anbefales å øke frekvensen av samtaler og involvere foresatte i større grad." fieldResults={fieldResults}>
-                  <RichTextEditor
-                    value={formData.recommendations}
-                    onChange={(value) => updateField('recommendations', value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Dine anbefalinger..."
-                    minHeight="120px"
-                    testId="editor-recommendations"
-                  />
-                </PiiFieldWrapper>
-
-                <PiiFieldWrapper fieldName="notes" label="Notater (valgfritt)" hint="Neste samarbeidsmøte er planlagt til starten av neste måned." fieldResults={fieldResults}>
-                  <Textarea
-                    id="notes"
-                    className="bg-muted/30 dark:bg-muted/10 focus:bg-background transition-colors"
-                    value={formData.notes}
-                    onChange={(e) => updateField('notes', e.target.value)}
-                    onBlur={handleFieldBlur}
-                    placeholder="Eventulle notater..."
-                    rows={2}
-                    data-testid="input-notes"
-                  />
-                </PiiFieldWrapper>
-
-                {/* Spacer so sticky bar doesn't overlap content */}
-                <div className="h-20" />
-              </form>
-
-              {/* Sticky action bar */}
-              <div className="sticky bottom-0 z-10 -mx-6 -mb-6 border-t bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 px-6 py-3">
-                <div className="flex items-center gap-3 flex-wrap">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={handleSave}
-                    disabled={saveMutation.isPending || (hasPii && !piiDismissed)}
-                    data-testid="button-save-report"
-                    className="gap-2"
-                  >
-                    <Save className="h-4 w-4" />
-                    {saveMutation.isPending ? "Lagrer..." : (editingReport ? "Oppdater utkast" : "Lagre utkast")}
-                  </Button>
-                  {editingReport && (
-                    <Button
-                      type="button"
-                      className="gap-2"
-                      disabled={submitMutation.isPending || (hasPii && !piiDismissed)}
-                      onClick={() => handleSubmit(editingReport.id)}
-                    >
-                      <Send className="h-4 w-4" />
-                      {submitMutation.isPending ? "Sender..." : "Send inn for godkjenning"}
-                    </Button>
-                  )}
-                  <Button type="button" variant="ghost" onClick={cancelEdit} data-testid="button-cancel">
-                    Avbryt
-                  </Button>
-
-                  {/* PII status chip — accessible live region */}
-                  <div className="ml-auto flex items-center gap-2" aria-live="polite" aria-atomic="true">
-                    {piiScanning && (
-                      <span className="text-xs text-muted-foreground animate-pulse" role="status">Skanner…</span>
-                    )}
-                    {hasPii && !piiDismissed ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="text-destructive gap-1.5 h-8"
-                        onClick={() => setPiiDrawerOpen(true)}
-                      >
-                        <ShieldAlert className="h-4 w-4" />
-                        {totalWarnings} PII
-                      </Button>
-                    ) : !piiScanning && totalWarnings === 0 && formHasContent(formData) ? (
-                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-                        <CheckCircle2 className="h-3.5 w-3.5" />
-                        Ingen PII
-                      </span>
-                    ) : null}
-                  </div>
-                </div>
-                {/* Reassurance microcopy */}
-                <p className="mt-1.5 text-[11px] text-muted-foreground/70">
-                  Utkast lagres automatisk. Etter innsending kan du redigere igjen hvis rapporten returneres for revisjon.
-                </p>
+                <ReportComposerSidebar
+                  editingReport={editingReport}
+                  formData={formData}
+                  isAutoSaving={isAutoSaving}
+                  lastSavedAt={lastSavedAt}
+                  reportSuggestions={reportSuggestions}
+                  shouldRenderReportSuggestions={shouldRenderReportSuggestions}
+                  duplicateReport={duplicateReport}
+                  onJumpToSection={jumpToSection}
+                  onApplyCaseIdSuggestion={applyCaseIdSuggestion}
+                  onNeverSuggestCaseIdAgain={() => { void neverSuggestCaseIdAgain(); }}
+                  onApplyFieldSuggestions={applyFieldSuggestions}
+                  onApplyPreviousMonthCopy={applyPreviousMonthCopy}
+                  onDismissReportSuggestions={dismissReportSuggestions}
+                />
               </div>
-            </CardContent>
-          </Card>
             ) : (
               <>
                 {isLoading ? (

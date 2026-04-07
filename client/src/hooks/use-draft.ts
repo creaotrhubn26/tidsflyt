@@ -44,6 +44,10 @@ export interface UseDraftReturn<T> {
   discardDraft: () => void;
   /** Clear draft from storage (call on successful submit / cancel) */
   clearDraft: () => void;
+  /** Whether a debounced autosave is currently queued */
+  isAutoSaving: boolean;
+  /** Timestamp for the most recent saved draft */
+  lastSavedAt: string | null;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────
@@ -63,13 +67,18 @@ export function useDraft<T extends Record<string, any>>(
 
   const [draftDialogOpen, setDraftDialogOpen] = useState(false);
   const [pendingDraft, setPendingDraft] = useState<SavedDraft<T> | null>(null);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const skipNextSave = useRef(false);
 
   // ── Storage helpers (stable across renders via storageKey) ───────────────
 
   const save = useCallback(
     (data: T, id: number | null) => {
-      if (!hasContent(data)) return;
+      if (!hasContent(data)) {
+        setIsAutoSaving(false);
+        return;
+      }
       try {
         const draft: SavedDraft<T> = {
           formData: data,
@@ -77,8 +86,11 @@ export function useDraft<T extends Record<string, any>>(
           savedAt: new Date().toISOString(),
         };
         localStorage.setItem(storageKey, JSON.stringify(draft));
+        setLastSavedAt(draft.savedAt);
       } catch {
         /* quota exceeded – ignore */
+      } finally {
+        setIsAutoSaving(false);
       }
     },
     [storageKey, hasContent],
@@ -125,11 +137,16 @@ export function useDraft<T extends Record<string, any>>(
       skipNextSave.current = false;
       return;
     }
+    if (!hasContent(formData)) {
+      setIsAutoSaving(false);
+      return;
+    }
+    setIsAutoSaving(true);
     const timer = setTimeout(() => {
       save(formData, editingId);
     }, debounceMs);
     return () => clearTimeout(timer);
-  }, [formData, isFormOpen, editingId, debounceMs, save]);
+  }, [formData, isFormOpen, editingId, debounceMs, save, hasContent]);
 
   // ── Public actions ──────────────────────────────────────────────────────
 
@@ -138,6 +155,8 @@ export function useDraft<T extends Record<string, any>>(
     skipNextSave.current = true;
     setDraftDialogOpen(false);
     setPendingDraft(null);
+    setLastSavedAt(pendingDraft.savedAt);
+    setIsAutoSaving(false);
     return pendingDraft;
   }, [pendingDraft]);
 
@@ -145,10 +164,14 @@ export function useDraft<T extends Record<string, any>>(
     clear();
     setDraftDialogOpen(false);
     setPendingDraft(null);
+    setIsAutoSaving(false);
+    setLastSavedAt(null);
   }, [clear]);
 
   const clearDraft = useCallback(() => {
     clear();
+    setIsAutoSaving(false);
+    setLastSavedAt(null);
   }, [clear]);
 
   return {
@@ -157,5 +180,7 @@ export function useDraft<T extends Record<string, any>>(
     restoreDraft,
     discardDraft,
     clearDraft,
+    isAutoSaving,
+    lastSavedAt,
   };
 }
