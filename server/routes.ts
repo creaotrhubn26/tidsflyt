@@ -1592,6 +1592,27 @@ export async function registerRoutes(
   await ensureSiteSettingsTableForOnboarding();
 
   async function ensureIntegrationRequestTables() {
+    const vendorIdColumnResult = await pool.query(
+      `SELECT data_type, udt_name
+         FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'vendors'
+          AND column_name = 'id'
+        LIMIT 1`,
+    );
+
+    const vendorIdColumn = vendorIdColumnResult.rows[0] as
+      | { data_type?: string | null; udt_name?: string | null }
+      | undefined;
+    const vendorIdSupportsIntegerForeignKey =
+      vendorIdColumn?.data_type === "integer" ||
+      vendorIdColumn?.data_type === "bigint" ||
+      vendorIdColumn?.udt_name === "int4" ||
+      vendorIdColumn?.udt_name === "int8";
+    const integrationVendorReferenceSql = vendorIdSupportsIntegerForeignKey
+      ? "REFERENCES vendors(id)"
+      : "";
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS integration_catalog (
         id SERIAL PRIMARY KEY,
@@ -1608,7 +1629,7 @@ export async function registerRoutes(
       CREATE TABLE IF NOT EXISTS integration_interest_primary (
         id SERIAL PRIMARY KEY,
         integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
-        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        vendor_id INTEGER NOT NULL ${integrationVendorReferenceSql},
         requested_by_user_id TEXT NOT NULL REFERENCES users(id),
         request_note TEXT,
         use_case TEXT,
@@ -1624,7 +1645,7 @@ export async function registerRoutes(
       CREATE TABLE IF NOT EXISTS integration_interest_signals (
         id SERIAL PRIMARY KEY,
         integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
-        vendor_id INTEGER NOT NULL REFERENCES vendors(id),
+        vendor_id INTEGER NOT NULL ${integrationVendorReferenceSql},
         user_id TEXT NOT NULL REFERENCES users(id),
         note TEXT,
         created_at TIMESTAMP DEFAULT NOW(),
@@ -2381,7 +2402,7 @@ export async function registerRoutes(
                         END * GREATEST(COALESCE(v.max_users, 0), 0)
                       )::float8 AS estimated_mrr_value
                  FROM integration_interest_primary p
-                 JOIN vendors v ON v.id = p.vendor_id
+                 JOIN vendors v ON v.id::text = p.vendor_id::text
              GROUP BY p.integration_key
               ) mrr_values
            ON mrr_values.integration_key = c.key
@@ -2919,7 +2940,7 @@ export async function registerRoutes(
                   p.updated_at
              FROM integration_interest_primary p
         LEFT JOIN integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id = p.vendor_id
+        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
             WHERE p.requested_by_user_id = $1
          ORDER BY p.created_at DESC`,
           [authUserId],
@@ -2935,7 +2956,7 @@ export async function registerRoutes(
                   s.updated_at
              FROM integration_interest_signals s
         LEFT JOIN integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id = s.vendor_id
+        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
             WHERE s.user_id = $1
          ORDER BY s.created_at DESC`,
           [authUserId],
@@ -3008,7 +3029,7 @@ export async function registerRoutes(
                   p.updated_at
              FROM integration_interest_primary p
         LEFT JOIN integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id = p.vendor_id
+        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
         LEFT JOIN users requester ON requester.id = p.requested_by_user_id
             ${primaryConditions.length ? `WHERE ${primaryConditions.join(" AND ")}` : ""}
          ORDER BY p.created_at DESC`,
@@ -3029,7 +3050,7 @@ export async function registerRoutes(
                   s.updated_at
              FROM integration_interest_signals s
         LEFT JOIN integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id = s.vendor_id
+        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
         LEFT JOIN users signal_user ON signal_user.id = s.user_id
             ${signalConditions.length ? `WHERE ${signalConditions.join(" AND ")}` : ""}
          ORDER BY s.created_at DESC`,
