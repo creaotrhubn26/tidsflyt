@@ -1,3 +1,5 @@
+import { getBlogCoverOgUrl, getBlogCoverPath } from "./blog-cover";
+
 type BlogSection = {
   paragraphs?: string[];
   bullets?: string[];
@@ -1164,8 +1166,8 @@ export const DEFAULT_BLOG_POSTS: DefaultBlogPostSeed[] = DEFAULT_BLOG_ARTICLES.m
   slug: article.slug,
   excerpt: article.excerpt,
   content: renderArticleContent(article),
-  featuredImage: article.featuredImage,
-  ogImage: article.ogImage,
+  featuredImage: getBlogCoverPath(article.slug),
+  ogImage: getBlogCoverOgUrl(article.slug),
   author: AUTHOR_NAME,
   categorySlug: article.categorySlug,
   tags: article.tags,

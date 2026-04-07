@@ -12,6 +12,12 @@ import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
 import { db } from "./db";
+import {
+  getBlogCoverOgUrl,
+  getBlogCoverPath,
+  renderBlogCoverSvg,
+  shouldUseGeneratedBlogCover,
+} from "@shared/blog-cover";
 import { users } from "@shared/schema";
 import {
   TIDUM_SUPPORT_ADDRESS,
@@ -227,6 +233,27 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
     }
   }
   return res.status(401).json({ error: 'Authentication required' });
+}
+
+function normalizeBlogMedia<T extends {
+  slug: string;
+  featured_image?: string | null;
+  og_image?: string | null;
+}>(row: T): T {
+  const normalized = { ...row };
+
+  if (shouldUseGeneratedBlogCover(normalized.featured_image)) {
+    normalized.featured_image = getBlogCoverPath(normalized.slug);
+  }
+
+  if (
+    shouldUseGeneratedBlogCover(normalized.og_image) ||
+    shouldUseGeneratedBlogCover(row.featured_image)
+  ) {
+    normalized.og_image = getBlogCoverOgUrl(normalized.slug);
+  }
+
+  return normalized;
 }
 
 export function registerSmartTimingRoutes(app: Express) {
@@ -3659,7 +3686,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
       const result = await pool.query(query, params);
       res.json({
-        posts: result.rows,
+        posts: result.rows.map((row) => normalizeBlogMedia(row)),
         pagination: {
           page: pageNum,
           limit: limitNum,
@@ -3669,6 +3696,52 @@ export function registerSmartTimingRoutes(app: Express) {
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/blog/cover/:slug.svg", async (req, res) => {
+    const slug = String(req.params.slug || "").replace(/\.svg$/i, "").trim();
+
+    try {
+      let title = slug
+        .split("-")
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+      let excerpt = "";
+      let categoryName = "Tidum Blogg";
+
+      try {
+        const result = await pool.query(
+          `SELECT p.title, p.excerpt, c.name AS category_name
+             FROM cms_posts p
+        LEFT JOIN cms_categories c ON p.category_id = c.id
+            WHERE p.slug = $1
+            LIMIT 1`,
+          [slug],
+        );
+
+        if (result.rows[0]) {
+          title = result.rows[0].title || title;
+          excerpt = result.rows[0].excerpt || "";
+          categoryName = result.rows[0].category_name || categoryName;
+        }
+      } catch {
+        // Fall back to slug-derived title if blog tables are not ready yet.
+      }
+
+      res.setHeader("Content-Type", "image/svg+xml; charset=utf-8");
+      res.setHeader("Cache-Control", "public, max-age=86400, s-maxage=86400");
+      res.send(
+        renderBlogCoverSvg({
+          slug,
+          title,
+          categoryLabel: categoryName,
+          excerpt,
+        }),
+      );
+    } catch (error: any) {
+      res.status(500).send(String(error?.message || "Could not render blog cover"));
     }
   });
 
@@ -3684,7 +3757,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Post not found' });
       }
-      res.json(result.rows[0]);
+      res.json(normalizeBlogMedia(result.rows[0]));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -3715,7 +3788,7 @@ export function registerSmartTimingRoutes(app: Express) {
          LIMIT $4`,
         [id, category_id, tags || [], limit]
       );
-      res.json(result.rows);
+      res.json(result.rows.map((row) => normalizeBlogMedia(row)));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -7178,7 +7251,83 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     }
   });
 
-  void ensureDefaultBlogSeed();
+  async function ensureBlogSystemTables() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cms_categories (
+        id SERIAL PRIMARY KEY,
+        name TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        description TEXT,
+        parent_id INTEGER,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS cms_posts (
+        id SERIAL PRIMARY KEY,
+        title TEXT NOT NULL,
+        slug TEXT NOT NULL UNIQUE,
+        excerpt TEXT,
+        content TEXT,
+        featured_image TEXT,
+        author TEXT,
+        category_id INTEGER REFERENCES cms_categories(id) ON DELETE SET NULL,
+        tags TEXT[],
+        status TEXT NOT NULL DEFAULT 'draft',
+        meta_title TEXT,
+        meta_description TEXT,
+        og_image TEXT,
+        reading_time INTEGER,
+        word_count INTEGER,
+        scheduled_at TIMESTAMP,
+        published_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS blog_comments (
+        id SERIAL PRIMARY KEY,
+        post_id INTEGER NOT NULL REFERENCES cms_posts(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES blog_comments(id) ON DELETE CASCADE,
+        author_name TEXT NOT NULL,
+        author_email TEXT,
+        author_url TEXT,
+        content TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'pending',
+        ip_address TEXT,
+        user_agent TEXT,
+        created_at TIMESTAMP DEFAULT NOW(),
+        updated_at TIMESTAMP DEFAULT NOW()
+      )
+    `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_categories_slug ON cms_categories(slug)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_slug ON cms_posts(slug)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_status ON cms_posts(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_scheduled_at ON cms_posts(scheduled_at)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_post_id ON blog_comments(post_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_status ON blog_comments(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_parent_id ON blog_comments(parent_id)`);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_cms_posts_search
+      ON cms_posts
+      USING gin (to_tsvector('norwegian', coalesce(title, '') || ' ' || coalesce(excerpt, '') || ' ' || coalesce(content, '')))
+    `);
+  }
+
+  void (async () => {
+    try {
+      await ensureBlogSystemTables();
+      await ensureDefaultBlogSeed();
+    } catch (error) {
+      console.error("[blog-bootstrap] Failed to prepare blog tables", error);
+    }
+  })();
 
   console.log("Smart Timing API routes registered");
 }
