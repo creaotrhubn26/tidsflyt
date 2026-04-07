@@ -22,7 +22,7 @@ jobs:
       VERCEL_PROJECT_ID: prj_CxyC1KiYRi45XKDZeYWDTxZS0xGc
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Trigger production deploy on Vercel
         env:
