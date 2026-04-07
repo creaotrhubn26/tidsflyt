@@ -25,7 +25,7 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { setupCustomAuth, isAuthenticated } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated } from "./custom-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
@@ -326,11 +326,14 @@ async function applyAccessRequestDecision({
   if (request.email) {
     try {
       if (status === "approved") {
-        await emailService.sendAccessApprovedEmail(
-          request.email,
-          request.fullName,
-          request.company || undefined,
-        );
+        const loginUrl = buildEmailLoginUrl(request.email);
+        await emailService.sendVendorAdminMagicLinkInviteEmail({
+          to: request.email,
+          fullName: request.fullName,
+          company: request.company ?? null,
+          institutionType: request.institutionType ?? null,
+          loginUrl,
+        });
       } else {
         await emailService.sendAccessRejectedEmail(
           request.email,
@@ -3598,6 +3601,11 @@ export async function registerRoutes(
         .returning();
 
       await notifyTidumSupportAboutAccessRequest(request);
+      await emailService.sendAccessRequestReceivedEmail(
+        request.email,
+        request.fullName,
+        request.company ?? null,
+      );
       await syncTidumAccessRequestToCreatorhub(
         buildTidumAccessRequestSyncPayload(request),
       );

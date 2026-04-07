@@ -3,12 +3,15 @@ import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-g
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
+import jwt from "jsonwebtoken";
 import { db } from "./db";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
-import { getGoogleCallbackUrl } from "./lib/app-base-url";
+import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
+import { authRateLimit } from "./rate-limit";
+import { emailService } from "./lib/email-service";
 
 interface AuthUser {
   id: string;
@@ -18,6 +21,163 @@ interface AuthUser {
   provider: string;
   role: string;
   vendorId: number | null;
+}
+
+type EmailIdentityInput = {
+  email: string;
+  provider: string;
+  displayName?: string | null;
+  firstName?: string | null;
+  lastName?: string | null;
+  profileImageUrl?: string | null;
+};
+
+const EMAIL_LINK_TTL_SECONDS = 15 * 60;
+
+function getEmailLoginSecret(): string {
+  return (
+    process.env.EMAIL_MAGIC_LINK_SECRET ||
+    process.env.JWT_SECRET ||
+    process.env.SESSION_SECRET ||
+    ""
+  );
+}
+
+export function buildEmailLoginUrl(email: string): string {
+  const normalizedEmail = email.trim().toLowerCase();
+  const secret = getEmailLoginSecret();
+
+  if (!normalizedEmail || !secret) {
+    throw new Error("Email magic link is not configured.");
+  }
+
+  const token = jwt.sign(
+    {
+      purpose: "email_login",
+      email: normalizedEmail,
+    },
+    secret,
+    { expiresIn: EMAIL_LINK_TTL_SECONDS },
+  );
+
+  return `${getAppBaseUrl()}/api/auth/email/verify?token=${encodeURIComponent(token)}`;
+}
+
+function deriveDisplayName(firstName?: string | null, lastName?: string | null, fallback?: string | null) {
+  return [firstName, lastName].filter(Boolean).join(" ").trim() || fallback || "";
+}
+
+async function resolveAuthorizedUserByEmail({
+  email,
+  provider,
+  displayName,
+  firstName,
+  lastName,
+  profileImageUrl,
+}: EmailIdentityInput): Promise<AuthUser | null> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail) return null;
+
+  const [existingUser] = await db
+    .select()
+    .from(users)
+    .where(sql`lower(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
+  const [matchingAdmin] = await db
+    .select()
+    .from(adminUsers)
+    .where(sql`lower(${adminUsers.email}) = ${normalizedEmail}`)
+    .limit(1);
+
+  const adminIsActive = matchingAdmin?.isActive !== false;
+  const adminRole = matchingAdmin?.role || "vendor_admin";
+  const adminVendorId = matchingAdmin?.vendorId ?? null;
+  const derivedFirstName =
+    firstName?.trim() ||
+    matchingAdmin?.username?.trim() ||
+    displayName?.trim() ||
+    normalizedEmail.split("@")[0];
+  const derivedLastName = lastName?.trim() || "";
+  const derivedProfileImage = profileImageUrl || null;
+
+  if (existingUser) {
+    let resolvedUser = existingUser;
+
+    if (
+      matchingAdmin &&
+      adminIsActive &&
+      (existingUser.role !== adminRole ||
+        (existingUser.vendorId ?? null) !== adminVendorId ||
+        !existingUser.firstName ||
+        (!existingUser.lastName && derivedLastName) ||
+        (!existingUser.profileImageUrl && derivedProfileImage))
+    ) {
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          firstName: existingUser.firstName || derivedFirstName,
+          lastName: existingUser.lastName || derivedLastName,
+          profileImageUrl: existingUser.profileImageUrl || derivedProfileImage,
+          role: adminRole,
+          vendorId: adminVendorId,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existingUser.id))
+        .returning();
+
+      if (updatedUser) {
+        resolvedUser = updatedUser;
+      }
+    }
+
+    const fullName = deriveDisplayName(
+      resolvedUser.firstName,
+      resolvedUser.lastName,
+      displayName || derivedFirstName,
+    );
+
+    return {
+      id: resolvedUser.id.toString(),
+      email: resolvedUser.email || normalizedEmail,
+      name: fullName,
+      profileImageUrl: resolvedUser.profileImageUrl || derivedProfileImage,
+      provider,
+      role: resolvedUser.role || "user",
+      vendorId: resolvedUser.vendorId,
+    };
+  }
+
+  if (matchingAdmin && adminIsActive) {
+    const [createdUser] = await db
+      .insert(users)
+      .values({
+        email: normalizedEmail,
+        firstName: derivedFirstName,
+        lastName: derivedLastName,
+        profileImageUrl: derivedProfileImage,
+        role: adminRole,
+        vendorId: adminVendorId,
+      })
+      .returning();
+
+    if (createdUser) {
+      return {
+        id: createdUser.id.toString(),
+        email: createdUser.email || normalizedEmail,
+        name: deriveDisplayName(
+          createdUser.firstName,
+          createdUser.lastName,
+          displayName || derivedFirstName,
+        ),
+        profileImageUrl: createdUser.profileImageUrl || derivedProfileImage,
+        provider,
+        role: createdUser.role || adminRole,
+        vendorId: createdUser.vendorId,
+      };
+    }
+  }
+
+  return null;
 }
 
 declare global {
@@ -52,97 +212,14 @@ export function getSession() {
 async function findOrCreateUser(profile: GoogleProfile, provider: string): Promise<AuthUser | null> {
   const email = profile.emails?.[0]?.value;
   if (!email) return null;
-  const normalizedEmail = email.trim().toLowerCase();
-
-  const [existingUser] = await db
-    .select()
-    .from(users)
-    .where(sql`lower(${users.email}) = ${normalizedEmail}`)
-    .limit(1);
-  const [matchingAdmin] = await db
-    .select()
-    .from(adminUsers)
-    .where(sql`lower(${adminUsers.email}) = ${normalizedEmail}`)
-    .limit(1);
-
-  const adminIsActive = matchingAdmin?.isActive !== false;
-  const adminRole = matchingAdmin?.role || "vendor_admin";
-  const adminVendorId = matchingAdmin?.vendorId ?? null;
-  const firstName = profile.name?.givenName || profile.displayName || email.split("@")[0] || "";
-  const lastName = profile.name?.familyName || "";
-  const profileImageUrl = profile.photos?.[0]?.value || null;
-
-  if (existingUser) {
-    let resolvedUser = existingUser;
-
-    if (
-      matchingAdmin &&
-      adminIsActive &&
-      (existingUser.role !== adminRole ||
-        (existingUser.vendorId ?? null) !== adminVendorId ||
-        !existingUser.firstName ||
-        !existingUser.profileImageUrl)
-    ) {
-      const [updatedUser] = await db
-        .update(users)
-        .set({
-          firstName: existingUser.firstName || firstName,
-          lastName: existingUser.lastName || lastName,
-          profileImageUrl: existingUser.profileImageUrl || profileImageUrl,
-          role: adminRole,
-          vendorId: adminVendorId,
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, existingUser.id))
-        .returning();
-
-      if (updatedUser) {
-        resolvedUser = updatedUser;
-      }
-    }
-
-    const fullName =
-      [resolvedUser.firstName, resolvedUser.lastName].filter(Boolean).join(" ") ||
-      profile.displayName ||
-      "";
-    return {
-      id: resolvedUser.id.toString(),
-      email: resolvedUser.email || email,
-      name: fullName,
-      profileImageUrl: resolvedUser.profileImageUrl || profileImageUrl,
-      provider,
-      role: resolvedUser.role || "user",
-      vendorId: resolvedUser.vendorId,
-    };
-  }
-
-  if (matchingAdmin && adminIsActive) {
-    const [createdUser] = await db
-      .insert(users)
-      .values({
-        email: normalizedEmail,
-        firstName,
-        lastName,
-        profileImageUrl,
-        role: adminRole,
-        vendorId: adminVendorId,
-      })
-      .returning();
-
-    if (createdUser) {
-      return {
-        id: createdUser.id.toString(),
-        email: createdUser.email || email,
-        name: [createdUser.firstName, createdUser.lastName].filter(Boolean).join(" ") || profile.displayName || "",
-        profileImageUrl: createdUser.profileImageUrl || profileImageUrl,
-        provider,
-        role: createdUser.role || adminRole,
-        vendorId: createdUser.vendorId,
-      };
-    }
-  }
-
-  return null;
+  return resolveAuthorizedUserByEmail({
+    email,
+    provider,
+    displayName: profile.displayName || null,
+    firstName: profile.name?.givenName || null,
+    lastName: profile.name?.familyName || null,
+    profileImageUrl: profile.photos?.[0]?.value || null,
+  });
 }
 
 const isDev = process.env.NODE_ENV !== "production";
@@ -223,7 +300,7 @@ export async function setupCustomAuth(app: Express) {
           const errorCode = normalizedMessage.includes("tilgangsforespørsel")
             ? "access_request_required"
             : "auth_failed";
-          return res.redirect(`/?error=${errorCode}`);
+          return res.redirect(`/auth?error=${errorCode}`);
         }
 
         req.logIn(user, (loginError) => {
@@ -235,6 +312,70 @@ export async function setupCustomAuth(app: Express) {
       })(req, res, next);
     }
   );
+
+  app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
+    const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
+    const email = rawEmail.trim().toLowerCase();
+
+    if (!email || !email.includes("@")) {
+      return res.status(400).json({ error: "Gyldig e-post er påkrevd." });
+    }
+
+    try {
+      const user = await resolveAuthorizedUserByEmail({
+        email,
+        provider: "email",
+      });
+
+      if (user) {
+        const loginUrl = buildEmailLoginUrl(email);
+        await emailService.sendEmailLoginLink(email, user.name || email, loginUrl);
+      }
+
+      return res.json({
+        success: true,
+        message: "Hvis kontoen finnes hos oss, har vi sendt en innloggingslenke.",
+      });
+    } catch (error) {
+      console.error("Email login link error:", error);
+      return res.status(500).json({ error: "Kunne ikke sende innloggingslenke akkurat nå." });
+    }
+  });
+
+  app.get("/api/auth/email/verify", async (req, res, next) => {
+    try {
+      const token = typeof req.query?.token === "string" ? req.query.token : "";
+      const secret = getEmailLoginSecret();
+
+      if (!token || !secret) {
+        return res.redirect("/auth?error=magic_link_invalid");
+      }
+
+      const payload = jwt.verify(token, secret) as { email?: string; purpose?: string };
+      if (payload?.purpose !== "email_login" || !payload.email) {
+        return res.redirect("/auth?error=magic_link_invalid");
+      }
+
+      const user = await resolveAuthorizedUserByEmail({
+        email: payload.email,
+        provider: "email",
+      });
+
+      if (!user) {
+        return res.redirect("/auth?error=access_request_required");
+      }
+
+      req.logIn(user, (loginError) => {
+        if (loginError) {
+          return next(loginError);
+        }
+        return res.redirect("/dashboard");
+      });
+    } catch (error) {
+      console.error("Email login verify error:", error);
+      return res.redirect("/auth?error=magic_link_expired");
+    }
+  });
 
   app.get("/api/auth/apple", (_req, res) => {
     res.status(501).json({ 

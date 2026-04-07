@@ -1290,6 +1290,18 @@ export function registerSmartTimingRoutes(app: Express) {
         }
       }
 
+      if (approved === false && result.rows[0].user_email) {
+        try {
+          await emailService.sendAccountDeactivatedEmail(
+            result.rows[0].user_email,
+            result.rows[0].role || 'member'
+          );
+          console.log(`✅ Deactivation email sent to ${result.rows[0].user_email}`);
+        } catch (emailErr) {
+          console.error('⚠️ Failed to send deactivation email:', emailErr);
+        }
+      }
+
       res.json(result.rows[0]);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
