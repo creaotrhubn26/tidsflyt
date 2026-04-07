@@ -446,13 +446,17 @@ function PiiFieldWrapper({
 
 // ─── Section progress indicator ──────────────────────────────────────────────
 
-const FORM_SECTIONS = REPORT_EDITOR_SECTIONS.map((section) => ({
+const FORM_SECTIONS: ReadonlyArray<{
+  key: CaseReportSuggestionFieldKey;
+  label: string;
+  required: boolean;
+}> = REPORT_EDITOR_SECTIONS.map((section) => ({
   key: section.key,
   label: section.shortLabel,
   required: section.required,
-})) as const;
+}));
 
-const REQUIRED_SECTIONS = FORM_SECTIONS.filter((s) => s.required).map((s) => s.key);
+const REQUIRED_SECTIONS: CaseReportSuggestionFieldKey[] = FORM_SECTIONS.filter((s) => s.required).map((s) => s.key);
 const REPORT_SUGGESTION_FIELD_KEYS: CaseReportSuggestionFieldKey[] = [
   "background",
   "actions",
