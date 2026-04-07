@@ -4,7 +4,7 @@ import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import { db } from "./db";
-import { users } from "@shared/schema";
+import { adminUsers, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
 import { getGoogleCallbackUrl } from "./lib/app-base-url";
@@ -52,22 +52,86 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
   const email = profile.emails?.[0]?.value;
   if (!email) return null;
 
-  const existingUsers = await db.select().from(users).where(eq(users.email, email)).limit(1);
-  
-  if (existingUsers.length > 0) {
-    const user = existingUsers[0];
-    const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ") || profile.displayName || "";
+  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const [matchingAdmin] = await db.select().from(adminUsers).where(eq(adminUsers.email, email)).limit(1);
+
+  const adminIsActive = matchingAdmin?.isActive !== false;
+  const adminRole = matchingAdmin?.role || "vendor_admin";
+  const adminVendorId = matchingAdmin?.vendorId ?? null;
+  const firstName = profile.name?.givenName || profile.displayName || email.split("@")[0] || "";
+  const lastName = profile.name?.familyName || "";
+  const profileImageUrl = profile.photos?.[0]?.value || null;
+
+  if (existingUser) {
+    let resolvedUser = existingUser;
+
+    if (
+      matchingAdmin &&
+      adminIsActive &&
+      (existingUser.role !== adminRole ||
+        (existingUser.vendorId ?? null) !== adminVendorId ||
+        !existingUser.firstName ||
+        !existingUser.profileImageUrl)
+    ) {
+      const [updatedUser] = await db
+        .update(users)
+        .set({
+          firstName: existingUser.firstName || firstName,
+          lastName: existingUser.lastName || lastName,
+          profileImageUrl: existingUser.profileImageUrl || profileImageUrl,
+          role: adminRole,
+          vendorId: adminVendorId,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.id, existingUser.id))
+        .returning();
+
+      if (updatedUser) {
+        resolvedUser = updatedUser;
+      }
+    }
+
+    const fullName =
+      [resolvedUser.firstName, resolvedUser.lastName].filter(Boolean).join(" ") ||
+      profile.displayName ||
+      "";
     return {
-      id: user.id.toString(),
-      email: user.email || email,
+      id: resolvedUser.id.toString(),
+      email: resolvedUser.email || email,
       name: fullName,
-      profileImageUrl: user.profileImageUrl || profile.photos?.[0]?.value || null,
+      profileImageUrl: resolvedUser.profileImageUrl || profileImageUrl,
       provider,
-      role: user.role || "user",
-      vendorId: user.vendorId,
+      role: resolvedUser.role || "user",
+      vendorId: resolvedUser.vendorId,
     };
   }
-  
+
+  if (matchingAdmin && adminIsActive) {
+    const [createdUser] = await db
+      .insert(users)
+      .values({
+        email,
+        firstName,
+        lastName,
+        profileImageUrl,
+        role: adminRole,
+        vendorId: adminVendorId,
+      })
+      .returning();
+
+    if (createdUser) {
+      return {
+        id: createdUser.id.toString(),
+        email: createdUser.email || email,
+        name: [createdUser.firstName, createdUser.lastName].filter(Boolean).join(" ") || profile.displayName || "",
+        profileImageUrl: createdUser.profileImageUrl || profileImageUrl,
+        provider,
+        role: createdUser.role || adminRole,
+        vendorId: createdUser.vendorId,
+      };
+    }
+  }
+
   return null;
 }
 
