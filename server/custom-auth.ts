@@ -28,8 +28,10 @@ declare global {
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
   const pgStore = connectPg(session);
+  const sessionConnectionString =
+    process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_URL;
   const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
+    conString: sessionConnectionString,
     createTableIfMissing: true,
     ttl: sessionTtl,
     tableName: "sessions",

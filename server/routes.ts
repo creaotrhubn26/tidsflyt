@@ -1339,12 +1339,14 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const shouldSeedLocalData =
+    process.env.NODE_ENV !== "production" && !process.env.EXTERNAL_DATABASE_URL;
   
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
   
-  // Skip seeding when using external database
-  if (!process.env.EXTERNAL_DATABASE_URL) {
+  // Never seed data automatically in production.
+  if (shouldSeedLocalData) {
     try {
       await storage.seedData();
       console.log("Database initialization complete");
@@ -1352,7 +1354,7 @@ export async function registerRoutes(
       console.error("Database seed error:", error);
     }
   } else {
-    console.log("Connected to external database - skipping seed");
+    console.log("Skipping automatic seed for current database configuration");
   }
   
   // Register Smart Timing API routes
