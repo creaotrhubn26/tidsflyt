@@ -1,0 +1,36 @@
+name: Deploy Tidum Vercel
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tidum-vercel-production
+  cancel-in-progress: true
+
+jobs:
+  deploy-vercel:
+    name: Trigger Vercel production deploy
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_ORG_ID: team_UOvtZwUfFzyLucAc0asjgwFr
+      VERCEL_PROJECT_ID: prj_CxyC1KiYRi45XKDZeYWDTxZS0xGc
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Trigger production deploy on Vercel
+        env:
+          VERCEL_TOKEN: ${{ secrets.TIDUM_VERCEL_TOKEN }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ]; then
+            echo "TIDUM_VERCEL_TOKEN is missing"
+            exit 1
+          fi
+
+          npx vercel@48.9.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope creatorhubcom
