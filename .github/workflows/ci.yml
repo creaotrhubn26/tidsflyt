@@ -20,7 +20,7 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund --loglevel=error
       
       - name: Check design tokens
         run: npm run check:design
@@ -38,7 +38,7 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund --loglevel=error
       
       - name: Type check
         run: npm run check
@@ -57,7 +57,7 @@ jobs:
           cache: 'npm'
       
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --no-audit --no-fund --loglevel=error
       
       - name: Build
         run: npm run build
