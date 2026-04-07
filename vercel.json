@@ -10,7 +10,7 @@
     },
     {
       "src": "/api/(.*)",
-      "dest": "https://tidum-backend.onrender.com/api/$1"
+      "dest": "https://api.tidum.no/api/$1"
     },
     {
       "src": "/(.*)",
