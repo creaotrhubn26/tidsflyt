@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import express from "express";
 import { type Server } from "http";
+import bcrypt from "bcrypt";
 import { storage } from "./storage";
 
 import { getUncachableGitHubClient } from "./github";
@@ -61,6 +62,99 @@ const timerSessionSchema = z.object({
 
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
+
+function slugifyVendorName(input: string): string {
+  return input
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+}
+
+async function ensureVendorForAccessRequest(
+  request: typeof accessRequests.$inferSelect,
+): Promise<number> {
+  const companyName = request.company?.trim() || request.fullName.trim();
+  if (!companyName) {
+    throw new Error("Access request is missing organization details");
+  }
+
+  const [existingByName] = await db
+    .select({ id: vendors.id })
+    .from(vendors)
+    .where(sql`lower(${vendors.name}) = lower(${companyName})`)
+    .limit(1);
+
+  if (existingByName) {
+    return existingByName.id;
+  }
+
+  const slugBase = slugifyVendorName(companyName) || "vendor";
+  let slug = slugBase;
+  let counter = 1;
+
+  while (true) {
+    const [existingSlug] = await db
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(eq(vendors.slug, slug))
+      .limit(1);
+
+    if (!existingSlug) {
+      break;
+    }
+
+    counter += 1;
+    slug = `${slugBase}-${counter}`;
+  }
+
+  const [createdVendor] = await db
+    .insert(vendors)
+    .values({
+      name: companyName,
+      slug,
+      email: request.email ?? null,
+      phone: request.phone ?? null,
+      status: "active",
+      subscriptionPlan: "standard",
+      maxUsers: 50,
+    })
+    .returning({ id: vendors.id });
+
+  return createdVendor.id;
+}
+
+async function ensureVendorAdminForAccessRequest(
+  request: typeof accessRequests.$inferSelect,
+  vendorId: number,
+): Promise<void> {
+  if (!request.email) {
+    return;
+  }
+
+  const email = request.email.trim().toLowerCase();
+  const usernameBase =
+    slugifyVendorName(request.fullName || request.company || email.split("@")[0] || "vendor-admin") ||
+    "vendor-admin";
+  const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
+
+  await pool.query(
+    `INSERT INTO admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
+     VALUES ($1, $2, $3, 'vendor_admin', $4, true, NOW())
+     ON CONFLICT (email)
+     DO UPDATE SET
+       username = EXCLUDED.username,
+       password_hash = EXCLUDED.password_hash,
+       role = 'vendor_admin',
+       vendor_id = EXCLUDED.vendor_id,
+       is_active = true,
+       updated_at = NOW()`,
+    [usernameBase, email, passwordHash, vendorId],
+  );
+}
 
 async function syncApprovedPortalUser(email: string, role: string, vendorId: number | null) {
   const normalizedRole = normalizeRole(role);
@@ -205,8 +299,13 @@ async function applyAccessRequestDecision({
     updatedAt: new Date(),
   };
 
-  if (status === "approved" && vendorId) {
-    updateData.vendorId = vendorId;
+  const effectiveVendorId =
+    status === "approved"
+      ? (vendorId ? Number(vendorId) : await ensureVendorForAccessRequest(request))
+      : null;
+
+  if (status === "approved") {
+    updateData.vendorId = effectiveVendorId;
   }
 
   const [updated] = await db
@@ -216,10 +315,11 @@ async function applyAccessRequestDecision({
     .returning();
 
   if (status === "approved" && request.email) {
+    await ensureVendorAdminForAccessRequest(request, effectiveVendorId as number);
     await syncApprovedPortalUser(
       request.email,
-      approvedRole,
-      vendorId ? Number(vendorId) : null,
+      "vendor_admin",
+      effectiveVendorId,
     );
   }
 
@@ -245,7 +345,7 @@ async function applyAccessRequestDecision({
   await syncTidumAccessRequestToCreatorhub(
     buildTidumAccessRequestSyncPayload(
       updated,
-      status === "approved" ? approvedRole : null,
+      status === "approved" ? "vendor_admin" : null,
     ),
   );
 
