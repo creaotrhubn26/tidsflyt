@@ -8,6 +8,7 @@ import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
 import { getGoogleCallbackUrl } from "./lib/app-base-url";
+import { requireDatabaseConnectionString } from "./database-config";
 
 interface AuthUser {
   id: string;
@@ -28,10 +29,8 @@ declare global {
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
   const pgStore = connectPg(session);
-  const sessionConnectionString =
-    process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_URL;
   const sessionStore = new pgStore({
-    conString: sessionConnectionString,
+    conString: requireDatabaseConnectionString(),
     createTableIfMissing: true,
     ttl: sessionTtl,
     tableName: "sessions",

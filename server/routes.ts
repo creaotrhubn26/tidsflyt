@@ -33,6 +33,7 @@ import { cache } from "./micro-cache";
 import { hasValidCreatorhubSyncSecret, syncTidumAccessRequestToCreatorhub } from "./lib/creatorhub-sync";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 import { getRequestIp, verifyTurnstileToken } from "./lib/turnstile";
+import { hasDatabaseConnectionString } from "./database-config";
 
 
 // Zod schema for bulk time entry validation
@@ -1339,8 +1340,9 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  const hasDatabaseConnection = hasDatabaseConnectionString();
   const shouldSeedLocalData =
-    process.env.NODE_ENV !== "production" && !process.env.EXTERNAL_DATABASE_URL;
+    process.env.NODE_ENV !== "production" && !hasDatabaseConnection;
   
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);

@@ -2,8 +2,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
 import * as schema from "@shared/schema";
+import { requireDatabaseConnectionString } from "./database-config";
 
-const connectionString = process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_URL;
+const connectionString = requireDatabaseConnectionString();
 const sslDisabled = process.env.DATABASE_SSL === "false" || process.env.PGSSLMODE === "disable";
 const isLocal = connectionString
   ? /localhost|127\.0\.0\.1/.test(connectionString)

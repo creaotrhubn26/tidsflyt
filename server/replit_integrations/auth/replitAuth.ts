@@ -7,6 +7,7 @@ import type { Express, RequestHandler } from "express";
 import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
+import { requireDatabaseConnectionString } from "../../database-config";
 
 const getOidcConfig = memoize(
   async () => {
@@ -21,10 +22,8 @@ const getOidcConfig = memoize(
 export function getSession() {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
   const pgStore = connectPg(session);
-  const sessionConnectionString =
-    process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_URL;
   const sessionStore = new pgStore({
-    conString: sessionConnectionString,
+    conString: requireDatabaseConnectionString(),
     createTableIfMissing: false,
     ttl: sessionTtl,
     tableName: "sessions",

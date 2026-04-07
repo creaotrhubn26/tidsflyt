@@ -16,6 +16,7 @@ import {
 } from "@shared/schema";
 import { db, pool } from "./db";
 import { eq, desc, and, gte, lte } from "drizzle-orm";
+import { hasDatabaseConnectionString } from "./database-config";
 
 // ── Task learning types ──
 export interface TaskPrefsData {
@@ -417,7 +418,7 @@ export class ExternalDbStorage implements IStorage {
   private isExternalDb: boolean;
 
   constructor() {
-    this.isExternalDb = !!process.env.EXTERNAL_DATABASE_URL;
+    this.isExternalDb = hasDatabaseConnectionString();
   }
 
   async getUser(id: string): Promise<User | undefined> {
