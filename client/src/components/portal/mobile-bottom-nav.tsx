@@ -2,8 +2,7 @@ import { Link, useLocation } from "wouter";
 import { LayoutDashboard, Clock, FileText, User, ClipboardList, FolderKanban, MoreHorizontal, Send, UserPlus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/hooks/use-auth";
-import { normalizeRole } from "@shared/roles";
+import { useRolePreview } from "@/hooks/use-role-preview";
 
 interface MobileNavItem {
   path: string;
@@ -31,15 +30,14 @@ const secondaryItems: MobileNavItem[] = [
 
 export function MobileBottomNav() {
   const [location] = useLocation();
-  const { user } = useAuth();
-  const normalizedUserRole = normalizeRole(user?.role);
+  const { effectiveRole: normalizedUserRole } = useRolePreview();
   const [moreOpen, setMoreOpen] = useState(false);
 
   const filterByRole = (items: MobileNavItem[]) =>
     items.filter(
       (item) =>
         !(item.path === "/time" && normalizedUserRole === "tiltaksleder") &&
-        (!item.roles || item.roles.map((r) => normalizeRole(r)).includes(normalizedUserRole))
+        (!item.roles || item.roles.includes(normalizedUserRole))
     );
 
   const visiblePrimary = useMemo(() => filterByRole(primaryItems), [normalizedUserRole]);

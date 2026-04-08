@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
@@ -48,12 +49,13 @@ const AVAILABLE_PERMISSIONS = [
 export default function VendorApiAdminPage() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(["read:time_entries"]);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
-  const isAuthorized = canAccessVendorApiAdmin(user?.role);
+  const isAuthorized = canAccessVendorApiAdmin(effectiveRole);
 
   const { data: apiStatus, isLoading: statusLoading } = useQuery<VendorApiStatus>({
     queryKey: ["/api/vendor/api-status"],

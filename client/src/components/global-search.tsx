@@ -17,8 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useAuth } from "@/hooks/use-auth";
-import { normalizeRole } from "@shared/roles";
+import { useRolePreview } from "@/hooks/use-role-preview";
 
 interface SearchResult {
   id: string;
@@ -35,10 +34,10 @@ export function GlobalSearch() {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [, setLocation] = useLocation();
-  const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedIndex = useRef<number>(0);
-  const isTiltaksleder = normalizeRole(user?.role) === "tiltaksleder";
+  const isTiltaksleder = effectiveRole === "tiltaksleder";
 
   // Mock search results
   const results = useMemo((): SearchResult[] => {

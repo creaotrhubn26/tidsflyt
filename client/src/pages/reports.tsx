@@ -45,11 +45,10 @@ import { format, subDays } from "date-fns";
 import { nb } from "date-fns/locale";
 import type { User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
-import { normalizeRole } from "@shared/roles";
 import { TimeTrackingPdfDesigner } from "@/components/reports/time-tracking-pdf-designer";
 
 type ReportEntry = {
@@ -123,7 +122,7 @@ function saveReportSchedule(schedule: SavedReportSchedule) {
 }
 
 export default function ReportsPage() {
-  const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const { toast } = useToast();
   const { settings: suggestionSettings } = useSuggestionSettings();
   const [searchQuery, setSearchQuery] = useState("");
@@ -255,13 +254,12 @@ export default function ReportsPage() {
   const approvedCount = filteredReports.filter(r => r.status === "approved").length;
   const pendingCount = filteredReports.filter(r => r.status === "pending").length;
   const canManageTimeTrackingPdf = useMemo(() => {
-    const role = normalizeRole(user?.role);
-    return role === "tiltaksleder"
-      || role === "super_admin"
-      || role === "hovedadmin"
-      || role === "admin"
-      || role === "vendor_admin";
-  }, [user?.role]);
+    return effectiveRole === "tiltaksleder"
+      || effectiveRole === "super_admin"
+      || effectiveRole === "hovedadmin"
+      || effectiveRole === "admin"
+      || effectiveRole === "vendor_admin";
+  }, [effectiveRole]);
 
   const handleExport = async (formatType: "csv" | "pdf" | "excel") => {
     const params = new URLSearchParams({

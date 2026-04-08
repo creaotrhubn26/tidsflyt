@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { Redirect } from "wouter";
 import { normalizeRole } from "@shared/roles";
 
@@ -13,10 +14,11 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
   // DEV MODE: bypass auth to allow full page access
   const isDev = import.meta.env.DEV;
   const { user, isLoading, isAuthenticated } = useAuth();
+  const { effectiveRole } = useRolePreview();
 
   const hasRequiredRole = (() => {
     if (!requiredRoles || !user) return true;
-    const normalizedUserRole = normalizeRole(user.role);
+    const normalizedUserRole = normalizeRole(effectiveRole);
     const normalizedRequiredRoles = requiredRoles.map((role) => normalizeRole(role));
     return normalizedRequiredRoles.includes(normalizedUserRole);
   })();

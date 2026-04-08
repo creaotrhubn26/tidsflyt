@@ -6,6 +6,7 @@ import { FeedbackDialog } from "./feedback-dialog";
 import { GlobalSearch } from "@/components/global-search";
 import { ActivityFeed } from "@/components/portal/activity-feed";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview, type TidumViewMode } from "@/hooks/use-role-preview";
 import {
   LayoutDashboard,
   Users,
@@ -41,6 +42,9 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -140,6 +144,17 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   });
   const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
   const { user: authUser, isLoading: authLoading } = useAuth();
+  const {
+    actualRole,
+    actualRoleLabel,
+    canPreviewRoles,
+    effectiveRole,
+    effectiveRoleLabel,
+    isPreviewActive,
+    previewMode,
+    previewModeLabel,
+    setPreviewMode,
+  } = useRolePreview();
 
   const { data: companyUsersData } = useQuery<CompanyUser[] | { error?: string }>({
     queryKey: ['/api/company/users', 1],
@@ -170,9 +185,8 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     role: "member",
     vendorId: undefined,
   };
-  const normalizedCurrentUserRole = normalizeRole(currentUser.role);
+  const normalizedCurrentUserRole = effectiveRole;
   const effectiveUserId = user?.id || authUser?.id || resolvedPortalUser?.id || "";
-  const effectiveRole = normalizeRole(user?.role || authUser?.role || currentUser.role);
   const isMiljoarbeider = effectiveRole === "miljoarbeider";
 
   const { data: headerActivitiesData = [], isLoading: headerActivitiesLoading } = useQuery<HeaderActivity[]>({
@@ -305,6 +319,14 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     setCollapsed((previous) => !previous);
   }, []);
 
+  const handlePreviewModeChange = useCallback(
+    (nextMode: TidumViewMode) => {
+      setPreviewMode(nextMode);
+      navigate("/dashboard");
+    },
+    [navigate, setPreviewMode],
+  );
+
   const getRoleBadge = (role: string) => {
     switch (role) {
       case "super_admin":
@@ -411,7 +433,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                     {currentUser.name}
                   </p>
                   <p className="text-xs text-[#bad0d5] truncate">
-                    {currentUser.email}
+                    {isPreviewActive ? `${previewModeLabel} visning` : currentUser.email}
                   </p>
                 </div>
               )}
@@ -423,8 +445,30 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
               {currentUser.email ? (
                 <p className="text-xs text-muted-foreground">{currentUser.email}</p>
               ) : null}
-              {resolvedPortalUser ? <div className="mt-1">{getRoleBadge(currentUser.role)}</div> : null}
+              {resolvedPortalUser ? <div className="mt-1">{getRoleBadge(actualRole)}</div> : null}
+              {isPreviewActive ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Viser som {previewModeLabel.toLowerCase()}
+                </p>
+              ) : null}
             </div>
+            {canPreviewRoles ? (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuLabel>Visningsmodus</DropdownMenuLabel>
+                <DropdownMenuRadioGroup value={previewMode} onValueChange={(value) => handlePreviewModeChange(value as TidumViewMode)}>
+                  <DropdownMenuRadioItem value="admin">
+                    Admin
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="institution">
+                    Institusjon
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="miljoarbeider">
+                    Miljøarbeider
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem data-testid="menu-settings">
               <Settings className="h-4 w-4 mr-2" />
@@ -489,9 +533,16 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
               <img src={tidumWordmark} alt="Tidum" className="h-7 w-auto object-contain" />
             </div>
             
-            <h1 className="text-lg font-semibold hidden md:block text-[#183a44] dark:text-foreground">
-              {activePageLabel}
-            </h1>
+            <div className="hidden md:flex flex-col">
+              <h1 className="text-lg font-semibold text-[#183a44] dark:text-foreground">
+                {activePageLabel}
+              </h1>
+              {canPreviewRoles ? (
+                <p className="text-xs text-muted-foreground">
+                  {isPreviewActive ? `Viser som ${previewModeLabel.toLowerCase()}` : `Pålogget som ${actualRoleLabel.toLowerCase()}`}
+                </p>
+              ) : null}
+            </div>
           </div>
 
           <div className="flex items-center gap-2 md:gap-3">
@@ -647,7 +698,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                   <UserCheck className="mx-auto mb-2 h-10 w-10 text-primary" />
                   <p className="text-sm font-medium">Hei, {currentUser.name}!</p>
                   <div className="mt-1 text-xs text-muted-foreground">
-                    Rolle: <Badge variant="secondary" className="ml-1">{normalizedCurrentUserRole}</Badge>
+                    Rolle: <Badge variant="secondary" className="ml-1">{effectiveRoleLabel}</Badge>
                   </div>
                 </div>
                 <p className="text-sm text-muted-foreground text-center">
@@ -678,7 +729,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
                     <CheckCircle className="h-5 w-5 text-green-500" />
                     <div>
                       <p className="text-sm font-medium">Rolle</p>
-                      <p className="text-xs text-muted-foreground">{normalizedCurrentUserRole}</p>
+                      <p className="text-xs text-muted-foreground">{effectiveRoleLabel}</p>
                     </div>
                   </div>
                 </div>

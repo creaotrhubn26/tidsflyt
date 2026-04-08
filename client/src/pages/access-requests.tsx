@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock, Search, BarChart3, TrendingUp } from "lucide-react";
@@ -56,6 +57,7 @@ const institutionTypeLabels: Record<string, string> = {
 export default function AccessRequestsPage() {
   const { toast } = useToast();
   const { user, isLoading: authLoading, isAuthenticated } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const [statusFilter, setStatusFilter] = useState("all");
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
   const [selectedRequest, setSelectedRequest] = useState<AccessRequest | null>(null);
@@ -64,7 +66,7 @@ export default function AccessRequestsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
-  const isSuperAdmin = isSuperAdminLikeRole(user?.role);
+  const isSuperAdmin = isSuperAdminLikeRole(effectiveRole);
 
   const { data: requests, isLoading } = useQuery<AccessRequest[]>({
     queryKey: ["/api/access-requests", statusFilter],

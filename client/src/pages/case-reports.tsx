@@ -54,6 +54,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { usePiiDetection } from "@/hooks/use-pii-detection";
 import { useDraft } from "@/hooks/use-draft";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { getPiiTypeLabel, getPiiSeverity, ANONYMOUS_ALTERNATIVES, type PiiWarning, type PiiScanResult } from "@/lib/pii-detector";
 import { PiiSummaryBanner, PiiSummaryDrawer, type PiiIssue } from "@/components/pii-summary-drawer";
@@ -862,7 +863,8 @@ export default function CaseReportsPage() {
   const [reportSuggestionsDismissed, setReportSuggestionsDismissed] = useState(false);
   const dashboardPrefillAppliedRef = useRef<string | null>(null);
   const { user } = useAuth();
-  const isTiltaksleder = normalizeRole(user?.role) === "tiltaksleder";
+  const { effectiveRole } = useRolePreview();
+  const isTiltaksleder = effectiveRole === "tiltaksleder";
   const { settings: suggestionSettings, blockSuggestionAsync } = useSuggestionSettings();
   const currentUserId = user?.id ?? "default";
   const workflowSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "workflow");

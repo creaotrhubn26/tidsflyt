@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -59,9 +59,9 @@ const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_
 
 export default function OvertimePage() {
   const { toast } = useToast();
-  const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role ? ADMIN_ROLES.includes(user.role.toLowerCase().replace(/[\s-]/g, '_')) : false;
+  const isAdmin = ADMIN_ROLES.includes(effectiveRole);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [selectedMonth, setSelectedMonth] = useState<Date>(new Date());
 

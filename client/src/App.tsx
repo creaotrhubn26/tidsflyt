@@ -9,6 +9,7 @@ import { AuthGuard } from "@/components/auth-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AnalyticsRuntime } from "@/components/analytics-runtime";
 import NotFound from "@/pages/not-found";
+import { RolePreviewProvider } from "@/hooks/use-role-preview";
 
 const Landing = lazy(() => import("@/pages/landing"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -116,9 +117,11 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <AnalyticsRuntime />
-            <main id="main-content">
-              <Router />
-            </main>
+            <RolePreviewProvider>
+              <main id="main-content">
+                <Router />
+              </main>
+            </RolePreviewProvider>
           </TooltipProvider>
         </ThemeProvider>
       </QueryClientProvider>

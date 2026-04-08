@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { apiRequest } from "@/lib/queryClient";
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
 import { nb } from "date-fns/locale";
@@ -61,7 +61,7 @@ interface TeamMember {
 // ── Component ──────────────────────────────────────────────────────────
 
 export default function EmailComposer() {
-  const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -114,7 +114,7 @@ export default function EmailComposer() {
   });
 
   // Team members for tiltaksleder user picker
-  const isTiltaksleder = ['tiltaksleder', 'super_admin', 'admin', 'hovedadmin', 'teamleder'].includes(user?.role || '');
+  const isTiltaksleder = ["tiltaksleder", "super_admin", "admin", "hovedadmin", "teamleder"].includes(effectiveRole);
 
   const { data: teamMembers = [] } = useQuery<TeamMember[]>({
     queryKey: ["/api/email/team-members"],

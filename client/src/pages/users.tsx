@@ -49,6 +49,7 @@ import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { canManageRole, getRoleLabel, normalizeRole } from "@shared/roles";
 
 const roleColors = {
@@ -120,6 +121,7 @@ export default function UsersPage() {
   const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
   const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
 
   useEffect(() => {
     setTab(isInvitesRoute ? "pending" : "all");
@@ -184,7 +186,7 @@ export default function UsersPage() {
     hoursThisWeek: 0,
   }));
 
-  const actorRole = normalizeRole(user?.role);
+  const actorRole = effectiveRole;
   const allowedInviteRoles = inviteRoleOptions.filter((role) => canManageRole(actorRole, role));
 
   useEffect(() => {

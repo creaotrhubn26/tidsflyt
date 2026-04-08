@@ -10,8 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/use-auth";
-import { normalizeRole } from "@shared/roles";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { Link2, TrendingUp } from "lucide-react";
 
 type IntegrationKey = "fiken" | "tripletex" | "other";
@@ -173,9 +172,7 @@ function parseApiError(error: unknown): string {
 
 export function IntegrationRequestsPanel({ showAdminTools = false, className }: IntegrationRequestsPanelProps) {
   const { toast } = useToast();
-  const { user } = useAuth();
-
-  const normalizedRole = normalizeRole(user?.role);
+  const { effectiveRole: normalizedRole } = useRolePreview();
   const canCreatePrimary = ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
   const canManageRoadmap = ["super_admin", "hovedadmin", "admin"].includes(normalizedRole);
 

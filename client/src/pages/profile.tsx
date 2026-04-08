@@ -37,6 +37,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { canAccessVendorApiAdmin, getRoleLabel, normalizeRole } from "@shared/roles";
 import { useToast } from "@/hooks/use-toast";
@@ -152,11 +153,12 @@ export default function ProfilePage() {
     resetToTeamDefaultAsync,
     isSaving: isSuggestionSettingsSaving,
   } = useSuggestionSettings();
+  const { effectiveRole, effectiveRoleLabel, isPreviewActive } = useRolePreview();
   const [selectedTeamRole, setSelectedTeamRole] = useState("default");
   const [miljoarbeiderWorkTypesDraft, setMiljoarbeiderWorkTypesDraft] = useState<TimeTrackingWorkType[]>([]);
 
   /* ── Derived role flags (needed for queries below) ── */
-  const role = profile?.role || user?.role || "user";
+  const role = effectiveRole || normalizeRole(profile?.role || user?.role || "user");
   const normalizedRole = normalizeRole(role);
   const isAdminLikeRole = ["super_admin", "hovedadmin", "admin", "vendor_admin", "tiltaksleder", "teamleder"].includes(normalizedRole);
   const canManageTimeTrackingWorkTypes = ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
@@ -446,7 +448,7 @@ export default function ProfilePage() {
                   )}
                   <Badge variant={isAdminLikeRole ? "destructive" : "secondary"} className="w-fit">
                     <Shield className="h-3 w-3 mr-1" />
-                    {getRoleLabel(role)}
+                    {isPreviewActive ? `${effectiveRoleLabel} (visning)` : getRoleLabel(role)}
                   </Badge>
                 </div>
                 <p className="text-muted-foreground">{email}</p>

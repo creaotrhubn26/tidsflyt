@@ -28,6 +28,7 @@ import { DashboardWorkerMobile, type WorkerParticipant, type WorkerTodaySignal }
 import { DashboardWeekStrip } from "@/components/dashboard/dashboard-week-strip";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { normalizeRole } from "@shared/roles";
@@ -175,6 +176,7 @@ function savePrefs(prefs: DashboardPrefs) {
 export default function DashboardPage() {
   const [, navigate] = useLocation();
   const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const { settings: suggestionSettings } = useSuggestionSettings();
   const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
@@ -184,12 +186,7 @@ export default function DashboardPage() {
   const [isDashboardCaseSuggestionDismissed, setIsDashboardCaseSuggestionDismissed] = useState(false);
   const today = useMemo(() => format(new Date(), "yyyy-MM-dd"), []);
   const currentYearMonth = useMemo(() => format(new Date(), "yyyy-MM"), []);
-  const rolePreview = useMemo(() => {
-    if (typeof window === "undefined") return null;
-    const value = new URLSearchParams(window.location.search).get("role");
-    return value ? normalizeRole(value) : null;
-  }, []);
-  const normalizedRole = rolePreview || normalizeRole(user?.role);
+  const normalizedRole = effectiveRole;
   const isTiltakslederView = ["tiltaksleder", "teamleder", "case_manager"].includes(normalizedRole);
   const isMiljoarbeiderView = normalizedRole === "miljoarbeider";
   const dashboardSuggestionsEnabled = isSuggestionSurfaceEnabled(suggestionSettings, "dashboard");

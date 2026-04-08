@@ -24,6 +24,7 @@ import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { BulkTimeEntryModal } from "@/components/bulk-time-entry-modal";
@@ -124,8 +125,9 @@ export default function TimeTrackingPage() {
   const prefillAppliedRef = useRef(false);
   
   const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const { settings: suggestionSettings, blockSuggestionAsync } = useSuggestionSettings();
-  const normalizedRole = normalizeRole(user?.role);
+  const normalizedRole = effectiveRole;
   const currentUserId = user?.id ?? "default";
   const today = format(new Date(), "yyyy-MM-dd");
   const thirtyDaysAgo = format(subDays(new Date(), 29), "yyyy-MM-dd");

@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/hooks/use-auth";
+import { useRolePreview } from "@/hooks/use-role-preview";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Send, CheckCircle, XCircle, Clock, FileText } from "lucide-react";
@@ -54,10 +54,10 @@ function getMonthOptions() {
 }
 
 export default function TimesheetsPage() {
-  const { user } = useAuth();
+  const { effectiveRole } = useRolePreview();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isAdmin = user?.role && ["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"].includes(user.role);
+  const isAdmin = ["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"].includes(effectiveRole);
 
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [notes, setNotes] = useState("");
