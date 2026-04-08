@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { apiRequest } from "@/lib/queryClient";
 import { format, subMonths, startOfMonth, endOfMonth } from "date-fns";
@@ -61,6 +62,7 @@ interface TeamMember {
 // ── Component ──────────────────────────────────────────────────────────
 
 export default function EmailComposer() {
+  const { user } = useAuth();
   const { effectiveRole } = useRolePreview();
   const { toast } = useToast();
   const queryClient = useQueryClient();
