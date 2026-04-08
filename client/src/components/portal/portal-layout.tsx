@@ -139,7 +139,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
     try { return localStorage.getItem("tidum_onboarding_done") === "1"; } catch { return false; }
   });
   const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
-  const { user: authUser } = useAuth();
+  const { user: authUser, isLoading: authLoading } = useAuth();
 
   const { data: companyUsersData } = useQuery<CompanyUser[] | { error?: string }>({
     queryKey: ['/api/company/users', 1],
@@ -156,21 +156,22 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   );
   const showHeaderActivityBell = location !== "/dashboard";
 
-  const currentUser = user ?? (authUser ? {
+  const resolvedPortalUser = user ?? (authUser ? {
     id: authUser.id,
     name: `${authUser.firstName || ''} ${authUser.lastName || ''}`.trim() || authUser.email || 'Bruker',
     email: authUser.email || '',
     role: authUser.role || 'user',
     vendorId: authUser.vendorId ?? undefined,
-  } : {
-    id: "demo",
-    name: "Demo Bruker",
-    email: "demo@tidum.no",
+  } : null);
+  const currentUser = resolvedPortalUser ?? {
+    id: "",
+    name: authLoading ? "Laster profil..." : "Bruker",
+    email: "",
     role: "member",
     vendorId: undefined,
-  });
+  };
   const normalizedCurrentUserRole = normalizeRole(currentUser.role);
-  const effectiveUserId = user?.id || authUser?.id || currentUser.id;
+  const effectiveUserId = user?.id || authUser?.id || resolvedPortalUser?.id || "";
   const effectiveRole = normalizeRole(user?.role || authUser?.role || currentUser.role);
   const isMiljoarbeider = effectiveRole === "miljoarbeider";
 
@@ -229,10 +230,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
 
   const checkMilestoneMutation = useMutation({
     mutationFn: async () => {
-      if (currentUser.id) {
+      if (resolvedPortalUser?.id) {
         const response = await apiRequest("POST", "/api/feedback/check-milestone", {
-          userId: currentUser.id,
-          vendorId: currentUser.vendorId,
+          userId: resolvedPortalUser.id,
+          vendorId: resolvedPortalUser.vendorId,
         });
         return response.json();
       }
@@ -242,10 +243,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   const { mutate: checkMilestone } = checkMilestoneMutation;
 
   useEffect(() => {
-    if (currentUser.id && currentUser.id !== "demo") {
+    if (resolvedPortalUser?.id) {
       checkMilestone();
     }
-  }, [checkMilestone, currentUser.id]);
+  }, [checkMilestone, resolvedPortalUser?.id]);
 
   useEffect(() => {
     setIsHeaderActivityOpen(false);
@@ -401,7 +402,7 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
             >
               <Avatar className="h-8 w-8">
                 <AvatarFallback className="bg-[#1F6B73] text-white text-sm">
-                  {currentUser.name.charAt(0).toUpperCase()}
+                  {(currentUser.name.trim().charAt(0) || "?").toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               {(!collapsed || mobile) && (
@@ -419,8 +420,10 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
               <p className="text-sm font-medium">{currentUser.name}</p>
-              <p className="text-xs text-muted-foreground">{currentUser.email}</p>
-              <div className="mt-1">{getRoleBadge(currentUser.role)}</div>
+              {currentUser.email ? (
+                <p className="text-xs text-muted-foreground">{currentUser.email}</p>
+              ) : null}
+              {resolvedPortalUser ? <div className="mt-1">{getRoleBadge(currentUser.role)}</div> : null}
             </div>
             <DropdownMenuSeparator />
             <DropdownMenuItem data-testid="menu-settings">
@@ -602,10 +605,12 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
 
       <MobileBottomNav />
 
-      <FeedbackDialog 
-        userId={currentUser.id} 
-        vendorId={currentUser.vendorId} 
-      />
+      {resolvedPortalUser ? (
+        <FeedbackDialog
+          userId={resolvedPortalUser.id}
+          vendorId={resolvedPortalUser.vendorId}
+        />
+      ) : null}
 
       <Dialog open={isGettingStartedOpen} onOpenChange={(open) => { setIsGettingStartedOpen(open); if (!open) setOnboardingStep(0); }}>
         <DialogContent className="overflow-hidden p-0 sm:max-w-md">

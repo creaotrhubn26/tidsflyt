@@ -584,7 +584,7 @@ export function TimeTrackingPdfDesigner({
     return [
       {
         date: "23.02.2026",
-        user: "Demo Bruker",
+        user: "Ansattnavn",
         department: "Miljøteam",
         caseNumber: "CASE-104",
         description: "Miljøarbeid",
@@ -593,7 +593,7 @@ export function TimeTrackingPdfDesigner({
       },
       {
         date: "24.02.2026",
-        user: "Demo Bruker",
+        user: "Ansattnavn",
         department: "Miljøteam",
         caseNumber: "CASE-104",
         description: "Rapportskriving",
