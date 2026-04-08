@@ -33,4 +33,4 @@ jobs:
             exit 1
           fi
 
-          npx vercel@48.9.0 deploy --prod --yes --token "$VERCEL_TOKEN" --scope creatorhubcom
+          npx vercel@48.9.0 deploy --prod --yes --token "$VERCEL_TOKEN"
