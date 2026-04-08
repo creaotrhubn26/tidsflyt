@@ -156,13 +156,19 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   );
   const showHeaderActivityBell = location !== "/dashboard";
 
-  const currentUser = user || {
+  const currentUser = user ?? (authUser ? {
+    id: authUser.id,
+    name: `${authUser.firstName || ''} ${authUser.lastName || ''}`.trim() || authUser.email || 'Bruker',
+    email: authUser.email || '',
+    role: authUser.role || 'user',
+    vendorId: authUser.vendorId ?? undefined,
+  } : {
     id: "demo",
     name: "Demo Bruker",
     email: "demo@tidum.no",
     role: "member",
     vendorId: undefined,
-  };
+  });
   const normalizedCurrentUserRole = normalizeRole(currentUser.role);
   const effectiveUserId = user?.id || authUser?.id || currentUser.id;
   const effectiveRole = normalizeRole(user?.role || authUser?.role || currentUser.role);
