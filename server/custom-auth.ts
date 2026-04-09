@@ -64,7 +64,7 @@ function sanitizeReturnTo(value: unknown): string | null {
 }
 
 function getPostAuthRedirect(req: Request, fallback?: unknown): string {
-  const session = req.session as Record<string, unknown> | undefined;
+  const session = req.session as unknown as Record<string, unknown> | undefined;
   const sessionReturnTo = sanitizeReturnTo(session?.[AUTH_RETURN_TO_SESSION_KEY]);
   if (session && AUTH_RETURN_TO_SESSION_KEY in session) {
     delete session[AUTH_RETURN_TO_SESSION_KEY];
@@ -314,7 +314,7 @@ export async function setupCustomAuth(app: Express) {
       return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
     }
     const nextPath = sanitizeReturnTo(req.query?.returnTo);
-    const session = req.session as Record<string, unknown> | undefined;
+    const session = req.session as unknown as Record<string, unknown> | undefined;
     if (session) {
       if (nextPath) {
         session[AUTH_RETURN_TO_SESSION_KEY] = nextPath;
