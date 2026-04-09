@@ -3,6 +3,7 @@ import { AlertCircle, LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
+import { buildGoogleAuthUrl } from "@/lib/auth-utils";
 import {
   ArrowRight,
   BarChart3,
@@ -531,7 +532,7 @@ export default function LandingPage() {
 
   const startGoogleLogin = (source: string) => {
     trackGoogleLoginClick(source);
-    window.location.href = "/api/auth/google";
+    window.location.href = buildGoogleAuthUrl("/dashboard");
   };
 
   const scrollToFeatures = (source: string) => {
@@ -589,7 +590,7 @@ export default function LandingPage() {
                 Blogg
               </Link>
               <a
-                href="/api/auth/google"
+                href={buildGoogleAuthUrl("/dashboard")}
                 onClick={() => trackGoogleLoginClick("header_navigation")}
                 className="inline-flex items-center gap-2 text-base font-medium text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)]"
               >
@@ -1063,7 +1064,7 @@ export default function LandingPage() {
                   Be om tilgang
                 </button>
                 <a
-                  href="/api/auth/google"
+                  href={buildGoogleAuthUrl("/dashboard")}
                   onClick={() => trackGoogleLoginClick("footer_navigation")}
                   className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
                 >

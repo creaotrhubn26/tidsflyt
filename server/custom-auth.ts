@@ -1,7 +1,7 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import session from "express-session";
-import type { Express, RequestHandler } from "express";
+import type { Express, Request, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
@@ -33,6 +33,8 @@ type EmailIdentityInput = {
 };
 
 const EMAIL_LINK_TTL_SECONDS = 15 * 60;
+const DEFAULT_POST_AUTH_REDIRECT = "/dashboard";
+const AUTH_RETURN_TO_SESSION_KEY = "authReturnTo";
 
 function getEmailLoginSecret(): string {
   return (
@@ -43,9 +45,37 @@ function getEmailLoginSecret(): string {
   );
 }
 
-export function buildEmailLoginUrl(email: string): string {
+function sanitizeReturnTo(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const candidate = value.trim();
+  if (!candidate || !candidate.startsWith("/") || candidate.startsWith("//")) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(candidate, "https://tidum.no");
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return null;
+  }
+}
+
+function getPostAuthRedirect(req: Request, fallback?: unknown): string {
+  const session = req.session as Record<string, unknown> | undefined;
+  const sessionReturnTo = sanitizeReturnTo(session?.[AUTH_RETURN_TO_SESSION_KEY]);
+  if (session && AUTH_RETURN_TO_SESSION_KEY in session) {
+    delete session[AUTH_RETURN_TO_SESSION_KEY];
+  }
+  return sessionReturnTo ?? sanitizeReturnTo(fallback) ?? DEFAULT_POST_AUTH_REDIRECT;
+}
+
+export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
   const normalizedEmail = email.trim().toLowerCase();
   const secret = getEmailLoginSecret();
+  const sanitizedReturnTo = sanitizeReturnTo(returnTo);
 
   if (!normalizedEmail || !secret) {
     throw new Error("Email magic link is not configured.");
@@ -55,6 +85,7 @@ export function buildEmailLoginUrl(email: string): string {
     {
       purpose: "email_login",
       email: normalizedEmail,
+      returnTo: sanitizedReturnTo || undefined,
     },
     secret,
     { expiresIn: EMAIL_LINK_TTL_SECONDS },
@@ -282,6 +313,15 @@ export async function setupCustomAuth(app: Express) {
     if (!process.env.GOOGLE_CLIENT_ID) {
       return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
     }
+    const nextPath = sanitizeReturnTo(req.query?.returnTo);
+    const session = req.session as Record<string, unknown> | undefined;
+    if (session) {
+      if (nextPath) {
+        session[AUTH_RETURN_TO_SESSION_KEY] = nextPath;
+      } else {
+        delete session[AUTH_RETURN_TO_SESSION_KEY];
+      }
+    }
     passport.authenticate("google", { 
       scope: ["openid", "email"],
       prompt: "select_account"
@@ -300,14 +340,14 @@ export async function setupCustomAuth(app: Express) {
           const errorCode = normalizedMessage.includes("tilgangsforespørsel")
             ? "access_request_required"
             : "auth_failed";
-          return res.redirect(`/auth?error=${errorCode}`);
+          return res.redirect(`/?error=${errorCode}`);
         }
 
         req.logIn(user, (loginError) => {
           if (loginError) {
             return next(loginError);
           }
-          return res.redirect("/dashboard");
+          return res.redirect(getPostAuthRedirect(req));
         });
       })(req, res, next);
     }
@@ -316,6 +356,7 @@ export async function setupCustomAuth(app: Express) {
   app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
     const email = rawEmail.trim().toLowerCase();
+    const returnTo = sanitizeReturnTo(req.body?.returnTo);
 
     if (!email || !email.includes("@")) {
       return res.status(400).json({ error: "Gyldig e-post er påkrevd." });
@@ -328,7 +369,7 @@ export async function setupCustomAuth(app: Express) {
       });
 
       if (user) {
-        const loginUrl = buildEmailLoginUrl(email);
+        const loginUrl = buildEmailLoginUrl(email, returnTo);
         await emailService.sendEmailLoginLink(email, user.name || email, loginUrl);
       }
 
@@ -348,12 +389,12 @@ export async function setupCustomAuth(app: Express) {
       const secret = getEmailLoginSecret();
 
       if (!token || !secret) {
-        return res.redirect("/auth?error=magic_link_invalid");
+        return res.redirect("/?error=magic_link_invalid");
       }
 
-      const payload = jwt.verify(token, secret) as { email?: string; purpose?: string };
+      const payload = jwt.verify(token, secret) as { email?: string; purpose?: string; returnTo?: string };
       if (payload?.purpose !== "email_login" || !payload.email) {
-        return res.redirect("/auth?error=magic_link_invalid");
+        return res.redirect("/?error=magic_link_invalid");
       }
 
       const user = await resolveAuthorizedUserByEmail({
@@ -362,18 +403,18 @@ export async function setupCustomAuth(app: Express) {
       });
 
       if (!user) {
-        return res.redirect("/auth?error=access_request_required");
+        return res.redirect("/?error=access_request_required");
       }
 
       req.logIn(user, (loginError) => {
         if (loginError) {
           return next(loginError);
         }
-        return res.redirect("/dashboard");
+        return res.redirect(getPostAuthRedirect(req, payload?.returnTo));
       });
     } catch (error) {
       console.error("Email login verify error:", error);
-      return res.redirect("/auth?error=magic_link_expired");
+      return res.redirect("/?error=magic_link_expired");
     }
   });
 

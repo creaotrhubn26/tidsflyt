@@ -12,6 +12,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { buildGoogleAuthUrl, getCurrentReturnTo } from "@/lib/auth-utils";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckCircle, XCircle, LogIn, Lock, Search, BarChart3, TrendingUp } from "lucide-react";
 import { format } from "date-fns";
@@ -67,6 +68,7 @@ export default function AccessRequestsPage() {
   const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
   const isSuperAdmin = isSuperAdminLikeRole(effectiveRole);
+  const loginUrl = useMemo(() => buildGoogleAuthUrl(getCurrentReturnTo("/access-requests")), []);
 
   const { data: requests, isLoading } = useQuery<AccessRequest[]>({
     queryKey: ["/api/access-requests", statusFilter],
@@ -156,7 +158,7 @@ export default function AccessRequestsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
-            <a href="/api/auth/google">
+            <a href={loginUrl}>
               <Button data-testid="button-login">
                 <LogIn className="h-4 w-4 mr-2" />
                 Logg inn med Google
