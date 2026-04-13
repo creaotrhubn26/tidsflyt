@@ -214,10 +214,42 @@ export function useGdprChecker() {
     []
   );
 
+  /**
+   * Auto-replace all detected names/PII with anonymous terms.
+   * Uses a deterministic mapping so the same name always gets the same replacement.
+   */
+  const autoReplaceAll = useCallback(
+    (text: string): string => {
+      const allHits = runGdprCheck(text);
+      if (!allHits.length) return text;
+      // Build stable mapping: each unique name gets a unique anonymous term
+      const nameHits = allHits.filter(h => ["navn", "fullt navn", "mulig navn"].includes(h.type));
+      const map = new Map<string, string>();
+      let idx = 0;
+      for (const h of nameHits) {
+        const key = h.word.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, ANONYMOUS_SUGGESTIONS[idx % ANONYMOUS_SUGGESTIONS.length]);
+          idx++;
+        }
+      }
+      let result = text;
+      // Replace longest matches first (full names before single names)
+      const sorted = Array.from(map.entries()).sort((a, b) => b[0].length - a[0].length);
+      for (const [name, replacement] of sorted) {
+        result = result.replace(new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), replacement);
+      }
+      setHits(runGdprCheck(result));
+      return result;
+    },
+    []
+  );
+
   return {
     hits,
     isClean: hits.length === 0,
     check,
     replaceFirst,
+    autoReplaceAll,
   };
 }

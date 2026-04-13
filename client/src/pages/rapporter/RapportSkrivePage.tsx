@@ -12,6 +12,7 @@ import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useGdprChecker, ANONYMOUS_SUGGESTIONS } from "@/hooks/useGdprChecker";
+import { useAktivitetForslag } from "@/hooks/use-aktivitet-forslag";
 
 // shadcn/ui
 import { Button }   from "@/components/ui/button";
@@ -31,7 +32,8 @@ import { useToast }  from "@/hooks/use-toast";
 import {
   Save, Send, ChevronDown, Plus, Trash2, Copy,
   AlertTriangle, CheckCircle, Clock, FileText,
-  Briefcase, Target, Activity, Pen,
+  Briefcase, Target, Activity, Pen, MessageSquare,
+  XCircle, RotateCcw, Sparkles, Star, Loader2, BookmarkPlus,
 } from "lucide-react";
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -85,18 +87,38 @@ const GOAL_TEMPLATES = [
 
 // ── GDPR FIELD COMPONENT ──────────────────────────────────────────────────────
 
-function GdprField({ id, label, required, placeholder, multiline, value, onChange, onHitsChange }: {
+function GdprField({ id, label, required, placeholder, multiline, value, onChange, onHitsChange, autoReplace, onEnableAutoReplace }: {
   id: string; label: string; required?: boolean; placeholder?: string;
   multiline?: boolean; value: string; onChange: (v: string) => void;
   onHitsChange?: (fieldId: string, count: number) => void;
+  autoReplace?: boolean;
+  onEnableAutoReplace?: () => void;
 }) {
-  const { hits, isClean, check, replaceFirst } = useGdprChecker();
+  const { hits, isClean, check, replaceFirst, autoReplaceAll } = useGdprChecker();
   const checked = value.trim().length > 0;
+  const [suggestionDismissed, setSuggestionDismissed] = useState(false);
+
+  // Show the "enable auto-replace?" nudge when: auto-replace is off,
+  // name-type hits are detected, user hasn't dismissed the suggestion,
+  // and an onEnableAutoReplace callback is provided.
+  const nameHits = hits.filter(h => ["navn", "fullt navn", "mulig navn"].includes(h.type));
+  const showAutoSuggestion = !autoReplace && !suggestionDismissed && nameHits.length > 0 && !!onEnableAutoReplace;
 
   useEffect(() => { onHitsChange?.(id, hits.length); }, [hits.length, id]);
   useEffect(() => { if (value) check(value); }, []);
 
-  const handleChange = (v: string) => { onChange(v); check(v); };
+  const handleChange = (v: string) => {
+    if (autoReplace) {
+      const cleaned = autoReplaceAll(v);
+      if (cleaned !== v) {
+        onChange(cleaned);
+        check(cleaned);
+        return;
+      }
+    }
+    onChange(v);
+    check(v);
+  };
 
   return (
     <div className="space-y-1.5">
@@ -105,6 +127,7 @@ function GdprField({ id, label, required, placeholder, multiline, value, onChang
           {label} {required && <span className="text-destructive">*</span>}
         </Label>
         <span className="text-[10px] text-amber-500 font-medium">🔒 GDPR-sjekk</span>
+        {autoReplace && <span className="text-[10px] text-emerald-600 font-medium">auto-erstatt</span>}
         {checked && isClean && <CheckCircle className="h-3 w-3 text-emerald-500" />}
       </div>
       {multiline ? (
@@ -138,7 +161,39 @@ function GdprField({ id, label, required, placeholder, multiline, value, onChang
                   </span>
                 ))}
               </div>
-              <p className="text-xs text-amber-700 dark:text-amber-400 mb-2 font-medium">Erstatt med anonyme betegnelser:</p>
+              {/* Nudge to enable auto-replace */}
+              {showAutoSuggestion && (
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 dark:bg-emerald-950/30 dark:border-emerald-800 p-2.5 mb-2">
+                  <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium mb-1.5">
+                    Vil du at navn erstattes automatisk mens du skriver?
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { onEnableAutoReplace!(); const updated = autoReplaceAll(value); onChange(updated); }}
+                      className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md px-2.5 py-1 transition-colors flex items-center gap-1"
+                    >
+                      <Sparkles className="h-3 w-3" /> Ja, skru på
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSuggestionDismissed(true)}
+                      className="text-xs text-emerald-700 dark:text-emerald-400 hover:underline"
+                    >
+                      Nei takk
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* Auto-replace all button */}
+              <button
+                type="button"
+                onClick={() => { const updated = autoReplaceAll(value); onChange(updated); }}
+                className="text-xs font-semibold text-amber-800 dark:text-amber-200 bg-amber-200 dark:bg-amber-800/60 rounded-md px-2.5 py-1 hover:bg-amber-300 dark:hover:bg-amber-700/60 transition-colors mb-2 flex items-center gap-1"
+              >
+                <Sparkles className="h-3 w-3" /> Erstatt alle automatisk
+              </button>
+              <p className="text-xs text-amber-700 dark:text-amber-400 mb-2 font-medium">Eller velg manuelt:</p>
               <div className="flex flex-wrap gap-1">
                 {ANONYMOUS_SUGGESTIONS.map((s) => (
                   <button
@@ -154,6 +209,69 @@ function GdprField({ id, label, required, placeholder, multiline, value, onChang
             </div>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── INLINE FEEDBACK COMPONENT ─────────────────────────────────────────────────
+
+function InlineFeedback({ comments, seksjon, onReply }: {
+  comments: any[];
+  seksjon: string;
+  onReply: (data: { seksjon: string; tekst: string }) => void;
+}) {
+  const [replyOpen, setReplyOpen] = useState(false);
+  const [replyText, setReplyText] = useState("");
+
+  if (comments.length === 0) return null;
+
+  const seksjonLabel = seksjon === "goals" ? "mål" : seksjon === "activities" ? "aktiviteter" : "generelt";
+
+  return (
+    <div className="mt-3 space-y-2" role="region" aria-label={`Tilbakemelding på ${seksjonLabel}`}>
+      {comments.map((c: any) => (
+        <div key={c.id} className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-3.5 py-2.5">
+          <div className="flex items-start gap-2">
+            <MessageSquare className="h-3.5 w-3.5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-semibold text-amber-800 dark:text-amber-300">Tiltaksleder</span>
+                <span className="text-[10px] text-amber-600/60">{c.createdAt ? new Date(c.createdAt).toLocaleDateString("nb-NO") : ""}</span>
+              </div>
+              <p className="text-sm text-amber-900 dark:text-amber-200 whitespace-pre-line">{c.tekst}</p>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* Reply */}
+      {replyOpen ? (
+        <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+          <Textarea
+            value={replyText}
+            onChange={(e) => setReplyText(e.target.value)}
+            placeholder="Svar på tilbakemeldingen…"
+            rows={2}
+            className="text-sm"
+            autoFocus
+          />
+          <div className="flex gap-2 justify-end">
+            <Button variant="ghost" size="sm" onClick={() => { setReplyOpen(false); setReplyText(""); }}>Avbryt</Button>
+            <Button size="sm" disabled={!replyText.trim()} onClick={() => {
+              onReply({ seksjon, tekst: replyText.trim() });
+              setReplyText("");
+              setReplyOpen(false);
+            }}>Send svar</Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setReplyOpen(true)}
+          className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1"
+        >
+          <MessageSquare className="h-3 w-3" /> Svar på tilbakemelding
+        </button>
       )}
     </div>
   );
@@ -191,6 +309,12 @@ export default function RapportSkrivePage() {
   const [prevDialog,       setPrevDialog]        = useState(false);
   const [selectedGoalTpls, setSelectedGoalTpls]  = useState<Set<number>>(new Set());
 
+  // ── GDPR auto-replace toggle (persisted in localStorage)
+  const [gdprAutoReplace, setGdprAutoReplace] = useState(() => localStorage.getItem("gdpr-auto-replace") === "true");
+  const toggleGdprAutoReplace = () => {
+    setGdprAutoReplace(prev => { const next = !prev; localStorage.setItem("gdpr-auto-replace", String(next)); return next; });
+  };
+
   // ── New goal form
   const [newGoalText,    setNewGoalText]    = useState("");
   const [newGoalStatus,  setNewGoalStatus]  = useState<Goal["status"]>("aktiv");
@@ -207,6 +331,10 @@ export default function RapportSkrivePage() {
   const [actKlient, setActKlient] = useState("");
   const [actNoter,  setActNoter]  = useState("");
   const [actMalId,  setActMalId]  = useState("");
+  const [malDialog, setMalDialog] = useState(false);
+
+  // ── ML autocomplete
+  const aktivitetForslag = useAktivitetForslag();
 
   // ── GDPR hit tracking (state-based, not DOM query)
   const [gdprHitsByField, setGdprHitsByField] = useState<Record<string, number>>({});
@@ -278,6 +406,31 @@ export default function RapportSkrivePage() {
     enabled: !!rapportId,
   });
 
+  // Hent aktivitetsmaler
+  const { data: aktivitetMaler = [] } = useQuery<any[]>({
+    queryKey: ["/api/rapporter/aktivitet-maler"],
+    queryFn: () => apiRequest("/api/rapporter/aktivitet-maler"),
+  });
+
+  // Hent kommentarer fra tiltaksleder
+  const { data: kommentarer = [] } = useQuery<any[]>({
+    queryKey: ["/api/rapporter", rapportId, "kommentarer"],
+    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/kommentarer`),
+    enabled: !!rapportId,
+  });
+
+  // Rapport status
+  const rapportStatus = (existingRapport as any)?.status ?? "utkast";
+  const reviewKommentar = (existingRapport as any)?.reviewKommentar;
+  const isReturnert = rapportStatus === "returnert";
+  const isTilGodkjenning = rapportStatus === "til_godkjenning";
+  const isGodkjent = rapportStatus === "godkjent";
+
+  // Filter comments by section
+  const goalComments = (kommentarer as any[]).filter((k: any) => k.seksjon === "goals");
+  const activityComments = (kommentarer as any[]).filter((k: any) => k.seksjon === "activities");
+  const generalComments = (kommentarer as any[]).filter((k: any) => !k.seksjon);
+
   // ── MUTATIONS ─────────────────────────────────────────────────────────────
 
   const createRapport = useMutation({
@@ -315,6 +468,54 @@ export default function RapportSkrivePage() {
   const deleteMaal = useMutation({
     mutationFn: (maalId: string) => apiRequest(`/api/rapporter/${rapportId}/maal/${maalId}`, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "maal"] }),
+  });
+
+  // Aktivitetsmaler CRUD
+  const saveMal = useMutation({
+    mutationFn: (data: any) => apiRequest("/api/rapporter/aktivitet-maler", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] });
+      toast({ title: "Mal lagret" });
+    },
+  });
+
+  const deleteMal = useMutation({
+    mutationFn: (malId: string) => apiRequest(`/api/rapporter/aktivitet-maler/${malId}`, { method: "DELETE" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] }),
+  });
+
+  const brukMal = useMutation({
+    mutationFn: (malId: string) => apiRequest(`/api/rapporter/aktivitet-maler/${malId}/bruk`, { method: "POST", body: "{}" }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] }),
+  });
+
+  const handleUseMal = (mal: any) => {
+    setActType(mal.type ?? "aktivitet");
+    setActBesk(mal.beskrivelse);
+    setActSted(mal.sted ?? "");
+    setActKlient(mal.klientRef ?? "");
+    brukMal.mutate(mal.id);
+    setMalDialog(false);
+  };
+
+  // Mark comments as read when viewing a returned rapport
+  const markAsRead = useMutation({
+    mutationFn: () => apiRequest(`/api/rapporter/${rapportId}/kommentarer/les`, { method: "POST", body: "{}" }),
+  });
+  useEffect(() => {
+    if (rapportId && isReturnert && kommentarer.length > 0) {
+      markAsRead.mutate();
+    }
+  }, [rapportId, isReturnert, kommentarer.length]);
+
+  // Reply to a comment
+  const replyToComment = useMutation({
+    mutationFn: (data: { seksjon?: string; tekst: string }) =>
+      apiRequest(`/api/rapporter/${rapportId}/kommentarer`, { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "kommentarer"] });
+      toast({ title: "Svar sendt" });
+    },
   });
 
   // ── POPULATE FROM SAK ──────────────────────────────────────────────────────
@@ -490,6 +691,41 @@ export default function RapportSkrivePage() {
           </div>
         </div>
 
+        {/* STATUS BANNER */}
+        {isReturnert && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 p-3.5">
+            <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 text-sm">
+              <span className="font-semibold text-red-800 dark:text-red-300">Returnert fra tiltaksleder</span>
+              {reviewKommentar && (
+                <p className="text-red-700 dark:text-red-400 mt-1">{reviewKommentar}</p>
+              )}
+              <p className="text-red-600/70 dark:text-red-400/70 text-xs mt-1.5">
+                <RotateCcw className="h-3 w-3 inline mr-1" />
+                Gjør endringer og send på nytt til godkjenning.
+              </p>
+            </div>
+          </div>
+        )}
+        {isTilGodkjenning && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-3.5">
+            <Clock className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <span className="font-semibold text-blue-800 dark:text-blue-300">Sendt til godkjenning</span>
+              <p className="text-blue-600/70 dark:text-blue-400/70 text-xs mt-1">Venter på tilbakemelding fra tiltaksleder.</p>
+            </div>
+          </div>
+        )}
+        {isGodkjent && (
+          <div className="mb-5 flex items-start gap-3 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3.5">
+            <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
+            <div className="text-sm">
+              <span className="font-semibold text-green-800 dark:text-green-300">Godkjent</span>
+              <p className="text-green-600/70 dark:text-green-400/70 text-xs mt-1">Rapporten er godkjent av tiltaksleder.</p>
+            </div>
+          </div>
+        )}
+
         <div className="grid grid-cols-[1fr_280px] gap-6">
 
           {/* ── MAIN COLUMN ────────────────────────────────── */}
@@ -605,6 +841,8 @@ export default function RapportSkrivePage() {
                   value={innledning}
                   onChange={(v) => { setInnledning(v); markDirty(); }}
                   onHitsChange={handleGdprHitsChange}
+                  autoReplace={gdprAutoReplace}
+                  onEnableAutoReplace={toggleGdprAutoReplace}
                 />
               </CardContent>
             </Card>
@@ -658,6 +896,7 @@ export default function RapportSkrivePage() {
                     ))}
                   </div>
                 )}
+                <InlineFeedback comments={goalComments} seksjon="goals" onReply={(d) => replyToComment.mutate(d)} />
               </CardContent>
             </Card>
 
@@ -730,6 +969,9 @@ export default function RapportSkrivePage() {
                       </div>
                     ))}
                   </div>
+                  <div className="px-4 pb-4">
+                    <InlineFeedback comments={activityComments} seksjon="activities" onReply={(d) => replyToComment.mutate(d)} />
+                  </div>
                 </>
               )}
             </Card>
@@ -777,7 +1019,10 @@ export default function RapportSkrivePage() {
                   value={avslutning}
                   onChange={(v) => { setAvslutning(v); markDirty(); }}
                   onHitsChange={handleGdprHitsChange}
+                  autoReplace={gdprAutoReplace}
+                  onEnableAutoReplace={toggleGdprAutoReplace}
                 />
+                <InlineFeedback comments={generalComments} seksjon="" onReply={(d) => replyToComment.mutate({ ...d, seksjon: undefined })} />
               </CardContent>
             </Card>
 
@@ -793,7 +1038,14 @@ export default function RapportSkrivePage() {
               </CardHeader>
               <CardContent className="p-3 space-y-2 text-sm">
                 {[
-                  { label: "Status",      value: <Badge variant="outline" className="text-xs">Utkast</Badge> },
+                  { label: "Status",      value: (
+                    <Badge
+                      variant={isGodkjent ? "default" : isReturnert ? "destructive" : isTilGodkjenning ? "secondary" : "outline"}
+                      className="text-xs"
+                    >
+                      {isGodkjent ? "Godkjent" : isReturnert ? "Returnert" : isTilGodkjenning ? "Til godkjenning" : "Utkast"}
+                    </Badge>
+                  ) },
                   { label: "Sak",         value: sakId ? saker.find(s=>s.id===sakId)?.saksnummer : <span className="text-muted-foreground text-xs">Ikke valgt</span> },
                   { label: "Aktiviteter", value: <span className="font-semibold">{allActivities.length}</span> },
                   { label: "Mål",         value: <span className="font-semibold">{allGoals.length}</span> },
@@ -824,6 +1076,16 @@ export default function RapportSkrivePage() {
                     <span className="text-xs text-muted-foreground leading-relaxed">{item}</span>
                   </label>
                 ))}
+                <Separator className="my-2" />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <Checkbox checked={gdprAutoReplace} onCheckedChange={toggleGdprAutoReplace} />
+                  <span className="text-xs text-muted-foreground leading-relaxed">
+                    Auto-erstatt personopplysninger
+                  </span>
+                </label>
+                {gdprAutoReplace && (
+                  <p className="text-[10px] text-emerald-600 ml-6">Navn erstattes automatisk med anonyme betegnelser mens du skriver.</p>
+                )}
               </CardContent>
             </Card>
 
@@ -866,7 +1128,7 @@ export default function RapportSkrivePage() {
           <div className="space-y-4 py-2">
             <GdprField id="new-goal-text" label="Mål-beskrivelse" required multiline
               placeholder={"Beskriv målet — f.eks. «Styrke daglige rutiner»\nIngen personopplysninger."}
-              value={newGoalText} onChange={setNewGoalText} onHitsChange={handleGdprHitsChange} />
+              value={newGoalText} onChange={setNewGoalText} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Label>
@@ -884,7 +1146,7 @@ export default function RapportSkrivePage() {
               </div>
             </div>
             <GdprField id="new-goal-comment" label="Kommentar (valgfritt)"
-              placeholder="Utfyllende notat…" value={newGoalComment} onChange={setNewGoalComment} onHitsChange={handleGdprHitsChange} />
+              placeholder="Utfyllende notat…" value={newGoalComment} onChange={setNewGoalComment} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGoalDialog(false)}>Avbryt</Button>
@@ -933,9 +1195,16 @@ export default function RapportSkrivePage() {
       </Dialog>
 
       {/* LEGG TIL AKTIVITET */}
-      <Dialog open={actDialog} onOpenChange={setActDialog}>
+      <Dialog open={actDialog} onOpenChange={(open) => { setActDialog(open); if (!open) aktivitetForslag.nullstill(); }}>
         <DialogContent className="sm:max-w-lg">
-          <DialogHeader><DialogTitle>Legg til aktivitet</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Legg til aktivitet</DialogTitle>
+            {(aktivitetMaler as any[]).length > 0 && (
+              <button onClick={() => setMalDialog(true)} className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 mt-1">
+                <Star className="h-3 w-3" /> Bruk lagret mal ({(aktivitetMaler as any[]).length})
+              </button>
+            )}
+          </DialogHeader>
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-3 gap-3">
               {[["Dato *","date",actDato,setActDato],["Fra kl.","time",actFra,setActFra],["Til kl.","time",actTil,setActTil]].map(([label,type,val,setter]: any) => (
@@ -962,12 +1231,54 @@ export default function RapportSkrivePage() {
                 <Input value={actSted} onChange={(e) => setActSted(e.target.value)} placeholder="Hjemme, kontor, ute…" />
               </div>
             </div>
-            <GdprField id="act-besk" label="Beskrivelse" required multiline
-              placeholder={"Hva ble gjort? Ingen personopplysninger.\nBruk «ungdommen», «brukeren» osv."}
-              value={actBesk} onChange={setActBesk} onHitsChange={handleGdprHitsChange} />
+
+            {/* Beskrivelse med ML-forslag */}
+            <div className="relative">
+              <GdprField id="act-besk" label="Beskrivelse" required multiline
+                placeholder={"Hva ble gjort? Ingen personopplysninger.\nBruk «ungdommen», «brukeren» osv."}
+                value={actBesk}
+                onChange={(v) => {
+                  setActBesk(v);
+                  aktivitetForslag.hent(v, actType, actSted);
+                }}
+                onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
+
+              {/* Autocomplete dropdown */}
+              {(aktivitetForslag.forslag.length > 0 || aktivitetForslag.loading) && actBesk.length >= 2 && (
+                <div className="absolute left-0 right-0 z-50 mt-1 rounded-lg border bg-popover shadow-lg overflow-hidden">
+                  {aktivitetForslag.loading && aktivitetForslag.forslag.length === 0 && (
+                    <div className="px-3 py-2 text-xs text-muted-foreground flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Henter forslag…
+                    </div>
+                  )}
+                  {aktivitetForslag.forslag.map((f, i) => (
+                    <button
+                      key={i}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-accent transition-colors flex items-start gap-2 border-b last:border-0"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        setActBesk(f.tekst);
+                        if (f.type) setActType(f.type);
+                        if (f.sted) setActSted(f.sted);
+                        aktivitetForslag.nullstill();
+                      }}
+                    >
+                      {f.kilde === "ai" ? (
+                        <Sparkles className="h-3.5 w-3.5 text-violet-500 flex-shrink-0 mt-0.5" />
+                      ) : (
+                        <Clock className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                      )}
+                      <span className="flex-1">{f.tekst}</span>
+                      {f.kilde === "ai" && <Badge variant="secondary" className="text-[9px] ml-1 flex-shrink-0">AI</Badge>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <GdprField id="act-klient" label="Klient-ref (anonym)"
-                placeholder="ungdommen, bruker A…" value={actKlient} onChange={setActKlient} onHitsChange={handleGdprHitsChange} />
+                placeholder="ungdommen, bruker A…" value={actKlient} onChange={setActKlient} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Knyttet til mål</Label>
                 <Select value={actMalId} onValueChange={setActMalId}>
@@ -990,10 +1301,59 @@ export default function RapportSkrivePage() {
               <Textarea value={actNoter} onChange={(e) => setActNoter(e.target.value)} placeholder="Interne noter…" rows={2} />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="mr-auto text-xs"
+              onClick={() => {
+                if (!actBesk.trim()) { toast({ title: "Fyll inn beskrivelse først", variant: "destructive" }); return; }
+                saveMal.mutate({ navn: actBesk.substring(0, 40), type: actType, beskrivelse: actBesk, sted: actSted, klientRef: actKlient });
+              }}
+            >
+              <BookmarkPlus className="h-3.5 w-3.5 mr-1" /> Lagre som mal
+            </Button>
             <Button variant="outline" onClick={() => setActDialog(false)}>Avbryt</Button>
             <Button onClick={handleSaveActivity} disabled={createAktivitet.isPending}>Lagre aktivitet</Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AKTIVITETSMALER DIALOG */}
+      <Dialog open={malDialog} onOpenChange={setMalDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Mine aktivitetsmaler</DialogTitle></DialogHeader>
+          <div className="space-y-2 py-2 max-h-[50vh] overflow-y-auto">
+            {(aktivitetMaler as any[]).length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Ingen lagrede maler ennå. Lagre en aktivitet som mal for å se den her.</p>
+            ) : (
+              (aktivitetMaler as any[]).map((mal: any) => (
+                <div
+                  key={mal.id}
+                  className="flex items-start gap-3 rounded-lg border p-3 hover:bg-accent/50 cursor-pointer transition-colors group"
+                  onClick={() => handleUseMal(mal)}
+                >
+                  <Star className="h-4 w-4 text-amber-500 flex-shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{mal.beskrivelse}</p>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="secondary" className="text-[10px]">{mal.type}</Badge>
+                      {mal.sted && <span className="text-[10px] text-muted-foreground">{mal.sted}</span>}
+                      <span className="text-[10px] text-muted-foreground ml-auto">Brukt {mal.brukAntall}x</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 w-6 p-0 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => { e.stopPropagation(); deleteMal.mutate(mal.id); }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
         </DialogContent>
       </Dialog>
 

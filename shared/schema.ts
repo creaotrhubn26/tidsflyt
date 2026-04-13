@@ -139,8 +139,24 @@ export const userSettings = pgTable("user_settings", {
   themeMode: text("theme_mode").default("dark"),
   viewMode: text("view_mode").default("month"),
   language: text("language").default("no"),
+  gdprAutoReplace: boolean("gdpr_auto_replace").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Activity templates: saved favorites per user
+export const aktivitetMaler = pgTable("aktivitet_maler", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  userId:      integer("user_id").notNull(),
+  navn:        text("navn").notNull(),
+  type:        text("type").default("aktivitet"),
+  beskrivelse: text("beskrivelse").notNull(),
+  sted:        text("sted"),
+  klientRef:   text("klient_ref"),
+  varighetMin: integer("varighet_min"),
+  brukAntall:  integer("bruk_antall").default(0),
+  sistBrukt:   timestamp("sist_brukt"),
+  createdAt:   timestamp("created_at").defaultNow(),
 });
 
 // Live timer session state (pause/resume sync)

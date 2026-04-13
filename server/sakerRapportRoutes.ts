@@ -9,16 +9,17 @@
 
 import { Router } from "express";
 import { db } from "./db";
-import { eq, and, desc, inArray, sql } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, ilike } from "drizzle-orm";
 import {
   saker, rapporter, rapportMaal, rapportAktiviteter,
-  rapportKommentarer, vendorTemplates,
+  rapportKommentarer, vendorTemplates, aktivitetMaler,
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
 import { emailService } from "./lib/email-service";
 import { users } from "../shared/schema";
+import OpenAI from "openai";
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -624,6 +625,35 @@ rapportRouter.post("/:id/kommentarer", requireAuth, async (req: any, res) => {
   }
 });
 
+/**
+ * POST /api/rapporter/:id/kommentarer/les
+ * Mark all unread comments as read by current user
+ */
+rapportRouter.post("/:id/kommentarer/les", requireAuth, async (req: any, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(rapportKommentarer)
+      .where(eq(rapportKommentarer.rapportId, req.params.id));
+
+    const userId = req.user.id;
+    let updated = 0;
+    for (const row of rows) {
+      const lestAv = (row.lestAv as number[]) ?? [];
+      if (!lestAv.includes(userId)) {
+        await db
+          .update(rapportKommentarer)
+          .set({ lestAv: [...lestAv, userId] })
+          .where(eq(rapportKommentarer.id, row.id));
+        updated++;
+      }
+    }
+    res.json({ updated });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── PDF ────────────────────────────────────────────────────────────────────────
 
 rapportRouter.get("/:id/pdf", requireAuth, async (req: any, res) => {
@@ -653,6 +683,142 @@ rapportRouter.get("/:id/pdf", requireAuth, async (req: any, res) => {
       "Content-Length": pdfBuffer.length,
     });
     res.send(pdfBuffer);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ── AKTIVITET-MALER (templates) ──────────────────────────────────────────────
+
+rapportRouter.get("/aktivitet-maler", requireAuth, async (req: any, res) => {
+  try {
+    const rows = await db
+      .select()
+      .from(aktivitetMaler)
+      .where(eq(aktivitetMaler.userId, req.user.id))
+      .orderBy(desc(aktivitetMaler.brukAntall));
+    res.json(rows);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+rapportRouter.post("/aktivitet-maler", requireAuth, async (req: any, res) => {
+  try {
+    const { navn, type, beskrivelse, sted, klientRef, varighetMin } = req.body;
+    if (!navn?.trim() || !beskrivelse?.trim()) return res.status(400).json({ error: "Navn og beskrivelse er påkrevd" });
+    const [row] = await db
+      .insert(aktivitetMaler)
+      .values({ userId: req.user.id, navn, type, beskrivelse, sted, klientRef, varighetMin })
+      .returning();
+    res.json(row);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+rapportRouter.delete("/aktivitet-maler/:malId", requireAuth, async (req: any, res) => {
+  try {
+    await db.delete(aktivitetMaler).where(and(eq(aktivitetMaler.id, req.params.malId), eq(aktivitetMaler.userId, req.user.id)));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+rapportRouter.post("/aktivitet-maler/:malId/bruk", requireAuth, async (req: any, res) => {
+  try {
+    await db
+      .update(aktivitetMaler)
+      .set({ brukAntall: sql`${aktivitetMaler.brukAntall} + 1`, sistBrukt: new Date() })
+      .where(and(eq(aktivitetMaler.id, req.params.malId), eq(aktivitetMaler.userId, req.user.id)));
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+// ── ML AKTIVITETSFORSLAG ────────────────────────────────────────────────────
+
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+
+rapportRouter.post("/aktivitet-forslag", requireAuth, async (req: any, res) => {
+  try {
+    const { tekst, type, sted } = req.body;
+    if (!tekst || tekst.length < 2) return res.json({ forslag: [] });
+
+    // Hent brukerens siste 50 unike aktivitetsbeskrivelser
+    const historikk = await db
+      .selectDistinctOn([rapportAktiviteter.beskrivelse], {
+        beskrivelse: rapportAktiviteter.beskrivelse,
+        type: rapportAktiviteter.type,
+        sted: rapportAktiviteter.sted,
+      })
+      .from(rapportAktiviteter)
+      .innerJoin(rapporter, eq(rapporter.id, rapportAktiviteter.rapportId))
+      .where(eq(rapporter.userId, req.user.id))
+      .orderBy(rapportAktiviteter.beskrivelse, desc(rapportAktiviteter.createdAt))
+      .limit(50);
+
+    // Enkel prefix-match fra historikk (alltid tilgjengelig, uansett AI)
+    const prefixMatches = historikk
+      .filter((h) => h.beskrivelse.toLowerCase().startsWith(tekst.toLowerCase()))
+      .slice(0, 5)
+      .map((h) => ({ tekst: h.beskrivelse, type: h.type, sted: h.sted, kilde: "historikk" as const }));
+
+    // Fuzzy/semantic forslag via OpenAI hvis tilgjengelig
+    let aiForslag: { tekst: string; type?: string; sted?: string; kilde: "ai" }[] = [];
+    if (openai && tekst.length >= 4) {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          temperature: 0.3,
+          max_tokens: 300,
+          messages: [
+            {
+              role: "system",
+              content: `Du er en assistent for miljøarbeidere i barnevernet som skriver månedsrapporter.
+Basert på brukerens skrivemønster og kontekst, foreslå fullstendige aktivitetsbeskrivelser.
+VIKTIG: Aldri inkluder navn, fødselsdatoer eller personopplysninger. Bruk "ungdommen", "brukeren" osv.
+Svar som JSON-array med maks 3 objekter: [{"tekst":"...","type":"aktivitet|klientmøte|...","sted":"..."}]
+Bare JSON, ingen annen tekst.`,
+            },
+            {
+              role: "user",
+              content: `Brukerens tidligere aktiviteter:\n${historikk.map((h) => `- ${h.beskrivelse}`).join("\n")}
+
+Brukeren skriver nå: "${tekst}"${type ? `\nType: ${type}` : ""}${sted ? `\nSted: ${sted}` : ""}
+
+Foreslå 3 fullstendige aktivitetsbeskrivelser som passer til det brukeren skriver:`,
+            },
+          ],
+        });
+
+        const raw = completion.choices[0]?.message?.content?.trim();
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            aiForslag = parsed.slice(0, 3).map((f: any) => ({
+              tekst: String(f.tekst ?? ""),
+              type: f.type,
+              sted: f.sted,
+              kilde: "ai" as const,
+            }));
+          }
+        }
+      } catch {
+        // AI-forslag er best-effort, feil ignoreres
+      }
+    }
+
+    // Dedupliser: prefix-match først, deretter AI
+    const sett = new Set(prefixMatches.map((f) => f.tekst.toLowerCase()));
+    const forslag = [
+      ...prefixMatches,
+      ...aiForslag.filter((f) => !sett.has(f.tekst.toLowerCase())),
+    ].slice(0, 6);
+
+    res.json({ forslag });
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }
