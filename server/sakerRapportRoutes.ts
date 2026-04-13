@@ -17,6 +17,8 @@ import {
   insertMaalSchema, insertAktivitetSchema,
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
+import { emailService } from "./lib/email-service";
+import { users } from "../shared/schema";
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -340,7 +342,28 @@ rapportRouter.post("/:id/send", requireAuth, async (req: any, res) => {
       .where(and(eq(rapporter.id, req.params.id), eq(rapporter.userId, req.user.id)))
       .returning();
     if (!updated) return res.status(404).json({ error: "Ikke funnet" });
-    // TODO: sende e-postvarsling til tiltaksleder
+
+    // Send email to tiltaksleder
+    if (updated.tiltakslederId) {
+      try {
+        const [leder] = await db.select().from(users).where(eq(users.id, String(updated.tiltakslederId))).limit(1);
+        if (leder?.email) {
+          const periode = updated.periodeFrom
+            ? new Date(updated.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
+            : "ukjent periode";
+          await emailService.sendRapportSubmittedEmail({
+            to: leder.email,
+            tiltakslederName: [leder.firstName, leder.lastName].filter(Boolean).join(" ") || "Tiltaksleder",
+            konsulentName: updated.konsulent ?? req.user.name ?? "Konsulent",
+            periode,
+            rapportId: updated.id,
+          });
+        }
+      } catch (emailErr) {
+        console.error("Failed to send rapport submitted email:", emailErr);
+      }
+    }
+
     res.json(updated);
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -389,6 +412,25 @@ rapportRouter.post(
         }).where(eq(rapporter.id, req.params.id));
       }
 
+      // Notify miljøarbeider
+      try {
+        const [worker] = await db.select().from(users).where(eq(users.id, String(updated.userId))).limit(1);
+        if (worker?.email) {
+          const periode = updated.periodeFrom
+            ? new Date(updated.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
+            : "ukjent periode";
+          await emailService.sendRapportApprovedEmail({
+            to: worker.email,
+            konsulentName: updated.konsulent ?? [worker.firstName, worker.lastName].filter(Boolean).join(" ") ?? "Konsulent",
+            periode,
+            tiltakslederName: req.user.name ?? "Tiltaksleder",
+            kommentar: kommentar ?? undefined,
+          });
+        }
+      } catch (emailErr) {
+        console.error("Failed to send rapport approved email:", emailErr);
+      }
+
       res.json(updated);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -428,7 +470,26 @@ rapportRouter.post(
           });
         }
       }
-      // TODO: varsle miljøarbeider
+      // Notify miljøarbeider
+      try {
+        const [worker] = await db.select().from(users).where(eq(users.id, String(updated.userId))).limit(1);
+        if (worker?.email) {
+          const periode = updated.periodeFrom
+            ? new Date(updated.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
+            : "ukjent periode";
+          await emailService.sendRapportReturnedEmail({
+            to: worker.email,
+            konsulentName: updated.konsulent ?? [worker.firstName, worker.lastName].filter(Boolean).join(" ") ?? "Konsulent",
+            periode,
+            tiltakslederName: req.user.name ?? "Tiltaksleder",
+            kommentar: kommentar ?? undefined,
+            rapportId: req.params.id,
+          });
+        }
+      } catch (emailErr) {
+        console.error("Failed to send rapport returned email:", emailErr);
+      }
+
       res.json(updated);
     } catch (e) {
       res.status(500).json({ error: String(e) });
