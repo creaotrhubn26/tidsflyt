@@ -14,6 +14,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useGdprChecker, ANONYMOUS_SUGGESTIONS } from "@/hooks/useGdprChecker";
 import { useAktivitetForslag } from "@/hooks/use-aktivitet-forslag";
 import { PortalLayout } from "@/components/portal/portal-layout";
+import { useAuth } from "@/hooks/use-auth";
 
 // shadcn/ui
 import { Button }   from "@/components/ui/button";
@@ -286,8 +287,10 @@ export default function RapportSkrivePage() {
   const params = useParams<{ id?: string }>();
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user: authUser } = useAuth();
 
   const rapportId = params.id;
+  const authUserName = [authUser?.firstName, authUser?.lastName].filter(Boolean).join(" ");
 
   // ── Form state
   const [sakId,          setSakId]          = useState("");
@@ -548,6 +551,13 @@ export default function RapportSkrivePage() {
     setInnledning(r.innledning ?? ""); setAvslutning(r.avslutning ?? "");
   }, [existingRapport]);
 
+  // Auto-fill konsulent from logged-in user
+  useEffect(() => {
+    if (!konsulent && authUserName && !existingRapport) {
+      setKonsulent(authUserName);
+    }
+  }, [authUserName, existingRapport]);
+
   useEffect(() => {
     if (!existingMaal) return;
     setGoals((existingMaal as any[]).map((m) => ({ ...m, tempId: m.id })));
@@ -697,57 +707,52 @@ export default function RapportSkrivePage() {
   return (
     <PortalLayout>
       {/* PAGE HEADER */}
-      <div className="border-b bg-card rounded-lg mb-4 px-6 py-3">
-        <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-lg font-semibold">
-              {rapportId ? "Rediger rapport" : "Ny rapport"}
-            </h1>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              {updateRapport.isPending ? "Lagrer…" : "Alle endringer lagres automatisk"}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" onClick={() => setPrevDialog(true)}>
-              <Copy className="h-3.5 w-3.5 mr-1.5" />
-              Forrige rapport
-            </Button>
-            <Button variant="outline" size="sm" onClick={performSave} disabled={updateRapport.isPending}>
-              <Save className="h-3.5 w-3.5 mr-1.5" />
-              Lagre
-            </Button>
-            <Button
-              size="sm"
-              onClick={() => sendTilGodkjenning.mutate()}
-              disabled={!rapportId || hasGdprWarnings || sendTilGodkjenning.isPending}
-            >
-              <Send className="h-3.5 w-3.5 mr-1.5" />
-              Send til godkjenning
-            </Button>
-          </div>
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold">
+            {rapportId ? "Rediger rapport" : "Ny rapport"}
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            {updateRapport.isPending ? "Lagrer…" : "Alle endringer lagres automatisk"}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPrevDialog(true)}>
+            <Copy className="h-3.5 w-3.5 mr-1.5" />
+            Forrige rapport
+          </Button>
+          <Button variant="outline" size="sm" onClick={performSave} disabled={updateRapport.isPending}>
+            <Save className="h-3.5 w-3.5 mr-1.5" />
+            Lagre
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => sendTilGodkjenning.mutate()}
+            disabled={!rapportId || hasGdprWarnings || sendTilGodkjenning.isPending}
+          >
+            <Send className="h-3.5 w-3.5 mr-1.5" />
+            Send til godkjenning
+          </Button>
         </div>
       </div>
 
-      <div className="max-w-5xl mx-auto px-6 py-6">
+      <div className="space-y-6">
         {/* GDPR BANNER */}
-        <div className="mb-5 flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 p-3.5">
-          <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
-          <div className="text-sm">
-            <span className="font-semibold text-amber-800 dark:text-amber-300">GDPR — </span>
-            <span className="text-amber-700 dark:text-amber-400">Ingen navn, fødselsdatoer eller adresser. Bruk «ungdommen», «brukeren», «jenta», «gutten» osv.</span>
-          </div>
+        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-2.5 text-sm text-amber-700 dark:text-amber-400">
+          <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <span>
+            <span className="font-semibold">GDPR</span> — Ingen navn, fødselsdatoer eller adresser. Bruk «ungdommen», «brukeren», «jenta», «gutten» osv.
+          </span>
         </div>
 
         {/* STATUS BANNER */}
         {isReturnert && (
-          <div className="mb-5 flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 dark:bg-red-950/20 dark:border-red-800 p-3.5">
-            <XCircle className="h-4 w-4 text-red-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1 text-sm">
-              <span className="font-semibold text-red-800 dark:text-red-300">Returnert fra tiltaksleder</span>
-              {reviewKommentar && (
-                <p className="text-red-700 dark:text-red-400 mt-1">{reviewKommentar}</p>
-              )}
-              <p className="text-red-600/70 dark:text-red-400/70 text-xs mt-1.5">
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm">
+            <XCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <span className="font-semibold text-destructive">Returnert fra tiltaksleder</span>
+              {reviewKommentar && <p className="text-muted-foreground mt-1">{reviewKommentar}</p>}
+              <p className="text-muted-foreground/70 text-xs mt-1.5">
                 <RotateCcw className="h-3 w-3 inline mr-1" />
                 Gjør endringer og send på nytt til godkjenning.
               </p>
@@ -755,47 +760,45 @@ export default function RapportSkrivePage() {
           </div>
         )}
         {isTilGodkjenning && (
-          <div className="mb-5 flex items-start gap-3 rounded-lg border border-blue-300 bg-blue-50 dark:bg-blue-950/20 dark:border-blue-800 p-3.5">
-            <Clock className="h-4 w-4 text-blue-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm">
-              <span className="font-semibold text-blue-800 dark:text-blue-300">Sendt til godkjenning</span>
-              <p className="text-blue-600/70 dark:text-blue-400/70 text-xs mt-1">Venter på tilbakemelding fra tiltaksleder.</p>
+          <div className="flex items-start gap-2 rounded-lg border border-blue-500/30 bg-blue-50/50 dark:bg-blue-950/10 px-4 py-2.5 text-sm text-blue-700 dark:text-blue-400">
+            <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Sendt til godkjenning</span>
+              <p className="opacity-70 text-xs mt-1">Venter på tilbakemelding fra tiltaksleder.</p>
             </div>
           </div>
         )}
         {isGodkjent && (
-          <div className="mb-5 flex items-start gap-3 rounded-lg border border-green-300 bg-green-50 dark:bg-green-950/20 dark:border-green-800 p-3.5">
-            <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0 mt-0.5" />
-            <div className="text-sm">
-              <span className="font-semibold text-green-800 dark:text-green-300">Godkjent</span>
-              <p className="text-green-600/70 dark:text-green-400/70 text-xs mt-1">Rapporten er godkjent av tiltaksleder.</p>
+          <div className="flex items-start gap-2 rounded-lg border border-green-500/30 bg-green-50/50 dark:bg-green-950/10 px-4 py-2.5 text-sm text-green-700 dark:text-green-400">
+            <CheckCircle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Godkjent</span>
+              <p className="opacity-70 text-xs mt-1">Rapporten er godkjent av tiltaksleder.</p>
             </div>
           </div>
         )}
 
-        <div className="grid grid-cols-[1fr_280px] gap-6">
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
 
           {/* ── MAIN COLUMN ────────────────────────────────── */}
-          <div className="space-y-5">
+          <div className="space-y-4">
 
             {/* 1. SAK-VELGER + PROSJEKTINFO */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <Briefcase className="h-4 w-4 text-primary" />
-                  <span className="font-semibold text-sm">Prosjektinformasjon</span>
-                  <Badge variant="secondary" className="ml-auto text-xs">Pre-fylt fra sak</Badge>
+                  <span className="text-base font-semibold">Prosjektinformasjon</span>
+                  {sakId && <Badge variant="outline" className="ml-auto text-[11px] border-green-500/30 text-green-700 dark:text-green-400">Pre-fylt fra sak</Badge>}
                 </div>
               </CardHeader>
-              <CardContent className="p-4 space-y-4">
+              <CardContent className="pt-0 space-y-4">
 
-                {/* SAK-DROPDOWN — kun tildelte saker */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Sak <span className="text-destructive">*</span>
-                  </Label>
+                {/* SAK-DROPDOWN */}
+                <div className="space-y-2">
+                  <Label>Sak <span className="text-destructive">*</span></Label>
                   <Select value={sakId} onValueChange={handleSakSelected}>
-                    <SelectTrigger>
+                    <SelectTrigger className="h-10">
                       <SelectValue placeholder="Velg tildelt sak…" />
                     </SelectTrigger>
                     <SelectContent>
@@ -818,70 +821,73 @@ export default function RapportSkrivePage() {
                       )}
                     </SelectContent>
                   </Select>
-                  {sakId && (
-                    <div className="text-xs text-emerald-600 flex items-center gap-1">
-                      <CheckCircle className="h-3 w-3" /> Feltene er pre-fylt fra saken
-                    </div>
-                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Konsulent</Label>
-                    <Input value={konsulent} onChange={(e) => { setKonsulent(e.target.value); markDirty(); }} />
+                <Separator />
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Konsulent</Label>
+                    <Input
+                      value={konsulent}
+                      disabled
+                      className="bg-muted/40 text-muted-foreground cursor-not-allowed"
+                    />
+                    <p className="text-[11px] text-muted-foreground/70">Fylles automatisk fra din profil</p>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tiltak / Rolle</Label>
+                  <div className="space-y-2">
+                    <Label>Tiltak / Rolle</Label>
                     <Select value={tiltak} onValueChange={(v) => { setTiltak(v); markDirty(); }}>
-                      <SelectTrigger><SelectValue /></SelectTrigger>
+                      <SelectTrigger className="h-10"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {["miljøarbeider","sosialarbeider","aktivitør","miljøterapeut","tiltaksleder"].map((v) => (
-                          <SelectItem key={v} value={v} className="capitalize">{v.charAt(0).toUpperCase() + v.slice(1)}</SelectItem>
+                          <SelectItem key={v} value={v}>{v.charAt(0).toUpperCase() + v.slice(1)}</SelectItem>
                         ))}
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bedrift</Label>
+                  <div className="space-y-2">
+                    <Label>Bedrift</Label>
                     <Input value={bedrift} onChange={(e) => { setBedrift(e.target.value); markDirty(); }} />
                     {vendorInfo?.orgNumber && (
-                      <p className="text-[11px] text-muted-foreground">Org.nr: {vendorInfo.orgNumber}</p>
+                      <p className="text-[11px] text-muted-foreground/70">Org.nr: {vendorInfo.orgNumber}</p>
                     )}
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Oppdragsgiver</Label>
+                  <div className="space-y-2">
+                    <Label>Oppdragsgiver</Label>
                     <Input value={oppdragsgiver} onChange={(e) => { setOppdragsgiver(e.target.value); markDirty(); }} />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Klient-ID (anonymt)</Label>
+                  <div className="space-y-2">
+                    <Label>Klient-ID (anonymt)</Label>
                     <Input value={klientRef} onChange={(e) => { setKlientRef(e.target.value); markDirty(); }} placeholder="BV-2025-041" />
                   </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tiltaksleder</Label>
+                  <div className="space-y-2">
+                    <Label>Tiltaksleder</Label>
                     <Input value={tiltaksleder} onChange={(e) => { setTiltaksleder(e.target.value); markDirty(); }} />
                   </div>
-                  <div className="col-span-2 space-y-1.5">
-                    <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Periode</Label>
-                    <div className="flex gap-2 items-center">
-                      <Input type="date" value={periodeFrom} onChange={(e) => { setPeriodeFrom(e.target.value); markDirty(); }} className="flex-1" />
-                      <span className="text-muted-foreground">–</span>
-                      <Input type="date" value={periodeTo} onChange={(e) => { setPeriodeTo(e.target.value); markDirty(); }} className="flex-1" />
-                    </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label>Periode</Label>
+                  <div className="flex gap-3 items-center">
+                    <Input type="date" value={periodeFrom} onChange={(e) => { setPeriodeFrom(e.target.value); markDirty(); }} className="flex-1" />
+                    <span className="text-muted-foreground text-sm">–</span>
+                    <Input type="date" value={periodeTo} onChange={(e) => { setPeriodeTo(e.target.value); markDirty(); }} className="flex-1" />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
             {/* 2. INNLEDNING */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Innledning</span>
                   <span className="text-xs text-muted-foreground ml-auto">Valgfritt</span>
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="pt-0">
                 <GdprField
                   id="innledning" label="Innledning" multiline
                   placeholder={"Oppsummering av måneden, kontekst og generelle observasjoner…\nHusk: ingen personopplysninger."}
@@ -895,8 +901,8 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* 3. MÅL OG TILTAK */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Mål og tiltak</span>
@@ -909,7 +915,7 @@ export default function RapportSkrivePage() {
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="pt-0">
                 {allGoals.length === 0 ? (
                   <div className="text-center py-8 text-muted-foreground text-sm">
                     <Target className="h-8 w-8 mx-auto mb-2 opacity-30" />
@@ -948,8 +954,8 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* 4. AKTIVITETSLOGG */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Aktivitetslogg</span>
@@ -1116,14 +1122,14 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* 5. FREMDRIFT */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Fremdrift mot mål</span>
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="pt-0">
                 {allGoals.length === 0 ? (
                   <p className="text-sm text-muted-foreground text-center py-4">Legg til mål for å registrere fremdrift</p>
                 ) : (
@@ -1143,15 +1149,15 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* 6. AVSLUTNING */}
-            <Card>
-              <CardHeader className="py-3 px-4 border-b">
+            <Card className="border-border/70 bg-background/70 shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Oppsummering og veien videre</span>
                   <span className="text-xs text-muted-foreground ml-auto">Valgfritt</span>
                 </div>
               </CardHeader>
-              <CardContent className="p-4">
+              <CardContent className="pt-0">
                 <GdprField
                   id="avslutning" label="Avslutning" multiline
                   placeholder="Oppsummer måneden — hva gikk bra, hva kan forbedres, planlagte aktiviteter neste måned…"
@@ -1168,26 +1174,26 @@ export default function RapportSkrivePage() {
           </div>{/* /main col */}
 
           {/* ── SIDEBAR ────────────────────────────────────── */}
-          <div className="space-y-4 sticky top-[72px]">
+          <div className="order-first space-y-4 xl:order-last xl:sticky xl:top-24">
 
             {/* Status */}
-            <Card>
-              <CardHeader className="py-2.5 px-4 border-b">
-                <span className="font-semibold text-sm flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" /> Status</span>
+            <Card className="border-border/70 bg-background/80 shadow-sm">
+              <CardHeader className="pb-3">
+                <span className="text-base font-semibold flex items-center gap-1.5"><Clock className="h-3.5 w-3.5 text-primary" /> Status</span>
               </CardHeader>
-              <CardContent className="p-3 space-y-2 text-sm">
+              <CardContent className="space-y-3 text-sm">
                 {[
                   { label: "Status",      value: (
                     <Badge
                       variant={isGodkjent ? "default" : isReturnert ? "destructive" : isTilGodkjenning ? "secondary" : "outline"}
-                      className="text-xs"
+                      className="text-[11px]"
                     >
                       {isGodkjent ? "Godkjent" : isReturnert ? "Returnert" : isTilGodkjenning ? "Til godkjenning" : "Utkast"}
                     </Badge>
                   ) },
                   { label: "Sak",         value: sakId ? saker.find(s=>s.id===sakId)?.saksnummer : <span className="text-muted-foreground text-xs">Ikke valgt</span> },
-                  { label: "Aktiviteter", value: <span className="font-semibold">{allActivities.length}</span> },
-                  { label: "Mål",         value: <span className="font-semibold">{allGoals.length}</span> },
+                  { label: "Aktiviteter", value: <span className="font-medium">{allActivities.length}</span> },
+                  { label: "Mål",         value: <span className="font-medium">{allGoals.length}</span> },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between items-center">
                     <span className="text-muted-foreground text-xs">{label}</span>
@@ -1198,11 +1204,11 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* GDPR */}
-            <Card>
-              <CardHeader className="py-2.5 px-4 border-b">
-                <span className="font-semibold text-sm">GDPR-sjekkliste</span>
+            <Card className="border-border/70 bg-background/80 shadow-sm">
+              <CardHeader className="pb-3">
+                <span className="text-base font-semibold">GDPR-sjekkliste</span>
               </CardHeader>
-              <CardContent className="p-3 space-y-2">
+              <CardContent className="space-y-2">
                 {[
                   "Ingen navn på klienter",
                   "Ingen fødselsdatoer eller adresser",
@@ -1229,7 +1235,7 @@ export default function RapportSkrivePage() {
             </Card>
 
             {/* Send */}
-            <Card className="p-4">
+            <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent shadow-sm p-4">
               <p className="text-sm font-semibold mb-1.5">Klar til innsending?</p>
               <p className="text-xs text-muted-foreground mb-3">
                 Sendes til tiltaksleder {tiltaksleder || "…"} for godkjenning.
