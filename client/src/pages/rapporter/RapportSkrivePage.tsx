@@ -34,6 +34,7 @@ import {
   AlertTriangle, CheckCircle, Clock, FileText,
   Briefcase, Target, Activity, Pen, MessageSquare,
   XCircle, RotateCcw, Sparkles, Star, Loader2, BookmarkPlus,
+  CalendarDays, List,
 } from "lucide-react";
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -301,6 +302,9 @@ export default function RapportSkrivePage() {
   const [avslutning,     setAvslutning]     = useState("");
   const [goals,          setGoals]          = useState<Goal[]>([]);
   const [activities,     setActivities]     = useState<Activity[]>([]);
+
+  // ── Activity view mode
+  const [actView, setActView] = useState<"list" | "week">("list");
 
   // ── Dialog state
   const [goalDialog,       setGoalDialog]       = useState(false);
@@ -643,6 +647,48 @@ export default function RapportSkrivePage() {
 
   const totalHours = (stats.mins / 60).toFixed(1);
 
+  // Week grouping for activity log
+  const weekGroups = useMemo(() => {
+    if (!allActivities.length) return [];
+
+    // ISO week number helper
+    const getISOWeek = (dateStr: string) => {
+      const d = new Date(dateStr + "T00:00:00");
+      d.setDate(d.getDate() + 3 - ((d.getDay() + 6) % 7));
+      const yearStart = new Date(d.getFullYear(), 0, 4);
+      return Math.ceil(((d.getTime() - yearStart.getTime()) / 86400000 + yearStart.getDay() + 1) / 7);
+    };
+
+    const getWeekStart = (dateStr: string) => {
+      const d = new Date(dateStr + "T00:00:00");
+      const day = d.getDay();
+      const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Monday
+      return new Date(d.setDate(diff));
+    };
+
+    const groups = new Map<string, { weekNum: number; weekStart: Date; weekEnd: Date; activities: any[]; mins: number; days: Set<string>; meet: number }>();
+
+    for (const a of allActivities as any[]) {
+      if (!a.dato) continue;
+      const wn = getISOWeek(a.dato);
+      const ws = getWeekStart(a.dato);
+      const we = new Date(ws);
+      we.setDate(we.getDate() + 6);
+      const key = `${ws.getFullYear()}-W${wn}`;
+
+      if (!groups.has(key)) {
+        groups.set(key, { weekNum: wn, weekStart: ws, weekEnd: we, activities: [], mins: 0, days: new Set(), meet: 0 });
+      }
+      const g = groups.get(key)!;
+      g.activities.push(a);
+      g.mins += a.varighet ?? calcDur(a.fraKl ?? "", a.tilKl ?? "") ?? 0;
+      g.days.add(a.dato);
+      if (a.type === "klientmøte") g.meet++;
+    }
+
+    return Array.from(groups.values()).sort((a, b) => a.weekStart.getTime() - b.weekStart.getTime());
+  }, [allActivities]);
+
   const allGoals = rapportId ? (existingMaal as Goal[]) : goals;
 
   // ── RENDER ────────────────────────────────────────────────────────────────
@@ -907,9 +953,28 @@ export default function RapportSkrivePage() {
                   <Activity className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Aktivitetslogg</span>
                   <Badge variant="secondary" className="ml-2 text-xs">{allActivities.length} oppføringer</Badge>
-                  <Button size="sm" className="ml-auto" onClick={() => setActDialog(true)}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> Legg til aktivitet
-                  </Button>
+                  <div className="ml-auto flex items-center gap-2">
+                    {/* View toggle */}
+                    <div className="flex rounded-md border overflow-hidden">
+                      <button
+                        onClick={() => setActView("list")}
+                        className={`px-2 py-1 text-xs flex items-center gap-1 transition-colors ${actView === "list" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        aria-label="Listevisning"
+                      >
+                        <List className="h-3 w-3" /> Liste
+                      </button>
+                      <button
+                        onClick={() => setActView("week")}
+                        className={`px-2 py-1 text-xs flex items-center gap-1 transition-colors ${actView === "week" ? "bg-primary text-primary-foreground" : "hover:bg-muted"}`}
+                        aria-label="Ukevisning"
+                      >
+                        <CalendarDays className="h-3 w-3" /> Uke
+                      </button>
+                    </div>
+                    <Button size="sm" onClick={() => setActDialog(true)}>
+                      <Plus className="h-3.5 w-3.5 mr-1" /> Legg til aktivitet
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
 
@@ -918,7 +983,7 @@ export default function RapportSkrivePage() {
                   <Activity className="h-8 w-8 mx-auto mb-2 opacity-30" />
                   Ingen aktiviteter ennå
                 </CardContent>
-              ) : (
+              ) : actView === "list" ? (
                 <>
                   <div className="overflow-x-auto">
                     <table className="w-full text-xs">
@@ -961,6 +1026,79 @@ export default function RapportSkrivePage() {
                       { label: "Timer", value: totalHours + "t" },
                       { label: "Arbeidsdager", value: stats.days.size },
                       { label: "Aktiviteter", value: stats.acts },
+                      { label: "Klientmøter", value: stats.meet },
+                    ].map(({ label, value }) => (
+                      <div key={label} className="bg-primary/10 rounded-lg p-3 text-center">
+                        <div className="text-xl font-bold text-primary">{value}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground mt-0.5">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="px-4 pb-4">
+                    <InlineFeedback comments={activityComments} seksjon="activities" onReply={(d) => replyToComment.mutate(d)} />
+                  </div>
+                </>
+              ) : (
+                /* ── WEEK VIEW ────────────────────────────── */
+                <>
+                  <div className="divide-y">
+                    {weekGroups.map((wg) => {
+                      const fmtDate = (d: Date) => d.toLocaleDateString("nb-NO", { day: "numeric", month: "short" });
+                      const weekHours = (wg.mins / 60).toFixed(1);
+                      return (
+                        <div key={`W${wg.weekNum}`}>
+                          {/* Week header */}
+                          <div className="flex items-center justify-between px-4 py-2.5 bg-muted/40">
+                            <div className="flex items-center gap-2">
+                              <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                              <span className="text-xs font-bold text-foreground">Uke {wg.weekNum}</span>
+                              <span className="text-[11px] text-muted-foreground">
+                                {fmtDate(wg.weekStart)} – {fmtDate(wg.weekEnd)}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-3 text-[11px]">
+                              <span className="font-semibold text-primary">{weekHours}t</span>
+                              <span className="text-muted-foreground">{wg.days.size} dager</span>
+                              <span className="text-muted-foreground">{wg.activities.length} akt.</span>
+                              {wg.meet > 0 && <span className="text-muted-foreground">{wg.meet} møter</span>}
+                            </div>
+                          </div>
+                          {/* Week activities */}
+                          <table className="w-full text-xs">
+                            <tbody>
+                              {wg.activities.map((a: any) => {
+                                const dur = a.varighet ? `${Math.floor(a.varighet / 60)}t${a.varighet % 60 ? ` ${a.varighet % 60}m` : ""}` : "—";
+                                return (
+                                  <tr key={a.id ?? a.tempId} className="border-b last:border-0 hover:bg-muted/30">
+                                    <td className="px-3 py-2 font-mono whitespace-nowrap w-[70px]">{a.dato?.substring(5).replace("-", ".")}</td>
+                                    <td className="px-3 py-2 w-[100px]"><Badge variant="secondary" className="text-[10px]">{a.type}</Badge></td>
+                                    <td className="px-3 py-2 font-mono whitespace-nowrap w-[90px]">{a.fraKl}–{a.tilKl}</td>
+                                    <td className="px-3 py-2 font-semibold text-primary w-[50px]">{dur}</td>
+                                    <td className="px-3 py-2 max-w-[200px] truncate">{a.beskrivelse}</td>
+                                    <td className="px-3 py-2 text-muted-foreground w-[80px]">{a.sted || "—"}</td>
+                                    <td className="px-3 py-2 w-[30px]">
+                                      <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                        aria-label={`Slett aktivitet ${a.beskrivelse?.substring(0, 20)}`}
+                                        onClick={() => a.id ? deleteAktivitet.mutate(a.id) : setActivities(prev => prev.filter(x => x.tempId !== a.tempId))}>
+                                        <Trash2 className="h-3 w-3" />
+                                      </Button>
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Total stats */}
+                  <div className="grid grid-cols-4 gap-3 p-4 border-t bg-muted/20">
+                    {[
+                      { label: "Timer totalt", value: totalHours + "t" },
+                      { label: "Arbeidsdager", value: stats.days.size },
+                      { label: "Uker", value: weekGroups.length },
                       { label: "Klientmøter", value: stats.meet },
                     ].map(({ label, value }) => (
                       <div key={label} className="bg-primary/10 rounded-lg p-3 text-center">
