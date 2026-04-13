@@ -376,7 +376,9 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-1 px-2">
           {navItems.map((item) => {
-            const isActive = location === item.path;
+            const isActive = item.path === "/dashboard"
+              ? location === "/dashboard" || location === "/"
+              : location === item.path || (item.path !== "/" && location.startsWith(item.path + "/"));
             const Icon = item.icon;
             const itemClassName = cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
