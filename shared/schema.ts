@@ -178,6 +178,8 @@ export const vendors = pgTable("vendors", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(), // URL-vennlig identifikator
+  orgNumber: text("org_number"),          // Organisasjonsnummer fra BRREG
+  institutionType: text("institution_type"), // privat, offentlig, nav
   email: text("email"),
   phone: text("phone"),
   address: text("address"),

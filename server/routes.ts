@@ -117,6 +117,8 @@ async function ensureVendorForAccessRequest(
     .values({
       name: companyName,
       slug,
+      orgNumber: request.orgNumber ?? null,
+      institutionType: request.institutionType ?? null,
       email: request.email ?? null,
       phone: request.phone ?? null,
       status: "active",
@@ -6316,6 +6318,29 @@ export async function registerRoutes(
   // Rapport-system routes
   app.use("/api/saker", sakerRouter);
   app.use("/api/rapporter", rapportRouter);
+
+  // Vendor org-info for auto-fill in rapport pages
+  app.get("/api/vendor/org-info", isAuthenticated, async (req: any, res) => {
+    try {
+      const vendorId = req.user?.vendorId;
+      if (!vendorId) return res.json(null);
+      const [vendor] = await db
+        .select({
+          name: vendors.name,
+          orgNumber: vendors.orgNumber,
+          institutionType: vendors.institutionType,
+          email: vendors.email,
+          phone: vendors.phone,
+          address: vendors.address,
+        })
+        .from(vendors)
+        .where(eq(vendors.id, vendorId))
+        .limit(1);
+      res.json(vendor ?? null);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
 
   return httpServer;
 }

@@ -210,6 +210,22 @@ export default function RapportSkrivePage() {
 
   // ── DATA FETCHING ─────────────────────────────────────────────────────────
 
+  // Hent vendor org-info for auto-utfylling
+  const { data: vendorInfo } = useQuery<{
+    name: string; orgNumber?: string; institutionType?: string;
+    email?: string; phone?: string; address?: string;
+  } | null>({
+    queryKey: ["/api/vendor/org-info"],
+    queryFn: () => apiRequest("/api/vendor/org-info"),
+  });
+
+  // Auto-fyll bedrift fra vendor ved ny rapport
+  useEffect(() => {
+    if (!rapportId && vendorInfo && !bedrift) {
+      setBedrift(vendorInfo.name);
+    }
+  }, [vendorInfo, rapportId]);
+
   // Henter kun tildelte saker for innlogget bruker
   const { data: saker = [] } = useQuery<Sak[]>({
     queryKey: ["/api/saker"],
@@ -525,6 +541,9 @@ export default function RapportSkrivePage() {
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bedrift</Label>
                     <Input value={bedrift} onChange={(e) => { setBedrift(e.target.value); markDirty(); }} />
+                    {vendorInfo?.orgNumber && (
+                      <p className="text-[11px] text-muted-foreground">Org.nr: {vendorInfo.orgNumber}</p>
+                    )}
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Oppdragsgiver</Label>
