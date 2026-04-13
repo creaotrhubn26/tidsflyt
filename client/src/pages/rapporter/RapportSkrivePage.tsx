@@ -696,9 +696,8 @@ export default function RapportSkrivePage() {
 
   return (
     <PortalLayout>
-    <div className="min-h-screen bg-background">
       {/* PAGE HEADER */}
-      <div className="border-b bg-card sticky top-0 z-40 px-6 py-3">
+      <div className="border-b bg-card rounded-lg mb-4 px-6 py-3">
         <div className="max-w-5xl mx-auto flex items-center justify-between gap-4">
           <div>
             <h1 className="text-lg font-semibold">
@@ -1520,7 +1519,6 @@ export default function RapportSkrivePage() {
         </DialogContent>
       </Dialog>
 
-    </div>
     </PortalLayout>
   );
 }

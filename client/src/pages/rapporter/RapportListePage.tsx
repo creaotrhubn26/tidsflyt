@@ -68,9 +68,8 @@ export default function RapportListePage() {
 
   return (
     <PortalLayout>
-    <div className="min-h-screen bg-background">
       {/* HEADER */}
-      <div className="border-b bg-card px-6 py-4">
+      <div className="border-b bg-card rounded-lg mb-4 px-6 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <div>
             <h1 className="text-xl font-semibold">Mine rapporter</h1>
@@ -165,7 +164,6 @@ export default function RapportListePage() {
           />
         )}
       </div>
-    </div>
     </PortalLayout>
   );
 }
