@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useGdprChecker, ANONYMOUS_SUGGESTIONS } from "@/hooks/useGdprChecker";
 import { useAktivitetForslag } from "@/hooks/use-aktivitet-forslag";
+import { PortalLayout } from "@/components/portal/portal-layout";
 
 // shadcn/ui
 import { Button }   from "@/components/ui/button";
@@ -694,6 +695,7 @@ export default function RapportSkrivePage() {
   // ── RENDER ────────────────────────────────────────────────────────────────
 
   return (
+    <PortalLayout>
     <div className="min-h-screen bg-background">
       {/* PAGE HEADER */}
       <div className="border-b bg-card sticky top-0 z-40 px-6 py-3">
@@ -1519,5 +1521,6 @@ export default function RapportSkrivePage() {
       </Dialog>
 
     </div>
+    </PortalLayout>
   );
 }

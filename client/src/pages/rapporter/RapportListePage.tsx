@@ -8,6 +8,7 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { PortalLayout } from "@/components/portal/portal-layout";
 import { Button } from "@/components/ui/button";
 import { Badge }  from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -66,6 +67,7 @@ export default function RapportListePage() {
   const approved  = rapporter.filter(r => r.status === "godkjent");
 
   return (
+    <PortalLayout>
     <div className="min-h-screen bg-background">
       {/* HEADER */}
       <div className="border-b bg-card px-6 py-4">
@@ -164,6 +166,7 @@ export default function RapportListePage() {
         )}
       </div>
     </div>
+    </PortalLayout>
   );
 }
 
