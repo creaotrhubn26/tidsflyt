@@ -14,6 +14,7 @@ import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
 import { registerNotificationRoutes, createNotification, notifyByRole } from "./routes/notification-routes";
+import { sakerRouter, rapportRouter } from "./sakerRapportRoutes";
 import { emailService } from "./lib/email-service";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
@@ -6311,6 +6312,10 @@ export async function registerRoutes(
   registerForwardRoutes(app);
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
+
+  // Rapport-system routes
+  app.use("/api/saker", sakerRouter);
+  app.use("/api/rapporter", rapportRouter);
 
   return httpServer;
 }

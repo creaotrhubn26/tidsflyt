@@ -43,6 +43,9 @@ const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 const BuilderPage = lazy(() => import("@/pages/builder-page"));
 const Blog = lazy(() => import("@/pages/blog"));
 const BlogPostPage = lazy(() => import("@/pages/blog-post"));
+const RapportSkrivePage = lazy(() => import("@/pages/rapporter/RapportSkrivePage"));
+const TiltakslederPage = lazy(() => import("@/pages/rapporter/TiltakslederPage"));
+const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage"));
 
 function RouteLoadingFallback() {
   return (
@@ -93,6 +96,12 @@ function Router() {
         <Route path="/timesheets">{() => <AuthGuard requiredRoles={["miljoarbeider", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
+
+        {/* Rapport routes */}
+        <Route path="/rapporter/ny">{() => <AuthGuard><RapportSkrivePage /></AuthGuard>}</Route>
+        <Route path="/rapporter/godkjenning">{() => <AuthGuard requiredRoles={["tiltaksleder", "vendor_admin", "hovedadmin", "admin", "super_admin"]}><TiltakslederPage /></AuthGuard>}</Route>
+        <Route path="/rapporter/:id">{() => <AuthGuard><RapportSkrivePage /></AuthGuard>}</Route>
+        <Route path="/admin/rapportmal">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminTemplatePage /></AuthGuard>}</Route>
 
         {/* Admin routes */}
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>

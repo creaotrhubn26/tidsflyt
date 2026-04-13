@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -1624,3 +1624,247 @@ export const recurringEntries = pgTable("recurring_entries", {
 
 // Export auth models (required for Replit Auth)
 export * from "./models/auth";
+
+// ── RAPPORT-SYSTEM ENUMS ─────────────────────────────────────────────────────
+
+export const sakerStatusEnum = pgEnum("sak_status", [
+  "aktiv",
+  "avsluttet",
+  "pause",
+  "venter",
+]);
+
+export const rapportStatusEnum = pgEnum("rapport_status", [
+  "utkast",
+  "til_godkjenning",
+  "returnert",
+  "godkjent",
+  "arkivert",
+]);
+
+export const aktivitetTypeEnum = pgEnum("aktivitet_type_v2", [
+  "aktivitet",
+  "klientmøte",
+  "nettverksmøte",
+  "ansvarsgruppemøte",
+  "veiledning",
+  "dokumentasjon",
+  "kurs",
+  "annet",
+]);
+
+export const goalStatusEnum = pgEnum("goal_status_v2", [
+  "aktiv",
+  "pågår",
+  "fullført",
+  "avbrutt",
+]);
+
+export const fieldTypeEnum = pgEnum("field_type", [
+  "text",
+  "textarea",
+  "select",
+  "date",
+  "number",
+  "checkbox",
+  "heading",
+  "divider",
+]);
+
+// ── SAKER ─────────────────────────────────────────────────────────────────────
+
+export const saker = pgTable("saker", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  saksnummer:      text("saksnummer").notNull().unique(),
+  tittel:          text("tittel").notNull(),
+  klientRef:       text("klient_ref"),
+  oppdragsgiver:   text("oppdragsgiver"),
+  tiltakstype:     text("tiltakstype"),
+  vendorId:        integer("vendor_id").notNull(),
+  tiltakslederId:  integer("tiltaksleder_id").notNull(),
+  tildelteUserId:  jsonb("tildelte_user_id").default([]),
+  status:          sakerStatusEnum("status").default("aktiv"),
+  startDato:       date("start_dato"),
+  sluttDato:       date("slutt_dato"),
+  beskrivelse:     text("beskrivelse"),
+  ekstraFelter:    jsonb("ekstra_felter").default({}),
+  createdAt:       timestamp("created_at").defaultNow(),
+  updatedAt:       timestamp("updated_at").defaultNow(),
+});
+
+// ── RAPPORTER ─────────────────────────────────────────────────────────────────
+
+export const rapporter = pgTable("rapporter", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  sakId:           uuid("sak_id").references(() => saker.id),
+  userId:          integer("user_id").notNull(),
+  tiltakslederId:  integer("tiltaksleder_id"),
+  templateId:      uuid("template_id"),
+  status:          rapportStatusEnum("status").default("utkast"),
+  konsulent:       text("konsulent"),
+  tiltak:          text("tiltak"),
+  bedrift:         text("bedrift"),
+  oppdragsgiver:   text("oppdragsgiver"),
+  klientRef:       text("klient_ref"),
+  periodeFrom:     date("periode_from"),
+  periodeTo:       date("periode_to"),
+  innledning:      text("innledning"),
+  avslutning:      text("avslutning"),
+  dynamiskeFelter: jsonb("dynamiske_felter").default({}),
+  totalMinutter:   integer("total_minutter").default(0),
+  antallDager:     integer("antall_dager").default(0),
+  antallAktiviteter: integer("antall_aktiviteter").default(0),
+  antallMoeter:    integer("antall_moeter").default(0),
+  signaturer:      jsonb("signaturer").default([]),
+  reviewKommentar: text("review_kommentar"),
+  reviewedAt:      timestamp("reviewed_at"),
+  reviewedBy:      integer("reviewed_by"),
+  innsendt:        timestamp("innsendt"),
+  godkjent:        timestamp("godkjent"),
+  createdAt:       timestamp("created_at").defaultNow(),
+  updatedAt:       timestamp("updated_at").defaultNow(),
+});
+
+// ── RAPPORT-MÅL ───────────────────────────────────────────────────────────────
+
+export const rapportMaal = pgTable("rapport_maal", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  rapportId:   uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
+  nummer:      integer("nummer").notNull(),
+  beskrivelse: text("beskrivelse").notNull(),
+  status:      goalStatusEnum("status").default("aktiv"),
+  fremdrift:   integer("fremdrift").default(0),
+  kommentar:   text("kommentar"),
+  sortOrder:   integer("sort_order").default(0),
+  createdAt:   timestamp("created_at").defaultNow(),
+});
+
+// ── AKTIVITETER ───────────────────────────────────────────────────────────────
+
+export const rapportAktiviteter = pgTable("rapport_aktiviteter", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  rapportId:    uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
+  malId:        uuid("mal_id").references(() => rapportMaal.id),
+  dato:         date("dato").notNull(),
+  fraKl:        text("fra_kl"),
+  tilKl:        text("til_kl"),
+  varighet:     integer("varighet"),
+  type:         aktivitetTypeEnum("type").default("aktivitet"),
+  beskrivelse:  text("beskrivelse").notNull(),
+  sted:         text("sted"),
+  klientRef:    text("klient_ref"),
+  noterIntern:  text("noter_intern"),
+  createdAt:    timestamp("created_at").defaultNow(),
+});
+
+// ── KOMMENTARER ───────────────────────────────────────────────────────────────
+
+export const rapportKommentarer = pgTable("rapport_kommentarer", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  rapportId:  uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
+  fromUserId: integer("from_user_id").notNull(),
+  seksjon:    text("seksjon"),
+  tekst:      text("tekst").notNull(),
+  lestAv:     jsonb("lest_av").default([]),
+  createdAt:  timestamp("created_at").defaultNow(),
+});
+
+// ── VENDOR TEMPLATES ──────────────────────────────────────────────────────────
+
+export const vendorTemplates = pgTable("vendor_templates", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  vendorId:     integer("vendor_id").notNull(),
+  navn:         text("navn").notNull().default("Standard mal"),
+  status:       text("status").default("utkast"),
+  branding: jsonb("branding").default({
+    primaryColor: "#1F6B73",
+    secondaryColor: "#4E9A6F",
+    accentBgColor: "#E6F2EE",
+    logoBase64: null,
+    showTidumLogo: true,
+  }),
+  feltKonfig: jsonb("felt_konfig").default([]),
+  seksjoner: jsonb("seksjoner").default([
+    { id: "prosjektinfo", label: "Prosjektinformasjon", enabled: true, required: true },
+    { id: "innledning",   label: "Innledning",          enabled: true, required: false },
+    { id: "maal",         label: "Mål og tiltak",       enabled: true, required: true },
+    { id: "aktiviteter",  label: "Aktivitetslogg",      enabled: true, required: true },
+    { id: "fremdrift",    label: "Fremdrift",            enabled: true, required: true },
+    { id: "avslutning",   label: "Avslutning",          enabled: true, required: false },
+    { id: "underskrift",  label: "Underskrift",          enabled: true, required: true },
+  ]),
+  tekster: jsonb("tekster").default({
+    gdprAdvarsel: "Rapporten følger GDPR-krav. Ingen navn, fødselsdatoer eller adresser.",
+    underskriftBekreftelse: "Undertegnede bekrefter at innholdet er korrekt og i henhold til gjeldende tiltak.",
+    workerRolle: "Miljøarbeider",
+    lederRolle: "Tiltaksleder",
+    rapportTittelMal: "Månedlig rapport — {måned} {år}",
+    bunntekst: "Konfidensielt dokument",
+  }),
+  gdprEnabled: boolean("gdpr_enabled").default(true),
+  createdAt:   timestamp("created_at").defaultNow(),
+  updatedAt:   timestamp("updated_at").defaultNow(),
+});
+
+// ── RAPPORT-SYSTEM TYPES ──────────────────────────────────────────────────────
+
+export type TemplateField = {
+  id: string;
+  type: "text" | "textarea" | "select" | "date" | "number" | "checkbox" | "heading" | "divider";
+  label: string;
+  placeholder?: string;
+  required: boolean;
+  visible: boolean;
+  gdprSjekk: boolean;
+  options?: string[];
+  defaultValue?: string;
+  helpText?: string;
+  seksjon: string;
+  sortOrder: number;
+  isSystem: boolean;
+};
+
+export type Sak = typeof saker.$inferSelect;
+export type NewSak = typeof saker.$inferInsert;
+export type Rapport = typeof rapporter.$inferSelect;
+export type Aktivitet = typeof rapportAktiviteter.$inferSelect;
+export type Maal = typeof rapportMaal.$inferSelect;
+export type VendorTemplate = typeof vendorTemplates.$inferSelect;
+
+// ── RAPPORT-SYSTEM ZOD SCHEMAS ────────────────────────────────────────────────
+
+export const insertSakSchema = createInsertSchema(saker, {
+  saksnummer:    z.string().min(1).max(50),
+  tittel:        z.string().min(1).max(200),
+  klientRef:     z.string().max(100).optional(),
+  oppdragsgiver: z.string().max(200).optional(),
+  tildelteUserId: z.array(z.number()).optional(),
+});
+
+export const insertRapportSchema = createInsertSchema(rapporter, {
+  innledning:    z.string().max(5000).optional(),
+  avslutning:    z.string().max(5000).optional(),
+  dynamiskeFelter: z.record(z.string()).optional(),
+});
+
+export const insertMaalSchema = createInsertSchema(rapportMaal, {
+  beskrivelse:   z.string().min(1).max(1000),
+  fremdrift:     z.number().min(0).max(100).optional(),
+});
+
+export const insertAktivitetSchema = createInsertSchema(rapportAktiviteter, {
+  beskrivelse:   z.string().min(1).max(2000),
+  klientRef:     z.string().max(200).optional(),
+  noterIntern:   z.string().max(2000).optional(),
+});
+
+export const DEFAULT_RAPPORT_FIELDS: TemplateField[] = [
+  { id: "konsulent",     type: "text",     label: "Konsulent / Miljøarbeider", required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 1 },
+  { id: "tiltak",        type: "select",   label: "Tiltak / Rolle",            required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 2, options: ["Miljøarbeider","Sosialarbeider","Aktivitør","Miljøterapeut","Tiltaksleder"] },
+  { id: "bedrift",       type: "text",     label: "Bedrift",                   required: false, visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 3 },
+  { id: "oppdragsgiver", type: "text",     label: "Oppdragsgiver",             required: false, visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 4 },
+  { id: "klientRef",     type: "text",     label: "Klient-ID (anonymt)",       required: false, visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 5, helpText: "Kun anonymt saksnummer — ingen navn" },
+  { id: "tiltaksleder",  type: "text",     label: "Tiltaksleder",              required: false, visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 6 },
+  { id: "periodeFrom",   type: "date",     label: "Periode fra",               required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 7 },
+  { id: "periodeTo",     type: "date",     label: "Periode til",               required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 8 },
+];
