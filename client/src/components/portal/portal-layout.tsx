@@ -37,6 +37,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileBottomNav } from "./mobile-bottom-nav";
+import { useCompose } from "@/components/email/compose-context";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import {
   DropdownMenu,
@@ -138,6 +139,7 @@ interface PortalLayoutProps {
 export function PortalLayout({ children, user }: PortalLayoutProps) {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
+  const { openCompose } = useCompose();
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0); // 0=welcome, 1=profile confirm, 2=role-based steps
   const [onboardingCompleted, setOnboardingCompleted] = useState(() => {
@@ -354,6 +356,21 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
         ) : (
           <img src={tidumWordmark} alt="Tidum" className="h-8 w-auto object-contain" />
         )}
+      </div>
+
+      {/* Compose button */}
+      <div className={cn("px-3 pt-3", collapsed && !mobile && "px-2")}>
+        <Button
+          onClick={() => openCompose()}
+          className={cn(
+            "w-full gap-2 rounded-xl shadow-md",
+            collapsed && !mobile && "px-0 justify-center"
+          )}
+          size={collapsed && !mobile ? "icon" : "default"}
+        >
+          <Mail className="h-4 w-4" />
+          {(!collapsed || mobile) && <span>Skriv e-post</span>}
+        </Button>
       </div>
 
       <ScrollArea className="flex-1 py-4">

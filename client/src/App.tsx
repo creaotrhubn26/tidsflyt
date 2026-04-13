@@ -10,6 +10,8 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { AnalyticsRuntime } from "@/components/analytics-runtime";
 import NotFound from "@/pages/not-found";
 import { RolePreviewProvider } from "@/hooks/use-role-preview";
+import { ComposeProvider } from "@/components/email/compose-context";
+import { ComposeModal } from "@/components/email/compose-modal";
 
 const Landing = lazy(() => import("@/pages/landing"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -129,9 +131,12 @@ function App() {
             <Toaster />
             <AnalyticsRuntime />
             <RolePreviewProvider>
-              <main id="main-content">
-                <Router />
-              </main>
+              <ComposeProvider>
+                <main id="main-content">
+                  <Router />
+                </main>
+                <ComposeModal />
+              </ComposeProvider>
             </RolePreviewProvider>
           </TooltipProvider>
         </ThemeProvider>
