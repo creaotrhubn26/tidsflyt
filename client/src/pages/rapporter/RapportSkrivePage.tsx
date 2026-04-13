@@ -7,7 +7,7 @@
  *   <Route path="/rapporter/:id" component={RapportSkrivePage} />
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useLocation, useParams } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -85,12 +85,16 @@ const GOAL_TEMPLATES = [
 
 // ── GDPR FIELD COMPONENT ──────────────────────────────────────────────────────
 
-function GdprField({ id, label, required, placeholder, multiline, value, onChange }: {
+function GdprField({ id, label, required, placeholder, multiline, value, onChange, onHitsChange }: {
   id: string; label: string; required?: boolean; placeholder?: string;
   multiline?: boolean; value: string; onChange: (v: string) => void;
+  onHitsChange?: (fieldId: string, count: number) => void;
 }) {
   const { hits, isClean, check, replaceFirst } = useGdprChecker();
   const checked = value.trim().length > 0;
+
+  useEffect(() => { onHitsChange?.(id, hits.length); }, [hits.length, id]);
+  useEffect(() => { if (value) check(value); }, []);
 
   const handleChange = (v: string) => { onChange(v); check(v); };
 
@@ -204,9 +208,26 @@ export default function RapportSkrivePage() {
   const [actNoter,  setActNoter]  = useState("");
   const [actMalId,  setActMalId]  = useState("");
 
+  // ── GDPR hit tracking (state-based, not DOM query)
+  const [gdprHitsByField, setGdprHitsByField] = useState<Record<string, number>>({});
+  const handleGdprHitsChange = useCallback((fieldId: string, count: number) => {
+    setGdprHitsByField(prev => prev[fieldId] === count ? prev : { ...prev, [fieldId]: count });
+  }, []);
+  const hasGdprWarnings = useMemo(() => Object.values(gdprHitsByField).some(c => c > 0), [gdprHitsByField]);
+  const gdprHitCount = useMemo(() => Object.values(gdprHitsByField).reduce((a, b) => a + b, 0), [gdprHitsByField]);
+
   // ── Auto-save
   const dirtyRef = useRef(false);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+
+  // ── Unsaved-changes warning
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) { e.preventDefault(); }
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, []);
 
   // ── DATA FETCHING ─────────────────────────────────────────────────────────
 
@@ -422,7 +443,6 @@ export default function RapportSkrivePage() {
   const totalHours = (stats.mins / 60).toFixed(1);
 
   const allGoals = rapportId ? (existingMaal as Goal[]) : goals;
-  const hasGdprWarnings = typeof document !== "undefined" && document.querySelectorAll(".border-amber-400").length > 0;
 
   // ── RENDER ────────────────────────────────────────────────────────────────
 
@@ -584,6 +604,7 @@ export default function RapportSkrivePage() {
                   placeholder={"Oppsummering av måneden, kontekst og generelle observasjoner…\nHusk: ingen personopplysninger."}
                   value={innledning}
                   onChange={(v) => { setInnledning(v); markDirty(); }}
+                  onHitsChange={handleGdprHitsChange}
                 />
               </CardContent>
             </Card>
@@ -628,6 +649,7 @@ export default function RapportSkrivePage() {
                             {g.status}
                           </Badge>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
+                            aria-label={`Slett mål ${i + 1}`}
                             onClick={() => g.id ? deleteMaal.mutate(g.id) : setGoals(prev => prev.filter(x => x.tempId !== g.tempId))}>
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -682,6 +704,7 @@ export default function RapportSkrivePage() {
                               <td className="px-3 py-2 text-muted-foreground">{a.klientRef || a.klient_ref || "—"}</td>
                               <td className="px-3 py-2">
                                 <Button variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive"
+                                  aria-label={`Slett aktivitet ${a.beskrivelse?.substring(0, 20)}`}
                                   onClick={() => a.id ? deleteAktivitet.mutate(a.id) : setActivities(prev => prev.filter(x => x.tempId !== a.tempId))}>
                                   <Trash2 className="h-3 w-3" />
                                 </Button>
@@ -753,6 +776,7 @@ export default function RapportSkrivePage() {
                   placeholder="Oppsummer måneden — hva gikk bra, hva kan forbedres, planlagte aktiviteter neste måned…"
                   value={avslutning}
                   onChange={(v) => { setAvslutning(v); markDirty(); }}
+                  onHitsChange={handleGdprHitsChange}
                 />
               </CardContent>
             </Card>
@@ -820,6 +844,11 @@ export default function RapportSkrivePage() {
               {!rapportId && (
                 <p className="text-xs text-muted-foreground mt-2 text-center">Lagre rapporten først</p>
               )}
+              {hasGdprWarnings && (
+                <p className="text-xs text-destructive mt-2 text-center font-medium">
+                  {gdprHitCount} personopplysning{gdprHitCount > 1 ? "er" : ""} må fjernes før innsending
+                </p>
+              )}
             </Card>
 
           </div>{/* /sidebar */}
@@ -837,7 +866,7 @@ export default function RapportSkrivePage() {
           <div className="space-y-4 py-2">
             <GdprField id="new-goal-text" label="Mål-beskrivelse" required multiline
               placeholder={"Beskriv målet — f.eks. «Styrke daglige rutiner»\nIngen personopplysninger."}
-              value={newGoalText} onChange={setNewGoalText} />
+              value={newGoalText} onChange={setNewGoalText} onHitsChange={handleGdprHitsChange} />
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Label>
@@ -855,7 +884,7 @@ export default function RapportSkrivePage() {
               </div>
             </div>
             <GdprField id="new-goal-comment" label="Kommentar (valgfritt)"
-              placeholder="Utfyllende notat…" value={newGoalComment} onChange={setNewGoalComment} />
+              placeholder="Utfyllende notat…" value={newGoalComment} onChange={setNewGoalComment} onHitsChange={handleGdprHitsChange} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setGoalDialog(false)}>Avbryt</Button>
@@ -935,10 +964,10 @@ export default function RapportSkrivePage() {
             </div>
             <GdprField id="act-besk" label="Beskrivelse" required multiline
               placeholder={"Hva ble gjort? Ingen personopplysninger.\nBruk «ungdommen», «brukeren» osv."}
-              value={actBesk} onChange={setActBesk} />
+              value={actBesk} onChange={setActBesk} onHitsChange={handleGdprHitsChange} />
             <div className="grid grid-cols-2 gap-3">
               <GdprField id="act-klient" label="Klient-ref (anonym)"
-                placeholder="ungdommen, bruker A…" value={actKlient} onChange={setActKlient} />
+                placeholder="ungdommen, bruker A…" value={actKlient} onChange={setActKlient} onHitsChange={handleGdprHitsChange} />
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Knyttet til mål</Label>
                 <Select value={actMalId} onValueChange={setActMalId}>

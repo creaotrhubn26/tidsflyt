@@ -104,8 +104,8 @@ function FieldRow({ field, onUpdate, onDelete, onMove, isFirst, isLast }: {
       <div className="flex items-center gap-2 px-3 py-2.5">
         {/* Drag handle / order */}
         <div className="flex flex-col gap-0.5">
-          <button onClick={() => onMove("up")}  disabled={isFirst} className="text-muted-foreground hover:text-foreground disabled:opacity-20"><ChevronUp  className="h-3 w-3" /></button>
-          <button onClick={() => onMove("down")} disabled={isLast}  className="text-muted-foreground hover:text-foreground disabled:opacity-20"><ChevronDown className="h-3 w-3" /></button>
+          <button onClick={() => onMove("up")}  disabled={isFirst} className="text-muted-foreground hover:text-foreground disabled:opacity-20" aria-label={`Flytt ${field.label} opp`}><ChevronUp  className="h-3 w-3" /></button>
+          <button onClick={() => onMove("down")} disabled={isLast}  className="text-muted-foreground hover:text-foreground disabled:opacity-20" aria-label={`Flytt ${field.label} ned`}><ChevronDown className="h-3 w-3" /></button>
         </div>
 
         {/* Type badge */}
@@ -126,18 +126,18 @@ function FieldRow({ field, onUpdate, onDelete, onMove, isFirst, isLast }: {
         </div>
 
         {/* Visible toggle */}
-        <button onClick={() => u({ visible: !field.visible })} className="text-muted-foreground hover:text-foreground" title={field.visible ? "Skjul felt" : "Vis felt"}>
+        <button onClick={() => u({ visible: !field.visible })} className="text-muted-foreground hover:text-foreground" aria-label={field.visible ? `Skjul ${field.label}` : `Vis ${field.label}`}>
           {field.visible ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
         </button>
 
         {/* Expand */}
-        <button onClick={() => setExpanded(e => !e)} className="text-muted-foreground hover:text-foreground">
+        <button onClick={() => setExpanded(e => !e)} className="text-muted-foreground hover:text-foreground" aria-label={`Rediger ${field.label}`} aria-expanded={expanded}>
           <Settings2 className="h-4 w-4" />
         </button>
 
         {/* Delete (not for system fields) */}
         {!field.isSystem && (
-          <button onClick={onDelete} className="text-muted-foreground hover:text-destructive">
+          <button onClick={onDelete} className="text-muted-foreground hover:text-destructive" aria-label={`Slett felt ${field.label}`}>
             <Trash2 className="h-4 w-4" />
           </button>
         )}

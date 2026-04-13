@@ -291,6 +291,7 @@ export default function TiltakslederPage() {
                       {STATUS_CONFIG[r.status]?.label ?? r.status}
                     </Badge>
                     <Button variant="ghost" size="sm" className="h-7 text-xs"
+                      aria-label={`Last ned PDF for ${r.konsulent ?? "rapport"}`}
                       onClick={() => window.open(`/api/rapporter/${r.id}/pdf`, "_blank")}>
                       <Download className="h-3 w-3 mr-1" /> PDF
                     </Button>

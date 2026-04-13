@@ -43,6 +43,7 @@ const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 const BuilderPage = lazy(() => import("@/pages/builder-page"));
 const Blog = lazy(() => import("@/pages/blog"));
 const BlogPostPage = lazy(() => import("@/pages/blog-post"));
+const RapportListePage = lazy(() => import("@/pages/rapporter/RapportListePage"));
 const RapportSkrivePage = lazy(() => import("@/pages/rapporter/RapportSkrivePage"));
 const TiltakslederPage = lazy(() => import("@/pages/rapporter/TiltakslederPage"));
 const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage"));
@@ -81,7 +82,7 @@ function Router() {
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
         <Route path="/time-tracking">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
-        <Route path="/reports">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Reports /></AuthGuard>}</Route>
+        <Route path="/reports">{() => <AuthGuard><Redirect to="/rapporter/godkjenning" /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
         <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Cases /></AuthGuard>}</Route>
         <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
@@ -98,6 +99,7 @@ function Router() {
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
 
         {/* Rapport routes */}
+        <Route path="/rapporter">{() => <AuthGuard><RapportListePage /></AuthGuard>}</Route>
         <Route path="/rapporter/ny">{() => <AuthGuard><RapportSkrivePage /></AuthGuard>}</Route>
         <Route path="/rapporter/godkjenning">{() => <AuthGuard requiredRoles={["tiltaksleder", "vendor_admin", "hovedadmin", "admin", "super_admin"]}><TiltakslederPage /></AuthGuard>}</Route>
         <Route path="/rapporter/:id">{() => <AuthGuard><RapportSkrivePage /></AuthGuard>}</Route>
