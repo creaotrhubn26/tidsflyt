@@ -67,9 +67,9 @@ export function RichTextEditor({
       className={cn(
         "rich-text-editor rounded-md border border-input bg-muted/30 dark:bg-muted/10 focus-within:bg-background transition-colors",
         readOnly && "border-none bg-transparent",
-        `[--min-height:${minHeight}]`,
         className
       )}
+      style={{ ["--min-height" as any]: minHeight }}
       data-testid={testId}
     >
       <ReactQuill
