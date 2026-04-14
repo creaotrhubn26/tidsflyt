@@ -23,7 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label }    from "@/components/ui/label";
 import { Badge }    from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Progress }  from "@/components/ui/progress";
@@ -328,6 +328,11 @@ export default function RapportSkrivePage() {
   const [newGoalStatus,  setNewGoalStatus]  = useState<Goal["status"]>("aktiv");
   const [newGoalProg,    setNewGoalProg]    = useState(0);
   const [newGoalComment, setNewGoalComment] = useState("");
+  const [newGoalCat,     setNewGoalCat]     = useState("Hverdagsmestring");
+  const [newGoalPriority, setNewGoalPriority] = useState<"lav" | "middels" | "høy">("middels");
+  const [newGoalType,    setNewGoalType]    = useState<"langsiktig" | "kortsiktig" | "delmål">("kortsiktig");
+  const [newGoalFrist,   setNewGoalFrist]   = useState("");
+  const [newGoalIndikator, setNewGoalIndikator] = useState("");
 
   // ── New activity form
   const [actDato,   setActDato]   = useState(new Date().toISOString().split("T")[0]);
@@ -588,13 +593,25 @@ export default function RapportSkrivePage() {
 
   const handleSaveGoal = async () => {
     if (!newGoalText.trim()) { toast({ title: "Beskrivelse er påkrevd", variant: "destructive" }); return; }
-    const goalData = { beskrivelse: newGoalText, status: newGoalStatus, fremdrift: newGoalProg, kommentar: newGoalComment };
+    // Encode extra metadata into the comment field since the schema is flat.
+    const metaParts: string[] = [];
+    metaParts.push(`Kategori: ${newGoalCat}`);
+    metaParts.push(`Type: ${newGoalType}`);
+    metaParts.push(`Prioritet: ${newGoalPriority}`);
+    if (newGoalFrist) metaParts.push(`Frist: ${newGoalFrist}`);
+    if (newGoalIndikator.trim()) metaParts.push(`Indikator: ${newGoalIndikator.trim()}`);
+    if (newGoalComment.trim()) metaParts.push(`\nKommentar: ${newGoalComment.trim()}`);
+    const kommentar = metaParts.join(" · ");
+    const goalData = { beskrivelse: newGoalText, status: newGoalStatus, fremdrift: newGoalProg, kommentar };
     if (rapportId) {
       await createMaal.mutateAsync(goalData);
     } else {
       setGoals(prev => [...prev, { ...goalData, tempId: Date.now() }]);
     }
-    setGoalDialog(false); setNewGoalText(""); setNewGoalProg(0); setNewGoalComment("");
+    setGoalDialog(false);
+    setNewGoalText(""); setNewGoalProg(0); setNewGoalComment("");
+    setNewGoalCat("Hverdagsmestring"); setNewGoalPriority("middels");
+    setNewGoalType("kortsiktig"); setNewGoalFrist(""); setNewGoalIndikator("");
     toast({ title: "Mål lagret" });
   };
 
@@ -1266,33 +1283,130 @@ export default function RapportSkrivePage() {
 
       {/* LEGG TIL MÅL */}
       <Dialog open={goalDialog} onOpenChange={setGoalDialog}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Legg til mål</DialogTitle>
+            <DialogDescription>
+              Definer et konkret, målbart mål for ungdommen. Bruk GDPR-trygge formuleringer.
+            </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-2">
-            <GdprField id="new-goal-text" label="Mål-beskrivelse" required multiline
-              placeholder={"Beskriv målet — f.eks. «Styrke daglige rutiner»\nIngen personopplysninger."}
-              value={newGoalText} onChange={setNewGoalText} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</Label>
-                <Select value={newGoalStatus} onValueChange={(v: any) => setNewGoalStatus(v)}>
+
+          <div className="space-y-5 py-2">
+            {/* Kategori — hurtigvalg */}
+            <div className="space-y-2">
+              <Label>Kategori</Label>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { cat: "Hverdagsmestring", icon: "🏠" },
+                  { cat: "Sosialt",          icon: "👥" },
+                  { cat: "Skole / Arbeid",   icon: "📚" },
+                  { cat: "Psykisk helse",    icon: "🧠" },
+                  { cat: "Aktivitet",        icon: "🏃" },
+                  { cat: "Selvstendighet",   icon: "🌱" },
+                ].map(({ cat, icon }) => (
+                  <button
+                    key={cat}
+                    type="button"
+                    onClick={() => setNewGoalCat(cat)}
+                    className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors ${
+                      newGoalCat === cat ? "border-primary bg-primary/5 text-foreground" : "hover:bg-muted/50 text-muted-foreground"
+                    }`}
+                  >
+                    <span className="text-base">{icon}</span>
+                    <span className="flex-1 text-left font-medium">{cat}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Beskrivelse */}
+            <GdprField
+              id="new-goal-text" label="Mål-beskrivelse" required multiline
+              placeholder={"Beskriv målet — f.eks. «Styrke daglige rutiner gjennom ukentlig oppfølging»\nIngen personopplysninger."}
+              value={newGoalText} onChange={setNewGoalText} onHitsChange={handleGdprHitsChange}
+              autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace}
+            />
+
+            {/* Type og prioritet */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Måltype</Label>
+                <Select value={newGoalType} onValueChange={(v: any) => setNewGoalType(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {["aktiv","pågår","fullført","avbrutt"].map(v => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+                    <SelectItem value="langsiktig">📅 Langsiktig mål (6+ mnd)</SelectItem>
+                    <SelectItem value="kortsiktig">📆 Kortsiktig mål (1-3 mnd)</SelectItem>
+                    <SelectItem value="delmål">🎯 Delmål (uker)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fremdrift: {newGoalProg}%</Label>
-                <input type="range" min="0" max="100" value={newGoalProg} onChange={(e) => setNewGoalProg(+e.target.value)}
-                  className="w-full accent-primary" />
+              <div className="space-y-2">
+                <Label>Prioritet</Label>
+                <Select value={newGoalPriority} onValueChange={(v: any) => setNewGoalPriority(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="høy">🔴 Høy</SelectItem>
+                    <SelectItem value="middels">🟡 Middels</SelectItem>
+                    <SelectItem value="lav">🟢 Lav</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
-            <GdprField id="new-goal-comment" label="Kommentar (valgfritt)"
-              placeholder="Utfyllende notat…" value={newGoalComment} onChange={setNewGoalComment} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
+
+            {/* Status og fremdrift */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Status</Label>
+                <Select value={newGoalStatus} onValueChange={(v: any) => setNewGoalStatus(v)}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="aktiv">Aktiv</SelectItem>
+                    <SelectItem value="pågår">Pågår</SelectItem>
+                    <SelectItem value="fullført">Fullført</SelectItem>
+                    <SelectItem value="avbrutt">Avbrutt</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Fremdrift: <span className="text-primary font-semibold">{newGoalProg}%</span></Label>
+                <input
+                  type="range" min="0" max="100" value={newGoalProg}
+                  onChange={(e) => setNewGoalProg(+e.target.value)}
+                  className="w-full accent-primary"
+                />
+                <div className="flex justify-between text-[10px] text-muted-foreground">
+                  <span>0</span><span>25</span><span>50</span><span>75</span><span>100</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Frist */}
+            <div className="space-y-2">
+              <Label>Ønsket frist (valgfri)</Label>
+              <Input
+                type="date" value={newGoalFrist}
+                onChange={(e) => setNewGoalFrist(e.target.value)}
+                className="md:max-w-xs"
+              />
+            </div>
+
+            {/* Måloppnåelse / indikator */}
+            <GdprField
+              id="new-goal-indikator" label="Indikator for måloppnåelse (valgfri)" multiline
+              placeholder="Hvordan vet vi at målet er nådd? F.eks. «står opp kl 08 minst 4 dager i uka»"
+              value={newGoalIndikator} onChange={setNewGoalIndikator} onHitsChange={handleGdprHitsChange}
+              autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace}
+            />
+
+            {/* Kommentar */}
+            <GdprField
+              id="new-goal-comment" label="Utfyllende notat (valgfri)"
+              placeholder="Bakgrunn, tilnærming, samarbeidspartnere…"
+              value={newGoalComment} onChange={setNewGoalComment} onHitsChange={handleGdprHitsChange}
+              autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace}
+            />
           </div>
+
           <DialogFooter>
             <Button variant="outline" onClick={() => setGoalDialog(false)}>Avbryt</Button>
             <Button onClick={handleSaveGoal} disabled={createMaal.isPending}>Lagre mål</Button>
@@ -1302,9 +1416,10 @@ export default function RapportSkrivePage() {
 
       {/* MÅL-MALER */}
       <Dialog open={goalTplDialog} onOpenChange={setGoalTplDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Mål-maler</DialogTitle>
+            <DialogDescription>Velg ferdiglagede mål fra ulike kategorier og legg dem til samtidig.</DialogDescription>
           </DialogHeader>
           <div className="max-h-[60vh] overflow-y-auto space-y-4 py-2 pr-1">
             {["Hverdagsmestring","Sosialt","Skole / Arbeid","Psykisk helse","Aktivitet","Selvstendighet"].map((cat) => {
@@ -1341,9 +1456,10 @@ export default function RapportSkrivePage() {
 
       {/* LEGG TIL AKTIVITET */}
       <Dialog open={actDialog} onOpenChange={(open) => { setActDialog(open); if (!open) aktivitetForslag.nullstill(); }}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Legg til aktivitet</DialogTitle>
+            <DialogDescription>Registrer en aktivitet. Bruk AI-forslag eller lagrede maler for å spare tid.</DialogDescription>
             {(aktivitetMaler as any[]).length > 0 && (
               <button onClick={() => setMalDialog(true)} className="text-xs text-primary hover:text-primary/80 font-medium flex items-center gap-1 mt-1">
                 <Star className="h-3 w-3" /> Bruk lagret mal ({(aktivitetMaler as any[]).length})
@@ -1426,10 +1542,10 @@ export default function RapportSkrivePage() {
                 placeholder="ungdommen, bruker A…" value={actKlient} onChange={setActKlient} onHitsChange={handleGdprHitsChange} autoReplace={gdprAutoReplace} onEnableAutoReplace={toggleGdprAutoReplace} />
               <div className="space-y-1.5">
                 <Label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Knyttet til mål</Label>
-                <Select value={actMalId} onValueChange={setActMalId}>
+                <Select value={actMalId || "__none__"} onValueChange={(v) => setActMalId(v === "__none__" ? "" : v)}>
                   <SelectTrigger><SelectValue placeholder="— ingen —" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="">— ingen —</SelectItem>
+                    <SelectItem value="__none__">— ingen —</SelectItem>
                     {allGoals.map((g: any, i) => (
                       <SelectItem key={g.id ?? g.tempId} value={String(g.id ?? g.tempId)}>
                         Mål {i + 1}: {g.beskrivelse.substring(0, 30)}…
@@ -1467,7 +1583,10 @@ export default function RapportSkrivePage() {
       {/* AKTIVITETSMALER DIALOG */}
       <Dialog open={malDialog} onOpenChange={setMalDialog}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Mine aktivitetsmaler</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Mine aktivitetsmaler</DialogTitle>
+            <DialogDescription>Klikk en mal for å fylle ut aktiviteten raskt.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-2 py-2 max-h-[50vh] overflow-y-auto">
             {(aktivitetMaler as any[]).length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-4">Ingen lagrede maler ennå. Lagre en aktivitet som mal for å se den her.</p>
@@ -1505,7 +1624,10 @@ export default function RapportSkrivePage() {
       {/* KOPIER FRA FORRIGE RAPPORT */}
       <Dialog open={prevDialog} onOpenChange={setPrevDialog}>
         <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Kopier fra forrige rapport</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>Kopier fra forrige rapport</DialogTitle>
+            <DialogDescription>Gjenbruk prosjektinfo fra en tidligere godkjent rapport.</DialogDescription>
+          </DialogHeader>
           <div className="space-y-2 py-2 max-h-[50vh] overflow-y-auto">
             {(prevRapporter as any[]).filter((r: any) => r.status === "godkjent" && r.id !== rapportId).length === 0 ? (
               <p className="text-sm text-muted-foreground text-center py-6">Ingen godkjente rapporter å kopiere fra</p>
