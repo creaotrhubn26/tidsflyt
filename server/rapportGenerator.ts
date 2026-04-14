@@ -36,6 +36,20 @@ interface RapportData {
   rapport: any;
   aktiviteter: any[];
   maal: any[];
+  /** Optional template that drives dynamic section rendering */
+  rapportTemplate?: {
+    id: string;
+    name: string;
+    sections: Array<{
+      key: string;
+      title: string;
+      type: "rich_text" | "structured_observations" | "goals_list" | "activities_log" | "checklist" | "summary";
+      required?: boolean;
+      placeholder?: string;
+      helpText?: string;
+      items?: string[];
+    }>;
+  } | null;
 }
 
 // ── HELPERS ──────────────────────────────────────────────────────────────────
@@ -85,7 +99,8 @@ export async function generateRapportPDF(
   template: any | undefined,
   data: RapportData,
 ): Promise<Buffer> {
-  const { rapport: r, aktiviteter, maal } = data;
+  const { rapport: r, aktiviteter, maal, rapportTemplate } = data;
+  const dynamic = (r.dynamiskeFelter as Record<string, any>) ?? {};
 
   const branding: Branding = (template?.branding as Branding) ?? {};
   const tekster: Tekster = (template?.tekster as Tekster) ?? {};
@@ -429,6 +444,89 @@ export async function generateRapportPDF(
         doc.text(`${progress}%`, barX + barW + 6, y, { width: 30 });
 
         y += 18;
+      }
+    }
+
+    // ── TEMPLATE-DRIVEN SECTIONS ─────────────────────────────────────────
+    // Render any section from the active template that isn't already handled
+    // as a hardcoded section above (innledning, maal, aktiviteter, avslutning).
+    if (rapportTemplate?.sections) {
+      for (const section of rapportTemplate.sections) {
+        if (["innledning", "maal", "aktiviteter", "avslutning"].includes(section.key)) continue;
+
+        const val = dynamic[section.key];
+        // Skip empty sections to keep the PDF clean
+        if (!val || (Array.isArray(val) && val.length === 0) ||
+            (typeof val === "object" && !Array.isArray(val) && Object.keys(val).length === 0) ||
+            (typeof val === "string" && !val.trim())) {
+          continue;
+        }
+
+        sectionHeader(section.title);
+
+        if (section.type === "checklist" && section.items) {
+          // val is { [itemText]: { checked: boolean, note?: string } }
+          for (const item of section.items) {
+            const state = (val as Record<string, any>)[item] ?? { checked: false };
+            ensureSpace(16);
+            // Checkmark box
+            doc.save();
+            doc.roundedRect(left, y, 10, 10, 2).lineWidth(0.6).strokeColor(state.checked ? primary : "#D1D5DB").stroke();
+            if (state.checked) {
+              doc.fontSize(7).fillColor(primary).font("Helvetica-Bold");
+              doc.text("✓", left + 1, y, { width: 10, align: "center" });
+            }
+            doc.restore();
+
+            // Item text
+            doc.fontSize(9).fillColor("#111111").font("Helvetica");
+            doc.text(item, left + 16, y, { width: contentW - 16 });
+            y = doc.y + 2;
+
+            // Optional note
+            if (state.note?.trim()) {
+              doc.fontSize(8).fillColor("#6B7280").font("Helvetica-Oblique");
+              doc.text(state.note, left + 20, y, { width: contentW - 20 });
+              y = doc.y + 4;
+            } else {
+              y += 2;
+            }
+          }
+          y += 4;
+        } else if (section.type === "structured_observations") {
+          // val is ObservationEntry[]
+          const observations = Array.isArray(val) ? val : [];
+          for (let i = 0; i < observations.length; i++) {
+            const obs = observations[i];
+            ensureSpace(40);
+
+            // Number + date/area header
+            doc.save();
+            doc.circle(left + 6, y + 4, 6).fill(primary);
+            doc.fontSize(7).fillColor("#FFFFFF").font("Helvetica-Bold");
+            doc.text(String(i + 1), left, y, { width: 12, align: "center" });
+            doc.restore();
+
+            doc.fontSize(8).fillColor("#6B7280").font("Helvetica-Bold");
+            const headerText = `${formatDate(obs.date)} · ${obs.area ?? "—"}`;
+            doc.text(headerText, left + 18, y, { width: contentW - 18 });
+            y = doc.y + 2;
+
+            // Observation text
+            if (obs.text?.trim()) {
+              doc.fontSize(9).fillColor("#111111").font("Helvetica");
+              doc.text(obs.text, left + 18, y, { width: contentW - 18, lineGap: 2 });
+              y = doc.y + 6;
+            } else {
+              y += 4;
+            }
+          }
+        } else {
+          // rich_text / summary — plain paragraph
+          doc.fontSize(9).fillColor("#333333").font("Helvetica");
+          doc.text(String(val), left, y, { width: contentW, lineGap: 3 });
+          y = doc.y + 10;
+        }
       }
     }
 

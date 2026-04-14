@@ -13,7 +13,7 @@ import { eq, and, desc, inArray, sql, ilike } from "drizzle-orm";
 import {
   saker, rapporter, rapportMaal, rapportAktiviteter,
   rapportKommentarer, vendorTemplates, aktivitetMaler,
-  vendorInstitutions,
+  vendorInstitutions, rapportTemplates,
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
 } from "../shared/schema";
@@ -624,7 +624,11 @@ async function maybeForwardRapportToInstitution(rapportId: string): Promise<void
     ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, rapport.templateId)).limit(1))[0]
     : undefined;
 
-  const pdfBuffer = await generateRapportPDF(template, { rapport, aktiviteter, maal });
+  const rapportTemplate = rapport.rapportTemplateId
+    ? (await db.select().from(rapportTemplates).where(eq(rapportTemplates.id, rapport.rapportTemplateId)).limit(1))[0]
+    : null;
+
+  const pdfBuffer = await generateRapportPDF(template, { rapport, aktiviteter, maal, rapportTemplate: rapportTemplate as any });
   const periode = rapport.periodeFrom
     ? new Date(rapport.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
     : "ukjent periode";
@@ -892,7 +896,11 @@ rapportRouter.get("/:id/pdf", requireAuth, async (req: any, res) => {
       ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, r.templateId)).limit(1))[0]
       : undefined;
 
-    const pdfBuffer = await generateRapportPDF(template, { rapport: r, aktiviteter, maal });
+    const rapportTemplate = r.rapportTemplateId
+      ? (await db.select().from(rapportTemplates).where(eq(rapportTemplates.id, r.rapportTemplateId)).limit(1))[0]
+      : null;
+
+    const pdfBuffer = await generateRapportPDF(template, { rapport: r, aktiviteter, maal, rapportTemplate: rapportTemplate as any });
     res.set({
       "Content-Type": "application/pdf",
       "Content-Disposition": `attachment; filename="tidum-rapport-${r.periodeFrom ?? "ukjent"}.pdf"`,
