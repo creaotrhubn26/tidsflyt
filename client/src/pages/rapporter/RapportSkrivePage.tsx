@@ -37,6 +37,10 @@ import {
   Briefcase, Target, Activity, Pen, MessageSquare,
   XCircle, RotateCcw, Sparkles, Star, Loader2, BookmarkPlus,
   CalendarDays, List,
+  Home, Users, GraduationCap, Brain, Sprout,
+  UtensilsCrossed, Handshake, HeartPulse,
+  Flag, CalendarClock, Tag, X,
+  type LucideIcon,
 } from "lucide-react";
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -75,17 +79,26 @@ interface Activity {
 
 // ── GOAL TEMPLATES ───────────────────────────────────────────────────────────
 
-const GOAL_TEMPLATES = [
-  { cat: "Hverdagsmestring", icon: "🏠", title: "Daglige rutiner",    text: "Styrke daglige rutiner og strukturering av hverdagen gjennom ukentlig oppfølging" },
-  { cat: "Hverdagsmestring", icon: "🍳", title: "ADL-ferdigheter",    text: "Øke selvstendighet i ADL-ferdigheter — matlaging, innkjøp og enkel økonomiforståelse" },
-  { cat: "Sosialt",          icon: "👥", title: "Sosial integrering", text: "Sosial integrering gjennom deltakelse i fritidsaktiviteter og nettverksbygging" },
-  { cat: "Sosialt",          icon: "🤝", title: "Nettverksbygging",   text: "Bygge og vedlikeholde et stabilt sosialt nettverk med jevnaldrende" },
-  { cat: "Skole / Arbeid",   icon: "📚", title: "Skoleoppfølging",    text: "Regelmessig skoleoppfølging med fokus på oppmøte, lekser og trivsel" },
-  { cat: "Skole / Arbeid",   icon: "💼", title: "Arbeid / praksis",   text: "Etablere og opprettholde stabil deltakelse i arbeids- eller praksisplass" },
-  { cat: "Psykisk helse",    icon: "🧠", title: "Mestringsstrategier",text: "Utvikle og bruke mestringsstrategier ved utfordrende situasjoner og stress" },
-  { cat: "Psykisk helse",    icon: "🏥", title: "Hjelpetjenester",    text: "Regelmessig oppfølging av relevante hjelpetjenester (lege, BUP, NAV)" },
-  { cat: "Aktivitet",        icon: "🏃", title: "Fysisk aktivitet",   text: "Øke fysisk aktivitetsnivå gjennom regelmessig deltakelse i organiserte aktiviteter" },
-  { cat: "Selvstendighet",   icon: "🌱", title: "Økt selvstendighet", text: "Øke grad av selvstendighet i hverdagen — ta egne valg og løse praktiske problemer" },
+const GOAL_TEMPLATES: { cat: string; icon: LucideIcon; title: string; text: string }[] = [
+  { cat: "Hverdagsmestring", icon: Home,              title: "Daglige rutiner",    text: "Styrke daglige rutiner og strukturering av hverdagen gjennom ukentlig oppfølging" },
+  { cat: "Hverdagsmestring", icon: UtensilsCrossed,   title: "ADL-ferdigheter",    text: "Øke selvstendighet i ADL-ferdigheter — matlaging, innkjøp og enkel økonomiforståelse" },
+  { cat: "Sosialt",          icon: Users,             title: "Sosial integrering", text: "Sosial integrering gjennom deltakelse i fritidsaktiviteter og nettverksbygging" },
+  { cat: "Sosialt",          icon: Handshake,         title: "Nettverksbygging",   text: "Bygge og vedlikeholde et stabilt sosialt nettverk med jevnaldrende" },
+  { cat: "Skole / Arbeid",   icon: GraduationCap,     title: "Skoleoppfølging",    text: "Regelmessig skoleoppfølging med fokus på oppmøte, lekser og trivsel" },
+  { cat: "Skole / Arbeid",   icon: Briefcase,         title: "Arbeid / praksis",   text: "Etablere og opprettholde stabil deltakelse i arbeids- eller praksisplass" },
+  { cat: "Psykisk helse",    icon: Brain,             title: "Mestringsstrategier",text: "Utvikle og bruke mestringsstrategier ved utfordrende situasjoner og stress" },
+  { cat: "Psykisk helse",    icon: HeartPulse,        title: "Hjelpetjenester",    text: "Regelmessig oppfølging av relevante hjelpetjenester (lege, BUP, NAV)" },
+  { cat: "Aktivitet",        icon: Activity,          title: "Fysisk aktivitet",   text: "Øke fysisk aktivitetsnivå gjennom regelmessig deltakelse i organiserte aktiviteter" },
+  { cat: "Selvstendighet",   icon: Sprout,            title: "Økt selvstendighet", text: "Øke grad av selvstendighet i hverdagen — ta egne valg og løse praktiske problemer" },
+];
+
+const BUILT_IN_GOAL_CATEGORIES: { cat: string; icon: LucideIcon }[] = [
+  { cat: "Hverdagsmestring", icon: Home },
+  { cat: "Sosialt",          icon: Users },
+  { cat: "Skole / Arbeid",   icon: GraduationCap },
+  { cat: "Psykisk helse",    icon: Brain },
+  { cat: "Aktivitet",        icon: Activity },
+  { cat: "Selvstendighet",   icon: Sprout },
 ];
 
 // ── GDPR FIELD COMPONENT ──────────────────────────────────────────────────────
@@ -333,6 +346,34 @@ export default function RapportSkrivePage() {
   const [newGoalType,    setNewGoalType]    = useState<"langsiktig" | "kortsiktig" | "delmål">("kortsiktig");
   const [newGoalFrist,   setNewGoalFrist]   = useState("");
   const [newGoalIndikator, setNewGoalIndikator] = useState("");
+
+  // Custom goal categories (persisted in localStorage)
+  const [customGoalCats, setCustomGoalCats] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem("custom-goal-cats") ?? "[]"); } catch { return []; }
+  });
+  const [showAddCatInput, setShowAddCatInput] = useState(false);
+  const [newCatName, setNewCatName] = useState("");
+
+  const persistCustomCats = (cats: string[]) => {
+    setCustomGoalCats(cats);
+    localStorage.setItem("custom-goal-cats", JSON.stringify(cats));
+  };
+  const addCustomCat = () => {
+    const trimmed = newCatName.trim();
+    if (!trimmed) return;
+    if (BUILT_IN_GOAL_CATEGORIES.some(c => c.cat === trimmed) || customGoalCats.includes(trimmed)) {
+      toast({ title: "Kategorien finnes allerede", variant: "destructive" });
+      return;
+    }
+    persistCustomCats([...customGoalCats, trimmed]);
+    setNewGoalCat(trimmed);
+    setNewCatName("");
+    setShowAddCatInput(false);
+  };
+  const removeCustomCat = (cat: string) => {
+    persistCustomCats(customGoalCats.filter(c => c !== cat));
+    if (newGoalCat === cat) setNewGoalCat("Hverdagsmestring");
+  };
 
   // ── New activity form
   const [actDato,   setActDato]   = useState(new Date().toISOString().split("T")[0]);
@@ -1295,15 +1336,8 @@ export default function RapportSkrivePage() {
             {/* Kategori — hurtigvalg */}
             <div className="space-y-2">
               <Label>Kategori</Label>
-              <div className="grid grid-cols-3 gap-2">
-                {[
-                  { cat: "Hverdagsmestring", icon: "🏠" },
-                  { cat: "Sosialt",          icon: "👥" },
-                  { cat: "Skole / Arbeid",   icon: "📚" },
-                  { cat: "Psykisk helse",    icon: "🧠" },
-                  { cat: "Aktivitet",        icon: "🏃" },
-                  { cat: "Selvstendighet",   icon: "🌱" },
-                ].map(({ cat, icon }) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
+                {BUILT_IN_GOAL_CATEGORIES.map(({ cat, icon: Icon }) => (
                   <button
                     key={cat}
                     type="button"
@@ -1312,10 +1346,56 @@ export default function RapportSkrivePage() {
                       newGoalCat === cat ? "border-primary bg-primary/5 text-foreground" : "hover:bg-muted/50 text-muted-foreground"
                     }`}
                   >
-                    <span className="text-base">{icon}</span>
+                    <Icon className="h-4 w-4 flex-shrink-0" />
                     <span className="flex-1 text-left font-medium">{cat}</span>
                   </button>
                 ))}
+                {customGoalCats.map((cat) => (
+                  <div
+                    key={cat}
+                    className={`flex items-center gap-2 rounded-lg border p-2.5 text-sm transition-colors group ${
+                      newGoalCat === cat ? "border-primary bg-primary/5 text-foreground" : "hover:bg-muted/50 text-muted-foreground"
+                    }`}
+                  >
+                    <button type="button" onClick={() => setNewGoalCat(cat)} className="flex items-center gap-2 flex-1 min-w-0">
+                      <Tag className="h-4 w-4 flex-shrink-0" />
+                      <span className="flex-1 text-left font-medium truncate">{cat}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); removeCustomCat(cat); }}
+                      className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-opacity flex-shrink-0"
+                      aria-label={`Slett kategori ${cat}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+
+                {/* Add custom category */}
+                {showAddCatInput ? (
+                  <div className="col-span-2 md:col-span-3 flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/5 p-2">
+                    <Input
+                      value={newCatName}
+                      onChange={(e) => setNewCatName(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addCustomCat(); } if (e.key === "Escape") { setShowAddCatInput(false); setNewCatName(""); } }}
+                      placeholder="Navn på ny kategori…"
+                      className="h-8 text-sm flex-1"
+                      autoFocus
+                    />
+                    <Button size="sm" onClick={addCustomCat} disabled={!newCatName.trim()}>Legg til</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { setShowAddCatInput(false); setNewCatName(""); }}>Avbryt</Button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCatInput(true)}
+                    className="flex items-center gap-2 rounded-lg border border-dashed p-2.5 text-sm text-muted-foreground hover:border-primary hover:text-primary hover:bg-primary/5 transition-colors"
+                  >
+                    <Plus className="h-4 w-4 flex-shrink-0" />
+                    <span className="flex-1 text-left font-medium">Ny kategori</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1334,9 +1414,15 @@ export default function RapportSkrivePage() {
                 <Select value={newGoalType} onValueChange={(v: any) => setNewGoalType(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="langsiktig">📅 Langsiktig mål (6+ mnd)</SelectItem>
-                    <SelectItem value="kortsiktig">📆 Kortsiktig mål (1-3 mnd)</SelectItem>
-                    <SelectItem value="delmål">🎯 Delmål (uker)</SelectItem>
+                    <SelectItem value="langsiktig">
+                      <span className="flex items-center gap-2"><CalendarDays className="h-3.5 w-3.5" /> Langsiktig mål (6+ mnd)</span>
+                    </SelectItem>
+                    <SelectItem value="kortsiktig">
+                      <span className="flex items-center gap-2"><CalendarClock className="h-3.5 w-3.5" /> Kortsiktig mål (1-3 mnd)</span>
+                    </SelectItem>
+                    <SelectItem value="delmål">
+                      <span className="flex items-center gap-2"><Target className="h-3.5 w-3.5" /> Delmål (uker)</span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1345,9 +1431,15 @@ export default function RapportSkrivePage() {
                 <Select value={newGoalPriority} onValueChange={(v: any) => setNewGoalPriority(v)}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="høy">🔴 Høy</SelectItem>
-                    <SelectItem value="middels">🟡 Middels</SelectItem>
-                    <SelectItem value="lav">🟢 Lav</SelectItem>
+                    <SelectItem value="høy">
+                      <span className="flex items-center gap-2"><Flag className="h-3.5 w-3.5 text-red-500" /> Høy</span>
+                    </SelectItem>
+                    <SelectItem value="middels">
+                      <span className="flex items-center gap-2"><Flag className="h-3.5 w-3.5 text-amber-500" /> Middels</span>
+                    </SelectItem>
+                    <SelectItem value="lav">
+                      <span className="flex items-center gap-2"><Flag className="h-3.5 w-3.5 text-emerald-500" /> Lav</span>
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -1429,14 +1521,17 @@ export default function RapportSkrivePage() {
                 <div key={cat}>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-2">{cat}</p>
                   <div className="space-y-2">
-                    {catGoals.map(({ icon, title, text, index }) => (
+                    {catGoals.map(({ icon: Icon, title, text, index }) => (
                       <label key={index} className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${selectedGoalTpls.has(index) ? "border-primary bg-primary/5" : "hover:bg-muted/50"}`}>
                         <Checkbox checked={selectedGoalTpls.has(index)} onCheckedChange={(checked) => {
                           setSelectedGoalTpls(prev => { const s = new Set(prev); checked ? s.add(index) : s.delete(index); return s; });
                         }} className="mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium">{icon} {title}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{text}</p>
+                        <div className="flex items-start gap-2 flex-1">
+                          <Icon className="h-4 w-4 text-primary flex-shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium">{title}</p>
+                            <p className="text-xs text-muted-foreground mt-0.5">{text}</p>
+                          </div>
                         </div>
                       </label>
                     ))}
