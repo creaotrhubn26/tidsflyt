@@ -160,9 +160,22 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const { openCompose } = useCompose();
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0); // 0=welcome, 1=profile confirm, 2=role-based steps
+  // Synchronous local cache for first paint, then hydrated from server below
   const [onboardingCompleted, setOnboardingCompleted] = useState(() => {
     try { return localStorage.getItem("tidum_onboarding_done") === "1"; } catch { return false; }
   });
+  useEffect(() => {
+    fetch("/api/user-state/settings", { credentials: "include" })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data && typeof data.onboardingCompleted === "boolean") {
+          setOnboardingCompleted(data.onboardingCompleted);
+          // Sync local mirror so next page load is instant + correct
+          try { localStorage.setItem("tidum_onboarding_done", data.onboardingCompleted ? "1" : "0"); } catch {}
+        }
+      })
+      .catch(() => { /* offline tolerated */ });
+  }, []);
   const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
   const { user: authUser, isLoading: authLoading } = useAuth();
   const {
@@ -896,10 +909,16 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
               </Button>
             ) : (
               <Button onClick={() => { 
-                setIsGettingStartedOpen(false); 
+                setIsGettingStartedOpen(false);
                 setOnboardingStep(0);
                 setOnboardingCompleted(true);
                 try { localStorage.setItem("tidum_onboarding_done", "1"); } catch {}
+                fetch("/api/user-state/settings", {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({ onboardingCompleted: true }),
+                }).catch(() => { /* offline tolerated, will retry next session */ });
               }}>
                 Fullfør
               </Button>

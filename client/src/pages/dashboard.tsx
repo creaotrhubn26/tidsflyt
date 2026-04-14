@@ -145,28 +145,43 @@ interface DashboardPrefs {
 }
 
 const PREFS_KEY = "tidum-dashboard-prefs";
+const DEFAULT_PREFS: DashboardPrefs = {
+  showTasks: true, showGoals: true, showInsights: true,
+  compactMode: false, cardStyle: 'default',
+};
 
-function loadPrefs(): DashboardPrefs {
+// Load order: server (cross-device) → localStorage cache → defaults.
+// Synchronous read uses local cache; async sync replaces it on mount.
+function loadPrefsSync(): DashboardPrefs {
   try {
     const raw = localStorage.getItem(PREFS_KEY);
-    if (raw) {
-      return {
-        showTasks: true,
-        showGoals: true,
-        showInsights: true,
-        compactMode: false,
-        cardStyle: 'default' as const,
-        ...JSON.parse(raw),
-      };
-    }
+    if (raw) return { ...DEFAULT_PREFS, ...JSON.parse(raw) };
   } catch { /* ignore */ }
-  return { showTasks: true, showGoals: true, showInsights: true, compactMode: false, cardStyle: 'default' as const };
+  return DEFAULT_PREFS;
 }
 
 function savePrefs(prefs: DashboardPrefs) {
+  // Local mirror for instant load on next visit
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* ignore */ }
+  // Server (best-effort, retried by react-query elsewhere)
+  fetch("/api/user-state/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ dashboardPrefs: prefs }),
+  }).catch(() => { /* offline tolerated */ });
+}
+
+async function loadPrefsFromServer(): Promise<DashboardPrefs | null> {
   try {
-    localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+    const res = await fetch("/api/user-state/settings", { credentials: "include" });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (data?.dashboardPrefs && typeof data.dashboardPrefs === "object" && Object.keys(data.dashboardPrefs).length > 0) {
+      return { ...DEFAULT_PREFS, ...data.dashboardPrefs };
+    }
   } catch { /* ignore */ }
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -180,7 +195,14 @@ export default function DashboardPage() {
   const { settings: suggestionSettings } = useSuggestionSettings();
   const queryClient = useQueryClient();
   const [timeRange, setTimeRange] = useState<TimeRange>("week");
-  const [prefs, setPrefs] = useState<DashboardPrefs>(loadPrefs);
+  const [prefs, setPrefs] = useState<DashboardPrefs>(loadPrefsSync);
+
+  // Hydrate from server (overrides local cache) on mount
+  useEffect(() => {
+    loadPrefsFromServer().then(server => {
+      if (server) setPrefs(server);
+    });
+  }, []);
   const { theme, setTheme } = useTheme();
   const [isDashboardSuggestionDismissed, setIsDashboardSuggestionDismissed] = useState(false);
   const [isDashboardCaseSuggestionDismissed, setIsDashboardCaseSuggestionDismissed] = useState(false);

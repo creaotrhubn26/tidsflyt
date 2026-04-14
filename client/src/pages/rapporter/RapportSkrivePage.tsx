@@ -15,6 +15,8 @@ import { useGdprChecker, ANONYMOUS_SUGGESTIONS } from "@/hooks/useGdprChecker";
 import { useAktivitetForslag } from "@/hooks/use-aktivitet-forslag";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { useAuth } from "@/hooks/use-auth";
+import { useUserSettings } from "@/hooks/use-user-settings";
+import { useGoalCategories } from "@/hooks/use-goal-categories";
 
 // shadcn/ui
 import { Button }   from "@/components/ui/button";
@@ -330,10 +332,11 @@ export default function RapportSkrivePage() {
   const [prevDialog,       setPrevDialog]        = useState(false);
   const [selectedGoalTpls, setSelectedGoalTpls]  = useState<Set<number>>(new Set());
 
-  // ── GDPR auto-replace toggle (persisted in localStorage)
-  const [gdprAutoReplace, setGdprAutoReplace] = useState(() => localStorage.getItem("gdpr-auto-replace") === "true");
+  // ── GDPR auto-replace toggle (persisted in user_settings)
+  const { settings: userSettings, update: updateUserSettings } = useUserSettings();
+  const gdprAutoReplace = userSettings.gdprAutoReplace;
   const toggleGdprAutoReplace = () => {
-    setGdprAutoReplace(prev => { const next = !prev; localStorage.setItem("gdpr-auto-replace", String(next)); return next; });
+    updateUserSettings({ gdprAutoReplace: !gdprAutoReplace });
   };
 
   // ── New goal form
@@ -347,31 +350,32 @@ export default function RapportSkrivePage() {
   const [newGoalFrist,   setNewGoalFrist]   = useState("");
   const [newGoalIndikator, setNewGoalIndikator] = useState("");
 
-  // Custom goal categories (persisted in localStorage)
-  const [customGoalCats, setCustomGoalCats] = useState<string[]>(() => {
-    try { return JSON.parse(localStorage.getItem("custom-goal-cats") ?? "[]"); } catch { return []; }
-  });
+  // Custom goal categories (persisted server-side, synced across devices)
+  const { categories: customGoalCatsRaw, addCategory, removeCategory } = useGoalCategories();
+  const customGoalCats = customGoalCatsRaw.map(c => c.navn);
   const [showAddCatInput, setShowAddCatInput] = useState(false);
   const [newCatName, setNewCatName] = useState("");
 
-  const persistCustomCats = (cats: string[]) => {
-    setCustomGoalCats(cats);
-    localStorage.setItem("custom-goal-cats", JSON.stringify(cats));
-  };
-  const addCustomCat = () => {
+  const addCustomCat = async () => {
     const trimmed = newCatName.trim();
     if (!trimmed) return;
     if (BUILT_IN_GOAL_CATEGORIES.some(c => c.cat === trimmed) || customGoalCats.includes(trimmed)) {
       toast({ title: "Kategorien finnes allerede", variant: "destructive" });
       return;
     }
-    persistCustomCats([...customGoalCats, trimmed]);
-    setNewGoalCat(trimmed);
-    setNewCatName("");
-    setShowAddCatInput(false);
+    try {
+      await addCategory(trimmed);
+      setNewGoalCat(trimmed);
+      setNewCatName("");
+      setShowAddCatInput(false);
+    } catch (e) {
+      toast({ title: "Kunne ikke lagre kategori", description: String(e), variant: "destructive" });
+    }
   };
   const removeCustomCat = (cat: string) => {
-    persistCustomCats(customGoalCats.filter(c => c !== cat));
+    const found = customGoalCatsRaw.find(c => c.navn === cat);
+    if (!found) return;
+    removeCategory(found.id);
     if (newGoalCat === cat) setNewGoalCat("Hverdagsmestring");
   };
 

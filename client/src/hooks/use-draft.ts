@@ -71,32 +71,53 @@ export function useDraft<T extends Record<string, any>>(
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const skipNextSave = useRef(false);
 
-  // ── Storage helpers (stable across renders via storageKey) ───────────────
+  // ── Storage helpers ──────────────────────────────────────────────────────
+  // Primary: server (cross-device persistence). Fallback: localStorage (offline).
 
   const save = useCallback(
-    (data: T, id: number | null) => {
+    async (data: T, id: number | null) => {
       if (!hasContent(data)) {
         setIsAutoSaving(false);
         return;
       }
+      const draft: SavedDraft<T> = {
+        formData: data,
+        editingId: id,
+        savedAt: new Date().toISOString(),
+      };
+      // Local fallback (always write, even if server fails)
+      try { localStorage.setItem(storageKey, JSON.stringify(draft)); } catch { /* quota */ }
+      // Server upsert
       try {
-        const draft: SavedDraft<T> = {
-          formData: data,
-          editingId: id,
-          savedAt: new Date().toISOString(),
-        };
-        localStorage.setItem(storageKey, JSON.stringify(draft));
-        setLastSavedAt(draft.savedAt);
-      } catch {
-        /* quota exceeded – ignore */
-      } finally {
-        setIsAutoSaving(false);
-      }
+        const expiresAt = new Date(Date.now() + expirationDays * 24 * 60 * 60 * 1000).toISOString();
+        await fetch(`/api/user-state/drafts/${encodeURIComponent(storageKey)}`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ payload: data, editingId: id, expiresAt }),
+        });
+      } catch { /* offline — local copy is the safety net */ }
+      setLastSavedAt(draft.savedAt);
+      setIsAutoSaving(false);
     },
-    [storageKey, hasContent],
+    [storageKey, hasContent, expirationDays],
   );
 
-  const load = useCallback((): SavedDraft<T> | null => {
+  const load = useCallback(async (): Promise<SavedDraft<T> | null> => {
+    // Try server first (latest cross-device draft), fall back to local
+    try {
+      const res = await fetch(`/api/user-state/drafts/${encodeURIComponent(storageKey)}`, { credentials: "include" });
+      if (res.ok) {
+        const row = await res.json();
+        if (row?.payload) {
+          return {
+            formData: row.payload as T,
+            editingId: row.editingId ?? null,
+            savedAt: row.savedAt ?? new Date().toISOString(),
+          };
+        }
+      }
+    } catch { /* fall through to local */ }
     try {
       const raw = localStorage.getItem(storageKey);
       if (!raw) return null;
@@ -115,16 +136,22 @@ export function useDraft<T extends Record<string, any>>(
 
   const clear = useCallback(() => {
     localStorage.removeItem(storageKey);
+    fetch(`/api/user-state/drafts/${encodeURIComponent(storageKey)}`, {
+      method: "DELETE",
+      credentials: "include",
+    }).catch(() => { /* best-effort */ });
   }, [storageKey]);
 
   // ── Check for a saved draft on mount ────────────────────────────────────
 
   useEffect(() => {
-    const draft = load();
-    if (draft) {
+    let cancelled = false;
+    load().then(draft => {
+      if (cancelled || !draft) return;
       setPendingDraft(draft);
       setDraftDialogOpen(true);
-    }
+    });
+    return () => { cancelled = true; };
     // Run once on mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -140,8 +140,30 @@ export const userSettings = pgTable("user_settings", {
   viewMode: text("view_mode").default("month"),
   language: text("language").default("no"),
   gdprAutoReplace: boolean("gdpr_auto_replace").default(false),
+  onboardingCompleted: boolean("onboarding_completed").default(false),
+  dashboardPrefs: jsonb("dashboard_prefs").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// User-defined goal categories (replaces localStorage "custom-goal-cats")
+export const userGoalCategories = pgTable("user_goal_categories", {
+  id:        uuid("id").defaultRandom().primaryKey(),
+  userId:    integer("user_id").notNull(),
+  navn:      text("navn").notNull(),
+  ikon:      text("ikon"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+// Form drafts per user (replaces localStorage drafts in use-draft.ts)
+export const userDrafts = pgTable("user_drafts", {
+  id:         uuid("id").defaultRandom().primaryKey(),
+  userId:     integer("user_id").notNull(),
+  storageKey: text("storage_key").notNull(),
+  payload:    jsonb("payload").notNull(),
+  editingId:  integer("editing_id"),
+  savedAt:    timestamp("saved_at").notNull().defaultNow(),
+  expiresAt:  timestamp("expires_at"),
 });
 
 // Activity templates: saved favorites per user

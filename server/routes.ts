@@ -15,6 +15,7 @@ import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
 import { registerNotificationRoutes, createNotification, notifyByRole } from "./routes/notification-routes";
 import { sakerRouter, rapportRouter } from "./sakerRapportRoutes";
+import { userStateRouter } from "./userStateRoutes";
 import { emailService } from "./lib/email-service";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
@@ -6318,6 +6319,7 @@ export async function registerRoutes(
   // Rapport-system routes
   app.use("/api/saker", sakerRouter);
   app.use("/api/rapporter", rapportRouter);
+  app.use("/api/user-state", userStateRouter);
 
   // Vendor org-info for auto-fill in rapport pages
   app.get("/api/vendor/org-info", isAuthenticated, async (req: any, res) => {
