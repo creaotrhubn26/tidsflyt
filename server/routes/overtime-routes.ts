@@ -34,7 +34,8 @@ export function registerOvertimeRoutes(app: Express) {
         .where(eq(overtimeSettings.userId, userId))
         .limit(1);
 
-      // Return defaults if not found
+      // Return defaults if not found — trackOvertime defaults to true so
+      // overtime works out of the box until a tiltaksleder disables it.
       if (!settings) {
         return res.json({
           userId,
@@ -101,6 +102,15 @@ export function registerOvertimeRoutes(app: Express) {
         .from(overtimeSettings)
         .where(eq(overtimeSettings.userId, userId))
         .limit(1);
+
+      // Honour per-user disable switch: a tiltaksleder can turn overtime
+      // registration off for a specific user via track_overtime = false.
+      if (settings && settings.trackOvertime === false) {
+        return res.status(403).json({
+          error: 'Overtidsberegning er deaktivert for denne brukeren',
+          code: 'OVERTIME_DISABLED',
+        });
+      }
 
       const standardHoursPerDay = parseFloat(settings?.standardHoursPerDay || '7.5');
       const doubleTimeThreshold = settings?.doubleTimeThreshold

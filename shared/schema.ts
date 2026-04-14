@@ -1656,6 +1656,7 @@ export const recurringEntries = pgTable("recurring_entries", {
   recurrenceDayOfMonth: integer("recurrence_day_of_month"),
   startDate: text("start_date").notNull(),
   endDate: text("end_date"),
+  startTime: text("start_time").default("09:00"),
   isActive: boolean("is_active").default(true),
   lastGeneratedDate: text("last_generated_date"),
   createdAt: timestamp("created_at").defaultNow(),

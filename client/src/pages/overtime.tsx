@@ -24,6 +24,7 @@ import {
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
+import { Switch } from "@/components/ui/switch";
 
 interface OvertimeSettings {
   userId: string;
@@ -31,6 +32,7 @@ interface OvertimeSettings {
   standardHoursPerWeek: string;
   overtimeRateMultiplier: string;
   doubleTimeThreshold: string | null;
+  trackOvertime: boolean;
 }
 
 interface OvertimeEntry {
@@ -80,6 +82,7 @@ export default function OvertimePage() {
   const [weeklyThreshold, setWeeklyThreshold] = useState("37.5");
   const [rate150, setRate150] = useState("1.5");
   const [doubleTimeThreshold, setDoubleTimeThreshold] = useState("");
+  const [trackOvertimeToggle, setTrackOvertimeToggle] = useState(true);
 
   // Date range derived from view mode
   const { rangeStart, rangeEnd, rangeLabel, prev, next } = useMemo(() => {
@@ -215,7 +218,10 @@ export default function OvertimePage() {
     setWeeklyThreshold(settings.standardHoursPerWeek || "37.5");
     setRate150(settings.overtimeRateMultiplier || "1.5");
     setDoubleTimeThreshold(settings.doubleTimeThreshold ?? "");
+    setTrackOvertimeToggle(settings.trackOvertime ?? true);
   }, [settings]);
+
+  const overtimeDisabled = settings?.trackOvertime === false;
 
   const handleSaveSettings = () => {
     updateSettings.mutate({
@@ -223,6 +229,7 @@ export default function OvertimePage() {
       standardHoursPerWeek: weeklyThreshold,
       overtimeRateMultiplier: rate150,
       doubleTimeThreshold: doubleTimeThreshold || null,
+      trackOvertime: trackOvertimeToggle,
     });
   };
 
@@ -258,6 +265,16 @@ export default function OvertimePage() {
                     <DialogDescription>Sett terskelverdier og satser for overtidsberegning</DialogDescription>
                   </DialogHeader>
                   <div className="space-y-4">
+                    {/* Master on/off toggle */}
+                    <div className="flex items-center justify-between rounded-lg border p-3">
+                      <div>
+                        <Label htmlFor="trackOvertime" className="text-base">Registrering aktiv</Label>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Skru av for å deaktivere overtidsberegning og -registrering for denne brukeren.
+                        </p>
+                      </div>
+                      <Switch id="trackOvertime" checked={trackOvertimeToggle} onCheckedChange={setTrackOvertimeToggle} />
+                    </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
                         <Label htmlFor="dailyThreshold">Daglig terskel (timer)</Label>
@@ -291,12 +308,29 @@ export default function OvertimePage() {
               </Dialog>
             )}
 
-            <Button onClick={() => calculate.mutate()} disabled={calculate.isPending || !userId}>
+            <Button
+              onClick={() => calculate.mutate()}
+              disabled={calculate.isPending || !userId || overtimeDisabled}
+              title={overtimeDisabled ? "Overtid er deaktivert — kontakt tiltaksleder" : undefined}
+            >
               <TrendingUp className="h-4 w-4 mr-2" />
               Beregn overtid
             </Button>
           </div>
         </div>
+
+        {/* Disabled banner */}
+        {overtimeDisabled && (
+          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
+            <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div>
+              <span className="font-semibold">Overtidsregistrering er deaktivert</span>
+              <p className="text-xs mt-1 opacity-80">
+                Din tiltaksleder har skrudd av overtidsberegning for din bruker. Kontakt tiltaksleder om du mener det er feil.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* View mode toggle & range picker */}
         <Card>

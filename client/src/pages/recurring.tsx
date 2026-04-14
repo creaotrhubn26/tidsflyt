@@ -29,15 +29,30 @@ interface RecurringEntry {
   description: string | null;
   activity: string;
   project: string | null;
-  hours: number;
+  place: string | null;
+  hours: string | number;
+  startTime: string | null;
   recurrenceType: "daily" | "weekly" | "monthly";
-  recurrenceDays: string[] | null;
-  recurrenceDay: number | null;
+  recurrenceDays: string[] | string | null;
+  recurrenceDayOfMonth: number | null;
   startDate: string;
   endDate: string | null;
   isActive: boolean;
+  lastGeneratedDate: string | null;
   createdAt: string;
 }
+
+// Normalise entry from server: recurrenceDays comes back as a JSON string
+function parseRecurringDays(v: string | string[] | null): string[] {
+  if (!v) return [];
+  if (Array.isArray(v)) return v;
+  try { const arr = JSON.parse(v); return Array.isArray(arr) ? arr : []; } catch { return []; }
+}
+
+const DAY_LABELS: Record<string, string> = {
+  monday: "mandag", tuesday: "tirsdag", wednesday: "onsdag",
+  thursday: "torsdag", friday: "fredag", saturday: "lørdag", sunday: "søndag",
+};
 
 const WEEKDAYS = [
   { value: "monday", label: "Mandag" },
@@ -62,6 +77,7 @@ export default function RecurringPage() {
   const [activity, setActivity] = useState("");
   const [project, setProject] = useState("");
   const [hours, setHours] = useState("1");
+  const [startTime, setStartTime] = useState("09:00");
   const [recurrenceType, setRecurrenceType] = useState<"daily" | "weekly" | "monthly">("weekly");
   const [selectedDays, setSelectedDays] = useState<string[]>(["monday", "wednesday", "friday"]);
   const [monthlyDay, setMonthlyDay] = useState("1");
@@ -171,6 +187,7 @@ export default function RecurringPage() {
     setActivity("");
     setProject("");
     setHours("1");
+    setStartTime("09:00");
     setRecurrenceType("weekly");
     setSelectedDays(["monday", "wednesday", "friday"]);
     setMonthlyDay("1");
@@ -182,15 +199,21 @@ export default function RecurringPage() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
+    if (recurrenceType === "weekly" && selectedDays.length === 0) {
+      toast({ title: "Velg minst én dag", description: "Ukentlige oppgaver trenger minst én dag", variant: "destructive" });
+      return;
+    }
+
     const data = {
       title,
       description: description || null,
       activity,
       project: project || null,
       hours: parseFloat(hours),
+      startTime,
       recurrenceType,
       recurrenceDays: recurrenceType === "weekly" ? selectedDays : null,
-      recurrenceDay: recurrenceType === "monthly" ? parseInt(monthlyDay) : null,
+      recurrenceDayOfMonth: recurrenceType === "monthly" ? parseInt(monthlyDay) : null,
       startDate: format(startDate, "yyyy-MM-dd"),
       endDate: endDate ? format(endDate, "yyyy-MM-dd") : null,
     };
@@ -208,10 +231,11 @@ export default function RecurringPage() {
     setDescription(entry.description || "");
     setActivity(entry.activity);
     setProject(entry.project || "");
-    setHours(entry.hours.toString());
+    setHours(String(entry.hours));
+    setStartTime(entry.startTime || "09:00");
     setRecurrenceType(entry.recurrenceType);
-    setSelectedDays(entry.recurrenceDays || []);
-    setMonthlyDay(entry.recurrenceDay?.toString() || "1");
+    setSelectedDays(parseRecurringDays(entry.recurrenceDays));
+    setMonthlyDay(entry.recurrenceDayOfMonth?.toString() || "1");
     setStartDate(new Date(entry.startDate));
     setEndDate(entry.endDate ? new Date(entry.endDate) : undefined);
     setIsDialogOpen(true);
@@ -232,9 +256,10 @@ export default function RecurringPage() {
     setActivity(latestEntryTemplate.activity);
     setProject(latestEntryTemplate.project || "");
     setHours(String(latestEntryTemplate.hours));
+    setStartTime(latestEntryTemplate.startTime || "09:00");
     setRecurrenceType(latestEntryTemplate.recurrenceType);
-    setSelectedDays(latestEntryTemplate.recurrenceDays || []);
-    setMonthlyDay(String(latestEntryTemplate.recurrenceDay || 1));
+    setSelectedDays(parseRecurringDays(latestEntryTemplate.recurrenceDays));
+    setMonthlyDay(String(latestEntryTemplate.recurrenceDayOfMonth || 1));
     setStartDate(new Date());
     setEndDate(undefined);
 
@@ -352,19 +377,32 @@ export default function RecurringPage() {
                     </div>
                   </div>
 
-                  {/* Hours */}
-                  <div>
-                    <Label htmlFor="hours">Timer *</Label>
-                    <Input
-                      id="hours"
-                      type="number"
-                      step="0.25"
-                      min="0.25"
-                      max="24"
-                      value={hours}
-                      onChange={(e) => setHours(e.target.value)}
-                      required
-                    />
+                  {/* Start time + Hours */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="startTime">Starttid *</Label>
+                      <Input
+                        id="startTime"
+                        type="time"
+                        step="300"
+                        value={startTime}
+                        onChange={(e) => setStartTime(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="hours">Timer *</Label>
+                      <Input
+                        id="hours"
+                        type="number"
+                        step="0.25"
+                        min="0.25"
+                        max="24"
+                        value={hours}
+                        onChange={(e) => setHours(e.target.value)}
+                        required
+                      />
+                    </div>
                   </div>
 
                   {/* Recurrence Type */}
@@ -422,6 +460,11 @@ export default function RecurringPage() {
                         onChange={(e) => setMonthlyDay(e.target.value)}
                         required
                       />
+                      {parseInt(monthlyDay) >= 29 && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          Merk: Dag {monthlyDay} finnes ikke i alle måneder. Måneder uten dag {monthlyDay} bruker siste dag i måneden.
+                        </p>
+                      )}
                     </div>
                   )}
 
@@ -593,34 +636,45 @@ export default function RecurringPage() {
                   </div>
                 </CardHeader>
                 <CardContent>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-4 text-sm">
                     <div>
-                      <span className="text-muted-foreground">Aktivitet:</span>
-                      <p className="font-medium">{entry.activity}</p>
+                      <span className="text-muted-foreground text-xs">Aktivitet</span>
+                      <p className="font-medium">{entry.activity || "—"}</p>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Prosjekt:</span>
+                      <span className="text-muted-foreground text-xs">Prosjekt</span>
                       <p className="font-medium">{entry.project || "—"}</p>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Timer:</span>
-                      <p className="font-medium">{entry.hours}t</p>
+                      <span className="text-muted-foreground text-xs">Tid</span>
+                      <p className="font-medium">{entry.startTime || "09:00"} · {entry.hours}t</p>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Mønster:</span>
+                      <span className="text-muted-foreground text-xs">Mønster</span>
                       <p className="font-medium">
                         {entry.recurrenceType === "daily" && "Daglig"}
-                        {entry.recurrenceType === "weekly" && `Hver ${entry.recurrenceDays?.join(", ")}`}
-                        {entry.recurrenceType === "monthly" && `Den ${entry.recurrenceDay}. hver måned`}
+                        {entry.recurrenceType === "weekly" && `Ukentlig: ${parseRecurringDays(entry.recurrenceDays).map(d => DAY_LABELS[d] ?? d).join(", ") || "ingen dager"}`}
+                        {entry.recurrenceType === "monthly" && `Månedlig: dag ${entry.recurrenceDayOfMonth}`}
                       </p>
                     </div>
                     <div>
-                      <span className="text-muted-foreground">Periode:</span>
+                      <span className="text-muted-foreground text-xs">Periode</span>
                       <p className="font-medium">
                         {format(new Date(entry.startDate), "dd.MM.yyyy", { locale: nb })}
-                        {entry.endDate && ` - ${format(new Date(entry.endDate), "dd.MM.yyyy", { locale: nb })}`}
+                        {entry.endDate ? ` → ${format(new Date(entry.endDate), "dd.MM.yyyy", { locale: nb })}` : " → ∞"}
                       </p>
                     </div>
+                  </div>
+                  <div className="mt-3 pt-3 border-t flex items-center gap-4 text-xs text-muted-foreground">
+                    <span>
+                      Sist generert:{" "}
+                      <span className="font-medium text-foreground">
+                        {entry.lastGeneratedDate
+                          ? format(new Date(entry.lastGeneratedDate), "dd.MM.yyyy", { locale: nb })
+                          : "Aldri"}
+                      </span>
+                    </span>
+                    <UpcomingPreview entryId={entry.id} enabled={entry.isActive} />
                   </div>
                 </CardContent>
               </Card>
@@ -629,5 +683,28 @@ export default function RecurringPage() {
         )}
       </div>
     </PortalLayout>
+  );
+}
+
+function UpcomingPreview({ entryId, enabled }: { entryId: number; enabled: boolean }) {
+  const { data } = useQuery<{ upcoming: string[] }>({
+    queryKey: [`/api/recurring/${entryId}/preview`],
+    enabled,
+    staleTime: 1000 * 60 * 30, // 30 min — these barely change
+  });
+
+  if (!enabled) return <span className="italic">Deaktivert</span>;
+  const upcoming = data?.upcoming ?? [];
+  if (upcoming.length === 0) return <span className="italic">Ingen planlagte kjøringer</span>;
+
+  return (
+    <span className="flex items-center gap-1 flex-wrap">
+      Neste:{" "}
+      {upcoming.slice(0, 3).map((d, i) => (
+        <Badge key={d} variant="outline" className="text-[10px] font-normal">
+          {format(new Date(d), i === 0 ? "dd. MMM" : "dd.MM", { locale: nb })}
+        </Badge>
+      ))}
+    </span>
   );
 }
