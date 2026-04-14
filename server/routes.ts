@@ -15,6 +15,7 @@ import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
 import { registerRapportTemplateRoutes } from "./routes/rapport-template-routes";
 import { seedSystemRapportTemplates } from "./seed/rapport-templates";
+import { registerTiltakslederDashboardRoutes } from "./routes/tiltaksleder-dashboard-routes";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
@@ -6320,6 +6321,7 @@ export async function registerRoutes(
   registerInstitutionsRoutes(app);
   registerRapportReminderRoutes(app);
   registerRapportTemplateRoutes(app);
+  registerTiltakslederDashboardRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();

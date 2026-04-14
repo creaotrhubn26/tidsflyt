@@ -30,6 +30,7 @@ import {
   UserCheck,
   Send,
   Mail,
+  ClipboardCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -108,6 +109,7 @@ interface NavItemBase {
 
 const baseNavItems: NavItemBase[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { path: "/tiltaksleder", icon: ClipboardCheck, label: "Tiltaksleder", roles: ["tiltaksleder", "teamleder", "vendor_admin"] },
   { path: "__getting-started__", icon: ClipboardList, label: "Kom i gang med Tidum", kind: "modal" },
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },

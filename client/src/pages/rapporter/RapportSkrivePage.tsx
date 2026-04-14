@@ -1420,6 +1420,9 @@ export default function RapportSkrivePage() {
               </CardContent>
             </Card>
 
+            {/* TIMELINE / AUDIT LOG */}
+            {rapportId && <RapportAuditTimeline rapportId={rapportId} />}
+
             {/* GDPR */}
             <Card className="border-border/70 bg-background/80 shadow-sm">
               <CardHeader className="pb-3">
@@ -1902,5 +1905,83 @@ export default function RapportSkrivePage() {
       </Dialog>
 
     </PortalLayout>
+  );
+}
+
+// ─── Audit timeline (sidebar component) ────────────────────────────────────
+
+interface AuditEvent {
+  id: string;
+  rapportId: string;
+  userId: number | null;
+  userName: string | null;
+  userRole: string | null;
+  eventType: string;
+  eventLabel: string | null;
+  details: any;
+  createdAt: string;
+}
+
+const EVENT_META: Record<string, { color: string; label: string; icon: typeof Clock }> = {
+  created:        { color: "text-muted-foreground", label: "Opprettet",         icon: Plus },
+  submitted:      { color: "text-blue-600",         label: "Sendt til godkjenning", icon: Send },
+  approved:       { color: "text-emerald-600",      label: "Godkjent",          icon: CheckCircle },
+  returned:       { color: "text-amber-600",        label: "Returnert",         icon: RotateCcw },
+  cancelled:      { color: "text-muted-foreground", label: "Avbrutt",           icon: XCircle },
+  comment:        { color: "text-muted-foreground", label: "Kommentar",         icon: MessageSquare },
+  auto_forwarded: { color: "text-emerald-600",      label: "Videresendt",       icon: Send },
+};
+
+function RapportAuditTimeline({ rapportId }: { rapportId: string }) {
+  const { data: events = [] } = useQuery<AuditEvent[]>({
+    queryKey: [`/api/rapporter/${rapportId}/audit`],
+    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/audit`),
+    enabled: !!rapportId,
+    staleTime: 30_000,
+  });
+
+  if (events.length === 0) return null;
+
+  return (
+    <Card className="border-border/70 bg-background/80 shadow-sm">
+      <CardHeader className="pb-3">
+        <span className="text-base font-semibold flex items-center gap-1.5">
+          <Clock className="h-3.5 w-3.5 text-primary" />
+          Historikk
+          <Badge variant="outline" className="ml-auto text-[10px]">{events.length}</Badge>
+        </span>
+      </CardHeader>
+      <CardContent className="space-y-0 max-h-72 overflow-y-auto pr-1">
+        {events.map((e, i) => {
+          const meta = EVENT_META[e.eventType] ?? { color: "text-muted-foreground", label: e.eventType, icon: Clock };
+          const Icon = meta.icon;
+          const date = new Date(e.createdAt);
+          const dateLabel = date.toLocaleDateString("nb-NO", { day: "numeric", month: "short" });
+          const timeLabel = date.toLocaleTimeString("nb-NO", { hour: "2-digit", minute: "2-digit" });
+          return (
+            <div key={e.id} className="flex gap-3 relative pb-3">
+              {/* Vertical line */}
+              {i < events.length - 1 && (
+                <div className="absolute left-[10px] top-7 bottom-0 w-px bg-border" />
+              )}
+              <div className={`relative flex-shrink-0 h-5 w-5 rounded-full bg-background border flex items-center justify-center ${meta.color}`}>
+                <Icon className="h-2.5 w-2.5" />
+              </div>
+              <div className="flex-1 min-w-0 -mt-0.5">
+                <p className="text-xs font-medium leading-tight">
+                  {e.eventLabel ?? meta.label}
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                  {e.userName ?? "Ukjent"} {e.userRole && <span className="opacity-60">· {e.userRole}</span>}
+                </p>
+                <p className="text-[10px] text-muted-foreground/70">
+                  {dateLabel} kl. {timeLabel}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </CardContent>
+    </Card>
   );
 }

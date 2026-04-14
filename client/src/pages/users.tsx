@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { 
   Users, 
-  UserPlus, 
+  UserPlus, Upload, 
   Search, 
   MoreHorizontal, 
   Mail, 
@@ -113,6 +113,9 @@ export default function UsersPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [tab, setTab] = useState(isInvitesRoute ? "pending" : "all");
   const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
+  const [bulkCsvText, setBulkCsvText] = useState("");
+  const [bulkResult, setBulkResult] = useState<any>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
   const [inviteInstitution, setInviteInstitution] = useState("");
@@ -153,6 +156,24 @@ export default function UsersPage() {
     },
     onError: (error: any) => {
       toast({ title: "Feil", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const bulkMutation = useMutation({
+    mutationFn: async (users: { user_email: string; role: string }[]) => {
+      const res = await apiRequest('POST', '/api/company/users/bulk', { company_id: companyId, users });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      setBulkResult(data);
+      queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
+      toast({
+        title: "Import fullført",
+        description: `${data.created} opprettet · ${data.skipped?.length || 0} hoppet over · ${data.failed?.length || 0} feilet`,
+      });
+    },
+    onError: (e: any) => {
+      toast({ title: "Feil", description: e.message, variant: "destructive" });
     },
   });
 
@@ -254,6 +275,11 @@ export default function UsersPage() {
             </p>
           </div>
           
+          <div className="flex items-center gap-2">
+          <Button variant="outline" size="default" onClick={() => { setBulkDialogOpen(true); setBulkResult(null); }} className="gap-2">
+            <Upload className="h-4 w-4" />
+            Bulk-import
+          </Button>
           <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
             <DialogTrigger asChild>
               <Button data-testid="invite-user-button" className={isInvitesRoute ? "gap-2 px-6 shadow-md" : ""}>
@@ -355,7 +381,99 @@ export default function UsersPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
+
+        {/* Bulk import dialog */}
+        <Dialog open={bulkDialogOpen} onOpenChange={(o) => { setBulkDialogOpen(o); if (!o) { setBulkResult(null); setBulkCsvText(""); } }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Upload className="h-5 w-5 text-primary" />
+                Bulk-importer brukere
+              </DialogTitle>
+              <DialogDescription>
+                Lim inn CSV med kolonnene <code>email</code> og valgfritt <code>role</code>. Standardrolle er miljøarbeider.
+              </DialogDescription>
+            </DialogHeader>
+
+            {!bulkResult ? (
+              <div className="space-y-3">
+                <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
+                  <p className="font-medium text-foreground mb-1">Format-eksempel:</p>
+                  <pre className="text-[11px]">email,role
+ola@example.no,miljoarbeider
+kari@example.no,tiltaksleder
+per@example.no</pre>
+                </div>
+                <Textarea
+                  value={bulkCsvText}
+                  onChange={(e) => setBulkCsvText(e.target.value)}
+                  placeholder="Lim inn CSV her…"
+                  rows={10}
+                  className="font-mono text-sm"
+                />
+                <div className="flex justify-between items-center">
+                  <p className="text-xs text-muted-foreground">
+                    {parseCsvForInviteCount(bulkCsvText)} brukere klar til import
+                  </p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" onClick={() => setBulkDialogOpen(false)}>Avbryt</Button>
+                    <Button
+                      disabled={!bulkCsvText.trim() || bulkMutation.isPending}
+                      onClick={() => {
+                        const users = parseCsvForInvite(bulkCsvText);
+                        if (users.length === 0) {
+                          toast({ title: "Ingen gyldige rader", variant: "destructive" });
+                          return;
+                        }
+                        bulkMutation.mutate(users);
+                      }}
+                    >
+                      {bulkMutation.isPending ? "Importerer…" : `Importer ${parseCsvForInviteCount(bulkCsvText)}`}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded-lg border bg-emerald-500/10 p-3">
+                    <p className="text-2xl font-bold text-emerald-600">{bulkResult.created}</p>
+                    <p className="text-xs text-muted-foreground">Opprettet</p>
+                  </div>
+                  <div className="rounded-lg border bg-amber-500/10 p-3">
+                    <p className="text-2xl font-bold text-amber-600">{bulkResult.skipped?.length ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Hoppet over</p>
+                  </div>
+                  <div className="rounded-lg border bg-destructive/10 p-3">
+                    <p className="text-2xl font-bold text-destructive">{bulkResult.failed?.length ?? 0}</p>
+                    <p className="text-xs text-muted-foreground">Feilet</p>
+                  </div>
+                </div>
+                {(bulkResult.skipped?.length > 0 || bulkResult.failed?.length > 0) && (
+                  <div className="space-y-1.5 max-h-60 overflow-y-auto text-xs">
+                    {bulkResult.skipped?.map((s: any, i: number) => (
+                      <div key={`s${i}`} className="flex justify-between rounded-md bg-amber-500/5 px-2 py-1">
+                        <span className="font-mono">{s.email}</span>
+                        <span className="text-amber-700">{s.reason}</span>
+                      </div>
+                    ))}
+                    {bulkResult.failed?.map((f: any, i: number) => (
+                      <div key={`f${i}`} className="flex justify-between rounded-md bg-destructive/5 px-2 py-1">
+                        <span className="font-mono">{f.email}</span>
+                        <span className="text-destructive">{f.error}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex justify-end">
+                  <Button onClick={() => setBulkDialogOpen(false)}>Lukk</Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
 
         {/* Invite Statistics Cards */}
         {isInvitesRoute && (
@@ -831,4 +949,31 @@ export default function UsersPage() {
       </div>
     </PortalLayout>
   );
+}
+
+// ─── CSV helpers ───────────────────────────────────────────────────────────
+
+function parseCsvForInvite(text: string): { user_email: string; role: string }[] {
+  const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
+  if (lines.length === 0) return [];
+  // Detect header
+  const first = lines[0].toLowerCase();
+  const hasHeader = first.includes("email") || first.includes("e-post");
+  const dataLines = hasHeader ? lines.slice(1) : lines;
+
+  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const out: { user_email: string; role: string }[] = [];
+  for (const line of dataLines) {
+    const cols = line.split(/[,;]/).map(c => c.trim().replace(/^"|"$/g, ""));
+    const email = cols.find(c => emailRx.test(c));
+    if (!email) continue;
+    // Role is the first non-email column (any cell that's not the email)
+    const role = cols.find(c => c && c !== email && !emailRx.test(c)) || "miljoarbeider";
+    out.push({ user_email: email.toLowerCase(), role });
+  }
+  return out;
+}
+
+function parseCsvForInviteCount(text: string): number {
+  return parseCsvForInvite(text).length;
 }

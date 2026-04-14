@@ -1875,6 +1875,22 @@ export const rapportAktiviteter = pgTable("rapport_aktiviteter", {
   createdAt:    timestamp("created_at").defaultNow(),
 });
 
+// ── AUDIT LOG ─────────────────────────────────────────────────────────────────
+// Append-only log of significant events on a rapport. Used for compliance
+// timeline + "who changed what" investigations.
+
+export const rapportAuditLog = pgTable("rapport_audit_log", {
+  id:          uuid("id").defaultRandom().primaryKey(),
+  rapportId:   uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
+  userId:      integer("user_id"),
+  userName:    text("user_name"),
+  userRole:    text("user_role"),
+  eventType:   text("event_type").notNull(),
+  eventLabel:  text("event_label"),
+  details:     jsonb("details").default({}),
+  createdAt:   timestamp("created_at").notNull().defaultNow(),
+});
+
 // ── KOMMENTARER ───────────────────────────────────────────────────────────────
 
 export const rapportKommentarer = pgTable("rapport_kommentarer", {

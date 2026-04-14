@@ -12,7 +12,8 @@ import { db } from "./db";
 import { eq, and, desc, inArray, sql, ilike } from "drizzle-orm";
 import {
   saker, rapporter, rapportMaal, rapportAktiviteter,
-  rapportKommentarer, vendorTemplates, aktivitetMaler,
+  rapportKommentarer, rapportAuditLog,
+  vendorTemplates, aktivitetMaler,
   vendorInstitutions, rapportTemplates,
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
@@ -39,6 +40,35 @@ function requireRole(...roles: string[]) {
 
 function getUserVendorId(req: any): number | null {
   return req.user?.vendorId ?? null;
+}
+
+/**
+ * Append an event to the rapport audit log. Best-effort — never throws so
+ * lifecycle endpoints don't break if logging fails.
+ */
+async function logRapportEvent(
+  rapportId: string,
+  req: any,
+  eventType: string,
+  eventLabel?: string,
+  details: Record<string, any> = {},
+): Promise<void> {
+  try {
+    const userName = req.user?.firstName || req.user?.lastName
+      ? [req.user.firstName, req.user.lastName].filter(Boolean).join(" ")
+      : (req.user?.name ?? req.user?.email ?? null);
+    await db.insert(rapportAuditLog).values({
+      rapportId,
+      userId: req.user?.id ? Number(req.user.id) : null,
+      userName: userName ?? null,
+      userRole: req.user?.role ?? null,
+      eventType,
+      eventLabel: eventLabel ?? null,
+      details,
+    });
+  } catch (err) {
+    console.error('Failed to write audit log:', err);
+  }
 }
 
 // ── SAKER ROUTER ──────────────────────────────────────────────────────────────
@@ -438,6 +468,7 @@ rapportRouter.post("/", requireAuth, async (req: any, res) => {
 
     const data = insertRapportSchema.parse({ ...req.body, userId: req.user.id });
     const [rapport] = await db.insert(rapporter).values(data).returning();
+    await logRapportEvent(rapport.id, req, "created", "Rapport opprettet", { sakId: rapport.sakId });
     res.json(rapport);
   } catch (e) {
     res.status(400).json({ error: String(e) });
@@ -494,6 +525,8 @@ rapportRouter.post("/:id/send", requireAuth, async (req: any, res) => {
       .returning();
     if (!updated) return res.status(404).json({ error: "Ikke funnet" });
 
+    await logRapportEvent(updated.id, req, "submitted", "Sendt til godkjenning");
+
     // Send email to tiltaksleder
     if (updated.tiltakslederId) {
       try {
@@ -543,6 +576,8 @@ rapportRouter.post(
         .where(eq(rapporter.id, req.params.id))
         .returning();
       if (!updated) return res.status(404).json({ error: "Ikke funnet" });
+
+      await logRapportEvent(updated.id, req, "approved", "Godkjent", { kommentar: kommentar ?? null });
 
       if (kommentar) {
         await db.insert(rapportKommentarer).values({
@@ -657,6 +692,21 @@ async function maybeForwardRapportToInstitution(rapportId: string): Promise<void
     }],
   } as any);
   console.log(`✉️  Auto-forwarded rapport ${rapportId} → ${institution.forwardEmail}`);
+
+  // Log to audit trail (system event, no user)
+  try {
+    await db.insert(rapportAuditLog).values({
+      rapportId,
+      userId: null,
+      userName: "Tidum (system)",
+      userRole: "system",
+      eventType: "auto_forwarded",
+      eventLabel: `Videresendt til ${institution.forwardEmail}`,
+      details: { institutionId: institution.id, institutionName: institution.name },
+    });
+  } catch (e) {
+    console.error("Failed to log auto-forward:", e);
+  }
 }
 
 /**
@@ -680,6 +730,8 @@ rapportRouter.post(
         })
         .where(eq(rapporter.id, req.params.id))
         .returning();
+
+      if (updated) await logRapportEvent(updated.id, req, "returned", "Returnert", { kommentar: kommentar ?? null });
 
       if (seksjonsKommentarer?.length) {
         for (const k of seksjonsKommentarer) {
@@ -819,6 +871,28 @@ rapportRouter.delete(
 );
 
 // ── KOMMENTARER ───────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/rapporter/:id/audit
+ * Returns the audit-log timeline for a rapport. Caller must own/review/admin.
+ */
+rapportRouter.get("/:id/audit", requireAuth, async (req: any, res) => {
+  try {
+    const [r] = await db.select().from(rapporter).where(eq(rapporter.id, req.params.id)).limit(1);
+    if (!r) return res.status(404).json({ error: "Ikke funnet" });
+    if (r.userId !== req.user.id && r.tiltakslederId !== req.user.id && req.user.role !== "super_admin" && req.user.role !== "vendor_admin") {
+      return res.status(403).json({ error: "Ikke tilgang" });
+    }
+    const events = await db
+      .select()
+      .from(rapportAuditLog)
+      .where(eq(rapportAuditLog.rapportId, req.params.id))
+      .orderBy(desc(rapportAuditLog.createdAt));
+    res.json(events);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
 
 rapportRouter.get("/:id/kommentarer", requireAuth, async (req, res) => {
   try {

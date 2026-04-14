@@ -1482,6 +1482,85 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  /**
+   * POST /api/company/users/bulk
+   * Bulk-invite multiple users. Body: { company_id, users: [{ user_email, role, fullName? }] }
+   * Returns: { created: [...], skipped: [{email, reason}], failed: [{email, error}] }
+   */
+  app.post("/api/company/users/bulk", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { company_id, users } = req.body;
+      const companyId = Number(company_id) || 1;
+      const actorRole = await resolveActorRoleForCompany(req, companyId);
+
+      if (!canManageUsers(actorRole)) {
+        return res.status(403).json({ error: 'Du har ikke tilgang til å invitere brukere.' });
+      }
+
+      if (!Array.isArray(users) || users.length === 0) {
+        return res.status(400).json({ error: 'users må være et ikke-tomt array' });
+      }
+      if (users.length > 200) {
+        return res.status(400).json({ error: 'Maks 200 brukere per import' });
+      }
+
+      const created: any[] = [];
+      const skipped: { email: string; reason: string }[] = [];
+      const failed: { email: string; error: string }[] = [];
+      const inviterName = (req.user as any)?.firstName
+        ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim()
+        : undefined;
+
+      for (const u of users) {
+        const email = String(u.user_email || u.email || "").trim().toLowerCase();
+        if (!email || !email.includes("@")) {
+          failed.push({ email: email || "(tom)", error: "Ugyldig e-post" });
+          continue;
+        }
+        const targetRole = normalizeRole(u.role || "miljoarbeider");
+        if (!canManageRole(actorRole, targetRole)) {
+          skipped.push({ email, reason: `Kan ikke invitere som ${targetRole}` });
+          continue;
+        }
+        try {
+          // Check duplicates within this company
+          const dup = await pool.query(
+            `SELECT id FROM company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
+            [companyId, email],
+          );
+          if (dup.rows.length > 0) {
+            skipped.push({ email, reason: "Allerede registrert" });
+            continue;
+          }
+
+          const result = await pool.query(
+            `INSERT INTO company_users (company_id, user_email, role, approved)
+             VALUES ($1, $2, $3, true) RETURNING *`,
+            [companyId, email, targetRole],
+          );
+          if (result.rows[0]) {
+            created.push(result.rows[0]);
+            await syncCompanyUserToPortalAccess(email, targetRole, companyId);
+            // Best-effort invite email
+            emailService.sendCompanyInviteEmail(email, targetRole, inviterName)
+              .catch(err => console.error(`bulk invite email failed for ${email}:`, err));
+          }
+        } catch (err: any) {
+          failed.push({ email, error: err?.message || "Ukjent feil" });
+        }
+      }
+
+      res.status(201).json({
+        created: created.length,
+        skipped,
+        failed,
+        createdUsers: created,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.patch("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { role, approved } = req.body;
