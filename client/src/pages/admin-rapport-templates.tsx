@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { useLocation } from "wouter";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Copy, Pencil, Trash2, Loader2,
   Home, Briefcase, Building2, HeartPulse, Sparkles,
-  ClipboardList, Activity, CheckSquare, MessageSquare, Target,
+  ClipboardList, Activity, CheckSquare, MessageSquare, Target, Eye,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +44,7 @@ const SECTION_LABEL: Record<string, string> = {
 };
 
 export default function AdminRapportTemplatesPage() {
+  const [, navigate] = useLocation();
   const { toast } = useToast();
   const { effectiveRole } = useRolePreview();
   const isAdmin = ADMIN_ROLES.includes(effectiveRole);
@@ -57,8 +59,9 @@ export default function AdminRapportTemplatesPage() {
 
   const handleClone = async (id: string) => {
     try {
-      await clone.mutateAsync(id);
-      toast({ title: "Kopiert", description: "Du kan nå redigere den nye malen." });
+      const cloned = await clone.mutateAsync(id);
+      toast({ title: "Kopiert", description: "Tar deg til editoren…" });
+      navigate(`/admin/rapport-maler/${cloned.id}`);
     } catch (e: any) {
       toast({ title: "Feil", description: e.message, variant: "destructive" });
     }
@@ -126,6 +129,7 @@ export default function AdminRapportTemplatesPage() {
                       onPreview={() => setPreview(t)}
                       onClone={() => handleClone(t.id)}
                       onDelete={() => handleDelete(t)}
+                      onEdit={() => navigate(`/admin/rapport-maler/${t.id}`)}
                     />
                   ))}
                 </div>
@@ -211,12 +215,13 @@ export default function AdminRapportTemplatesPage() {
   );
 }
 
-function TemplateCard({ template, isAdmin, onPreview, onClone, onDelete }: {
+function TemplateCard({ template, isAdmin, onPreview, onClone, onDelete, onEdit }: {
   template: RapportTemplate;
   isAdmin: boolean;
   onPreview: () => void;
   onClone: () => void;
   onDelete?: () => void;
+  onEdit?: () => void;
 }) {
   const Icon = TYPE_ICON[template.suggestedInstitutionType ?? "annet"] ?? Sparkles;
   return (
@@ -252,6 +257,11 @@ function TemplateCard({ template, isAdmin, onPreview, onClone, onDelete }: {
         </div>
         {isAdmin && (
           <div className="flex justify-end gap-1 pt-2 border-t" onClick={(e) => e.stopPropagation()}>
+            {onEdit && (
+              <Button size="sm" variant="ghost" onClick={onEdit}>
+                <Pencil className="h-3.5 w-3.5 mr-1" /> Rediger
+              </Button>
+            )}
             <Button size="sm" variant="ghost" onClick={onClone}>
               <Copy className="h-3.5 w-3.5 mr-1" /> Klon
             </Button>

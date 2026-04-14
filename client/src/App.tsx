@@ -54,6 +54,7 @@ const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage
 const AdminTesterFeedback = lazy(() => import("@/pages/admin-tester-feedback"));
 const InstitutionsPage = lazy(() => import("@/pages/institutions"));
 const AdminRapportTemplatesPage = lazy(() => import("@/pages/admin-rapport-templates"));
+const AdminRapportTemplateEditPage = lazy(() => import("@/pages/admin-rapport-template-edit"));
 
 function RouteLoadingFallback() {
   return (
@@ -145,6 +146,7 @@ function Router() {
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>
         <Route path="/admin/tester-feedback">{() => <AuthGuard requiredRoles={["super_admin", "hovedadmin", "admin"]}><AdminTesterFeedback /></AuthGuard>}</Route>
         <Route path="/admin/rapport-maler">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminRapportTemplatesPage /></AuthGuard>}</Route>
+        <Route path="/admin/rapport-maler/:id">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminRapportTemplateEditPage /></AuthGuard>}</Route>
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
