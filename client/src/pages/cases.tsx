@@ -31,6 +31,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useInstitutions } from "@/hooks/use-institutions";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 type ProjectInfoRow = {
   id: number;
@@ -97,6 +99,8 @@ export default function CasesPage() {
   const [showCaseDialog, setShowCaseDialog] = useState(false);
   const [editingCase, setEditingCase] = useState<ProjectInfoRow | null>(null);
   const [caseForm, setCaseForm] = useState(emptyCaseForm);
+  const { institutions } = useInstitutions();
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>("");
 
   const { data: rawProjectInfoData, isLoading: isLoadingProjectInfo } = useQuery<ProjectInfoRow[] | { error?: string }>({
     queryKey: ["/api/project-info", { user_id: currentUserId }],
@@ -248,6 +252,7 @@ export default function CasesPage() {
       setShowCaseDialog(false);
       setEditingCase(null);
       setCaseForm(emptyCaseForm);
+      setSelectedInstitutionId("");
       toast({
         title: editingCase ? "Sak oppdatert" : "Sak opprettet",
         description: editingCase
@@ -306,13 +311,57 @@ export default function CasesPage() {
             </DialogDescription>
           </DialogHeader>
 
+          {/* Institution picker — auto-fills oppdragsgiver */}
+          {institutions.length > 0 && (
+            <div className="space-y-2 mb-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+              <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+                <Building2 className="h-3.5 w-3.5 text-primary" />
+                Velg fra dine institusjoner
+              </Label>
+              <Select
+                value={selectedInstitutionId || "__custom__"}
+                onValueChange={(val) => {
+                  if (val === "__custom__") {
+                    setSelectedInstitutionId("");
+                    return;
+                  }
+                  setSelectedInstitutionId(val);
+                  const inst = institutions.find(i => i.id === val);
+                  if (inst) {
+                    setCaseForm(prev => ({
+                      ...prev,
+                      oppdragsgiver: inst.name,
+                      // klient_id (saksreferanse) keeps user input — institution doesn't override
+                    }));
+                  }
+                }}
+              >
+                <SelectTrigger className="bg-background">
+                  <SelectValue placeholder="Velg institusjon for autoutfylling…" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__custom__">Skriv manuelt nedenfor</SelectItem>
+                  {institutions.filter(i => i.active !== false).map(inst => (
+                    <SelectItem key={inst.id} value={inst.id}>
+                      {inst.name}
+                      {inst.orgNumber && <span className="text-muted-foreground ml-2 font-mono text-xs">({inst.orgNumber})</span>}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-muted-foreground">
+                Legg til flere institusjoner fra <span className="font-medium">Institusjoner</span>-siden.
+              </p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="oppdragsgiver">Institusjon / oppdragsgiver *</Label>
               <Input
                 id="oppdragsgiver"
                 value={caseForm.oppdragsgiver}
-                onChange={(event) => setCaseForm((prev) => ({ ...prev, oppdragsgiver: event.target.value }))}
+                onChange={(event) => { setCaseForm((prev) => ({ ...prev, oppdragsgiver: event.target.value })); setSelectedInstitutionId(""); }}
                 placeholder="F.eks. Oslo VGS"
               />
             </div>
@@ -370,6 +419,7 @@ export default function CasesPage() {
                 setShowCaseDialog(false);
                 setEditingCase(null);
                 setCaseForm(emptyCaseForm);
+      setSelectedInstitutionId("");
               }}
             >
               Avbryt

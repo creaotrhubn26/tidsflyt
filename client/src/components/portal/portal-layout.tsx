@@ -39,6 +39,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { MobileBottomNav } from "./mobile-bottom-nav";
 import { useCompose } from "@/components/email/compose-context";
 import tidumWordmark from "@assets/tidum-wordmark.png";
+import { OnboardingInstitutionsStep } from "./onboarding-institutions-step";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -161,7 +162,8 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { openCompose } = useCompose();
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
-  const [onboardingStep, setOnboardingStep] = useState(0); // 0=welcome, 1=profile confirm, 2=role-based steps
+  // 0=welcome, 1=profile confirm, 2=institutions (vendor_admin/tiltaksleder only), 3=role-based steps
+  const [onboardingStep, setOnboardingStep] = useState(0);
   // Synchronous local cache for first paint, then hydrated from server below
   const [onboardingCompleted, setOnboardingCompleted] = useState(() => {
     try { return localStorage.getItem("tidum_onboarding_done") === "1"; } catch { return false; }
@@ -716,8 +718,25 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
         />
       ) : null}
 
+      {(() => {
+        // Roles who get the institutions step (admins/managers who set up the registry)
+        const showsInstitutionsStep = ["vendor_admin", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]
+          .includes(normalizedCurrentUserRole);
+        const totalSteps = showsInstitutionsStep ? 4 : 3;
+        const lastStepIndex = totalSteps - 1;
+        const isInstitutionsStep = showsInstitutionsStep && onboardingStep === 2;
+        const isLastStep = onboardingStep === lastStepIndex;
+        // Map step index → which content to show. When institutions step is hidden,
+        // step 2 shows the role-based "next steps" content directly.
+        const contentForStep = (() => {
+          if (onboardingStep === 0) return "welcome";
+          if (onboardingStep === 1) return "profile";
+          if (showsInstitutionsStep && onboardingStep === 2) return "institutions";
+          return "nextsteps";
+        })();
+      return (
       <Dialog open={isGettingStartedOpen} onOpenChange={(open) => { setIsGettingStartedOpen(open); if (!open) setOnboardingStep(0); }}>
-        <DialogContent className="overflow-hidden p-0 sm:max-w-md">
+        <DialogContent className={cn("overflow-hidden p-0", isInstitutionsStep ? "sm:max-w-2xl" : "sm:max-w-md")}>
           <DialogHeader className="border-b bg-muted/30 px-6 py-5">
             <div className="mb-2">
               <img
@@ -727,25 +746,27 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
               />
             </div>
             <DialogTitle className="text-xl">
-              {onboardingStep === 0 && "Kom i gang med Tidum"}
-              {onboardingStep === 1 && "Bekreft profil"}
-              {onboardingStep === 2 && "Neste steg"}
+              {contentForStep === "welcome" && "Kom i gang med Tidum"}
+              {contentForStep === "profile" && "Bekreft profil"}
+              {contentForStep === "institutions" && "Institusjoner dere jobber med"}
+              {contentForStep === "nextsteps" && "Neste steg"}
             </DialogTitle>
             <DialogDescription>
-              {onboardingStep === 0 && "Velkommen! La oss sette opp kontoen din."}
-              {onboardingStep === 1 && "Sjekk at opplysningene stemmer."}
-              {onboardingStep === 2 && "Velg neste steg for å sette opp arbeidsflyten raskt."}
+              {contentForStep === "welcome" && "Velkommen! La oss sette opp kontoen din."}
+              {contentForStep === "profile" && "Sjekk at opplysningene stemmer."}
+              {contentForStep === "institutions" && "Søk i Brønnøysundregisteret og legg til alle oppdragsgiverne deres."}
+              {contentForStep === "nextsteps" && "Velg neste steg for å sette opp arbeidsflyten raskt."}
             </DialogDescription>
             <div className="mt-3 flex gap-1">
-              {[0, 1, 2].map((step) => (
+              {Array.from({ length: totalSteps }, (_, step) => (
                 <div key={step} className={cn("h-1 flex-1 rounded-full transition-colors", step <= onboardingStep ? "bg-primary" : "bg-muted")} />
               ))}
             </div>
           </DialogHeader>
 
-          <div className="space-y-3 px-4 py-4">
+          <div className={cn("space-y-3 px-4 py-4", isInstitutionsStep && "max-h-[60vh] overflow-y-auto")}>
             {/* Step 0: Welcome */}
-            {onboardingStep === 0 && (
+            {contentForStep === "welcome" && (
               <>
                 <div className="rounded-xl border bg-muted/20 p-4 text-center">
                   <UserCheck className="mx-auto mb-2 h-10 w-10 text-primary" />
@@ -761,7 +782,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
             )}
 
             {/* Step 1: Profile confirmation + logo */}
-            {onboardingStep === 1 && (
+            {contentForStep === "profile" && (
               <>
                 <div className="space-y-3 rounded-xl border p-4">
                   <div className="flex items-center gap-3">
@@ -817,8 +838,11 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
               </>
             )}
 
-            {/* Step 2: Role-based next steps */}
-            {onboardingStep === 2 && (
+            {/* Step 2 (admins/managers only): Institutions registry */}
+            {contentForStep === "institutions" && <OnboardingInstitutionsStep />}
+
+            {/* Last step: Role-based next steps */}
+            {contentForStep === "nextsteps" && (
               <>
                 {normalizedCurrentUserRole === "tiltaksleder" && (
                   <>
@@ -905,12 +929,12 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                 Lukk
               </Button>
             )}
-            {onboardingStep < 2 ? (
+            {!isLastStep ? (
               <Button onClick={() => setOnboardingStep(s => s + 1)}>
-                Neste
+                {isInstitutionsStep ? "Fortsett" : "Neste"}
               </Button>
             ) : (
-              <Button onClick={() => { 
+              <Button onClick={() => {
                 setIsGettingStartedOpen(false);
                 setOnboardingStep(0);
                 setOnboardingCompleted(true);
@@ -928,6 +952,8 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      );
+      })()}
     </div>
   );
 }
