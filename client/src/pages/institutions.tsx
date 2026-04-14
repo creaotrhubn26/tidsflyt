@@ -14,6 +14,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { useBrregSearch, type BrregCompany } from "@/hooks/use-brreg-search";
 import { useInstitutions, useInstitutionStats, type Institution } from "@/hooks/use-institutions";
+import { useRapportTemplates } from "@/hooks/use-rapport-templates";
 import {
   Building2, Plus, Search, Trash2, Pencil, Mail, Phone, MapPin,
   CheckCircle2, AlertCircle, Forward, Clock, Loader2,
@@ -43,6 +44,7 @@ const emptyForm: Partial<Institution> = {
   autoForwardRapport: false,
   forwardEmail: "",
   overtimeApplicable: true,
+  defaultRapportTemplateId: null,
   notes: "",
   brregVerified: false,
 };
@@ -55,6 +57,7 @@ export default function InstitutionsPage() {
 
   const { institutions, isLoading, create, update, remove } = useInstitutions();
   const { data: statsList = [] } = useInstitutionStats();
+  const { templates } = useRapportTemplates();
   const statsByInstId = useMemo(() => {
     const m = new Map<string, any>();
     statsList.forEach(s => m.set(s.institutionId, s));
@@ -116,6 +119,7 @@ export default function InstitutionsPage() {
       autoForwardRapport: inst.autoForwardRapport,
       forwardEmail: inst.forwardEmail || "",
       overtimeApplicable: inst.overtimeApplicable,
+      defaultRapportTemplateId: inst.defaultRapportTemplateId,
       notes: inst.notes || "",
       brregVerified: inst.brregVerified,
     });
@@ -449,6 +453,34 @@ export default function InstitutionsPage() {
                     <Input value={form.contactPhone ?? ""} onChange={(e) => setForm({ ...form, contactPhone: e.target.value })} />
                   </div>
                 </div>
+              </div>
+
+              {/* Rapport template */}
+              <div className="border-t pt-4 space-y-2">
+                <Label className="flex items-center gap-1.5">
+                  <FileText className="h-3.5 w-3.5" />
+                  Standard rapport-mal
+                </Label>
+                <Select
+                  value={form.defaultRapportTemplateId ?? "__none__"}
+                  onValueChange={(v) => setForm({ ...form, defaultRapportTemplateId: v === "__none__" ? null : v })}
+                >
+                  <SelectTrigger><SelectValue placeholder="Velg mal…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">— bruk generell mal —</SelectItem>
+                    {templates
+                      .filter(t => !form.institutionType || !t.suggestedInstitutionType || t.suggestedInstitutionType === form.institutionType || t.suggestedInstitutionType === null)
+                      .map(t => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.name}
+                          {t.isSystem && <Badge variant="outline" className="ml-2 text-[9px]">System</Badge>}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-[11px] text-muted-foreground">
+                  Nye rapporter for saker knyttet til denne institusjonen bruker denne malen som utgangspunkt.
+                </p>
               </div>
 
               {/* Automations */}

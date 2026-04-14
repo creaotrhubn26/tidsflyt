@@ -147,6 +147,25 @@ export const userSettings = pgTable("user_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Rapport templates — define which sections a saksrapport has for different
+// sectors (barnevern, NAV, kommune, helse, generell). System templates are
+// seeded by Tidum; vendors can clone and customize.
+export const rapportTemplates = pgTable("rapport_templates", {
+  id:                        uuid("id").defaultRandom().primaryKey(),
+  vendorId:                  integer("vendor_id"),
+  slug:                      text("slug").notNull(),
+  name:                      text("name").notNull(),
+  description:               text("description"),
+  suggestedInstitutionType:  text("suggested_institution_type"),
+  sections:                  jsonb("sections").notNull().default([]),
+  branding:                  jsonb("branding").default({}),
+  isSystem:                  boolean("is_system").default(false),
+  isActive:                  boolean("is_active").default(true),
+  createdBy:                 text("created_by"),
+  createdAt:                 timestamp("created_at").defaultNow(),
+  updatedAt:                 timestamp("updated_at").defaultNow(),
+});
+
 // Institutions a vendor (leverandør) works with — shared across all users in the vendor.
 // Used in "Ny sak", as a dropdown, for auto-forwarding rapporter, and for overtime rules.
 export const vendorInstitutions = pgTable("vendor_institutions", {
@@ -161,9 +180,10 @@ export const vendorInstitutions = pgTable("vendor_institutions", {
   address:             text("address"),
 
   // Per-institution automations
-  autoForwardRapport:  boolean("auto_forward_rapport").default(false),
-  forwardEmail:        text("forward_email"),
-  overtimeApplicable:  boolean("overtime_applicable").default(true),
+  autoForwardRapport:       boolean("auto_forward_rapport").default(false),
+  forwardEmail:             text("forward_email"),
+  overtimeApplicable:       boolean("overtime_applicable").default(true),
+  defaultRapportTemplateId: uuid("default_rapport_template_id").references(() => rapportTemplates.id, { onDelete: "set null" }),
 
   notes:               text("notes"),
   active:              boolean("active").default(true),
@@ -1794,10 +1814,11 @@ export const saker = pgTable("saker", {
 export const rapporter = pgTable("rapporter", {
   id:              uuid("id").defaultRandom().primaryKey(),
   sakId:           uuid("sak_id").references(() => saker.id),
-  userId:          integer("user_id").notNull(),
-  tiltakslederId:  integer("tiltaksleder_id"),
-  templateId:      uuid("template_id"),
-  status:          rapportStatusEnum("status").default("utkast"),
+  userId:              integer("user_id").notNull(),
+  tiltakslederId:      integer("tiltaksleder_id"),
+  templateId:          uuid("template_id"),
+  rapportTemplateId:   uuid("rapport_template_id").references(() => rapportTemplates.id, { onDelete: "set null" }),
+  status:              rapportStatusEnum("status").default("utkast"),
   konsulent:       text("konsulent"),
   tiltak:          text("tiltak"),
   bedrift:         text("bedrift"),

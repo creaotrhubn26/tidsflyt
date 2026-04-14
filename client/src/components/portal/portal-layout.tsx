@@ -112,6 +112,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
   { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
   { path: "/institusjoner", icon: Building2, label: "Institusjoner" },
+  { path: "/admin/rapport-maler", icon: FileText, label: "Rapport-maler", roles: ["vendor_admin", "hovedadmin", "admin", "super_admin"] },
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/rapporter", icon: FileText, label: "Rapporter" },
   { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },

@@ -26,6 +26,7 @@ export interface Institution {
   autoForwardRapport: boolean;
   forwardEmail: string | null;
   overtimeApplicable: boolean;
+  defaultRapportTemplateId: string | null;
   notes: string | null;
   active: boolean;
   brregVerified: boolean;
