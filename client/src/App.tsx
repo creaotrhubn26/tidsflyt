@@ -52,6 +52,7 @@ const RapportSkrivePage = lazy(() => import("@/pages/rapporter/RapportSkrivePage
 const TiltakslederPage = lazy(() => import("@/pages/rapporter/TiltakslederPage"));
 const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage"));
 const AdminTesterFeedback = lazy(() => import("@/pages/admin-tester-feedback"));
+const InstitutionsPage = lazy(() => import("@/pages/institutions"));
 
 function RouteLoadingFallback() {
   return (
@@ -81,7 +82,7 @@ const PROTECTED_LAYOUT_PREFIXES = [
   "/dashboard", "/time", "/time-tracking", "/reports", "/case-reports", "/cases",
   "/profile", "/settings", "/invites", "/users", "/leave", "/invoices", "/overtime",
   "/recurring", "/timesheets", "/forward", "/email", "/rapporter", "/admin",
-  "/vendors", "/cms", "/cms-legacy", "/api-docs", "/vendor",
+  "/vendors", "/cms", "/cms-legacy", "/api-docs", "/vendor", "/institusjoner",
 ];
 
 function isProtectedLayoutPath(pathname: string): boolean {
@@ -128,6 +129,9 @@ function Router() {
         <Route path="/timesheets">{() => <AuthGuard requiredRoles={["miljoarbeider", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
+
+        {/* Institusjoner */}
+        <Route path="/institusjoner">{() => <AuthGuard><InstitutionsPage /></AuthGuard>}</Route>
 
         {/* Rapport routes */}
         <Route path="/rapporter">{() => <AuthGuard><RapportListePage /></AuthGuard>}</Route>

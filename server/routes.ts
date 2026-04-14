@@ -11,6 +11,7 @@ import { registerInvoiceRoutes } from "./routes/invoice-routes";
 import { registerOvertimeRoutes } from "./routes/overtime-routes";
 import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/recurring-routes";
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
+import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
@@ -6313,6 +6314,7 @@ export async function registerRoutes(
   registerOvertimeRoutes(app);
   registerRecurringRoutes(app);
   registerTesterFeedbackRoutes(app);
+  registerInstitutionsRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();

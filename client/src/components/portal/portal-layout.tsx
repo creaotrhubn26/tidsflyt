@@ -110,6 +110,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/time", icon: Clock, label: "Timeføring" },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
   { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
+  { path: "/institusjoner", icon: Building2, label: "Institusjoner" },
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/rapporter", icon: FileText, label: "Rapporter" },
   { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },

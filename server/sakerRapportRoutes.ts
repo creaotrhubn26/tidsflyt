@@ -13,6 +13,7 @@ import { eq, and, desc, inArray, sql, ilike } from "drizzle-orm";
 import {
   saker, rapporter, rapportMaal, rapportAktiviteter,
   rapportKommentarer, vendorTemplates, aktivitetMaler,
+  vendorInstitutions,
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
 } from "../shared/schema";
@@ -569,12 +570,78 @@ rapportRouter.post(
         console.error("Failed to send rapport approved email:", emailErr);
       }
 
+      // Auto-forward PDF to institution oppdragsgiver if configured
+      try {
+        await maybeForwardRapportToInstitution(updated.id);
+      } catch (forwardErr) {
+        console.error("Failed to auto-forward rapport:", forwardErr);
+      }
+
       res.json(updated);
     } catch (e) {
       res.status(500).json({ error: String(e) });
     }
   }
 );
+
+/**
+ * If the rapport's sak is linked to an institution with autoForwardRapport = true,
+ * generate the PDF and email it to the institution's forwardEmail.
+ * Best-effort: errors are logged, never bubble up to break the approve flow.
+ */
+async function maybeForwardRapportToInstitution(rapportId: string): Promise<void> {
+  const [rapport] = await db.select().from(rapporter).where(eq(rapporter.id, rapportId)).limit(1);
+  if (!rapport?.sakId) return;
+
+  const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
+  if (!sak?.institutionId) return;
+
+  const [institution] = await db
+    .select()
+    .from(vendorInstitutions)
+    .where(eq(vendorInstitutions.id, sak.institutionId))
+    .limit(1);
+  if (!institution?.autoForwardRapport || !institution.forwardEmail) return;
+
+  const [aktiviteter, maal] = await Promise.all([
+    db.select().from(rapportAktiviteter).where(eq(rapportAktiviteter.rapportId, rapportId)).orderBy(rapportAktiviteter.dato),
+    db.select().from(rapportMaal).where(eq(rapportMaal.rapportId, rapportId)).orderBy(rapportMaal.nummer),
+  ]);
+
+  const template = rapport.templateId
+    ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, rapport.templateId)).limit(1))[0]
+    : undefined;
+
+  const pdfBuffer = await generateRapportPDF(template, { rapport, aktiviteter, maal });
+  const periode = rapport.periodeFrom
+    ? new Date(rapport.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
+    : "ukjent periode";
+
+  await emailService.sendEmail({
+    to: institution.forwardEmail,
+    subject: `Rapport ${institution.name} — ${periode}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+        <h2 style="color:#1a6b73;margin:0 0 16px;">Godkjent rapport</h2>
+        <p style="line-height:1.6;color:#333;">
+          Vedlagt rapporten for <strong>${institution.name}</strong> i perioden <strong>${periode}</strong>.
+        </p>
+        <p style="line-height:1.6;color:#666;font-size:14px;">
+          Rapporten er godkjent av tiltaksleder og videresendes automatisk til dere som oppdragsgiver.
+        </p>
+        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;"/>
+        <p style="color:#999;font-size:11px;">Sendt automatisk via Tidum</p>
+      </div>
+    `,
+    text: `Vedlagt rapport for ${institution.name} (${periode}). Godkjent av tiltaksleder. Sendt automatisk fra Tidum.`,
+    attachments: [{
+      filename: `rapport-${institution.name.replace(/[^a-z0-9]+/gi, '_')}-${rapport.periodeFrom ?? "ukjent"}.pdf`,
+      content: pdfBuffer,
+      contentType: "application/pdf",
+    }],
+  } as any);
+  console.log(`✉️  Auto-forwarded rapport ${rapportId} → ${institution.forwardEmail}`);
+}
 
 /**
  * POST /api/rapporter/:id/returner

@@ -141,9 +141,37 @@ export const userSettings = pgTable("user_settings", {
   language: text("language").default("no"),
   gdprAutoReplace: boolean("gdpr_auto_replace").default(false),
   onboardingCompleted: boolean("onboarding_completed").default(false),
+  onboardingSteps: jsonb("onboarding_steps").default({}),
   dashboardPrefs: jsonb("dashboard_prefs").default({}),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Institutions a vendor (leverandør) works with — shared across all users in the vendor.
+// Used in "Ny sak", as a dropdown, for auto-forwarding rapporter, and for overtime rules.
+export const vendorInstitutions = pgTable("vendor_institutions", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  vendorId:            integer("vendor_id").notNull(),
+  orgNumber:           text("org_number"),
+  name:                text("name").notNull(),
+  institutionType:     text("institution_type"), // barnevern | nav | kommune | privat | helsevesen | annet
+  contactPerson:       text("contact_person"),
+  contactEmail:        text("contact_email"),
+  contactPhone:        text("contact_phone"),
+  address:             text("address"),
+
+  // Per-institution automations
+  autoForwardRapport:  boolean("auto_forward_rapport").default(false),
+  forwardEmail:        text("forward_email"),
+  overtimeApplicable:  boolean("overtime_applicable").default(true),
+
+  notes:               text("notes"),
+  active:              boolean("active").default(true),
+  brregVerified:       boolean("brreg_verified").default(false),
+
+  createdBy:           text("created_by"),
+  createdAt:           timestamp("created_at").defaultNow(),
+  updatedAt:           timestamp("updated_at").defaultNow(),
 });
 
 // User-defined goal categories (replaces localStorage "custom-goal-cats")
@@ -1746,6 +1774,7 @@ export const saker = pgTable("saker", {
   tittel:          text("tittel").notNull(),
   klientRef:       text("klient_ref"),
   oppdragsgiver:   text("oppdragsgiver"),
+  institutionId:   uuid("institution_id").references(() => vendorInstitutions.id, { onDelete: "set null" }),
   tiltakstype:     text("tiltakstype"),
   vendorId:        integer("vendor_id").notNull(),
   tiltakslederId:  integer("tiltaksleder_id").notNull(),
