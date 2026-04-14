@@ -158,41 +158,53 @@ export function registerLeaveRoutes(app: Express) {
    */
   app.post('/api/leave/requests', requireAuth, async (req: Request, res: Response) => {
     try {
-      const { userId, leaveTypeId, startDate, endDate, days, reason } = req.body;
+      const authed = (req as any).authUser ?? (req as any).user;
+      const authedId = authed?.id ? String(authed.id) : null;
+      const { userId: bodyUserId, leaveTypeId, startDate, endDate, days, reason } = req.body;
+      // Users can only create requests for themselves
+      const userId = authedId ?? bodyUserId;
+      if (!userId) return res.status(401).json({ error: 'Authentication required' });
 
-      if (!userId || !leaveTypeId || !startDate || !endDate || !days) {
+      if (!leaveTypeId || !startDate || !endDate || !days) {
         return res.status(400).json({ error: 'Missing required fields' });
       }
+      if (new Date(endDate) < new Date(startDate)) {
+        return res.status(400).json({ error: 'Sluttdato kan ikke være før startdato' });
+      }
 
-      // Create leave request
-      const [request] = await db
-        .insert(leaveRequests)
-        .values({
-          userId,
-          leaveTypeId,
-          startDate,
-          endDate,
-          days: days.toString(),
-          reason,
-          status: 'pending',
-        })
-        .returning();
-
-      // Update pending days in balance
       const year = new Date(startDate).getFullYear();
-      await db
-        .update(leaveBalances)
-        .set({
-          pendingDays: sql`pending_days + ${days}`,
-          remainingDays: sql`total_days - used_days - (pending_days + ${days})`,
-        })
-        .where(
-          and(
-            eq(leaveBalances.userId, userId),
-            eq(leaveBalances.leaveTypeId, parseInt(leaveTypeId as any)),
-            eq(leaveBalances.year, year)
-          )
-        );
+
+      // Atomic: insert request + bump pendingDays in a transaction
+      const request = await db.transaction(async (tx) => {
+        const [row] = await tx
+          .insert(leaveRequests)
+          .values({
+            userId,
+            leaveTypeId,
+            startDate,
+            endDate,
+            days: days.toString(),
+            reason,
+            status: 'pending',
+          })
+          .returning();
+
+        await tx
+          .update(leaveBalances)
+          .set({
+            pendingDays: sql`pending_days + ${days}`,
+            remainingDays: sql`total_days - used_days - (pending_days + ${days})`,
+          })
+          .where(
+            and(
+              eq(leaveBalances.userId, userId),
+              eq(leaveBalances.leaveTypeId, parseInt(leaveTypeId as any)),
+              eq(leaveBalances.year, year)
+            )
+          );
+
+        return row;
+      });
 
       // Send notification to manager (if configured)
       const leaveType = await db.select().from(leaveTypes).where(eq(leaveTypes.id, leaveTypeId)).limit(1);
@@ -220,74 +232,183 @@ export function registerLeaveRoutes(app: Express) {
   app.patch('/api/leave/requests/:id', requireAdminRole, async (req: Request, res: Response) => {
     try {
       const { id } = req.params;
-      const { status, reviewedBy, reviewComment } = req.body;
+      const authed = (req as any).authUser ?? (req as any).user;
+      const reviewerId = authed?.id ? String(authed.id) : req.body.reviewedBy;
+      const { status, reviewComment } = req.body;
 
       if (!status || !['approved', 'rejected', 'cancelled'].includes(status)) {
         return res.status(400).json({ error: 'Invalid status' });
       }
 
-      // Get the request first
-      const [request] = await db
-        .select()
-        .from(leaveRequests)
-        .where(eq(leaveRequests.id, parseInt(id)))
-        .limit(1);
+      const updated = await db.transaction(async (tx) => {
+        const [request] = await tx
+          .select()
+          .from(leaveRequests)
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .limit(1);
 
-      if (!request) {
-        return res.status(404).json({ error: 'Leave request not found' });
-      }
+        if (!request) throw new Error('NOT_FOUND');
 
-      // Update request
-      const [updated] = await db
-        .update(leaveRequests)
-        .set({
-          status,
-          reviewedBy,
-          reviewedAt: new Date(),
-          reviewComment,
-        })
-        .where(eq(leaveRequests.id, parseInt(id)))
-        .returning();
+        // Idempotency guard — don't apply the balance delta twice
+        if (request.status === status) return request;
 
-      // Update balance
-      const year = new Date(request.startDate as string).getFullYear();
-      const days = parseFloat(request.days || '0');
+        const [row] = await tx
+          .update(leaveRequests)
+          .set({ status, reviewedBy: reviewerId, reviewedAt: new Date(), reviewComment })
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .returning();
 
-      if (status === 'approved') {
-        // Move from pending to used
-        await db
-          .update(leaveBalances)
-          .set({
+        const year = new Date(request.startDate as string).getFullYear();
+        const days = parseFloat(request.days || '0');
+        const whereBalance = and(
+          eq(leaveBalances.userId, request.userId!),
+          eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
+          eq(leaveBalances.year, year),
+        );
+
+        if (status === 'approved' && request.status === 'pending') {
+          // Move from pending to used
+          await tx.update(leaveBalances).set({
             pendingDays: sql`pending_days - ${days}`,
             usedDays: sql`used_days + ${days}`,
             remainingDays: sql`total_days - (used_days + ${days}) - (pending_days - ${days})`,
-          })
-          .where(
-            and(
-              eq(leaveBalances.userId, request.userId!),
-              eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
-              eq(leaveBalances.year, year)
-            )
-          );
-      } else if (status === 'rejected' || status === 'cancelled') {
-        // Remove from pending
-        await db
-          .update(leaveBalances)
-          .set({
+          }).where(whereBalance);
+        } else if ((status === 'rejected' || status === 'cancelled') && request.status === 'pending') {
+          // Remove from pending
+          await tx.update(leaveBalances).set({
             pendingDays: sql`pending_days - ${days}`,
             remainingDays: sql`total_days - used_days - (pending_days - ${days})`,
-          })
-          .where(
-            and(
-              eq(leaveBalances.userId, request.userId!),
-              eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
-              eq(leaveBalances.year, year)
-            )
-          );
-      }
+          }).where(whereBalance);
+        } else if ((status === 'rejected' || status === 'cancelled') && request.status === 'approved') {
+          // Reverse a previously-applied approval
+          await tx.update(leaveBalances).set({
+            usedDays: sql`used_days - ${days}`,
+            remainingDays: sql`total_days - (used_days - ${days}) - pending_days`,
+          }).where(whereBalance);
+        }
+
+        return row;
+      });
 
       res.json(updated);
     } catch (error: any) {
+      if (error?.message === 'NOT_FOUND') {
+        return res.status(404).json({ error: 'Leave request not found' });
+      }
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Cancel (withdraw) own pending leave request
+   * POST /api/leave/requests/:id/cancel
+   * Users may cancel their own requests while they are still "pending".
+   */
+  app.post('/api/leave/requests/:id/cancel', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const authed = (req as any).authUser ?? (req as any).user;
+      const authedId = authed?.id ? String(authed.id) : null;
+
+      const updated = await db.transaction(async (tx) => {
+        const [request] = await tx
+          .select()
+          .from(leaveRequests)
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .limit(1);
+
+        if (!request) throw new Error('NOT_FOUND');
+        if (request.userId !== authedId) throw new Error('FORBIDDEN');
+        if (request.status !== 'pending') throw new Error('NOT_PENDING');
+
+        const [row] = await tx
+          .update(leaveRequests)
+          .set({ status: 'cancelled', reviewedAt: new Date() })
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .returning();
+
+        const year = new Date(request.startDate as string).getFullYear();
+        const days = parseFloat(request.days || '0');
+        await tx.update(leaveBalances).set({
+          pendingDays: sql`pending_days - ${days}`,
+          remainingDays: sql`total_days - used_days - (pending_days - ${days})`,
+        }).where(and(
+          eq(leaveBalances.userId, request.userId!),
+          eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
+          eq(leaveBalances.year, year),
+        ));
+
+        return row;
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.message === 'NOT_FOUND') return res.status(404).json({ error: 'Søknaden finnes ikke' });
+      if (error?.message === 'FORBIDDEN') return res.status(403).json({ error: 'Du kan bare avbryte egne søknader' });
+      if (error?.message === 'NOT_PENDING') return res.status(409).json({ error: 'Bare ventende søknader kan avbrytes' });
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  /**
+   * Edit own pending leave request (dates / reason only)
+   * PUT /api/leave/requests/:id
+   */
+  app.put('/api/leave/requests/:id', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const authed = (req as any).authUser ?? (req as any).user;
+      const authedId = authed?.id ? String(authed.id) : null;
+      const { startDate, endDate, days, reason } = req.body;
+
+      if (!startDate || !endDate || !days) {
+        return res.status(400).json({ error: 'Missing required fields' });
+      }
+      if (new Date(endDate) < new Date(startDate)) {
+        return res.status(400).json({ error: 'Sluttdato kan ikke være før startdato' });
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        const [request] = await tx
+          .select()
+          .from(leaveRequests)
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .limit(1);
+
+        if (!request) throw new Error('NOT_FOUND');
+        if (request.userId !== authedId) throw new Error('FORBIDDEN');
+        if (request.status !== 'pending') throw new Error('NOT_PENDING');
+
+        const oldDays = parseFloat(request.days || '0');
+        const newDays = parseFloat(days);
+        const delta = newDays - oldDays;
+
+        const [row] = await tx
+          .update(leaveRequests)
+          .set({ startDate, endDate, days: newDays.toString(), reason })
+          .where(eq(leaveRequests.id, parseInt(id)))
+          .returning();
+
+        if (delta !== 0) {
+          const year = new Date(request.startDate as string).getFullYear();
+          await tx.update(leaveBalances).set({
+            pendingDays: sql`pending_days + ${delta}`,
+            remainingDays: sql`total_days - used_days - (pending_days + ${delta})`,
+          }).where(and(
+            eq(leaveBalances.userId, request.userId!),
+            eq(leaveBalances.leaveTypeId, request.leaveTypeId as number),
+            eq(leaveBalances.year, year),
+          ));
+        }
+
+        return row;
+      });
+
+      res.json(updated);
+    } catch (error: any) {
+      if (error?.message === 'NOT_FOUND') return res.status(404).json({ error: 'Søknaden finnes ikke' });
+      if (error?.message === 'FORBIDDEN') return res.status(403).json({ error: 'Du kan bare redigere egne søknader' });
+      if (error?.message === 'NOT_PENDING') return res.status(409).json({ error: 'Bare ventende søknader kan redigeres' });
       res.status(500).json({ error: error.message });
     }
   });
