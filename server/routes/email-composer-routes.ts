@@ -222,13 +222,24 @@ export function registerEmailComposerRoutes(app: Express) {
           .limit(1);
 
         if (tpl) {
+          // Escape the user's plain-text body so it becomes safe HTML for {{melding}}.
+          // Line breaks → <br/> so paragraphs survive.
+          const escapeHtml = (s: string) =>
+            s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+          const bodyText = (templateVars?.melding ?? body ?? '').trim();
+          const meldingHtml = bodyText ? escapeHtml(bodyText).replace(/\n/g, '<br/>') : '';
+
           const vars: Record<string, string> = {
             avsender: senderName,
+            mottaker: recipientName || '',
             ...(templateVars || {}),
+            melding: meldingHtml,
           };
+          const textVars: Record<string, string> = { ...vars, melding: bodyText };
           finalSubject = replaceVariables(tpl.subject, vars);
           finalHtml = replaceVariables(tpl.htmlContent, vars);
-          finalText = tpl.textContent ? replaceVariables(tpl.textContent, vars) : finalHtml.replace(/<[^>]+>/g, '');
+          finalText = tpl.textContent ? replaceVariables(tpl.textContent, textVars) : finalHtml.replace(/<[^>]+>/g, '');
         }
       }
 

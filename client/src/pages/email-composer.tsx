@@ -135,7 +135,11 @@ export default function EmailComposer() {
       if (bccEmail) payload.bccEmail = bccEmail;
       if (selectedTemplateId) {
         payload.templateId = selectedTemplateId;
-        payload.templateVars = templateVars;
+        // User's free-text body goes into {{melding}} in the template
+        const mergedVars: Record<string, string> = { ...templateVars };
+        if (body && !mergedVars.melding) mergedVars.melding = body;
+        if (recipientName && !mergedVars.mottaker) mergedVars.mottaker = recipientName;
+        payload.templateVars = mergedVars;
       }
       if (attachReport) {
         payload.attachReport = true;
@@ -194,11 +198,13 @@ export default function EmailComposer() {
     },
   });
 
-  // Load template into compose form
+  // Load template into compose form — body is kept as user text,
+  // the HTML frame is rendered in the preview at send time
   function loadTemplate(tpl: EmailTemplate) {
     setSelectedTemplateId(tpl.id);
     setSubject(tpl.subject);
-    setBody(tpl.htmlContent);
+    // Leave body empty for user message; {{melding}} in the template is filled from body
+    setBody("");
     const vars: Record<string, string> = {};
     if (tpl.variables) {
       for (const v of tpl.variables) {
@@ -206,7 +212,7 @@ export default function EmailComposer() {
       }
     }
     setTemplateVars(vars);
-    toast({ title: "Mal lastet", description: `"${tpl.name}" ble lastet inn.` });
+    toast({ title: "Mal lastet", description: `"${tpl.name}" — skriv meldingen din i tekstfeltet.` });
   }
 
   function resetForm() {
@@ -229,17 +235,33 @@ export default function EmailComposer() {
   const selectedTemplate = templates.find(t => t.id === selectedTemplateId);
   const resolvedCategory = selectedTemplate?.category || (attachReport ? reportType : 'general');
 
-  // Preview: replace template variables in body
+  // Preview: render template HTML (if selected) with variables, or plain body.
+  function escapeHtml(s: string) {
+    return s
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
   function getPreviewHtml() {
-    let html = body;
-    const vars = {
-      ...templateVars,
-      avsender: [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.email || 'Du',
-    };
-    for (const [key, val] of Object.entries(vars)) {
-      html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val || `{{${key}}}`);
+    const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(' ') || user?.email || 'Du';
+    const meldingHtml = body ? escapeHtml(body).replace(/\n/g, "<br/>") : "";
+
+    if (selectedTemplate) {
+      const vars: Record<string, string> = {
+        ...templateVars,
+        avsender: senderName,
+        melding: meldingHtml || "{{melding}}",
+      };
+      let html = selectedTemplate.htmlContent;
+      for (const [key, val] of Object.entries(vars)) {
+        html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, 'g'), val || `{{${key}}}`);
+      }
+      return html;
     }
-    return html;
+
+    return body
+      ? escapeHtml(body).split(/\n{2,}/).map(p => `<p style="margin:0 0 12px;line-height:1.5">${p.replace(/\n/g, "<br/>")}</p>`).join("")
+      : '<p style="color:#888">Skriv en melding…</p>';
   }
 
   const categoryLabels: Record<string, string> = {

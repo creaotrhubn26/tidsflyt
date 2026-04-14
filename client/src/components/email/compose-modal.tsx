@@ -107,7 +107,14 @@ export function ComposeModal() {
       const payload: any = { toEmail: to, subject, body, category: "general" };
       if (cc) payload.ccEmail = cc;
       if (bcc) payload.bccEmail = bcc;
-      if (selectedTemplateId) { payload.templateId = selectedTemplateId; payload.templateVars = templateVars; }
+      if (selectedTemplateId) {
+        payload.templateId = selectedTemplateId;
+        // User's free-text message goes into {{melding}}; recipient/name alias too
+        const mergedVars: Record<string, string> = { ...templateVars };
+        if (body && !mergedVars.melding) mergedVars.melding = body;
+        if (recipientName && !mergedVars.mottaker) mergedVars.mottaker = recipientName;
+        payload.templateVars = mergedVars;
+      }
       if (recipientName) payload.recipientName = recipientName;
       const res = await apiRequest("POST", "/api/email/send", payload);
       return res.json();
@@ -126,11 +133,18 @@ export function ComposeModal() {
   function loadTemplate(tpl: EmailTemplate) {
     setSelectedTemplateId(tpl.id);
     setSubject(tpl.subject);
-    setBody(tpl.htmlContent);
+    // Don't dump raw HTML into the textarea — keep the user-authored text only.
+    // The `{{melding}}` variable is wired to the body field (see sendMutation).
+    setBody("");
     const vars: Record<string, string> = {};
     if (tpl.variables) { for (const v of tpl.variables) { vars[v] = ""; } }
     setTemplateVars(vars);
     setShowTemplates(false);
+  }
+
+  function clearTemplate() {
+    setSelectedTemplateId(null);
+    setTemplateVars({});
   }
 
   function selectTeamMember(m: TeamMember) {
@@ -141,13 +155,37 @@ export function ComposeModal() {
     setShowTeam(false);
   }
 
+  function escapeHtml(s: string) {
+    return s
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
   function getPreviewHtml() {
-    let html = body;
-    const vars = { ...templateVars, avsender: [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Du" };
-    for (const [key, val] of Object.entries(vars)) {
-      html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), val || `{{${key}}}`);
+    const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "Du";
+
+    if (selectedTemplate) {
+      // Render the template's HTML with variables substituted. The user's body
+      // text (plain-text multi-line) becomes {{melding}} — escape and convert
+      // newlines to <br> so line breaks show up correctly.
+      const meldingHtml = body ? escapeHtml(body).replace(/\n/g, "<br/>") : "";
+      const vars: Record<string, string> = {
+        avsender: senderName,
+        ...templateVars,
+        mottaker: templateVars.mottaker || recipientName || "mottaker",
+        melding: meldingHtml || "{{melding}}",
+      };
+      let html = selectedTemplate.htmlContent;
+      for (const [key, val] of Object.entries(vars)) {
+        html = html.replace(new RegExp(`\\{\\{${key}\\}\\}`, "g"), val || `{{${key}}}`);
+      }
+      return html;
     }
-    return html;
+
+    // No template — just render the body text as simple HTML paragraphs
+    return body
+      ? escapeHtml(body).split(/\n{2,}/).map(p => `<p style="margin:0 0 12px;line-height:1.5">${p.replace(/\n/g, "<br/>")}</p>`).join("")
+      : '<p style="color:#888">Skriv en melding…</p>';
   }
 
   const canSend = to.includes("@") && subject.trim().length > 0;
@@ -269,18 +307,29 @@ export function ComposeModal() {
             </div>
           )}
 
-          {/* Template variables */}
-          {selectedTemplate?.variables && selectedTemplate.variables.filter(v => v !== "avsender").length > 0 && (
-            <div className="px-4 py-2 border-b bg-amber-50/50 dark:bg-amber-950/20">
-              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-2">Malvariabler</p>
+          {/* Template variables (exclude avsender, melding, mottaker — handled elsewhere) */}
+          {selectedTemplate?.variables && selectedTemplate.variables.filter(v => !["avsender", "melding", "mottaker"].includes(v)).length > 0 && (
+            <div className="px-4 py-2 border-b bg-primary/5">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-foreground">Fyll inn detaljer</p>
+                <button onClick={clearTemplate} className="text-[11px] text-muted-foreground hover:text-foreground">
+                  Bruk uten mal
+                </button>
+              </div>
               <div className="grid grid-cols-2 gap-2">
-                {selectedTemplate.variables.filter(v => v !== "avsender").map(v => (
-                  <div key={v}>
-                    <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">{v}</Label>
-                    <Input className="h-7 text-xs mt-0.5" value={templateVars[v] ?? ""} placeholder={`{{${v}}}`}
-                      onChange={e => setTemplateVars(prev => ({ ...prev, [v]: e.target.value }))} />
-                  </div>
-                ))}
+                {selectedTemplate.variables
+                  .filter(v => !["avsender", "melding", "mottaker"].includes(v))
+                  .map(v => (
+                    <div key={v}>
+                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">{v}</Label>
+                      <Input
+                        className="h-8 text-xs mt-0.5"
+                        value={templateVars[v] ?? ""}
+                        placeholder={`Skriv ${v}…`}
+                        onChange={e => setTemplateVars(prev => ({ ...prev, [v]: e.target.value }))}
+                      />
+                    </div>
+                  ))}
               </div>
             </div>
           )}
@@ -324,16 +373,24 @@ export function ComposeModal() {
           {/* Body / Preview */}
           <div className="px-4 py-3 flex-1">
             {showPreview ? (
-              <div className="prose prose-sm max-w-none text-sm min-h-[120px] p-3 rounded-lg bg-muted/30 border"
+              <div className="text-sm min-h-[120px] p-3 rounded-lg bg-muted/30 border overflow-auto max-h-[60vh]"
                 dangerouslySetInnerHTML={{ __html: getPreviewHtml() }} />
             ) : (
-              <Textarea
-                ref={bodyRef}
-                value={body}
-                onChange={e => setBody(e.target.value)}
-                placeholder="Skriv meldingen din her…"
-                className="min-h-[120px] md:min-h-[180px] border-0 shadow-none resize-none text-sm focus-visible:ring-0 p-0"
-              />
+              <>
+                <Textarea
+                  ref={bodyRef}
+                  value={body}
+                  onChange={e => setBody(e.target.value)}
+                  placeholder={selectedTemplate ? "Skriv meldingen din her — mal-rammen legges til automatisk." : "Skriv meldingen din her…"}
+                  className="min-h-[120px] md:min-h-[180px] border-0 shadow-none resize-none text-sm focus-visible:ring-0 p-0"
+                />
+                {selectedTemplate && (
+                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1.5">
+                    <Eye className="h-3 w-3" />
+                    Mal aktivert: {selectedTemplate.name}. Klikk "Forhåndsvis" for å se hvordan e-posten ser ut for mottaker.
+                  </p>
+                )}
+              </>
             )}
           </div>
         </div>
