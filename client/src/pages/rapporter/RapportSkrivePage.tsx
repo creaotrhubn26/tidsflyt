@@ -778,7 +778,7 @@ export default function RapportSkrivePage() {
           </div>
         )}
 
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
 
           {/* ── MAIN COLUMN ────────────────────────────────── */}
           <div className="space-y-4">
@@ -1174,7 +1174,7 @@ export default function RapportSkrivePage() {
           </div>{/* /main col */}
 
           {/* ── SIDEBAR ────────────────────────────────────── */}
-          <div className="order-first space-y-4 xl:order-last xl:sticky xl:top-24">
+          <div className="order-first space-y-4 lg:order-last lg:sticky lg:top-6">
 
             {/* Status */}
             <Card className="border-border/70 bg-background/80 shadow-sm">
