@@ -1711,6 +1711,7 @@ export const recurringEntries = pgTable("recurring_entries", {
   startDate: text("start_date").notNull(),
   endDate: text("end_date"),
   startTime: text("start_time").default("09:00"),
+  institutionId: uuid("institution_id").references(() => vendorInstitutions.id, { onDelete: "set null" }),
   isActive: boolean("is_active").default(true),
   lastGeneratedDate: text("last_generated_date"),
   createdAt: timestamp("created_at").defaultNow(),

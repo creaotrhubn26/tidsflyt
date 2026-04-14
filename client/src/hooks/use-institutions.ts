@@ -1,5 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+export interface InstitutionStats {
+  institutionId: string;
+  activeSaker: number;
+  rapporterThisMonth: {
+    total: number;
+    utkast: number;
+    til_godkjenning: number;
+    godkjent: number;
+    returnert: number;
+  };
+  approvedHoursTotal: number;
+}
+
 export interface Institution {
   id: string;
   vendorId: number;
@@ -82,4 +95,16 @@ export function useInstitutions() {
     update,
     remove,
   };
+}
+
+export function useInstitutionStats() {
+  return useQuery<InstitutionStats[]>({
+    queryKey: ["/api/institutions/stats"],
+    queryFn: async () => {
+      const res = await fetch("/api/institutions/stats", { credentials: "include" });
+      if (!res.ok) throw new Error("Kunne ikke hente statistikk");
+      return res.json();
+    },
+    staleTime: 1000 * 60 * 5,
+  });
 }

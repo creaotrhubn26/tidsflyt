@@ -13,10 +13,11 @@ import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { useBrregSearch, type BrregCompany } from "@/hooks/use-brreg-search";
-import { useInstitutions, type Institution } from "@/hooks/use-institutions";
+import { useInstitutions, useInstitutionStats, type Institution } from "@/hooks/use-institutions";
 import {
   Building2, Plus, Search, Trash2, Pencil, Mail, Phone, MapPin,
   CheckCircle2, AlertCircle, Forward, Clock, Loader2,
+  FileText, FolderKanban, TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,12 @@ export default function InstitutionsPage() {
   const isAdmin = ADMIN_ROLES.includes(effectiveRole);
 
   const { institutions, isLoading, create, update, remove } = useInstitutions();
+  const { data: statsList = [] } = useInstitutionStats();
+  const statsByInstId = useMemo(() => {
+    const m = new Map<string, any>();
+    statsList.forEach(s => m.set(s.institutionId, s));
+    return m;
+  }, [statsList]);
   const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<Institution | null>(null);
   const [showDialog, setShowDialog] = useState(false);
@@ -269,6 +276,40 @@ export default function InstitutionsPage() {
                           </Badge>
                         )}
                       </div>
+
+                      {/* Per-institution stats */}
+                      {(() => {
+                        const s = statsByInstId.get(inst.id);
+                        if (!s) return null;
+                        const hasAny = s.activeSaker > 0 || s.rapporterThisMonth.total > 0 || s.approvedHoursTotal > 0;
+                        if (!hasAny) return null;
+                        return (
+                          <div className="mt-3 pt-3 border-t flex flex-wrap gap-3 text-xs">
+                            <span className="flex items-center gap-1 text-muted-foreground" title="Aktive saker">
+                              <FolderKanban className="h-3 w-3" />
+                              <span className="font-semibold text-foreground">{s.activeSaker}</span>
+                              <span>saker</span>
+                            </span>
+                            {s.rapporterThisMonth.total > 0 && (
+                              <span className="flex items-center gap-1 text-muted-foreground" title="Rapporter denne måneden">
+                                <FileText className="h-3 w-3" />
+                                <span className="font-semibold text-foreground">{s.rapporterThisMonth.total}</span>
+                                <span>rapport{s.rapporterThisMonth.total === 1 ? "" : "er"} denne mnd</span>
+                                {s.rapporterThisMonth.godkjent > 0 && (
+                                  <span className="text-emerald-600">({s.rapporterThisMonth.godkjent} godkjent)</span>
+                                )}
+                              </span>
+                            )}
+                            {s.approvedHoursTotal > 0 && (
+                              <span className="flex items-center gap-1 text-muted-foreground" title="Totalt godkjente timer">
+                                <TrendingUp className="h-3 w-3" />
+                                <span className="font-semibold text-foreground">{s.approvedHoursTotal.toFixed(1)}t</span>
+                                <span>godkjent</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </div>
                     {isAdmin && (
                       <div className="flex gap-1">

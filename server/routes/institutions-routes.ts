@@ -8,9 +8,10 @@
 
 import type { Express, Request, Response } from 'express';
 import { db } from '../db';
-import { vendorInstitutions } from '@shared/schema';
-import { eq, and, asc } from 'drizzle-orm';
+import { vendorInstitutions, saker, rapporter, rapportAktiviteter } from '@shared/schema';
+import { eq, and, asc, sql, inArray, between } from 'drizzle-orm';
 import { requireAuth } from '../middleware/auth';
+import { format, startOfMonth, endOfMonth } from 'date-fns';
 
 const ADMIN_ROLES = ['vendor_admin', 'tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
 
@@ -167,6 +168,106 @@ export function registerInstitutionsRoutes(app: Express) {
       // Hard delete by default; saker.institution_id will be set to NULL via FK
       await db.delete(vendorInstitutions).where(eq(vendorInstitutions.id, req.params.id));
       res.status(204).send();
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/institutions/stats
+   * Per-institution counts: active saker, rapporter sent this month,
+   * approved hours total. Used on the /institusjoner page.
+   */
+  app.get('/api/institutions/stats', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const vendorId = userVendorId(req);
+      if (!vendorId) return res.json([]);
+
+      const institutions = await db
+        .select()
+        .from(vendorInstitutions)
+        .where(eq(vendorInstitutions.vendorId, vendorId));
+      if (institutions.length === 0) return res.json([]);
+
+      const instIds = institutions.map(i => i.id);
+      const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
+
+      // 1. Active sak count per institution
+      const sakRows = await db
+        .select({
+          institutionId: saker.institutionId,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(saker)
+        .where(and(
+          eq(saker.vendorId, vendorId),
+          inArray(saker.institutionId, instIds),
+        ))
+        .groupBy(saker.institutionId);
+
+      // 2. Rapporter (this month) per institution — joined via sak
+      const rapportRows = await db
+        .select({
+          institutionId: saker.institutionId,
+          status: rapporter.status,
+          count: sql<number>`count(*)::int`,
+        })
+        .from(rapporter)
+        .innerJoin(saker, eq(saker.id, rapporter.sakId))
+        .where(and(
+          eq(saker.vendorId, vendorId),
+          inArray(saker.institutionId, instIds),
+          between(rapporter.periodeFrom, monthStart, monthEnd),
+        ))
+        .groupBy(saker.institutionId, rapporter.status);
+
+      // 3. Approved hours per institution (sum of activity minutes / 60)
+      const hoursRows = await db
+        .select({
+          institutionId: saker.institutionId,
+          mins: sql<number>`coalesce(sum(${rapportAktiviteter.varighet}), 0)::int`,
+        })
+        .from(rapportAktiviteter)
+        .innerJoin(rapporter, eq(rapporter.id, rapportAktiviteter.rapportId))
+        .innerJoin(saker, eq(saker.id, rapporter.sakId))
+        .where(and(
+          eq(saker.vendorId, vendorId),
+          inArray(saker.institutionId, instIds),
+          eq(rapporter.status, 'godkjent'),
+        ))
+        .groupBy(saker.institutionId);
+
+      const sakMap = new Map(sakRows.map(r => [r.institutionId, r.count]));
+      const hoursMap = new Map(hoursRows.map(r => [r.institutionId, Math.round((r.mins ?? 0) / 60 * 10) / 10]));
+
+      // Aggregate rapporter by institution + status
+      const rapportMap = new Map<string, Record<string, number>>();
+      for (const row of rapportRows) {
+        if (!row.institutionId) continue;
+        const bucket = rapportMap.get(row.institutionId) ?? {};
+        bucket[row.status ?? 'unknown'] = row.count;
+        rapportMap.set(row.institutionId, bucket);
+      }
+
+      const stats = institutions.map(inst => {
+        const r = rapportMap.get(inst.id) ?? {};
+        const total = Object.values(r).reduce((s, n) => s + n, 0);
+        return {
+          institutionId: inst.id,
+          activeSaker: sakMap.get(inst.id) ?? 0,
+          rapporterThisMonth: {
+            total,
+            utkast: r.utkast ?? 0,
+            til_godkjenning: r.til_godkjenning ?? 0,
+            godkjent: r.godkjent ?? 0,
+            returnert: r.returnert ?? 0,
+          },
+          approvedHoursTotal: hoursMap.get(inst.id) ?? 0,
+        };
+      });
+
+      res.json(stats);
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }

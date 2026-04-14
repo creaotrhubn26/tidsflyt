@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { useSuggestionVisibility } from "@/hooks/use-suggestion-visibility";
 import { PortalLayout } from "@/components/portal/portal-layout";
+import { useInstitutions } from "@/hooks/use-institutions";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { CalendarIcon, Plus, Repeat, Trash2, Edit2, Play } from "lucide-react";
@@ -70,6 +71,7 @@ export default function RecurringPage() {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingEntry, setEditingEntry] = useState<RecurringEntry | null>(null);
+  const { institutions } = useInstitutions();
 
   // Form state
   const [title, setTitle] = useState("");
@@ -83,6 +85,7 @@ export default function RecurringPage() {
   const [monthlyDay, setMonthlyDay] = useState("1");
   const [startDate, setStartDate] = useState<Date>(new Date());
   const [endDate, setEndDate] = useState<Date | undefined>(undefined);
+  const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>("");
 
   // Fetch recurring entries
   const { data: entries = [], isLoading } = useQuery<RecurringEntry[]>({
@@ -193,6 +196,7 @@ export default function RecurringPage() {
     setMonthlyDay("1");
     setStartDate(new Date());
     setEndDate(undefined);
+    setSelectedInstitutionId("");
     setEditingEntry(null);
   };
 
@@ -216,6 +220,7 @@ export default function RecurringPage() {
       recurrenceDayOfMonth: recurrenceType === "monthly" ? parseInt(monthlyDay) : null,
       startDate: format(startDate, "yyyy-MM-dd"),
       endDate: endDate ? format(endDate, "yyyy-MM-dd") : null,
+      institutionId: selectedInstitutionId || null,
     };
 
     if (editingEntry) {
@@ -238,6 +243,7 @@ export default function RecurringPage() {
     setMonthlyDay(entry.recurrenceDayOfMonth?.toString() || "1");
     setStartDate(new Date(entry.startDate));
     setEndDate(entry.endDate ? new Date(entry.endDate) : undefined);
+    setSelectedInstitutionId((entry as any).institutionId || "");
     setIsDialogOpen(true);
   };
 
@@ -404,6 +410,33 @@ export default function RecurringPage() {
                       />
                     </div>
                   </div>
+
+                  {/* Institution (optional) */}
+                  {institutions.length > 0 && (
+                    <div>
+                      <Label>Institusjon (valgfri)</Label>
+                      <Select
+                        value={selectedInstitutionId || "__none__"}
+                        onValueChange={(v) => setSelectedInstitutionId(v === "__none__" ? "" : v)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Velg institusjon…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__none__">— ingen (gjelder alle) —</SelectItem>
+                          {institutions.filter(i => i.active !== false).map(inst => (
+                            <SelectItem key={inst.id} value={inst.id}>
+                              {inst.name}
+                              {inst.orgNumber && <span className="text-muted-foreground ml-2 text-xs">({inst.orgNumber})</span>}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        Knytt denne faste oppgaven til en institusjon for bedre oversikt.
+                      </p>
+                    </div>
+                  )}
 
                   {/* Recurrence Type */}
                   <div>
@@ -664,6 +697,14 @@ export default function RecurringPage() {
                         {entry.endDate ? ` → ${format(new Date(entry.endDate), "dd.MM.yyyy", { locale: nb })}` : " → ∞"}
                       </p>
                     </div>
+                    {(entry as any).institutionId && (
+                      <div className="col-span-2 md:col-span-5">
+                        <span className="text-muted-foreground text-xs">Institusjon</span>
+                        <p className="font-medium text-xs">
+                          {institutions.find(i => i.id === (entry as any).institutionId)?.name ?? "—"}
+                        </p>
+                      </div>
+                    )}
                   </div>
                   <div className="mt-3 pt-3 border-t flex items-center gap-4 text-xs text-muted-foreground">
                     <span>

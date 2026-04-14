@@ -66,6 +66,7 @@ export function registerRecurringRoutes(app: Express) {
         // Accept both field names for backwards compat with older clients
         recurrenceDayOfMonth, recurrenceDay,
         startDate, endDate,
+        institutionId,
       } = req.body;
 
       if (!title || !hours || !recurrenceType || !startDate) {
@@ -104,6 +105,7 @@ export function registerRecurringRoutes(app: Express) {
           recurrenceDayOfMonth: dayOfMonth,
           startDate,
           endDate: endDate ?? null,
+          institutionId: institutionId || null,
           isActive: true,
         })
         .returning();
