@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useGdprChecker, ANONYMOUS_SUGGESTIONS } from "@/hooks/useGdprChecker";
 import { useAktivitetForslag } from "@/hooks/use-aktivitet-forslag";
+import { PortalLayout } from "@/components/portal/portal-layout";
 import { useAuth } from "@/hooks/use-auth";
 
 // shadcn/ui
@@ -704,20 +705,8 @@ export default function RapportSkrivePage() {
   // ── RENDER ────────────────────────────────────────────────────────────────
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* NAV BAR */}
-      <div className="border-b bg-card/80 backdrop-blur sticky top-0 z-40 px-6 py-2">
-        <div className="max-w-5xl mx-auto flex items-center gap-4 text-sm">
-          <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground transition-colors">Dashboard</button>
-          <span className="text-muted-foreground/40">/</span>
-          <button onClick={() => navigate("/rapporter")} className="text-muted-foreground hover:text-foreground transition-colors">Rapporter</button>
-          <span className="text-muted-foreground/40">/</span>
-          <span className="text-foreground font-medium">{rapportId ? "Rediger" : "Ny rapport"}</span>
-        </div>
-      </div>
-
+    <PortalLayout>
       {/* PAGE HEADER */}
-      <div className="max-w-5xl mx-auto px-6 pt-6">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <div>
           <h1 className="text-2xl font-semibold">
@@ -1536,7 +1525,6 @@ export default function RapportSkrivePage() {
         </DialogContent>
       </Dialog>
 
-    </div>
-    </div>
+    </PortalLayout>
   );
 }

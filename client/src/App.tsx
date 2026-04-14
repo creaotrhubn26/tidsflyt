@@ -1,5 +1,6 @@
-import { Suspense, lazy } from "react";
-import { Switch, Route, Redirect } from "wouter";
+import { Suspense, lazy, useMemo } from "react";
+import { Switch, Route, Redirect, useLocation } from "wouter";
+import { PortalLayout } from "@/components/portal/portal-layout";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -52,6 +53,17 @@ const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage
 
 function RouteLoadingFallback() {
   return (
+    <div className="flex items-center justify-center py-12">
+      <div className="inline-flex items-center gap-3 text-sm font-medium text-muted-foreground">
+        <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
+        Laster…
+      </div>
+    </div>
+  );
+}
+
+function FullscreenLoadingFallback() {
+  return (
     <main className="min-h-screen flex items-center justify-center bg-background">
       <div className="inline-flex items-center gap-3 text-sm font-medium text-muted-foreground">
         <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
@@ -61,10 +73,25 @@ function RouteLoadingFallback() {
   );
 }
 
+// Paths that should render inside PortalLayout (with sidebar navigation).
+// Checked with prefix-match; put longer/specific paths first if overlapping.
+const PROTECTED_LAYOUT_PREFIXES = [
+  "/dashboard", "/time", "/time-tracking", "/reports", "/case-reports", "/cases",
+  "/profile", "/settings", "/invites", "/users", "/leave", "/invoices", "/overtime",
+  "/recurring", "/timesheets", "/forward", "/email", "/rapporter", "/admin",
+  "/vendors", "/cms", "/cms-legacy", "/api-docs", "/vendor",
+];
+
+function isProtectedLayoutPath(pathname: string): boolean {
+  return PROTECTED_LAYOUT_PREFIXES.some(p => pathname === p || pathname.startsWith(p + "/") || pathname.startsWith(p + "?"));
+}
+
 function Router() {
-  return (
-    <Suspense fallback={<RouteLoadingFallback />}>
-      <Switch>
+  const [location] = useLocation();
+  const withLayout = useMemo(() => isProtectedLayoutPath(location), [location]);
+
+  const switchElement = (
+    <Switch>
         {/* Public routes */}
         <Route path="/" component={Landing} />
         <Route path="/kontakt" component={Contact} />
@@ -118,6 +145,21 @@ function Router() {
 
         <Route component={NotFound} />
       </Switch>
+  );
+
+  if (withLayout) {
+    return (
+      <PortalLayout>
+        <Suspense fallback={<RouteLoadingFallback />}>
+          {switchElement}
+        </Suspense>
+      </PortalLayout>
+    );
+  }
+
+  return (
+    <Suspense fallback={<FullscreenLoadingFallback />}>
+      {switchElement}
     </Suspense>
   );
 }

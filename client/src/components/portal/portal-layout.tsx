@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -136,7 +136,25 @@ interface PortalLayoutProps {
   };
 }
 
+// Context to detect if PortalLayout is already mounted above in the tree.
+// This lets us put PortalLayout at the router level AND keep it in individual
+// pages without double-wrapping. Individual page instances become no-ops when
+// a parent PortalLayout is already present.
+const PortalLayoutContext = createContext(false);
+
 export function PortalLayout({ children, user }: PortalLayoutProps) {
+  const alreadyMounted = useContext(PortalLayoutContext);
+  if (alreadyMounted) {
+    return <>{children}</>;
+  }
+  return (
+    <PortalLayoutContext.Provider value={true}>
+      <PortalLayoutInner user={user}>{children}</PortalLayoutInner>
+    </PortalLayoutContext.Provider>
+  );
+}
+
+function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const [location, navigate] = useLocation();
   const [collapsed, setCollapsed] = useState(false);
   const { openCompose } = useCompose();

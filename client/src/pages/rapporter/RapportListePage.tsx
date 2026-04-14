@@ -8,7 +8,7 @@
 import { useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-// removed PortalLayout — rapport pages are standalone editors
+import { PortalLayout } from "@/components/portal/portal-layout";
 import { Button } from "@/components/ui/button";
 import { Badge }  from "@/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -67,18 +67,9 @@ export default function RapportListePage() {
   const approved  = rapporter.filter(r => r.status === "godkjent");
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* NAV BAR */}
-      <div className="border-b bg-card/80 backdrop-blur sticky top-0 z-40 px-6 py-2">
-        <div className="max-w-4xl mx-auto flex items-center gap-4 text-sm">
-          <button onClick={() => navigate("/dashboard")} className="text-muted-foreground hover:text-foreground transition-colors">Dashboard</button>
-          <span className="text-muted-foreground/40">/</span>
-          <span className="text-foreground font-medium">Rapporter</span>
-        </div>
-      </div>
-
+    <PortalLayout>
       {/* HEADER */}
-      <div className="max-w-4xl mx-auto px-6 pt-6 pb-4 flex items-center justify-between">
+      <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-semibold">Mine rapporter</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -90,7 +81,7 @@ export default function RapportListePage() {
         </Button>
       </div>
 
-      <div className="max-w-4xl mx-auto px-6 py-6 space-y-6">
+      <div className="space-y-6">
 
         {/* STATS */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -171,7 +162,7 @@ export default function RapportListePage() {
           />
         )}
       </div>
-    </div>
+    </PortalLayout>
   );
 }
 
