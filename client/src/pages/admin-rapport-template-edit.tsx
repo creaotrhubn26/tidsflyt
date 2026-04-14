@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { PortalLayout } from "@/components/portal/portal-layout";
@@ -14,11 +14,20 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import {
   FileText, Plus, Trash2, ChevronUp, ChevronDown, ArrowLeft,
   Save, Loader2, CheckSquare, ClipboardList, Activity, MessageSquare, Target,
-  GripVertical, X,
+  GripVertical, X, Eye, EyeOff, Download, Upload,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useRapportTemplates, type RapportTemplate, type RapportTemplateSection } from "@/hooks/use-rapport-templates";
 import { cn } from "@/lib/utils";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove, SortableContext, sortableKeyboardCoordinates, useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const SECTION_TYPES: { value: RapportTemplateSection["type"]; label: string; icon: typeof MessageSquare; description: string }[] = [
   { value: "rich_text",                label: "Fritekst",                icon: MessageSquare,  description: "Fri tekst med GDPR-sjekk" },
@@ -61,6 +70,14 @@ export default function AdminRapportTemplateEditPage() {
   const [suggestedType, setSuggestedType] = useState<string>("");
   const [sections, setSections] = useState<RapportTemplateSection[]>([]);
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // DnD sensors — pointer for mouse/touch, keyboard for a11y
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     if (!fullTemplate) return;
@@ -80,6 +97,61 @@ export default function AdminRapportTemplateEditPage() {
     if (target < 0 || target >= next.length) return;
     [next[idx], next[target]] = [next[target], next[idx]];
     setSections(next);
+  };
+
+  // Stable id for DnD = "sectionKey:index" — falls back gracefully if keys dupe
+  const itemIds = useMemo(
+    () => sections.map((s, i) => `${s.key}:${i}`),
+    [sections],
+  );
+
+  const handleDragEnd = (event: DragEndEvent) => {
+    if (readOnly) return;
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const oldIndex = itemIds.indexOf(String(active.id));
+    const newIndex = itemIds.indexOf(String(over.id));
+    if (oldIndex < 0 || newIndex < 0) return;
+    setSections(arrayMove(sections, oldIndex, newIndex));
+  };
+
+  // ── Export / Import ────────────────────────────────────────────────────
+  const handleExport = () => {
+    const payload = {
+      name, description,
+      suggestedInstitutionType: suggestedType || null,
+      sections,
+      exportedAt: new Date().toISOString(),
+      exportedFrom: "tidum",
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${slugify(name) || "rapport-mal"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast({ title: "Eksportert", description: "Malen er lastet ned som JSON." });
+  };
+
+  const handleImport = (file: File) => {
+    if (readOnly) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const text = String(e.target?.result ?? "");
+        const data = JSON.parse(text);
+        if (!Array.isArray(data.sections)) throw new Error("Filen mangler 'sections' array");
+        if (data.name && typeof data.name === "string") setName(data.name);
+        if (data.description !== undefined) setDescription(data.description ?? "");
+        if (data.suggestedInstitutionType !== undefined) setSuggestedType(data.suggestedInstitutionType ?? "");
+        setSections(data.sections);
+        toast({ title: "Importert", description: `${data.sections.length} seksjoner lastet inn` });
+      } catch (err: any) {
+        toast({ title: "Feil", description: err.message || "Kunne ikke lese JSON", variant: "destructive" });
+      }
+    };
+    reader.readAsText(file);
   };
 
   const updateSection = (idx: number, patch: Partial<RapportTemplateSection>) => {
@@ -175,12 +247,37 @@ export default function AdminRapportTemplateEditPage() {
               </p>
             </div>
           </div>
-          {!readOnly && (
-            <Button onClick={handleSave} disabled={update.isPending}>
-              {update.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
-              Lagre endringer
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" size="sm" onClick={() => setShowPreview(p => !p)}>
+              {showPreview ? <EyeOff className="h-4 w-4 mr-1.5" /> : <Eye className="h-4 w-4 mr-1.5" />}
+              {showPreview ? "Skjul forhåndsvisning" : "Vis forhåndsvisning"}
             </Button>
-          )}
+            <Button variant="outline" size="sm" onClick={handleExport}>
+              <Download className="h-4 w-4 mr-1.5" /> Eksporter
+            </Button>
+            {!readOnly && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+                  <Upload className="h-4 w-4 mr-1.5" /> Importer
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handleImport(f);
+                    e.target.value = "";
+                  }}
+                />
+                <Button onClick={handleSave} disabled={update.isPending}>
+                  {update.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Save className="h-4 w-4 mr-2" />}
+                  Lagre endringer
+                </Button>
+              </>
+            )}
+          </div>
         </div>
 
         {/* Metadata */}
@@ -213,37 +310,55 @@ export default function AdminRapportTemplateEditPage() {
           </CardContent>
         </Card>
 
-        {/* Sections */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold">Seksjoner ({sections.length})</h2>
-            {!readOnly && (
-              <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-                <Plus className="h-4 w-4 mr-1.5" /> Legg til seksjon
-              </Button>
+        {/* Sections + optional preview */}
+        <div className={cn("grid gap-6", showPreview && "lg:grid-cols-[minmax(0,1fr)_minmax(0,400px)]")}>
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-lg font-semibold">Seksjoner ({sections.length})</h2>
+              {!readOnly && (
+                <Button size="sm" onClick={() => setAddDialogOpen(true)}>
+                  <Plus className="h-4 w-4 mr-1.5" /> Legg til seksjon
+                </Button>
+              )}
+            </div>
+
+            {sections.length === 0 ? (
+              <Card className="border-dashed"><CardContent className="py-10 text-center text-sm text-muted-foreground">
+                Ingen seksjoner. Klikk "Legg til seksjon" for å starte.
+              </CardContent></Card>
+            ) : (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragEnd={handleDragEnd}
+              >
+                <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-3">
+                    {sections.map((section, idx) => (
+                      <SortableSectionEditor
+                        key={itemIds[idx]}
+                        id={itemIds[idx]}
+                        section={section}
+                        idx={idx}
+                        total={sections.length}
+                        readOnly={readOnly}
+                        isSystemKey={SYSTEM_KEYS.includes(section.key)}
+                        onChange={(patch) => updateSection(idx, patch)}
+                        onMoveUp={() => move(idx, -1)}
+                        onMoveDown={() => move(idx, 1)}
+                        onRemove={() => removeSection(idx)}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
             )}
           </div>
 
-          {sections.length === 0 ? (
-            <Card className="border-dashed"><CardContent className="py-10 text-center text-sm text-muted-foreground">
-              Ingen seksjoner. Klikk "Legg til seksjon" for å starte.
-            </CardContent></Card>
-          ) : (
-            <div className="space-y-3">
-              {sections.map((section, idx) => (
-                <SectionEditor
-                  key={`${section.key}-${idx}`}
-                  section={section}
-                  idx={idx}
-                  total={sections.length}
-                  readOnly={readOnly}
-                  isSystemKey={SYSTEM_KEYS.includes(section.key)}
-                  onChange={(patch) => updateSection(idx, patch)}
-                  onMoveUp={() => move(idx, -1)}
-                  onMoveDown={() => move(idx, 1)}
-                  onRemove={() => removeSection(idx)}
-                />
-              ))}
+          {/* Live preview */}
+          {showPreview && (
+            <div className="lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+              <PreviewPanel name={name} description={description} sections={sections} />
             </div>
           )}
         </div>
@@ -279,12 +394,10 @@ export default function AdminRapportTemplateEditPage() {
   );
 }
 
-// ─── Section editor row ─────────────────────────────────────────────────────
+// ─── Sortable wrapper ──────────────────────────────────────────────────────
 
-function SectionEditor({
-  section, idx, total, readOnly, isSystemKey,
-  onChange, onMoveUp, onMoveDown, onRemove,
-}: {
+function SortableSectionEditor(props: {
+  id: string;
   section: RapportTemplateSection;
   idx: number;
   total: number;
@@ -295,6 +408,40 @@ function SectionEditor({
   onMoveDown: () => void;
   onRemove: () => void;
 }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+    zIndex: isDragging ? 50 : "auto",
+  };
+  return (
+    <div ref={setNodeRef} style={style}>
+      <SectionEditor
+        {...props}
+        dragHandleProps={{ ...attributes, ...listeners }}
+      />
+    </div>
+  );
+}
+
+// ─── Section editor row ─────────────────────────────────────────────────────
+
+function SectionEditor({
+  section, idx, total, readOnly, isSystemKey,
+  onChange, onMoveUp, onMoveDown, onRemove, dragHandleProps,
+}: {
+  section: RapportTemplateSection;
+  idx: number;
+  total: number;
+  readOnly: boolean;
+  isSystemKey: boolean;
+  onChange: (patch: Partial<RapportTemplateSection>) => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+  onRemove: () => void;
+  dragHandleProps?: any;
+}) {
   const TypeMeta = SECTION_TYPES.find(t => t.value === section.type);
   const Icon = TypeMeta?.icon ?? MessageSquare;
 
@@ -303,7 +450,17 @@ function SectionEditor({
       <CardContent className="p-4">
         {/* Header row */}
         <div className="flex items-start gap-3">
-          <div className="flex flex-col gap-0.5 flex-shrink-0 pt-1">
+          {/* Drag handle + a11y chevrons */}
+          <div className="flex flex-col items-center gap-0.5 flex-shrink-0 pt-1">
+            {!readOnly && (
+              <button
+                {...dragHandleProps}
+                className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing touch-none"
+                aria-label="Dra for å flytte"
+              >
+                <GripVertical className="h-3.5 w-3.5" />
+              </button>
+            )}
             <Button size="sm" variant="ghost" className="h-6 w-6 p-0" onClick={onMoveUp} disabled={readOnly || idx === 0} aria-label="Flytt opp">
               <ChevronUp className="h-3.5 w-3.5" />
             </Button>
@@ -449,6 +606,135 @@ function ChecklistItemsEditor({
           >
             <Plus className="h-3.5 w-3.5" />
           </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Live preview panel ────────────────────────────────────────────────────
+// Mirrors the layout a miljøarbeider sees when writing a rapport with this
+// template. Empty placeholder state per section type.
+
+function PreviewPanel({
+  name, description, sections,
+}: {
+  name: string;
+  description: string;
+  sections: RapportTemplateSection[];
+}) {
+  return (
+    <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Eye className="h-4 w-4 text-primary" />
+          Forhåndsvisning
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Slik ser rapporten ut for miljøarbeideren
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="rounded-lg border bg-background p-4 shadow-sm">
+          <h2 className="text-base font-bold mb-1">{name || "Uten navn"}</h2>
+          {description && (
+            <p className="text-xs text-muted-foreground">{description}</p>
+          )}
+        </div>
+        {sections.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-6 text-center text-xs text-muted-foreground">
+            Ingen seksjoner ennå
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {sections.map((s, i) => (
+              <PreviewSection key={i} index={i + 1} section={s} />
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function PreviewSection({ index, section }: { index: number; section: RapportTemplateSection }) {
+  const TypeMeta = SECTION_TYPES.find(t => t.value === section.type);
+  const Icon = TypeMeta?.icon ?? MessageSquare;
+
+  return (
+    <div className="rounded-lg border bg-background p-3">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] font-mono text-muted-foreground">{index}.</span>
+        <Icon className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+        <span className="text-xs font-semibold flex-1 truncate">{section.title || "(uten tittel)"}</span>
+        {section.required && (
+          <Badge variant="destructive" className="text-[8px] px-1 py-0 h-4">Påkrevd</Badge>
+        )}
+      </div>
+
+      {section.helpText && (
+        <p className="text-[10px] text-muted-foreground mb-2">{section.helpText}</p>
+      )}
+
+      {(section.type === "rich_text" || section.type === "summary") && (
+        <div className="rounded-md border bg-muted/30 p-2 min-h-[48px]">
+          <p className="text-[11px] italic text-muted-foreground line-clamp-3">
+            {section.placeholder || "Skriv her…"}
+          </p>
+        </div>
+      )}
+
+      {section.type === "goals_list" && (
+        <div className="space-y-1">
+          <div className="rounded-md bg-muted/40 px-2 py-1 text-[11px] flex items-center justify-between">
+            <span>Mål 1 — eksempel</span>
+            <span className="text-muted-foreground">60%</span>
+          </div>
+          <div className="rounded-md bg-muted/40 px-2 py-1 text-[11px] flex items-center justify-between">
+            <span>Mål 2 — eksempel</span>
+            <span className="text-muted-foreground">30%</span>
+          </div>
+        </div>
+      )}
+
+      {section.type === "activities_log" && (
+        <div className="rounded-md border p-2 text-[10px] text-muted-foreground">
+          <div className="flex items-center justify-between">
+            <span>15.04 · Klientmøte · 2t</span>
+            <span>Hjemme</span>
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span>18.04 · Aktivitet · 1t 30m</span>
+            <span>Ute</span>
+          </div>
+        </div>
+      )}
+
+      {section.type === "checklist" && (
+        <div className="space-y-1">
+          {(section.items ?? []).length === 0 ? (
+            <p className="text-[10px] italic text-muted-foreground">Ingen punkter definert</p>
+          ) : (
+            (section.items ?? []).slice(0, 6).map((item, i) => (
+              <div key={i} className="flex items-center gap-2 text-[11px]">
+                <div className="h-3 w-3 rounded border border-input flex-shrink-0" />
+                <span className="truncate">{item}</span>
+              </div>
+            ))
+          )}
+          {(section.items ?? []).length > 6 && (
+            <p className="text-[10px] text-muted-foreground italic">+ {(section.items ?? []).length - 6} til</p>
+          )}
+        </div>
+      )}
+
+      {section.type === "structured_observations" && (
+        <div className="space-y-1">
+          <div className="rounded-md bg-muted/40 px-2 py-1.5">
+            <p className="text-[10px] text-muted-foreground">15.04 · Trygghet</p>
+            <p className="text-[11px] italic text-muted-foreground mt-0.5">Observasjon…</p>
+          </div>
+          <button className="text-[10px] text-primary font-medium">+ Legg til observasjon</button>
         </div>
       )}
     </div>

@@ -11,8 +11,9 @@ import { useToast } from "@/hooks/use-toast";
 import {
   FileText, Copy, Pencil, Trash2, Loader2,
   Home, Briefcase, Building2, HeartPulse, Sparkles,
-  ClipboardList, Activity, CheckSquare, MessageSquare, Target, Eye,
+  ClipboardList, Activity, CheckSquare, MessageSquare, Target, Eye, Upload, Plus,
 } from "lucide-react";
+import { useRef } from "react";
 import { cn } from "@/lib/utils";
 
 const ADMIN_ROLES = ["vendor_admin", "hovedadmin", "admin", "super_admin"];
@@ -50,6 +51,39 @@ export default function AdminRapportTemplatesPage() {
   const isAdmin = ADMIN_ROLES.includes(effectiveRole);
   const { templates, isLoading, clone, remove } = useRapportTemplates();
   const [preview, setPreview] = useState<RapportTemplate | null>(null);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
+  const handleImport = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try {
+        const data = JSON.parse(String(e.target?.result ?? ""));
+        if (!data.name || !Array.isArray(data.sections)) {
+          throw new Error("Filen mangler 'name' eller 'sections'");
+        }
+        const slug = (data.name as string).toLowerCase().replace(/[æå]/g, "a").replace(/ø/g, "o").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
+        const res = await fetch("/api/rapport-templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            name: data.name,
+            slug: `${slug}-${Date.now()}`,
+            description: data.description ?? null,
+            suggestedInstitutionType: data.suggestedInstitutionType ?? null,
+            sections: data.sections,
+          }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || "Import feilet");
+        const created = await res.json();
+        toast({ title: "Importert", description: "Tar deg til editoren…" });
+        navigate(`/admin/rapport-maler/${created.id}`);
+      } catch (err: any) {
+        toast({ title: "Feil", description: err.message, variant: "destructive" });
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const grouped = useMemo(() => {
     const system = templates.filter(t => t.isSystem);
@@ -80,14 +114,34 @@ export default function AdminRapportTemplatesPage() {
   return (
     <PortalLayout>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
-            <FileText className="h-7 w-7 text-primary" />
-            Rapport-maler
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Strukturen på månedsrapporter per sektor. System-maler kan klones og tilpasses.
-          </p>
+        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold flex items-center gap-2">
+              <FileText className="h-7 w-7 text-primary" />
+              Rapport-maler
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Strukturen på månedsrapporter per sektor. System-maler kan klones og tilpasses.
+            </p>
+          </div>
+          {isAdmin && (
+            <div className="flex gap-2 flex-shrink-0">
+              <Button variant="outline" size="sm" onClick={() => importFileRef.current?.click()}>
+                <Upload className="h-4 w-4 mr-1.5" /> Importer mal
+              </Button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) handleImport(f);
+                  e.target.value = "";
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {isLoading ? (
