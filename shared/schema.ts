@@ -155,6 +155,32 @@ export const userGoalCategories = pgTable("user_goal_categories", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
+// Feedback from prototype testers — contextual (page, viewport, screenshot etc.)
+export const testerFeedback = pgTable("tester_feedback", {
+  id:                uuid("id").defaultRandom().primaryKey(),
+  userId:            varchar("user_id").notNull(),
+  email:             text("email"),
+  fullName:          text("full_name"),
+  category:          text("category").notNull().default("bug"),
+  severity:          text("severity").default("medium"),
+  pagePath:          text("page_path"),
+  pageTitle:         text("page_title"),
+  userAgent:         text("user_agent"),
+  viewportWidth:     integer("viewport_width"),
+  viewportHeight:    integer("viewport_height"),
+  message:           text("message").notNull(),
+  stepsToReproduce:  text("steps_to_reproduce"),
+  screenshotDataUrl: text("screenshot_data_url"),
+  extraContext:      jsonb("extra_context").default({}),
+  status:            text("status").notNull().default("new"),
+  adminNotes:        text("admin_notes"),
+  adminReply:        text("admin_reply"),
+  repliedAt:         timestamp("replied_at"),
+  resolvedAt:        timestamp("resolved_at"),
+  createdAt:         timestamp("created_at").notNull().defaultNow(),
+  updatedAt:         timestamp("updated_at").notNull().defaultNow(),
+});
+
 // Form drafts per user (replaces localStorage drafts in use-draft.ts)
 export const userDrafts = pgTable("user_drafts", {
   id:         uuid("id").defaultRandom().primaryKey(),

@@ -121,6 +121,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
   { path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
   { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
+  { path: "/admin/tester-feedback", icon: Lightbulb, label: "Tester-feedback", roles: ["super_admin"] },
   { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { path: "/settings", icon: Settings, label: "Innstillinger" },
 ];

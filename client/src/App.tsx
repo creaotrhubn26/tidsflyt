@@ -13,6 +13,7 @@ import NotFound from "@/pages/not-found";
 import { RolePreviewProvider } from "@/hooks/use-role-preview";
 import { ComposeProvider } from "@/components/email/compose-context";
 import { ComposeModal } from "@/components/email/compose-modal";
+import { TesterFeedbackButton } from "@/components/tester/tester-feedback-button";
 
 const Landing = lazy(() => import("@/pages/landing"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
@@ -50,6 +51,7 @@ const RapportListePage = lazy(() => import("@/pages/rapporter/RapportListePage")
 const RapportSkrivePage = lazy(() => import("@/pages/rapporter/RapportSkrivePage"));
 const TiltakslederPage = lazy(() => import("@/pages/rapporter/TiltakslederPage"));
 const AdminTemplatePage = lazy(() => import("@/pages/rapporter/AdminTemplatePage"));
+const AdminTesterFeedback = lazy(() => import("@/pages/admin-tester-feedback"));
 
 function RouteLoadingFallback() {
   return (
@@ -136,6 +138,7 @@ function Router() {
 
         {/* Admin routes */}
         <Route path="/admin/case-reviews">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><AdminCaseReviews /></AuthGuard>}</Route>
+        <Route path="/admin/tester-feedback">{() => <AuthGuard requiredRoles={["super_admin", "hovedadmin", "admin"]}><AdminTesterFeedback /></AuthGuard>}</Route>
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
@@ -178,6 +181,7 @@ function App() {
                   <Router />
                 </main>
                 <ComposeModal />
+                <TesterFeedbackButton />
               </ComposeProvider>
             </RolePreviewProvider>
           </TooltipProvider>

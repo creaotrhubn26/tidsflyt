@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useBrregSearch, type BrregCompany } from "@/hooks/use-brreg-search";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -90,21 +91,42 @@ export default function VendorsPage() {
   const [selectedVendor, setSelectedVendor] = useState<VendorData | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
+  const [viewMode, setViewMode] = useState<"all" | "analytics" | "testers">("all");
+  const [testerInviteOpen, setTesterInviteOpen] = useState(false);
+  const [testerForm, setTesterForm] = useState({ email: '', fullName: '' });
+  const [convertingTester, setConvertingTester] = useState<any | null>(null);
   const [vendorForm, setVendorForm] = useState({
     name: '',
     slug: '',
     email: '',
     phone: '',
     address: '',
+    orgNumber: '',
+    institutionType: '' as '' | 'privat' | 'offentlig' | 'nav',
     status: 'active',
     maxUsers: 50,
     subscriptionPlan: 'standard',
   });
+  const [brregQuery, setBrregQuery] = useState('');
+  const brreg = useBrregSearch();
+  const brregDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close Brreg dropdown when clicking outside
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (brregDropdownRef.current && !brregDropdownRef.current.contains(e.target as Node)) {
+        brreg.setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [brreg]);
   const [adminForm, setAdminForm] = useState({
     username: '',
     email: '',
+    fullName: '',
     password: '',
+    sendInvite: true,
   });
 
   const { data: vendors = [], isLoading } = useQuery<VendorData[]>({
@@ -187,6 +209,58 @@ export default function VendorsPage() {
     },
   });
 
+  // ── Prototype testers ─────────────────────────────────────────────
+  const { data: testers = [], refetch: refetchTesters } = useQuery<any[]>({
+    queryKey: ['/api/prototype-testers'],
+    queryFn: () => authenticatedApiRequest('/api/prototype-testers'),
+  });
+
+  const inviteTester = useMutation({
+    mutationFn: (data: typeof testerForm) =>
+      authenticatedApiRequest('/api/prototype-testers', { method: 'POST', body: JSON.stringify(data) }),
+    onSuccess: (data: any) => {
+      const msg = data?.emailSent ? 'Tester invitert og e-post sendt' : 'Tester lagt til';
+      toast({ title: 'Opprettet', description: msg });
+      refetchTesters();
+      setTesterInviteOpen(false);
+      setTesterForm({ email: '', fullName: '' });
+    },
+    onError: (e: any) => toast({ title: 'Feil', description: e.message, variant: 'destructive' }),
+  });
+
+  const convertTester = useMutation({
+    mutationFn: ({ id, vendorId }: { id: string; vendorId: number }) =>
+      authenticatedApiRequest(`/api/prototype-testers/${id}/convert-to-vendor-admin`, {
+        method: 'POST',
+        body: JSON.stringify({ vendorId }),
+      }),
+    onSuccess: () => {
+      toast({ title: 'Konvertert', description: 'Tester er nå vendor admin for valgt leverandør' });
+      refetchTesters();
+      setConvertingTester(null);
+    },
+    onError: (e: any) => toast({ title: 'Feil', description: e.message, variant: 'destructive' }),
+  });
+
+  const revertTester = useMutation({
+    mutationFn: (id: string) =>
+      authenticatedApiRequest(`/api/prototype-testers/${id}/revert-to-tester`, { method: 'POST' }),
+    onSuccess: () => {
+      toast({ title: 'Tilbakestilt', description: 'Bruker er igjen prototype-tester' });
+      refetchTesters();
+    },
+    onError: (e: any) => toast({ title: 'Feil', description: e.message, variant: 'destructive' }),
+  });
+
+  const deleteTester = useMutation({
+    mutationFn: (id: string) =>
+      authenticatedApiRequest(`/api/prototype-testers/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast({ title: 'Slettet' });
+      refetchTesters();
+    },
+  });
+
   const createAdminMutation = useMutation({
     mutationFn: async (data: typeof adminForm) => {
       return authenticatedApiRequest(`/api/vendors/${selectedVendor?.id}/admins`, {
@@ -194,11 +268,14 @@ export default function VendorsPage() {
         body: JSON.stringify(data),
       });
     },
-    onSuccess: () => {
-      toast({ title: 'Opprettet', description: 'Administrator er opprettet' });
+    onSuccess: (data: any) => {
+      const msg = data?.emailSent
+        ? 'Administrator opprettet, invitasjons-e-post sendt'
+        : 'Administrator opprettet';
+      toast({ title: 'Opprettet', description: msg });
       refetchAdmins();
       setShowAdminDialog(false);
-      setAdminForm({ username: '', email: '', password: '' });
+      setAdminForm({ username: '', email: '', fullName: '', password: '', sendInvite: true });
     },
     onError: (error: any) => {
       toast({ title: 'Feil', description: error.message, variant: 'destructive' });
@@ -214,6 +291,8 @@ export default function VendorsPage() {
         email: vendor.email || '',
         phone: vendor.phone || '',
         address: vendor.address || '',
+        orgNumber: (vendor as any).org_number || '',
+        institutionType: ((vendor as any).institution_type || '') as any,
         status: vendor.status,
         maxUsers: vendor.max_users,
         subscriptionPlan: vendor.subscription_plan,
@@ -226,10 +305,14 @@ export default function VendorsPage() {
         email: '',
         phone: '',
         address: '',
+        orgNumber: '',
+        institutionType: '',
         status: 'active',
         maxUsers: 50,
         subscriptionPlan: 'standard',
       });
+      setBrregQuery('');
+      brreg.reset();
     }
     setShowVendorDialog(true);
   };
@@ -274,11 +357,18 @@ export default function VendorsPage() {
           </Button>
         </div>
 
-        <Tabs value={viewMode} onValueChange={(val) => setViewMode(val as "all" | "analytics")}>
+        <Tabs value={viewMode} onValueChange={(val) => setViewMode(val as any)}>
           <TabsList>
             <TabsTrigger value="all" data-testid="tab-vendors">
               <Building2 className="h-4 w-4 mr-1" />
               Leverandører
+            </TabsTrigger>
+            <TabsTrigger value="testers" data-testid="tab-testers">
+              <UserPlus className="h-4 w-4 mr-1" />
+              Prototype-testere
+              {testers.length > 0 && (
+                <Badge variant="secondary" className="ml-2 text-[10px]">{testers.length}</Badge>
+              )}
             </TabsTrigger>
             <TabsTrigger value="analytics" data-testid="tab-analytics">
               <BarChart3 className="h-4 w-4 mr-1" />
@@ -569,7 +659,130 @@ export default function VendorsPage() {
               </CardContent>
             </Card>
           </TabsContent>
+
+          {/* Prototype-testere Tab */}
+          <TabsContent value="testers" className="space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Prototype-testere</h2>
+                <p className="text-xs text-muted-foreground">
+                  Inviter eksterne testere for tidlig tilbakemelding. De får kun lesetilgang til utvalgte flyter.
+                </p>
+              </div>
+              <Button onClick={() => setTesterInviteOpen(true)} data-testid="button-invite-tester">
+                <UserPlus className="h-4 w-4 mr-2" />
+                Inviter tester
+              </Button>
+            </div>
+
+            {testers.length === 0 ? (
+              <Card><CardContent className="py-10 text-center text-muted-foreground text-sm">
+                Ingen prototype-testere ennå. Klikk "Inviter tester" for å sende første invitasjon.
+              </CardContent></Card>
+            ) : (
+              <div className="grid gap-3">
+                {testers.map((t: any) => (
+                  <Card key={t.id} className="hover:shadow-sm transition-shadow">
+                    <CardContent className="p-4 flex flex-col md:flex-row md:items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-medium">
+                            {[t.first_name, t.last_name].filter(Boolean).join(" ") || t.email}
+                          </p>
+                          <Badge variant="outline" className="text-[10px]">Prototype-tester</Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-0.5 font-mono">{t.email}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Invitert {t.created_at && new Date(t.created_at).toLocaleDateString("nb-NO")}
+                        </p>
+                      </div>
+                      <div className="flex gap-2 flex-wrap">
+                        <Button size="sm" variant="outline" onClick={() => setConvertingTester(t)}>
+                          Konverter til leverandør
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-destructive hover:text-destructive"
+                          onClick={() => {
+                            if (confirm("Fjerne denne prototype-testeren?")) deleteTester.mutate(t.id);
+                          }}
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </TabsContent>
         </Tabs>
+
+        {/* Invite tester dialog */}
+        <Dialog open={testerInviteOpen} onOpenChange={setTesterInviteOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Inviter prototype-tester</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <Label htmlFor="tester-name">Fullt navn</Label>
+                <Input
+                  id="tester-name"
+                  value={testerForm.fullName}
+                  onChange={(e) => setTesterForm({ ...testerForm, fullName: e.target.value })}
+                  placeholder="Ola Nordmann"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tester-email">E-post</Label>
+                <Input
+                  id="tester-email"
+                  type="email"
+                  value={testerForm.email}
+                  onChange={(e) => setTesterForm({ ...testerForm, email: e.target.value })}
+                  placeholder="tester@eksempel.no"
+                />
+              </div>
+              <p className="text-xs text-muted-foreground bg-muted/30 rounded-md p-2.5">
+                Testeren får en magic-link-invitasjon og kan gi tilbakemelding via en flytende
+                knapp i appen. Du ser all tilbakemelding i <span className="font-mono">/admin/tester-feedback</span>.
+              </p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setTesterInviteOpen(false)}>Avbryt</Button>
+              <Button onClick={() => inviteTester.mutate(testerForm)} disabled={!testerForm.email || inviteTester.isPending}>
+                {inviteTester.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
+                Send invitasjon
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Convert tester to vendor-admin */}
+        <Dialog open={!!convertingTester} onOpenChange={(o) => !o && setConvertingTester(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Konverter til vendor admin</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Velg hvilken leverandør <span className="font-medium text-foreground">{convertingTester?.email}</span> skal bli admin for. Rollen oppdateres fra prototype-tester til vendor admin.
+              </p>
+              <Select
+                onValueChange={(v) => convertTester.mutate({ id: convertingTester?.id, vendorId: Number(v) })}
+              >
+                <SelectTrigger><SelectValue placeholder="Velg leverandør…" /></SelectTrigger>
+                <SelectContent>
+                  {vendors.map((v) => (
+                    <SelectItem key={v.id} value={String(v.id)}>{v.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         <Dialog open={showVendorDialog} onOpenChange={setShowVendorDialog}>
           <DialogContent className="max-w-lg">
@@ -577,6 +790,72 @@ export default function VendorsPage() {
               <DialogTitle>{selectedVendor ? 'Rediger leverandør' : 'Ny leverandør'}</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              {/* Brønnøysundregisteret lookup */}
+              {!selectedVendor && (
+                <div className="space-y-2 relative" ref={brregDropdownRef}>
+                  <Label htmlFor="brreg-search" className="flex items-center gap-2">
+                    <Search className="h-3.5 w-3.5" />
+                    Søk i Brønnøysundregisteret
+                  </Label>
+                  <div className="relative">
+                    <Input
+                      id="brreg-search"
+                      value={brregQuery}
+                      onChange={(e) => { setBrregQuery(e.target.value); brreg.search(e.target.value); }}
+                      onFocus={() => { if (brreg.results.length > 0) brreg.setOpen(true); }}
+                      placeholder="Org.nr. (9 siffer) eller bedriftsnavn…"
+                      autoComplete="off"
+                    />
+                    {brreg.loading && (
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                        søker…
+                      </div>
+                    )}
+                    {brreg.verified && vendorForm.orgNumber && (
+                      <Badge variant="outline" className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] border-emerald-500/40 text-emerald-600">
+                        verifisert
+                      </Badge>
+                    )}
+                  </div>
+                  {brreg.open && brreg.results.length > 0 && (
+                    <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-64 overflow-y-auto">
+                      {brreg.results.map((c: BrregCompany) => (
+                        <button
+                          key={c.organisasjonsnummer}
+                          type="button"
+                          className="w-full text-left px-3 py-2.5 hover:bg-accent border-b last:border-0 transition-colors"
+                          onClick={() => {
+                            brreg.select(c);
+                            const addr = c.forretningsadresse;
+                            const addressStr = addr
+                              ? [addr.adresse?.join(", "), addr.postnummer, addr.poststed].filter(Boolean).join(", ")
+                              : vendorForm.address;
+                            setVendorForm(prev => ({
+                              ...prev,
+                              name: c.navn,
+                              slug: generateSlug(c.navn),
+                              orgNumber: c.organisasjonsnummer,
+                              address: addressStr,
+                            }));
+                            setBrregQuery(`${c.organisasjonsnummer} — ${c.navn}`);
+                          }}
+                        >
+                          <div className="font-medium text-sm">{c.navn}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                            <span className="font-mono">{c.organisasjonsnummer}</span>
+                            {c.forretningsadresse?.poststed && <span>· {c.forretningsadresse.poststed}</span>}
+                            {c.organisasjonsform?.beskrivelse && <span>· {c.organisasjonsform.beskrivelse}</span>}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-muted-foreground">
+                    Fyll ut automatisk fra Brønnøysundregisteret — søk med organisasjonsnummer eller navn.
+                  </p>
+                </div>
+              )}
+
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="vendor-name">Navn</Label>
@@ -585,8 +864,8 @@ export default function VendorsPage() {
                     value={vendorForm.name}
                     onChange={(e) => {
                       const name = e.target.value;
-                      setVendorForm({ 
-                        ...vendorForm, 
+                      setVendorForm({
+                        ...vendorForm,
                         name,
                         slug: selectedVendor ? vendorForm.slug : generateSlug(name)
                       });
@@ -596,6 +875,19 @@ export default function VendorsPage() {
                   />
                 </div>
                 <div className="space-y-2">
+                  <Label htmlFor="vendor-orgnr">Organisasjonsnummer</Label>
+                  <Input
+                    id="vendor-orgnr"
+                    value={vendorForm.orgNumber}
+                    onChange={(e) => setVendorForm({ ...vendorForm, orgNumber: e.target.value.replace(/\D/g, '').slice(0, 9) })}
+                    placeholder="9 siffer"
+                    inputMode="numeric"
+                    data-testid="input-vendor-orgnr"
+                  />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
                   <Label htmlFor="vendor-slug">Slug</Label>
                   <Input
                     id="vendor-slug"
@@ -604,6 +896,21 @@ export default function VendorsPage() {
                     placeholder="bedriftsnavn"
                     data-testid="input-vendor-slug"
                   />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="vendor-institution-type">Type virksomhet</Label>
+                  <Select
+                    value={vendorForm.institutionType || '__none__'}
+                    onValueChange={(v) => setVendorForm({ ...vendorForm, institutionType: (v === '__none__' ? '' : v) as any })}
+                  >
+                    <SelectTrigger id="vendor-institution-type"><SelectValue placeholder="Velg type" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">— ikke valgt —</SelectItem>
+                      <SelectItem value="privat">Privat</SelectItem>
+                      <SelectItem value="offentlig">Offentlig</SelectItem>
+                      <SelectItem value="nav">NAV</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">
@@ -740,13 +1047,12 @@ export default function VendorsPage() {
                 <div className="space-y-3">
                   <div className="grid gap-3 md:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="admin-username">Brukernavn</Label>
+                      <Label htmlFor="admin-fullname">Fullt navn</Label>
                       <Input
-                        id="admin-username"
-                        value={adminForm.username}
-                        onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })}
-                        placeholder="brukernavn"
-                        data-testid="input-admin-username"
+                        id="admin-fullname"
+                        value={adminForm.fullName}
+                        onChange={(e) => setAdminForm({ ...adminForm, fullName: e.target.value })}
+                        placeholder="Ola Nordmann"
                       />
                     </div>
                     <div className="space-y-2">
@@ -761,25 +1067,51 @@ export default function VendorsPage() {
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="admin-password">Passord</Label>
-                    <Input
-                      id="admin-password"
-                      type="password"
-                      value={adminForm.password}
-                      onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
-                      placeholder="Midlertidig passord"
-                      data-testid="input-admin-password"
-                    />
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="admin-username">Brukernavn</Label>
+                      <Input
+                        id="admin-username"
+                        value={adminForm.username}
+                        onChange={(e) => setAdminForm({ ...adminForm, username: e.target.value })}
+                        placeholder="brukernavn"
+                        data-testid="input-admin-username"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="admin-password">Passord (valgfri)</Label>
+                      <Input
+                        id="admin-password"
+                        type="password"
+                        value={adminForm.password}
+                        onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                        placeholder="La stå tom for magic-link-kun"
+                        data-testid="input-admin-password"
+                      />
+                    </div>
                   </div>
+                  <label className="flex items-start gap-2 cursor-pointer rounded-md border p-2.5 bg-primary/5 border-primary/25">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={adminForm.sendInvite}
+                      onChange={(e) => setAdminForm({ ...adminForm, sendInvite: e.target.checked })}
+                    />
+                    <div className="text-sm">
+                      <span className="font-medium">Send invitasjons-e-post med magic link</span>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        Adminen får en e-post med en lenke som logger dem inn direkte. Ingen passord trengs.
+                      </p>
+                    </div>
+                  </label>
                   <Button
                     onClick={() => createAdminMutation.mutate(adminForm)}
-                    disabled={createAdminMutation.isPending || !adminForm.username || !adminForm.email || !adminForm.password}
+                    disabled={createAdminMutation.isPending || !adminForm.username || !adminForm.email}
                     className="w-full"
                     data-testid="button-create-admin"
                   >
                     {createAdminMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <UserPlus className="h-4 w-4 mr-2" />}
-                    Opprett administrator
+                    {adminForm.sendInvite ? "Opprett og send invitasjon" : "Opprett administrator"}
                   </Button>
                 </div>
               </div>

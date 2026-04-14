@@ -719,6 +719,76 @@ export class EmailService {
     });
   }
 
+  /**
+   * Admin-only: invite someone as a prototype tester (not a real vendor).
+   * Testers get a magic link and clear expectations about what we want
+   * feedback on. Different copy from the regular vendor admin invite.
+   */
+  async sendPrototypeTesterInviteEmail({
+    to,
+    fullName,
+    loginUrl,
+    focusAreas,
+    feedbackUrl,
+  }: {
+    to: string;
+    fullName?: string | null;
+    loginUrl: string;
+    focusAreas?: string[];
+    feedbackUrl?: string;
+  }): Promise<boolean> {
+    const name = fullName?.trim() || "der";
+    const defaultFocus = [
+      "Timeføring og rapportering",
+      "Fravær og overtid",
+      "Faste oppgaver og saksrapporter",
+    ];
+    const areas = focusAreas && focusAreas.length > 0 ? focusAreas : defaultFocus;
+    return this.sendEmail({
+      to,
+      replyTo: TIDUM_SUPPORT_EMAIL,
+      subject: "Velkommen som prototype-tester i Tidum",
+      html: renderTidumEmail({
+        badge: "Tidum Prototype",
+        title: "Du er invitert som prototype-tester",
+        intro: "Takk for at du hjelper oss å gjøre Tidum bedre. Du får tidlig tilgang til funksjoner før de rulles ut til leverandører.",
+        bodyHtml: `
+          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${name},</p>
+          <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
+            Som <strong style="color:#16343d;">prototype-tester</strong> får du tilgang til Tidum-plattformen for å utforske arbeidsflyten til miljøarbeidere og tiltaksledere. Magic-lenken under logger deg rett inn — ingen passord trengs.
+          </p>
+          ${renderInfoBox("Vi vil særlig gjerne høre fra deg om", areas, "#f0f7fb", "#cce1eb", "#0b4b5c")}
+          ${renderInfoBox("Slik gir du tilbakemelding", [
+            "Bruk den flytende Tilbakemelding-knappen nederst til høyre på enhver side",
+            "Velg kategori: bug, idé, ros eller annet",
+            "Vi ser konteksten (hvilken side du var på) automatisk — du trenger bare beskrive det",
+          ], "#fffaf1", "#f0dfb8", "#8a5b12")}
+        `,
+        ctaLabel: "Logg inn og begynn å teste",
+        ctaUrl: loginUrl,
+        footerHtml: `
+          <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#6a7f84;">
+            Magic-lenken er gyldig i 15 minutter. Spørsmål? Send e-post til
+            <a href="mailto:${TIDUM_SUPPORT_EMAIL}" style="color:#1a6b73;text-decoration:none;">${TIDUM_SUPPORT_EMAIL}</a>.
+          </p>
+        `,
+      }),
+      text: [
+        `Hei ${name},`,
+        "",
+        "Du er invitert som prototype-tester i Tidum.",
+        "Magic-lenken under logger deg inn uten passord (gyldig 15 min):",
+        loginUrl,
+        "",
+        "Vi vil gjerne høre hva du synes:",
+        ...areas.map(a => `  • ${a}`),
+        "",
+        "Bruk Tilbakemelding-knappen nederst til høyre på enhver side for å rapportere.",
+        feedbackUrl ? `Direkte link: ${feedbackUrl}` : "",
+      ].filter(Boolean).join("\n"),
+    });
+  }
+
   async sendAccountDeactivatedEmail(
     to: string,
     roleName: string,

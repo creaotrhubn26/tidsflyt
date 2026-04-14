@@ -8,6 +8,8 @@ import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
 import { emailService } from "./lib/email-service";
+import { buildEmailLoginUrl } from "./custom-auth";
+import crypto from "crypto";
 import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
@@ -928,15 +930,30 @@ export function registerSmartTimingRoutes(app: Express) {
       if (req.admin.role !== 'super_admin') {
         return res.status(403).json({ error: 'Only super admin can create vendors' });
       }
-      
-      const { name, slug, email, phone, address, status, maxUsers, subscriptionPlan } = req.body;
+
+      const { name, slug, email, phone, address, status, maxUsers, subscriptionPlan, orgNumber, institutionType } = req.body;
+
+      if (!name?.trim() || !slug?.trim()) {
+        return res.status(400).json({ error: 'name og slug er påkrevd' });
+      }
+      if (orgNumber && !/^\d{9}$/.test(String(orgNumber))) {
+        return res.status(400).json({ error: 'Organisasjonsnummer må være 9 siffer' });
+      }
+      if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
+        return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
+      }
+
       const result = await pool.query(
-        `INSERT INTO vendors (name, slug, email, phone, address, status, max_users, subscription_plan)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-        [name, slug, email, phone, address, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
+        `INSERT INTO vendors (name, slug, email, phone, address, org_number, institution_type, status, max_users, subscription_plan)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+        [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
+      // Unique constraint on slug or org_number
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Leverandør med samme slug eller organisasjonsnummer finnes allerede' });
+      }
       res.status(400).json({ error: err.message });
     }
   });
@@ -950,9 +967,15 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      const { name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings } = req.body;
+      const { name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings, orgNumber, institutionType } = req.body;
+      if (orgNumber && !/^\d{9}$/.test(String(orgNumber))) {
+        return res.status(400).json({ error: 'Organisasjonsnummer må være 9 siffer' });
+      }
+      if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
+        return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
+      }
       const result = await pool.query(
-        `UPDATE vendors SET 
+        `UPDATE vendors SET
           name = COALESCE($1, name),
           email = COALESCE($2, email),
           phone = COALESCE($3, phone),
@@ -962,9 +985,11 @@ export function registerSmartTimingRoutes(app: Express) {
           max_users = COALESCE($7, max_users),
           subscription_plan = COALESCE($8, subscription_plan),
           settings = COALESCE($9, settings),
+          org_number = COALESCE($10, org_number),
+          institution_type = COALESCE($11, institution_type),
           updated_at = NOW()
-         WHERE id = $10 RETURNING *`,
-        [name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings, vendorId]
+         WHERE id = $12 RETURNING *`,
+        [name, email, phone, address, logoUrl, status, maxUsers, subscriptionPlan, settings, orgNumber ?? null, institutionType ?? null, vendorId]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
       res.json(result.rows[0]);
@@ -1008,25 +1033,212 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  // Create vendor admin
+  // Create vendor admin — also sends a magic-link invite email
   app.post("/api/vendors/:id/admins", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const vendorId = parseInt(req.params.id);
-      
+
       // Only super_admin or vendor_admin of this vendor can create admins
       if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
         return res.status(403).json({ error: 'Access denied' });
       }
-      
-      const { username, email, password } = req.body;
-      const passwordHash = await bcrypt.hash(password, 10);
-      
-      const result = await pool.query(
+
+      const { username, email, password, fullName, sendInvite = true } = req.body;
+      if (!username?.trim() || !email?.trim()) {
+        return res.status(400).json({ error: 'Brukernavn og e-post er påkrevd' });
+      }
+
+      // Password is optional — if omitted we generate a strong random one.
+      // The admin logs in via magic link; password is a fallback.
+      const effectivePassword = password?.trim()
+        || crypto.randomBytes(18).toString('base64url');
+      const passwordHash = await bcrypt.hash(effectivePassword, 10);
+
+      // 1. Legacy admin_users record
+      const adminResult = await pool.query(
         `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'vendor_admin', $4) RETURNING id, username, email, role, vendor_id, created_at`,
         [username, email, passwordHash, vendorId]
       );
-      res.status(201).json(result.rows[0]);
+
+      // 2. Portal user (users table) — magic-link logs in against this
+      const normalizedEmail = email.toLowerCase().trim();
+      await pool.query(
+        `INSERT INTO users (email, role, vendor_id)
+         VALUES ($1, 'vendor_admin', $2)
+         ON CONFLICT (email) DO UPDATE
+         SET role = 'vendor_admin', vendor_id = $2, updated_at = NOW()`,
+        [normalizedEmail, vendorId]
+      );
+
+      // 3. company_users entry so the user appears in the vendor's user list
+      await pool.query(
+        `INSERT INTO company_users (company_id, user_email, role, approved)
+         VALUES ($1, $2, 'vendor_admin', true)
+         ON CONFLICT DO NOTHING`,
+        [vendorId, normalizedEmail]
+      );
+
+      // 4. Send magic-link invite
+      let emailSent = false;
+      if (sendInvite !== false) {
+        try {
+          const [vendorRow] = (await pool.query(
+            'SELECT name, institution_type FROM vendors WHERE id = $1',
+            [vendorId]
+          )).rows;
+          const loginUrl = buildEmailLoginUrl(normalizedEmail);
+          await emailService.sendVendorAdminMagicLinkInviteEmail({
+            to: normalizedEmail,
+            fullName: fullName || username,
+            company: vendorRow?.name ?? null,
+            institutionType: vendorRow?.institution_type ?? null,
+            loginUrl,
+          });
+          emailSent = true;
+        } catch (e) {
+          console.error('⚠️ Vendor admin invite email failed:', e);
+        }
+      }
+
+      res.status(201).json({ ...adminResult.rows[0], emailSent });
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Brukernavn eller e-post finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // ─── Prototype testers ─────────────────────────────────────────────
+  // List all prototype testers (super_admin only)
+  app.get("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can list prototype testers' });
+      }
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, vendor_id, created_at, updated_at
+         FROM users
+         WHERE role = 'prototype_tester'
+         ORDER BY created_at DESC`
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Invite a prototype tester — creates a portal user + sends magic link
+  app.post("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can invite prototype testers' });
+      }
+      const { email, fullName, sendInvite = true } = req.body;
+      if (!email?.trim()) return res.status(400).json({ error: 'E-post er påkrevd' });
+
+      const normalizedEmail = String(email).toLowerCase().trim();
+      const [firstName, ...rest] = String(fullName || '').trim().split(/\s+/);
+      const lastName = rest.join(' ');
+
+      await pool.query(
+        `INSERT INTO users (email, first_name, last_name, role)
+         VALUES ($1, $2, $3, 'prototype_tester')
+         ON CONFLICT (email) DO UPDATE
+         SET role = 'prototype_tester', first_name = COALESCE($2, users.first_name),
+             last_name = COALESCE($3, users.last_name), updated_at = NOW()`,
+        [normalizedEmail, firstName || null, lastName || null]
+      );
+
+      let emailSent = false;
+      if (sendInvite !== false) {
+        try {
+          const loginUrl = buildEmailLoginUrl(normalizedEmail);
+          await emailService.sendPrototypeTesterInviteEmail({
+            to: normalizedEmail,
+            fullName: fullName || null,
+            loginUrl,
+            focusAreas: Array.isArray(req.body.focusAreas) ? req.body.focusAreas : undefined,
+          });
+          emailSent = true;
+        } catch (e) {
+          console.error('⚠️ Prototype tester invite email failed:', e);
+        }
+      }
+
+      const [row] = (await pool.query(
+        `SELECT id, email, first_name, last_name, vendor_id, created_at FROM users WHERE email = $1`,
+        [normalizedEmail]
+      )).rows;
+      res.status(201).json({ ...row, emailSent });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Convert prototype tester → vendor admin (moves role + sets vendor)
+  app.post("/api/prototype-testers/:id/convert-to-vendor-admin", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can convert' });
+      }
+      const userId = req.params.id;
+      const { vendorId } = req.body;
+      if (!vendorId) return res.status(400).json({ error: 'vendorId er påkrevd' });
+
+      const [existing] = (await pool.query(
+        `SELECT email, role FROM users WHERE id = $1 LIMIT 1`,
+        [userId]
+      )).rows;
+      if (!existing) return res.status(404).json({ error: 'Bruker finnes ikke' });
+      if (existing.role !== 'prototype_tester') {
+        return res.status(409).json({ error: 'Bruker er ikke prototype-tester' });
+      }
+
+      await pool.query(
+        `UPDATE users SET role = 'vendor_admin', vendor_id = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [vendorId, userId]
+      );
+      await pool.query(
+        `INSERT INTO company_users (company_id, user_email, role, approved)
+         VALUES ($1, $2, 'vendor_admin', true)
+         ON CONFLICT DO NOTHING`,
+        [vendorId, existing.email]
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Revert vendor_admin → prototype_tester (keeps user record, clears vendor link)
+  app.post("/api/prototype-testers/:id/revert-to-tester", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can revert' });
+      }
+      const userId = req.params.id;
+      await pool.query(
+        `UPDATE users SET role = 'prototype_tester', vendor_id = NULL, updated_at = NOW()
+         WHERE id = $1`,
+        [userId]
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Remove prototype tester (hard delete from users)
+  app.delete("/api/prototype-testers/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Only super admin can delete' });
+      }
+      await pool.query(`DELETE FROM users WHERE id = $1 AND role = 'prototype_tester'`, [req.params.id]);
+      res.status(204).send();
     } catch (err: any) {
       res.status(400).json({ error: err.message });
     }

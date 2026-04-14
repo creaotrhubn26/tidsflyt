@@ -7,6 +7,7 @@ export const TIDUM_ROLES = [
   "teamleder",
   "case_manager",
   "miljoarbeider",
+  "prototype_tester",
   "member",
   "user",
 ] as const;
@@ -22,6 +23,7 @@ export const ROLE_LABELS: Record<string, string> = {
   teamleder: "Teamleder",
   case_manager: "Saksbehandler",
   miljoarbeider: "Miljøarbeider",
+  prototype_tester: "Prototype-tester",
   member: "Medlem",
   user: "Bruker",
 };
@@ -36,6 +38,8 @@ const ROLE_ALIASES: Record<string, TidumRole> = {
   case_manager: "case_manager",
   miljoarbeider: "miljoarbeider",
   "miljøarbeider": "miljoarbeider",
+  prototype_tester: "prototype_tester",
+  "prototype-tester": "prototype_tester",
   member: "member",
   user: "user",
 };
@@ -55,6 +59,7 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
     "teamleder",
     "case_manager",
     "miljoarbeider",
+    "prototype_tester",
     "member",
     "user",
   ],
@@ -65,6 +70,7 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   teamleder: ["miljoarbeider", "member", "user"],
   case_manager: ["miljoarbeider", "member", "user"],
   miljoarbeider: [],
+  prototype_tester: [],
   member: [],
   user: [],
 };
