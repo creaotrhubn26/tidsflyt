@@ -458,9 +458,21 @@ rapportRouter.patch("/:id", requireAuth, async (req: any, res) => {
     if (existing.userId !== req.user.id && req.user.role === "user")
       return res.status(403).json({ error: "Ikke tilgang" });
 
+    // Whitelist updatable fields — prevent clients from overwriting userId,
+    // status, timestamps, review state, etc.
+    const ALLOWED = [
+      'sakId', 'konsulent', 'tiltak', 'bedrift', 'oppdragsgiver', 'klientRef',
+      'tiltaksleder', 'periodeFrom', 'periodeTo', 'innledning', 'avslutning',
+      'rapportTemplateId', 'dynamiskeFelter', 'templateId', 'signaturer',
+    ];
+    const updates: any = { updatedAt: new Date() };
+    for (const k of ALLOWED) {
+      if (k in req.body) updates[k] = req.body[k];
+    }
+
     const [updated] = await db
       .update(rapporter)
-      .set({ ...req.body, updatedAt: new Date() })
+      .set(updates)
       .where(eq(rapporter.id, req.params.id))
       .returning();
     res.json(updated);

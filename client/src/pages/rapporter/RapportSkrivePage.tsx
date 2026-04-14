@@ -17,6 +17,10 @@ import { PortalLayout } from "@/components/portal/portal-layout";
 import { useAuth } from "@/hooks/use-auth";
 import { useUserSettings } from "@/hooks/use-user-settings";
 import { useGoalCategories } from "@/hooks/use-goal-categories";
+import { useRapportTemplates, type RapportTemplate, type RapportTemplateSection } from "@/hooks/use-rapport-templates";
+import { useInstitutions } from "@/hooks/use-institutions";
+import { SectionChecklist, type ChecklistValue } from "@/components/rapport/section-checklist";
+import { SectionObservations, type ObservationEntry } from "@/components/rapport/section-observations";
 
 // shadcn/ui
 import { Button }   from "@/components/ui/button";
@@ -322,6 +326,11 @@ export default function RapportSkrivePage() {
   const [goals,          setGoals]          = useState<Goal[]>([]);
   const [activities,     setActivities]     = useState<Activity[]>([]);
 
+  // ── Template-driven dynamic section values (stored in rapporter.dynamiskeFelter jsonb)
+  // Shape: { [sectionKey]: string | ChecklistValue | ObservationEntry[] }
+  const [rapportTemplateId, setRapportTemplateId] = useState<string>("");
+  const [dynamicValues, setDynamicValues] = useState<Record<string, any>>({});
+
   // ── Activity view mode
   const [actView, setActView] = useState<"list" | "week">("list");
 
@@ -434,6 +443,10 @@ export default function RapportSkrivePage() {
   }, [vendorInfo, rapportId]);
 
   // Henter kun tildelte saker for innlogget bruker
+  // Template + institutions (for smart picker + auto-selection from sak's institution)
+  const { templates } = useRapportTemplates();
+  const { institutions } = useInstitutions();
+
   const { data: saker = [] } = useQuery<Sak[]>({
     queryKey: ["/api/saker"],
     queryFn: () => apiRequest("/api/saker"),
@@ -599,7 +612,33 @@ export default function RapportSkrivePage() {
     setKlientRef(r.klientRef ?? ""); setTiltaksleder(r.tiltaksleder ?? "");
     setPeriodeFrom(r.periodeFrom ?? ""); setPeriodeTo(r.periodeTo ?? "");
     setInnledning(r.innledning ?? ""); setAvslutning(r.avslutning ?? "");
+    setRapportTemplateId(r.rapportTemplateId ?? "");
+    if (r.dynamiskeFelter && typeof r.dynamiskeFelter === "object") {
+      setDynamicValues(r.dynamiskeFelter);
+    }
   }, [existingRapport]);
+
+  // Auto-select template from sak's institution's default (new rapport only)
+  useEffect(() => {
+    if (rapportTemplateId || existingRapport) return;
+    if (!sakId) return;
+    const sak = saker.find(s => s.id === sakId) as any;
+    if (!sak?.institutionId) return;
+    const inst = institutions.find(i => i.id === sak.institutionId);
+    if (inst?.defaultRapportTemplateId) {
+      setRapportTemplateId(inst.defaultRapportTemplateId);
+    } else {
+      // Fallback: pick template matching institution type
+      const match = templates.find(t => t.suggestedInstitutionType === inst?.institutionType);
+      if (match) setRapportTemplateId(match.id);
+    }
+  }, [sakId, saker, institutions, templates, rapportTemplateId, existingRapport]);
+
+  // Resolve the currently active template object
+  const activeTemplate: RapportTemplate | undefined = useMemo(
+    () => templates.find(t => t.id === rapportTemplateId),
+    [templates, rapportTemplateId],
+  );
 
   // Auto-fill konsulent from logged-in user
   useEffect(() => {
@@ -628,11 +667,16 @@ export default function RapportSkrivePage() {
 
   const performSave = useCallback(async () => {
     if (!dirtyRef.current) return;
-    const body = { sakId, konsulent, tiltak, bedrift, oppdragsgiver, klientRef, periodeFrom, periodeTo, innledning, avslutning };
+    const body: any = {
+      sakId, konsulent, tiltak, bedrift, oppdragsgiver, klientRef,
+      periodeFrom, periodeTo, innledning, avslutning,
+      rapportTemplateId: rapportTemplateId || null,
+      dynamiskeFelter: dynamicValues,
+    };
     if (rapportId) { await updateRapport.mutateAsync(body); }
     else           { await createRapport.mutateAsync(body); }
     dirtyRef.current = false;
-  }, [sakId, konsulent, tiltak, bedrift, oppdragsgiver, klientRef, periodeFrom, periodeTo, innledning, avslutning, rapportId]);
+  }, [sakId, konsulent, tiltak, bedrift, oppdragsgiver, klientRef, periodeFrom, periodeTo, innledning, avslutning, rapportTemplateId, dynamicValues, rapportId]);
 
   // ── GOAL ACTIONS ──────────────────────────────────────────────────────────
 
@@ -940,6 +984,47 @@ export default function RapportSkrivePage() {
               </CardContent>
             </Card>
 
+            {/* RAPPORT-MAL */}
+            <Card className="border-primary/25 bg-gradient-to-br from-primary/5 to-transparent shadow-sm">
+              <CardHeader className="space-y-3 pb-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <span className="font-semibold text-sm">Rapport-mal</span>
+                  {activeTemplate?.isSystem && (
+                    <Badge variant="outline" className="text-[10px] ml-2">System</Badge>
+                  )}
+                  {activeTemplate && (
+                    <Badge variant="secondary" className="text-[10px] ml-auto">
+                      {activeTemplate.sections.length} seksjoner
+                    </Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0 space-y-2">
+                <Select
+                  value={rapportTemplateId || "__default__"}
+                  onValueChange={(v) => {
+                    setRapportTemplateId(v === "__default__" ? "" : v);
+                    markDirty();
+                  }}
+                >
+                  <SelectTrigger><SelectValue placeholder="Velg mal…" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__default__">— generell struktur —</SelectItem>
+                    {templates.map(t => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                        {t.isSystem ? " (system)" : ""}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {activeTemplate?.description && (
+                  <p className="text-xs text-muted-foreground">{activeTemplate.description}</p>
+                )}
+              </CardContent>
+            </Card>
+
             {/* 2. INNLEDNING */}
             <Card className="border-border/70 bg-background/70 shadow-sm">
               <CardHeader className="space-y-3 pb-3">
@@ -1209,6 +1294,76 @@ export default function RapportSkrivePage() {
                 )}
               </CardContent>
             </Card>
+
+            {/* TEMPLATE-DRIVEN SECTIONS */}
+            {/* Render any section from the active template that isn't already
+                handled as a hardcoded section above (innledning, maal,
+                aktiviteter, avslutning). Supports rich_text, checklist and
+                structured_observations. */}
+            {activeTemplate?.sections
+              .filter(s => !["innledning", "maal", "aktiviteter", "avslutning"].includes(s.key))
+              .map((section: RapportTemplateSection) => (
+                <Card key={section.key} className="border-border/70 bg-background/70 shadow-sm">
+                  <CardHeader className="space-y-3 pb-3">
+                    <div className="flex items-center gap-2">
+                      <FileText className="h-4 w-4 text-primary" />
+                      <span className="font-semibold text-sm">{section.title}</span>
+                      {section.required && (
+                        <Badge variant="destructive" className="text-[9px]">Påkrevd</Badge>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">
+                        {section.type === "checklist" ? "Sjekkliste"
+                         : section.type === "structured_observations" ? "Observasjoner"
+                         : section.type === "summary" ? "Oppsummering"
+                         : "Fritekst"}
+                      </span>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    {section.type === "checklist" && (
+                      <SectionChecklist
+                        items={section.items ?? []}
+                        value={(dynamicValues[section.key] as ChecklistValue) ?? {}}
+                        onChange={(v) => {
+                          setDynamicValues(prev => ({ ...prev, [section.key]: v }));
+                          markDirty();
+                        }}
+                        helpText={section.helpText}
+                      />
+                    )}
+                    {section.type === "structured_observations" && (
+                      <SectionObservations
+                        value={(dynamicValues[section.key] as ObservationEntry[]) ?? []}
+                        onChange={(v) => {
+                          setDynamicValues(prev => ({ ...prev, [section.key]: v }));
+                          markDirty();
+                        }}
+                        helpText={section.helpText}
+                      />
+                    )}
+                    {(section.type === "rich_text" || section.type === "summary") && (
+                      <GdprField
+                        id={`dyn-${section.key}`}
+                        label={section.title}
+                        required={section.required}
+                        multiline
+                        placeholder={section.placeholder}
+                        value={(dynamicValues[section.key] as string) ?? ""}
+                        onChange={(v) => {
+                          setDynamicValues(prev => ({ ...prev, [section.key]: v }));
+                          markDirty();
+                        }}
+                        onHitsChange={handleGdprHitsChange}
+                        autoReplace={gdprAutoReplace}
+                        onEnableAutoReplace={toggleGdprAutoReplace}
+                      />
+                    )}
+                    {section.helpText && section.type !== "checklist" && section.type !== "structured_observations" && (
+                      <p className="text-[11px] text-muted-foreground mt-2">{section.helpText}</p>
+                    )}
+                  </CardContent>
+                </Card>
+              ))}
 
             {/* 6. AVSLUTNING */}
             <Card className="border-border/70 bg-background/70 shadow-sm">
