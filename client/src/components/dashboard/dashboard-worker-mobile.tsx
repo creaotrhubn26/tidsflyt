@@ -40,52 +40,53 @@ const toneStyles = {
 
 export function DashboardWorkerMobile({
   userId = "default",
-  userName = "Maria",
+  userName = "",
   todaySignals,
   participants,
   navigate,
 }: DashboardWorkerMobileProps) {
   const { toast } = useToast();
   const [elapsedSeconds, setElapsedSeconds] = useState(() => {
-    if (typeof window === "undefined") return 2 * 60 * 60 + 15 * 60;
+    if (typeof window === "undefined") return 0;
 
     try {
       const rawState = window.localStorage.getItem(TIMER_STORAGE_KEY);
-      if (!rawState) return 2 * 60 * 60 + 15 * 60;
+      if (!rawState) return 0;
       const parsedState = JSON.parse(rawState) as {
         elapsedSeconds?: number;
       };
-      return parsedState.elapsedSeconds ?? 2 * 60 * 60 + 15 * 60;
+      return parsedState.elapsedSeconds ?? 0;
     } catch {
-      return 2 * 60 * 60 + 15 * 60;
+      return 0;
     }
   });
   const [pausedSeconds, setPausedSeconds] = useState(() => {
-    if (typeof window === "undefined") return 30;
+    if (typeof window === "undefined") return 0;
 
     try {
       const rawState = window.localStorage.getItem(TIMER_STORAGE_KEY);
-      if (!rawState) return 30;
+      if (!rawState) return 0;
       const parsedState = JSON.parse(rawState) as {
         pausedSeconds?: number;
       };
-      return parsedState.pausedSeconds ?? 30;
+      return parsedState.pausedSeconds ?? 0;
     } catch {
-      return 30;
+      return 0;
     }
   });
   const [isRunning, setIsRunning] = useState(() => {
-    if (typeof window === "undefined") return true;
+    // New users start with a stopped timer — they decide when to clock in
+    if (typeof window === "undefined") return false;
 
     try {
       const rawState = window.localStorage.getItem(TIMER_STORAGE_KEY);
-      if (!rawState) return true;
+      if (!rawState) return false;
       const parsedState = JSON.parse(rawState) as {
         isRunning?: boolean;
       };
-      return parsedState.isRunning ?? true;
+      return parsedState.isRunning ?? false;
     } catch {
-      return true;
+      return false;
     }
   });
   const [pauseStartedAt, setPauseStartedAt] = useState<number | null>(() => {

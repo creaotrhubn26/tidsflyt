@@ -702,63 +702,96 @@ export default function DashboardPage() {
     setIsDashboardCaseSuggestionDismissed(false);
   }, [caseSuggestionResetKey]);
 
-  const myTasks: TaskCounts = useMemo(
-    () => ({
+  // Real rapport counts for the current user (no fabricated coefficients)
+  const { data: myRapporter = [] } = useQuery<any[]>({
+    queryKey: ["/api/rapporter"],
+    staleTime: 30_000,
+  });
+
+  const myTasks: TaskCounts = useMemo(() => {
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    const draftsCount = list.filter((r: any) => r.status === "utkast").length;
+    const returnedCount = list.filter((r: any) => r.status === "returnert").length;
+    const pendingCount = list.filter((r: any) => r.status === "til_godkjenning").length;
+
+    if (isMiljoarbeiderView) {
+      return {
+        // Miljøarbeidere godkjenner ingenting — alltid 0 her
+        pendingApprovals: 0,
+        myDrafts: draftsCount,
+        assignedCases: list.length,
+        // "Forfalte" = rapporter som ble returnert og må fikses
+        overdueItems: returnedCount,
+      };
+    }
+    if (isTiltakslederView) {
+      // For tiltaksleder viser pendingApprovals hvor mange rapporter venter på godkjenning
+      return {
+        pendingApprovals: stats?.pendingApprovals ?? 0,
+        myDrafts: draftsCount,
+        assignedCases: list.length,
+        overdueItems: 0,
+      };
+    }
+    return {
       pendingApprovals: stats?.pendingApprovals ?? 0,
-      myDrafts: Math.max(0, Math.round((stats?.casesThisWeek ?? 0) * 0.3)),
-      assignedCases: Math.max(0, (stats?.casesThisWeek ?? 0) - Math.round((stats?.pendingApprovals ?? 0) * 0.4)),
-      overdueItems: Math.max(0, Math.round((stats?.pendingApprovals ?? 0) * 0.5)),
-    }),
-    [stats],
-  );
+      myDrafts: draftsCount,
+      assignedCases: list.length,
+      overdueItems: 0,
+    };
+  }, [myRapporter, stats, isMiljoarbeiderView, isTiltakslederView]);
 
+  // Real status signals for tiltaksleder — counts from their rapport data
   const statusSignals = useMemo<StatusSignal[]>(() => {
-    const missingFollowup = Math.max(0, Math.round((stats?.pendingApprovals ?? 0) * 0.6));
-    const missingReports = Math.max(0, stats?.pendingApprovals ?? 0);
-    const nearDeadline = Math.max(0, Math.round((stats?.casesThisWeek ?? 0) * 0.25));
-    const onTrack = Math.max(0, (stats?.casesThisWeek ?? 0) - (missingFollowup + nearDeadline));
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    const pending = list.filter((r: any) => r.status === "til_godkjenning").length;
+    const returned = list.filter((r: any) => r.status === "returnert").length;
+    const approved = list.filter((r: any) => r.status === "godkjent").length;
+    const draft = list.filter((r: any) => r.status === "utkast").length;
 
     return [
       {
-        id: "missing-followup",
-        tone: missingFollowup > 0 ? (missingFollowup >= 3 ? "red" : "yellow") : "green",
-        label: `${missingFollowup} klientsaker uten oppfølging siste 7 dager`,
-        detail: "Prioriter kontakt og oppdatering av tiltak i dag",
+        id: "pending",
+        tone: pending > 0 ? (pending >= 3 ? "red" : "yellow") : "green",
+        label: `${pending} rapporter venter på godkjenning`,
+        detail: pending > 0 ? "Gjennomgå og godkjenn rapporter" : "Alt er godkjent",
       },
       {
-        id: "missing-reports",
-        tone: missingReports > 0 ? "yellow" : "green",
-        label: `${missingReports} tiltak mangler oppdatert rapport`,
-        detail: "Sikre dokumentasjon før neste fagmøte",
+        id: "returned",
+        tone: returned > 0 ? "yellow" : "green",
+        label: `${returned} returnerte rapporter`,
+        detail: returned > 0 ? "Rapporter med tilbakemeldinger som må følges opp" : "Ingen returnerte",
       },
       {
-        id: "near-deadline",
-        tone: nearDeadline > 0 ? "yellow" : "green",
-        label: `${nearDeadline} saker nær frist`,
-        detail: "Gjennomgå frister og fordel oppfølging",
+        id: "drafts",
+        tone: draft > 0 ? "yellow" : "green",
+        label: `${draft} utkast under arbeid`,
+        detail: "Rapporter som ikke er sendt til godkjenning",
       },
       {
-        id: "on-track",
+        id: "approved",
         tone: "green" as const,
-        label: `${onTrack} tiltak i rute`,
-        detail: "Stabil oppfølging og dokumentasjon",
+        label: `${approved} godkjente rapporter`,
+        detail: "Fullførte rapporter i perioden",
       },
     ];
-  }, [stats]);
+  }, [myRapporter]);
 
+  // Real signals for miljøarbeider — counts from their own rapporter
   const workerTodaySignals = useMemo<WorkerTodaySignal[]>(() => {
-    const participantsToday = Math.max(0, stats?.casesThisWeek ?? 0);
-    const missingNotes = Math.max(0, Math.round((stats?.pendingApprovals ?? 0) * 0.6));
-    const nearDeadline = Math.max(0, Math.round((stats?.pendingApprovals ?? 0) * 0.3));
-    const inRoute = Math.max(0, participantsToday - nearDeadline);
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    const draft = list.filter((r: any) => r.status === "utkast").length;
+    const returned = list.filter((r: any) => r.status === "returnert").length;
+    const pending = list.filter((r: any) => r.status === "til_godkjenning").length;
+    const approved = list.filter((r: any) => r.status === "godkjent").length;
 
     return [
-      { id: "participants-today", label: "klientsaker å følge opp", value: participantsToday, tone: participantsToday > 0 ? "green" : "yellow" },
-      { id: "missing-notes", label: "notater gjenstår", value: missingNotes, tone: missingNotes > 1 ? "yellow" : "green" },
-      { id: "near-deadline", label: "oppfølging nær frist", value: nearDeadline, tone: nearDeadline > 0 ? "yellow" : "green" },
-      { id: "in-route", label: "klientsaker i rute", value: inRoute, tone: "green" },
+      { id: "drafts",    label: "utkast under arbeid",     value: draft,    tone: draft > 0 ? "yellow" : "green" },
+      { id: "returned",  label: "returnerte til meg",      value: returned, tone: returned > 0 ? "red" : "green" },
+      { id: "pending",   label: "venter på godkjenning",   value: pending,  tone: "green" },
+      { id: "approved",  label: "godkjente rapporter",     value: approved, tone: "green" },
     ];
-  }, [stats]);
+  }, [myRapporter]);
 
   const alerts: DashboardAlert[] = useMemo(() => {
     const items: DashboardAlert[] = [];
@@ -841,8 +874,9 @@ export default function DashboardPage() {
   }, [activities]);
 
   const riskParticipants = useMemo(() => {
+    // Derive from real activity log only — high severity = no activity in 7+ days.
+    // No arbitrary "every 3rd person" bias and no fake fallback entries.
     const latestByUser = new Map<string, string>();
-
     for (const activity of activities) {
       if (!activity.userName || !activity.timestamp) continue;
       const existing = latestByUser.get(activity.userName);
@@ -850,70 +884,59 @@ export default function DashboardPage() {
         latestByUser.set(activity.userName, activity.timestamp);
       }
     }
-
     const nowMs = Date.now();
     return Array.from(latestByUser.entries())
       .map(([name, timestamp], index) => {
         const daysSince = Math.floor((nowMs - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24));
-        const high = daysSince >= 7 || index % 3 === 0;
         return {
           id: `${name}-${index}`,
           name,
-          reason: daysSince >= 1
-            ? `Ingen registrert oppfølging på ${daysSince} dager`
-            : "Mangler oppdatert plan i perioden",
-          severity: high ? "hoy" as const : "moderat" as const,
+          reason: `Siste aktivitet for ${daysSince} dag${daysSince === 1 ? "" : "er"} siden`,
+          daysSince,
+          severity: (daysSince >= 7 ? "hoy" : daysSince >= 3 ? "moderat" : "lav") as "hoy" | "moderat" | "lav",
         };
       })
-      .filter((entry) => entry.severity === "hoy" || /mangler/i.test(entry.reason))
+      .filter((entry) => entry.severity !== "lav")
       .slice(0, 5);
   }, [activities]);
 
+  // Real rapporter drive the worker's participant list — no mock fallback.
+  // Map each of the user's own rapporter into a light participant-like entry.
   const workerParticipants = useMemo<WorkerParticipant[]>(() => {
-    if (riskParticipants.length > 0) {
-      return riskParticipants.map((entry, index) => ({
-        id: entry.id,
-        name: entry.name,
-        tiltak: `Tiltak ${index + 1}`,
-        lastFollowupLabel: entry.reason.replace("Ingen registrert oppfølging på ", "").replace(" dager", " dager siden"),
-        status: entry.severity === "hoy" ? "trenger-oppfolging" : "snart-frist",
-      }));
-    }
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    return list.slice(0, 5).map((r: any, i: number) => ({
+      id: String(r.id ?? i),
+      name: r.klientRef || r.sakNummer || `Rapport ${i + 1}`,
+      tiltak: r.tiltak || "—",
+      lastFollowupLabel: r.updatedAt
+        ? new Date(r.updatedAt).toLocaleDateString("nb-NO")
+        : "—",
+      status: r.status === "returnert"
+        ? "trenger-oppfolging"
+        : r.status === "utkast"
+        ? "snart-frist"
+        : "i-rute",
+    }));
+  }, [myRapporter]);
 
-    return [
-      {
-        id: "worker-fallback-1",
-        name: "Sak A",
-        tiltak: "Arbeidsrettet oppfølging",
-        lastFollowupLabel: "2 dager siden",
-        status: "snart-frist",
-      },
-      {
-        id: "worker-fallback-2",
-        name: "Sak B",
-        tiltak: "Hverdagsmestring",
-        lastFollowupLabel: "7 dager siden",
-        status: "trenger-oppfolging",
-      },
-      {
-        id: "worker-fallback-3",
-        name: "Sak C",
-        tiltak: "Skole- og arbeidstiltak",
-        lastFollowupLabel: "1 dag siden",
-        status: "i-rute",
-      },
-    ];
-  }, [riskParticipants]);
-
+  // Contextual task list derived from the user's actual rapport state.
+  // Returns an empty list for brand-new users (no mock placeholders).
   const workerTaskList = useMemo(() => {
-    const list = [
-      "Skriv oppfølgingsnotat",
-      "Registrer aktivitet",
-      workerParticipants.length > 0 ? `Følg opp ${workerParticipants[0].name}` : "Følg opp sak",
-      "Fullfør påbegynt rapport",
-    ];
-    return list;
-  }, [workerParticipants]);
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    const tasks: string[] = [];
+    const returned = list.filter((r: any) => r.status === "returnert");
+    const drafts = list.filter((r: any) => r.status === "utkast");
+    if (returned.length > 0) {
+      tasks.push(`Følg opp ${returned.length} returnert${returned.length === 1 ? "" : "e"} rapport${returned.length === 1 ? "" : "er"}`);
+    }
+    if (drafts.length > 0) {
+      tasks.push(`Fullfør ${drafts.length} utkast`);
+    }
+    if (list.length === 0) {
+      tasks.push("Opprett din første rapport");
+    }
+    return tasks;
+  }, [myRapporter]);
 
   const hoursData = useMemo(() => chartData?.hoursPerDay ?? DEFAULT_HOURS_DATA, [chartData]);
 
@@ -1180,17 +1203,17 @@ export default function DashboardPage() {
                       />
                       <StatCard
                         statId="tiltak-risk"
-                        title="Tiltak i risiko"
-                        value={Math.max(0, Math.round(stats.pendingApprovals * 0.6))}
+                        title="Returnerte rapporter"
+                        value={myTasks.overdueItems}
                         icon={<ShieldAlert className="h-5 w-5" />}
                         trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
                         trendDirection="goodDown"
                         variant="warning"
                         periodLabel={TIME_RANGE_LABELS[timeRange]}
-                        description="Tiltak med manglende oppfølging eller rapport"
+                        description="Rapporter som ble sendt tilbake med tilbakemeldinger"
                         noTrendLabel="Ingen historikk ennå"
-                        emptyLabel="Ingen tiltak i risiko"
-                        onClick={() => navigate("/cases")}
+                        emptyLabel="Ingen returnerte rapporter"
+                        onClick={() => navigate("/rapporter")}
                       />
                       <StatCard
                         statId="reports-missing"
@@ -1207,18 +1230,18 @@ export default function DashboardPage() {
                         onClick={() => navigate("/cases")}
                       />
                       <StatCard
-                        statId="participants-without-followup"
-                        title="Klientsaker uten oppfølging"
-                        value={Math.max(0, Math.round(stats.pendingApprovals * 0.6))}
+                        statId="my-drafts"
+                        title="Utkast under arbeid"
+                        value={myTasks.myDrafts}
                         icon={<Users className="h-5 w-5" />}
                         trend={{ value: stats.usersTrend, isPositive: stats.usersTrend <= 0 }}
                         trendDirection="goodDown"
-                        variant="danger"
-                        periodLabel="Siste 7 dager"
-                        description="Klientsaker med svakt oppfølgingsmønster i perioden"
+                        variant="info"
+                        periodLabel={TIME_RANGE_LABELS[timeRange]}
+                        description="Rapporter som ikke er sendt til godkjenning"
                         noTrendLabel="Ingen historikk ennå"
-                        emptyLabel="Alle klientsaker fulgt opp"
-                        onClick={() => navigate("/cases")}
+                        emptyLabel="Ingen utkast"
+                        onClick={() => navigate("/rapporter")}
                       />
                     </>
                   ) : (
