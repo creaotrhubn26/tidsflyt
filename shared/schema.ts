@@ -94,6 +94,7 @@ export const projectInfo = pgTable("project_info", {
   periode: text("periode"),
   klientId: text("klient_id"),
   userId: text("user_id").default("default"),
+  institutionId: uuid("institution_id"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

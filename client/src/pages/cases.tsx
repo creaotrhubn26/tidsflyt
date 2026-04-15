@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import {
@@ -12,6 +12,8 @@ import {
   Pencil,
   Plus,
   Search,
+  Loader2,
+  CheckCircle2,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -33,6 +35,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useInstitutions } from "@/hooks/use-institutions";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useBrregSearch, type BrregCompany } from "@/hooks/use-brreg-search";
 
 type ProjectInfoRow = {
   id: number;
@@ -101,8 +104,20 @@ export default function CasesPage() {
   const [showCaseDialog, setShowCaseDialog] = useState(false);
   const [editingCase, setEditingCase] = useState<ProjectInfoRow | null>(null);
   const [caseForm, setCaseForm] = useState(emptyCaseForm);
-  const { institutions } = useInstitutions();
+  const { institutions, create: createInstitution } = useInstitutions();
   const [selectedInstitutionId, setSelectedInstitutionId] = useState<string>("");
+
+  // Brreg lookup — find/create institution from Enhetsregisteret
+  const brreg = useBrregSearch();
+  const [brregQuery, setBrregQuery] = useState("");
+  const brregRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const onClick = (e: MouseEvent) => {
+      if (brregRef.current && !brregRef.current.contains(e.target as Node)) brreg.setOpen(false);
+    };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, [brreg]);
 
   const { data: rawProjectInfoData, isLoading: isLoadingProjectInfo } = useQuery<ProjectInfoRow[] | { error?: string }>({
     queryKey: ["/api/project-info", { user_id: currentUserId }],
@@ -265,6 +280,7 @@ export default function CasesPage() {
         bedrift: caseForm.bedrift.trim() || null,
         klient_id: caseForm.klient_id.trim() || null,
         user_id: currentUserId,
+        institution_id: selectedInstitutionId || null,
       };
 
       if (editingCase) {
@@ -278,6 +294,8 @@ export default function CasesPage() {
       setEditingCase(null);
       setCaseForm(emptyCaseForm);
       setSelectedInstitutionId("");
+      setBrregQuery("");
+      brreg.reset();
       toast({
         title: editingCase ? "Sak oppdatert" : "Sak opprettet",
         description: editingCase
@@ -297,6 +315,9 @@ export default function CasesPage() {
   const handleOpenNewCase = () => {
     setEditingCase(null);
     setCaseForm(emptyCaseForm);
+    setSelectedInstitutionId("");
+    setBrregQuery("");
+    brreg.reset();
     setShowCaseDialog(true);
   };
 
@@ -310,6 +331,18 @@ export default function CasesPage() {
       bedrift: item.bedrift || "",
       klient_id: item.klient_id || "",
     });
+    // Prefill institution-link: first try institution_id from row, fallback to name-match
+    const linkedId = (item as any).institution_id as string | null | undefined;
+    if (linkedId) {
+      setSelectedInstitutionId(linkedId);
+    } else {
+      const matched = institutions.find(
+        i => (item.oppdragsgiver || "").trim().toLowerCase() === i.name.trim().toLowerCase(),
+      );
+      setSelectedInstitutionId(matched?.id ?? "");
+    }
+    setBrregQuery("");
+    brreg.reset();
     setShowCaseDialog(true);
   };
 
@@ -336,49 +369,147 @@ export default function CasesPage() {
             </DialogDescription>
           </DialogHeader>
 
-          {/* Institution picker — auto-fills oppdragsgiver */}
-          {institutions.length > 0 && (
-            <div className="space-y-2 mb-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
-              <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
-                <Building2 className="h-3.5 w-3.5 text-primary" />
-                Velg fra dine institusjoner
-              </Label>
-              <Select
-                value={selectedInstitutionId || "__custom__"}
-                onValueChange={(val) => {
-                  if (val === "__custom__") {
-                    setSelectedInstitutionId("");
-                    return;
-                  }
-                  setSelectedInstitutionId(val);
-                  const inst = institutions.find(i => i.id === val);
-                  if (inst) {
-                    setCaseForm(prev => ({
-                      ...prev,
-                      oppdragsgiver: inst.name,
-                      // klient_id (saksreferanse) keeps user input — institution doesn't override
-                    }));
-                  }
-                }}
-              >
-                <SelectTrigger className="bg-background">
-                  <SelectValue placeholder="Velg institusjon for autoutfylling…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__custom__">Skriv manuelt nedenfor</SelectItem>
-                  {institutions.filter(i => i.active !== false).map(inst => (
-                    <SelectItem key={inst.id} value={inst.id}>
-                      {inst.name}
-                      {inst.orgNumber && <span className="text-muted-foreground ml-2 font-mono text-xs">({inst.orgNumber})</span>}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-[11px] text-muted-foreground">
-                Legg til flere institusjoner fra <span className="font-medium">Institusjoner</span>-siden.
-              </p>
-            </div>
-          )}
+          {/* Institution picker — pick existing eller søk opp ny via Brreg */}
+          <div className="space-y-3 mb-2 rounded-lg border border-primary/20 bg-primary/5 p-3">
+            <Label className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide">
+              <Building2 className="h-3.5 w-3.5 text-primary" />
+              Institusjon / oppdragsgiver
+            </Label>
+
+            {institutions.length > 0 && (
+              <div>
+                <p className="text-[11px] text-muted-foreground mb-1">Velg eksisterende:</p>
+                <Select
+                  value={selectedInstitutionId || "__custom__"}
+                  onValueChange={(val) => {
+                    if (val === "__custom__") {
+                      setSelectedInstitutionId("");
+                      return;
+                    }
+                    setSelectedInstitutionId(val);
+                    const inst = institutions.find(i => i.id === val);
+                    if (inst) {
+                      setCaseForm(prev => ({ ...prev, oppdragsgiver: inst.name }));
+                    }
+                  }}
+                >
+                  <SelectTrigger className="bg-background">
+                    <SelectValue placeholder="Velg institusjon…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__custom__">Søk i Brreg eller skriv inn manuelt</SelectItem>
+                    {institutions.filter(i => i.active !== false).map(inst => (
+                      <SelectItem key={inst.id} value={inst.id}>
+                        {inst.name}
+                        {inst.orgNumber && <span className="text-muted-foreground ml-2 font-mono text-xs">({inst.orgNumber})</span>}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            {/* Brreg-søk — oppretter automatisk institusjon hvis ikke finnes fra før */}
+            {!selectedInstitutionId && (
+              <div className="relative" ref={brregRef}>
+                <p className="text-[11px] text-muted-foreground mb-1">
+                  {institutions.length > 0 ? "Eller søk opp ny i Brønnøysundregisteret:" : "Søk i Brønnøysundregisteret:"}
+                </p>
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    value={brregQuery}
+                    onChange={(e) => { setBrregQuery(e.target.value); brreg.search(e.target.value); }}
+                    onFocus={() => { if (brreg.results.length > 0) brreg.setOpen(true); }}
+                    placeholder="Org-nr eller navn…"
+                    autoComplete="off"
+                    className="pl-8 bg-background"
+                  />
+                  {brreg.loading && (
+                    <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  )}
+                  {brreg.verified && !brreg.loading && (
+                    <CheckCircle2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-emerald-600" />
+                  )}
+                </div>
+                {brreg.open && brreg.results.length > 0 && (
+                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-popover border rounded-md shadow-lg max-h-60 overflow-y-auto">
+                    {brreg.results.map((c: BrregCompany) => {
+                      const existing = institutions.find(
+                        i => i.orgNumber && i.orgNumber === c.organisasjonsnummer
+                      );
+                      return (
+                        <button
+                          key={c.organisasjonsnummer}
+                          type="button"
+                          className="w-full text-left px-3 py-2.5 hover:bg-accent border-b last:border-0 transition-colors"
+                          onClick={async () => {
+                            brreg.select(c);
+                            setBrregQuery(`${c.organisasjonsnummer} — ${c.navn}`);
+
+                            if (existing) {
+                              // Bruk eksisterende istedenfor å opprette duplikat
+                              setSelectedInstitutionId(existing.id);
+                              setCaseForm(prev => ({ ...prev, oppdragsgiver: existing.name }));
+                              toast({ title: "Tilknyttet eksisterende institusjon", description: existing.name });
+                              return;
+                            }
+
+                            // Opprett ny institusjon fra Brreg-treff
+                            try {
+                              const addr = c.forretningsadresse;
+                              const addressStr = addr
+                                ? [addr.adresse?.join(", "), addr.postnummer, addr.poststed].filter(Boolean).join(", ")
+                                : "";
+                              const created = await createInstitution.mutateAsync({
+                                name: c.navn,
+                                orgNumber: c.organisasjonsnummer,
+                                institutionType: "annet",
+                                address: addressStr,
+                                brregVerified: true,
+                              } as any);
+                              const newId = (created as any)?.id;
+                              if (newId) {
+                                setSelectedInstitutionId(newId);
+                              }
+                              setCaseForm(prev => ({ ...prev, oppdragsgiver: c.navn }));
+                              toast({
+                                title: "Institusjon opprettet",
+                                description: `${c.navn} lagt til i Institusjoner. Kan finjusteres senere.`,
+                              });
+                            } catch (err: any) {
+                              // Fallback — hvis oppretting feiler, sett oppdragsgiver likevel
+                              setCaseForm(prev => ({ ...prev, oppdragsgiver: c.navn }));
+                              toast({
+                                title: "Kunne ikke lagre institusjon",
+                                description: err.message + " — navn er satt på saken, legg til institusjon manuelt senere.",
+                                variant: "destructive",
+                              });
+                            }
+                          }}
+                        >
+                          <div className="font-medium text-sm flex items-center gap-2">
+                            {c.navn}
+                            {existing && (
+                              <Badge variant="secondary" className="text-[9px]">Allerede registrert</Badge>
+                            )}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2">
+                            <span className="font-mono">{c.organisasjonsnummer}</span>
+                            {c.forretningsadresse?.poststed && <span>· {c.forretningsadresse.poststed}</span>}
+                            {c.organisasjonsform?.beskrivelse && <span>· {c.organisasjonsform.beskrivelse}</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Oppretter institusjon automatisk om den ikke finnes. Kan også skrives inn manuelt i feltet under.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">

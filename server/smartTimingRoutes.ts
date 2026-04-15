@@ -728,11 +728,11 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/project-info", requireAuth, async (req, res) => {
     try {
-      const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id } = req.body;
+      const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id, institution_id } = req.body;
       const result = await pool.query(
-        `INSERT INTO project_info (konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id || 'default']
+        `INSERT INTO project_info (konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id, institution_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
+        [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id || 'default', institution_id || null]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -742,11 +742,12 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.put("/api/project-info/:id", requireAuth, async (req, res) => {
     try {
-      const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id } = req.body;
+      const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, institution_id } = req.body;
       const result = await pool.query(
-        `UPDATE project_info SET konsulent=$1, bedrift=$2, oppdragsgiver=$3, tiltak=$4, periode=$5, klient_id=$6, updated_at=NOW()
-         WHERE id=$7 RETURNING *`,
-        [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, req.params.id]
+        `UPDATE project_info
+           SET konsulent=$1, bedrift=$2, oppdragsgiver=$3, tiltak=$4, periode=$5, klient_id=$6, institution_id=$7, updated_at=NOW()
+         WHERE id=$8 RETURNING *`,
+        [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, institution_id || null, req.params.id]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
       res.json(result.rows[0]);
