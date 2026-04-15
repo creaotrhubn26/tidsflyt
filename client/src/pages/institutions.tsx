@@ -18,9 +18,11 @@ import { useRapportTemplates } from "@/hooks/use-rapport-templates";
 import {
   Building2, Plus, Search, Trash2, Pencil, Mail, Phone, MapPin,
   CheckCircle2, AlertCircle, Forward, Clock, Loader2,
-  FileText, FolderKanban, TrendingUp,
+  FileText, FolderKanban, TrendingUp, Upload,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
 
 const ADMIN_ROLES = ["vendor_admin", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"];
 
@@ -67,6 +69,48 @@ export default function InstitutionsPage() {
   const [editing, setEditing] = useState<Institution | null>(null);
   const [showDialog, setShowDialog] = useState(false);
   const [form, setForm] = useState<Partial<Institution>>(emptyForm);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkCsv, setBulkCsv] = useState("");
+  const [bulkResult, setBulkResult] = useState<any>(null);
+  const qc = useQueryClient();
+  const bulkImport = useMutation({
+    mutationFn: (rows: any[]) => apiRequest("/api/institutions/bulk", {
+      method: "POST", body: JSON.stringify({ rows }),
+    }),
+    onSuccess: (res: any) => {
+      setBulkResult(res);
+      qc.invalidateQueries({ queryKey: ["/api/institutions"] });
+      toast({ title: `${res?.created ?? 0} institusjoner lagt til` });
+    },
+    onError: (e: any) => toast({ title: "Import feilet", description: e.message, variant: "destructive" }),
+  });
+
+  function parseCsvInstitutions(csv: string): any[] {
+    const lines = csv.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) return [];
+    // Detect header
+    const headerLine = lines[0].toLowerCase();
+    const hasHeader = /(name|navn|orgnr|institution|type|email)/.test(headerLine);
+    const rows = hasHeader ? lines.slice(1) : lines;
+    const headers = hasHeader
+      ? lines[0].split(/[,;]/).map(h => h.trim().toLowerCase())
+      : ["name", "orgnumber", "institutiontype", "contactemail", "forwardemail"];
+    return rows.map(line => {
+      const cols = line.split(/[,;]/).map(c => c.trim());
+      const obj: any = {};
+      headers.forEach((h, i) => { obj[h] = cols[i] ?? ""; });
+      // Normalize keys
+      return {
+        name: obj.name || obj.navn || cols[0] || "",
+        orgNumber: obj.orgnumber || obj.orgnr || obj["org-nr"] || null,
+        institutionType: obj.institutiontype || obj.type || null,
+        contactEmail: obj.contactemail || obj.email || obj["e-post"] || null,
+        forwardEmail: obj.forwardemail || obj.videresendEmail || null,
+        autoForwardRapport: !!(obj.autoforward || obj.autoforwardrapport),
+        notes: obj.notes || obj.notat || null,
+      };
+    }).filter(r => r.name);
+  }
 
   // Brreg lookup inside the dialog
   const brreg = useBrregSearch();
@@ -171,10 +215,16 @@ export default function InstitutionsPage() {
             </p>
           </div>
           {isAdmin && (
-            <Button onClick={openNew}>
-              <Plus className="h-4 w-4 mr-2" />
-              Ny institusjon
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => { setBulkOpen(true); setBulkResult(null); setBulkCsv(""); }}>
+                <Upload className="h-4 w-4 mr-2" />
+                Bulk-import
+              </Button>
+              <Button onClick={openNew}>
+                <Plus className="h-4 w-4 mr-2" />
+                Ny institusjon
+              </Button>
+            </div>
           )}
         </div>
 
@@ -269,9 +319,13 @@ export default function InstitutionsPage() {
                         )}
                       </div>
                       <div className="mt-2 flex flex-wrap gap-1.5">
-                        {inst.autoForwardRapport && (
-                          <Badge variant="secondary" className="text-[10px]">
-                            <Forward className="h-3 w-3 mr-1" /> Videresender til {inst.forwardEmail}
+                        {inst.autoForwardRapport ? (
+                          <Badge variant="secondary" className="text-[10px] border-emerald-500/40 text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20">
+                            <Forward className="h-3 w-3 mr-1" /> Auto-videresender til {inst.forwardEmail}
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                            <Forward className="h-3 w-3 mr-1 opacity-50" /> Ingen auto-videresending
                           </Badge>
                         )}
                         {!inst.overtimeApplicable && (
@@ -553,6 +607,79 @@ export default function InstitutionsPage() {
                 {(create.isPending || update.isPending) ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
                 {editing ? "Lagre endringer" : "Opprett institusjon"}
               </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk-import dialog */}
+        <Dialog open={bulkOpen} onOpenChange={(o) => { setBulkOpen(o); if (!o) { setBulkCsv(""); setBulkResult(null); } }}>
+          <DialogContent className="sm:max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Bulk-import institusjoner</DialogTitle>
+              <DialogDescription>
+                Lim inn en CSV med én institusjon per linje. Header-rad er valgfri.
+              </DialogDescription>
+            </DialogHeader>
+            {bulkResult ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold text-emerald-600">{bulkResult.created ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">Opprettet</div>
+                  </div>
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold text-amber-600">{bulkResult.skipped?.length ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">Hoppet over</div>
+                  </div>
+                  <div className="rounded-md border p-3 text-center">
+                    <div className="text-2xl font-bold text-destructive">{bulkResult.failed?.length ?? 0}</div>
+                    <div className="text-xs text-muted-foreground">Feilet</div>
+                  </div>
+                </div>
+                {bulkResult.skipped?.length > 0 && (
+                  <div className="rounded-md bg-amber-50 dark:bg-amber-950/20 border border-amber-500/30 p-3 text-xs space-y-1 max-h-40 overflow-y-auto">
+                    {bulkResult.skipped.map((s: any, i: number) => (
+                      <div key={i}>
+                        <span className="font-medium">{s.row?.name ?? "(uten navn)"}</span>: {s.reason}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label className="text-xs">CSV-kolonner: navn, orgnr, type (barnevern/nav/kommune/privat/helsevesen/annet), contactEmail, forwardEmail</Label>
+                <Textarea
+                  value={bulkCsv}
+                  onChange={(e) => setBulkCsv(e.target.value)}
+                  rows={10}
+                  placeholder={"name,orgnumber,institutiontype,contactEmail\nBufetat Oslo,987654321,barnevern,post@example.no\nNAV Ullern,123456789,nav,kontakt@nav.no"}
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
+            <DialogFooter>
+              {bulkResult ? (
+                <Button onClick={() => setBulkOpen(false)}>Ferdig</Button>
+              ) : (
+                <>
+                  <Button variant="outline" onClick={() => setBulkOpen(false)}>Avbryt</Button>
+                  <Button
+                    disabled={!bulkCsv.trim() || bulkImport.isPending}
+                    onClick={() => {
+                      const rows = parseCsvInstitutions(bulkCsv);
+                      if (rows.length === 0) {
+                        toast({ title: "Ingen gyldige rader", variant: "destructive" });
+                        return;
+                      }
+                      bulkImport.mutate(rows);
+                    }}
+                  >
+                    {bulkImport.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                    Importer
+                  </Button>
+                </>
+              )}
             </DialogFooter>
           </DialogContent>
         </Dialog>

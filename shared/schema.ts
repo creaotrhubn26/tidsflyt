@@ -1837,6 +1837,9 @@ export const rapporter = pgTable("rapporter", {
   reviewKommentar: text("review_kommentar"),
   reviewedAt:      timestamp("reviewed_at"),
   reviewedBy:      integer("reviewed_by"),
+  // Miljøarbeider bekreftet å ha lest tilbakemeldingen på returnert rapport
+  feedbackAcknowledgedAt:   timestamp("feedback_acknowledged_at"),
+  feedbackAcknowledgedText: text("feedback_acknowledged_text"),
   innsendt:        timestamp("innsendt"),
   godkjent:        timestamp("godkjent"),
   createdAt:       timestamp("created_at").defaultNow(),

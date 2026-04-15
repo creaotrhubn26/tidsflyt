@@ -9,9 +9,9 @@ import type { Express, Request, Response } from 'express';
 import { db } from '../db';
 import {
   rapporter, saker, leaveRequests, leaveTypes, users,
-  vendorInstitutions,
+  vendorInstitutions, vendors, rapportTemplates,
 } from '@shared/schema';
-import { and, eq, inArray, lte, gte, between, desc, sql } from 'drizzle-orm';
+import { and, eq, inArray, lte, gte, between, desc, sql, count } from 'drizzle-orm';
 import { format, startOfMonth, endOfMonth, addDays, startOfWeek, endOfWeek } from 'date-fns';
 import { requireAuth } from '../middleware/auth';
 
@@ -187,6 +187,106 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         sakerWithoutRecent: sakerWithoutRecent.slice(0, 10),
         team,
         upcomingLeave,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/vendor/summary
+   * For vendor_admin: brukere, rapporter denne måneden, institusjoner,
+   * aktive saker, onboarding-status (har logo/institusjon/mal/tiltaksleder).
+   */
+  app.get('/api/vendor/summary', requireAuth, async (req: Request, res: Response) => {
+    try {
+      const u = (req as any).authUser ?? (req as any).user;
+      const vendorId = u?.vendorId ?? u?.vendor_id;
+      if (!vendorId) return res.status(400).json({ error: 'Bruker mangler vendor_id' });
+
+      const today = format(new Date(), 'yyyy-MM-dd');
+      const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
+      const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
+
+      const [vendor] = await db.select().from(vendors).where(eq(vendors.id, Number(vendorId))).limit(1);
+
+      // Brukere i vendor
+      const vendorUsers = await db
+        .select({ id: users.id, role: users.role })
+        .from(users)
+        .where(eq(users.vendorId, Number(vendorId) as any));
+      const userCount = vendorUsers.length;
+      const tiltakslederCount = vendorUsers.filter(u => u.role === 'tiltaksleder').length;
+
+      // Rapporter denne måneden (alle brukere i vendor). Bruk rå SQL-join
+      // for å unngå type-mismatch mellom users.id (varchar) og rapporter.user_id (integer).
+      const rapporterThisMonth = await db.execute(sql`
+        SELECT
+          count(*)::int AS count,
+          count(*) FILTER (WHERE status = 'godkjent')::int AS approved
+        FROM rapporter r
+        JOIN users u ON u.id::text = r.user_id::text
+        WHERE u.vendor_id = ${Number(vendorId)}
+          AND r.periode_from BETWEEN ${monthStart} AND ${monthEnd}
+      `);
+      const rThisMonthRow = (rapporterThisMonth as any).rows?.[0] ?? { count: 0, approved: 0 };
+
+      // Institusjoner
+      const instRows = await db
+        .select({ id: vendorInstitutions.id, autoForward: vendorInstitutions.autoForwardRapport })
+        .from(vendorInstitutions)
+        .where(eq(vendorInstitutions.vendorId, Number(vendorId)));
+
+      // Aktive saker
+      const aktiveSaker = await db
+        .select({ id: saker.id })
+        .from(saker)
+        .where(and(eq(saker.vendorId, Number(vendorId) as any), eq(saker.status, 'aktiv')));
+
+      // Maler (vendor-scoped eller system)
+      const maler = await db
+        .select({ id: rapportTemplates.id, isSystem: rapportTemplates.isSystem })
+        .from(rapportTemplates)
+        .where(sql`${rapportTemplates.vendorId} = ${Number(vendorId)} OR ${rapportTemplates.isSystem} = true`);
+
+      const vendorOwnedMaler = maler.filter(m => !m.isSystem).length;
+
+      // Onboarding-checklist
+      const checklist = {
+        hasLogo:           !!vendor?.logoUrl,
+        hasInstitution:    instRows.length > 0,
+        hasOwnTemplate:    vendorOwnedMaler > 0,
+        hasTiltaksleder:   tiltakslederCount > 0,
+      };
+      const completed = Object.values(checklist).filter(Boolean).length;
+      const total = Object.keys(checklist).length;
+
+      res.json({
+        vendor: vendor ? {
+          id: vendor.id, name: vendor.name, slug: vendor.slug,
+          logoUrl: vendor.logoUrl, maxUsers: vendor.maxUsers,
+          subscriptionPlan: vendor.subscriptionPlan,
+        } : null,
+        users: {
+          count: userCount,
+          tiltakslederCount,
+          maxUsers: vendor?.maxUsers ?? 50,
+          utilizationPct: vendor?.maxUsers ? Math.round((userCount / vendor.maxUsers) * 100) : 0,
+        },
+        rapporter: {
+          thisMonth: rThisMonthRow.count ?? 0,
+          approvedThisMonth: rThisMonthRow.approved ?? 0,
+        },
+        institutions: {
+          count: instRows.length,
+          autoForwardCount: instRows.filter(i => i.autoForward).length,
+        },
+        saker: { aktiveCount: aktiveSaker.length },
+        templates: {
+          systemCount: maler.filter(m => m.isSystem).length,
+          ownCount: vendorOwnedMaler,
+        },
+        onboarding: { checklist, completed, total, isDone: completed === total },
       });
     } catch (e: any) {
       res.status(500).json({ error: e.message });

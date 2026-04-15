@@ -105,6 +105,75 @@ export function registerInstitutionsRoutes(app: Express) {
     }
   });
 
+  /**
+   * POST /api/institutions/bulk — CSV-drevet bulk-import
+   * Body: { rows: Array<{ name: string, orgNumber?, institutionType?, contactEmail?, forwardEmail?, autoForwardRapport?: boolean, notes? }> }
+   * Returnerer { created, skipped: [{row,reason}], failed: [{row,error}] }.
+   */
+  app.post('/api/institutions/bulk', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isAdminRole(req)) return res.status(403).json({ error: 'Kun vendor admin+ kan opprette' });
+      const vendorId = userVendorId(req);
+      if (!vendorId) return res.status(400).json({ error: 'Bruker mangler vendor_id' });
+
+      const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+      if (rows.length === 0) return res.status(400).json({ error: 'Ingen rader mottatt' });
+      if (rows.length > 200) return res.status(400).json({ error: 'Maks 200 rader per bulk-import' });
+
+      let created = 0;
+      const skipped: any[] = [];
+      const failed: any[] = [];
+
+      for (const raw of rows) {
+        const name = String(raw?.name ?? '').trim();
+        if (!name) { skipped.push({ row: raw, reason: 'Mangler navn' }); continue; }
+
+        const orgNumber = raw.orgNumber ? String(raw.orgNumber).replace(/\s+/g, '') : null;
+        if (orgNumber && !/^\d{9}$/.test(orgNumber)) {
+          skipped.push({ row: raw, reason: 'Org-nr må være 9 siffer' }); continue;
+        }
+        const institutionType = raw.institutionType || null;
+        if (institutionType && !VALID_TYPES.includes(institutionType)) {
+          skipped.push({ row: raw, reason: 'Ugyldig type' }); continue;
+        }
+        const autoForward = !!raw.autoForwardRapport;
+        if (autoForward && !raw.forwardEmail) {
+          skipped.push({ row: raw, reason: 'Auto-forward krever forwardEmail' }); continue;
+        }
+
+        try {
+          await db.insert(vendorInstitutions).values({
+            vendorId,
+            name,
+            orgNumber,
+            institutionType,
+            contactPerson: raw.contactPerson || null,
+            contactEmail: raw.contactEmail || null,
+            contactPhone: raw.contactPhone || null,
+            address: raw.address || null,
+            autoForwardRapport: autoForward,
+            forwardEmail: raw.forwardEmail || null,
+            overtimeApplicable: raw.overtimeApplicable !== false,
+            notes: raw.notes || null,
+            brregVerified: !!raw.brregVerified,
+            createdBy: String(currentUser(req)?.id || ''),
+          });
+          created++;
+        } catch (e: any) {
+          if (String(e?.code) === '23505') {
+            skipped.push({ row: raw, reason: 'Duplikat (org-nr finnes)' });
+          } else {
+            failed.push({ row: raw, error: e?.message ?? String(e) });
+          }
+        }
+      }
+
+      res.json({ created, skipped, failed });
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   /** PATCH /api/institutions/:id — vendor_admin+ (own vendor only) */
   app.patch('/api/institutions/:id', requireAuth, async (req: Request, res: Response) => {
     try {

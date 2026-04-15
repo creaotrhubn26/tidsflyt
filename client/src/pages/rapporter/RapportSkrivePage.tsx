@@ -496,6 +496,9 @@ export default function RapportSkrivePage() {
   const isReturnert = rapportStatus === "returnert";
   const isTilGodkjenning = rapportStatus === "til_godkjenning";
   const isGodkjent = rapportStatus === "godkjent";
+  const feedbackAcknowledgedAt = (existingRapport as any)?.feedbackAcknowledgedAt;
+  const isFeedbackAcknowledged = !!feedbackAcknowledgedAt;
+  const needsAcknowledgment = isReturnert && !isFeedbackAcknowledged;
 
   // Filter comments by section
   const goalComments = (kommentarer as any[]).filter((k: any) => k.seksjon === "goals");
@@ -519,6 +522,38 @@ export default function RapportSkrivePage() {
       toast({ title: "Rapport sendt til godkjenning", description: "Tiltaksleder varsles nå." });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
     },
+    onError: (err: any) => {
+      // Backend returnerer 409 med code "feedback_not_acknowledged" eller 403 "sak_unassigned"
+      const msg = err?.message || err?.error || "Kunne ikke sende inn";
+      toast({ title: "Innsending blokkert", description: msg, variant: "destructive" });
+    },
+  });
+
+  // Miljøarbeider bekrefter at tilbakemelding er lest
+  const acknowledgeFeedback = useMutation({
+    mutationFn: (tekst: string | undefined) => apiRequest(`/api/rapporter/${rapportId}/acknowledge-feedback`, {
+      method: "POST", body: JSON.stringify({ tekst }),
+    }),
+    onSuccess: () => {
+      toast({ title: "Tilbakemelding bekreftet", description: "Du kan nå sende inn rapporten på nytt." });
+      qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId] });
+      qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
+    },
+  });
+
+  // Hent aktiviteter fra timeføring
+  const importTimeEntries = useMutation({
+    mutationFn: (overwrite: boolean) => apiRequest(`/api/rapporter/${rapportId}/import-time-entries`, {
+      method: "POST", body: JSON.stringify({ overwrite }),
+    }),
+    onSuccess: (res: any) => {
+      toast({
+        title: `Hentet ${res?.imported ?? 0} aktiviteter fra timeføring`,
+        description: res?.skipped > 0 ? `${res.skipped} hoppet over (duplikater)` : undefined,
+      });
+      qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "aktiviteter"] });
+    },
+    onError: () => toast({ title: "Kunne ikke hente timeføringer", variant: "destructive" }),
   });
 
   const createMaal = useMutation({
@@ -834,7 +869,8 @@ export default function RapportSkrivePage() {
           <Button
             size="sm"
             onClick={() => sendTilGodkjenning.mutate()}
-            disabled={!rapportId || hasGdprWarnings || sendTilGodkjenning.isPending}
+            disabled={!rapportId || hasGdprWarnings || sendTilGodkjenning.isPending || needsAcknowledgment}
+            title={needsAcknowledgment ? "Bekreft tilbakemeldingen først" : undefined}
           >
             <Send className="h-3.5 w-3.5 mr-1.5" />
             Send til godkjenning
@@ -853,15 +889,27 @@ export default function RapportSkrivePage() {
 
         {/* STATUS BANNER */}
         {isReturnert && (
-          <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-2.5 text-sm">
+          <div className="flex items-start gap-2 rounded-lg border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm">
             <XCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
+            <div className="flex-1 space-y-2">
               <span className="font-semibold text-destructive">Returnert fra tiltaksleder</span>
-              {reviewKommentar && <p className="text-muted-foreground mt-1">{reviewKommentar}</p>}
-              <p className="text-muted-foreground/70 text-xs mt-1.5">
-                <RotateCcw className="h-3 w-3 inline mr-1" />
-                Gjør endringer og send på nytt til godkjenning.
-              </p>
+              {reviewKommentar && <p className="text-muted-foreground whitespace-pre-line">{reviewKommentar}</p>}
+              {isFeedbackAcknowledged ? (
+                <div className="flex items-start gap-1.5 text-xs text-emerald-700 dark:text-emerald-400 pt-1">
+                  <CheckCircle className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+                  <span>
+                    Du har bekreftet tilbakemeldingen{" "}
+                    {feedbackAcknowledgedAt
+                      ? new Date(feedbackAcknowledgedAt).toLocaleString("nb-NO", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+                      : ""}. Du kan nå gjøre endringer og sende inn på nytt.
+                  </span>
+                </div>
+              ) : (
+                <AcknowledgeFeedbackForm
+                  onConfirm={(tekst) => acknowledgeFeedback.mutate(tekst || undefined)}
+                  isPending={acknowledgeFeedback.isPending}
+                />
+              )}
             </div>
           </div>
         )}
@@ -1125,6 +1173,20 @@ export default function RapportSkrivePage() {
                         <CalendarDays className="h-3 w-3" /> Uke
                       </button>
                     </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!rapportId || importTimeEntries.isPending}
+                      onClick={() => {
+                        if (window.confirm("Hent alle timeføringer fra denne perioden og legg dem til som aktiviteter? (Duplikater hoppes over.)")) {
+                          importTimeEntries.mutate(false);
+                        }
+                      }}
+                      title="Hent aktiviteter fra timeføring for denne perioden"
+                    >
+                      <Clock className="h-3.5 w-3.5 mr-1" />
+                      {importTimeEntries.isPending ? "Henter…" : "Hent fra timeføring"}
+                    </Button>
                     <Button size="sm" onClick={() => setActDialog(true)}>
                       <Plus className="h-3.5 w-3.5 mr-1" /> Legg til aktivitet
                     </Button>
@@ -1983,5 +2045,46 @@ function RapportAuditTimeline({ rapportId }: { rapportId: string }) {
         })}
       </CardContent>
     </Card>
+  );
+}
+
+// ── FEEDBACK-ACKNOWLEDGMENT FORM ──────────────────────────────────────────────
+// Miljøarbeider bekrefter at returnert-feedback er lest før resubmit tillates.
+
+function AcknowledgeFeedbackForm({ onConfirm, isPending }: {
+  onConfirm: (tekst: string) => void;
+  isPending: boolean;
+}) {
+  const [tekst, setTekst] = useState("");
+  const [checked, setChecked] = useState(false);
+  return (
+    <div className="rounded-md border bg-card/60 p-3 space-y-2 mt-2">
+      <label className="flex items-start gap-2 text-xs cursor-pointer">
+        <input
+          type="checkbox"
+          className="mt-0.5 h-3.5 w-3.5 accent-primary"
+          checked={checked}
+          onChange={(e) => setChecked(e.target.checked)}
+        />
+        <span>Jeg har lest og forstått tilbakemeldingen fra tiltaksleder.</span>
+      </label>
+      <textarea
+        value={tekst}
+        onChange={(e) => setTekst(e.target.value)}
+        placeholder="Valgfritt svar til tiltaksleder (hva du har endret) …"
+        rows={2}
+        className="w-full text-xs rounded-md border bg-background px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-primary"
+      />
+      <div className="flex justify-end">
+        <button
+          type="button"
+          disabled={!checked || isPending}
+          onClick={() => onConfirm(tekst.trim())}
+          className="text-xs px-3 py-1.5 rounded-md bg-primary text-primary-foreground disabled:opacity-50"
+        >
+          {isPending ? "Bekrefter…" : "Bekreft og lås opp innsending"}
+        </button>
+      </div>
+    </div>
   );
 }

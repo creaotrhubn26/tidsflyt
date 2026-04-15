@@ -406,6 +406,24 @@ ola@example.no,miljoarbeider
 kari@example.no,tiltaksleder
 per@example.no</pre>
                 </div>
+                <div className="flex items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer rounded-md border px-3 py-1.5 hover:bg-accent">
+                    <input
+                      type="file"
+                      accept=".csv,text/csv,.txt"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = (ev) => setBulkCsvText(String(ev.target?.result ?? ""));
+                        reader.readAsText(file);
+                      }}
+                    />
+                    Last opp CSV-fil
+                  </label>
+                  <span className="text-xs text-muted-foreground">eller lim inn under</span>
+                </div>
                 <Textarea
                   value={bulkCsvText}
                   onChange={(e) => setBulkCsvText(e.target.value)}

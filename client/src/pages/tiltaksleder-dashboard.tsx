@@ -6,13 +6,28 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useAuth } from "@/hooks/use-auth";
 import {
   ClipboardCheck, AlertCircle, Clock, Users, FolderKanban, FileText,
   CalendarDays, ArrowRight, TrendingUp, BedDouble,
+  CheckCircle2, Circle, Building2, Palette, UserPlus, Sparkles,
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
 import { nb } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+
+interface VendorSummary {
+  vendor: { id: number; name: string; slug: string; logoUrl: string | null; maxUsers: number; subscriptionPlan: string } | null;
+  users: { count: number; tiltakslederCount: number; maxUsers: number; utilizationPct: number };
+  rapporter: { thisMonth: number; approvedThisMonth: number };
+  institutions: { count: number; autoForwardCount: number };
+  saker: { aktiveCount: number };
+  templates: { systemCount: number; ownCount: number };
+  onboarding: {
+    checklist: { hasLogo: boolean; hasInstitution: boolean; hasOwnTemplate: boolean; hasTiltaksleder: boolean };
+    completed: number; total: number; isDone: boolean;
+  };
+}
 
 interface DashboardData {
   period: { monthStart: string; monthEnd: string; weekStart: string; weekEnd: string; today: string };
@@ -42,9 +57,17 @@ interface DashboardData {
 
 export default function TiltakslederDashboardPage() {
   const [, navigate] = useLocation();
+  const { user } = useAuth();
+  const isVendorAdmin = String(user?.role ?? "").toLowerCase() === "vendor_admin";
+
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/tiltaksleder/dashboard"],
     staleTime: 30_000,
+  });
+  const { data: vendorSummary } = useQuery<VendorSummary>({
+    queryKey: ["/api/vendor/summary"],
+    staleTime: 60_000,
+    enabled: isVendorAdmin,
   });
 
   const stats = useMemo(() => {
@@ -68,6 +91,11 @@ export default function TiltakslederDashboardPage() {
             Hva trenger din oppmerksomhet i dag? Hvem er tilgjengelig denne uken?
           </p>
         </div>
+
+        {/* Vendor onboarding + usage (kun for vendor_admin) */}
+        {isVendorAdmin && vendorSummary && (
+          <VendorAdminSummary summary={vendorSummary} onNavigate={navigate} />
+        )}
 
         {isLoading || !data ? (
           <div className="text-center py-12 text-muted-foreground">Laster oversikt…</div>
@@ -367,5 +395,98 @@ function KpiCard({ label, value, icon: Icon, tone, onClick, hint }: {
       <p className="text-xs text-muted-foreground mt-0.5 leading-tight">{label}</p>
       {hint && <p className="text-[10px] text-muted-foreground/70 mt-1">{hint}</p>}
     </button>
+  );
+}
+
+// ── VENDOR-ADMIN SUMMARY ──────────────────────────────────────────────────────
+// Viser usage + onboarding-checklist for vendor_admin. Skjules helt når ferdig.
+
+function VendorAdminSummary({
+  summary, onNavigate,
+}: { summary: VendorSummary; onNavigate: (path: string) => void }) {
+  const { onboarding, users, rapporter, institutions, saker, templates, vendor } = summary;
+
+  const steps: Array<{ key: keyof typeof onboarding.checklist; label: string; hint: string; icon: any; path: string }> = [
+    { key: "hasLogo",         label: "Last opp logo",            hint: "Brandet rapporter + e-post",  icon: Palette,      path: "/settings" },
+    { key: "hasInstitution",  label: "Legg til institusjon",     hint: "Minst én oppdragsgiver",      icon: Building2,    path: "/institusjoner" },
+    { key: "hasOwnTemplate",  label: "Klon eller lag rapport-mal", hint: "Tilpass til deres bransje",  icon: FileText,     path: "/admin/rapport-maler" },
+    { key: "hasTiltaksleder", label: "Inviter tiltaksleder",     hint: "Minst én person godkjenner",  icon: UserPlus,     path: "/invites" },
+  ];
+
+  return (
+    <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_280px]">
+      {/* Usage summary */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <TrendingUp className="h-4 w-4 text-primary" />
+            {vendor?.name ?? "Din bedrift"} — oversikt
+          </CardTitle>
+          <CardDescription className="text-xs">
+            Plan: <span className="font-medium capitalize">{vendor?.subscriptionPlan ?? "standard"}</span>
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+          <UsageStat label="Brukere" value={`${users.count} / ${users.maxUsers}`} hint={`${users.utilizationPct}% av lisens`} />
+          <UsageStat label="Rapporter denne mnd" value={rapporter.thisMonth} hint={`${rapporter.approvedThisMonth} godkjent`} />
+          <UsageStat label="Aktive saker" value={saker.aktiveCount} />
+          <UsageStat label="Institusjoner" value={institutions.count} hint={`${institutions.autoForwardCount} med auto-forward`} />
+        </CardContent>
+      </Card>
+
+      {/* Onboarding checklist */}
+      {!onboarding.isDone && (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              Kom i gang
+            </CardTitle>
+            <CardDescription className="text-[11px]">
+              {onboarding.completed} av {onboarding.total} trinn ferdig
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-1.5">
+            {steps.map((step) => {
+              const done = !!onboarding.checklist[step.key];
+              const Icon = step.icon;
+              return (
+                <button
+                  key={step.key}
+                  onClick={() => onNavigate(step.path)}
+                  className={cn(
+                    "w-full flex items-start gap-2 text-left rounded-md px-2 py-1.5 text-xs transition-colors",
+                    done ? "text-muted-foreground line-through opacity-70" : "hover:bg-accent",
+                  )}
+                >
+                  {done ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <Circle className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-medium flex items-center gap-1.5">
+                      <Icon className="h-3 w-3" />
+                      {step.label}
+                    </p>
+                    {!done && <p className="text-[10px] text-muted-foreground/80">{step.hint}</p>}
+                  </div>
+                </button>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function UsageStat({ label, value, hint }: { label: string; value: React.ReactNode; hint?: string }) {
+  return (
+    <div className="rounded-md border bg-background p-3">
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="text-lg font-bold mt-0.5">{value}</p>
+      {hint && <p className="text-[10px] text-muted-foreground/70 mt-0.5">{hint}</p>}
+    </div>
   );
 }

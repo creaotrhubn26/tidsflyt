@@ -23,7 +23,7 @@ import { useToast as useToastHook } from "@/hooks/use-toast";
 import {
   CheckCircle, XCircle, MessageSquare, Clock,
   FileText, User, Calendar, Activity, Target,
-  ChevronRight, Download,
+  ChevronRight, Download, CheckCheck, ReplyAll,
 } from "lucide-react";
 
 interface Rapport {
@@ -41,6 +41,8 @@ interface Rapport {
   antallMoeter?: number;
   innsendt?: string;
   reviewKommentar?: string;
+  feedbackAcknowledgedAt?: string | null;
+  feedbackAcknowledgedText?: string | null;
 }
 
 interface SeksjonKommentar {
@@ -67,6 +69,11 @@ export default function TiltakslederPage() {
   const [activeCommentSek, setActiveCommentSek] = useState<string | null>(null);
   const [returnReasons, setReturnReasons]  = useState<Set<string>>(new Set());
   const [returnMode, setReturnMode]        = useState(false);
+
+  // Bulk selection state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkMode, setBulkMode]       = useState<null | "approve" | "return">(null);
+  const [bulkMessage, setBulkMessage] = useState("");
 
   // ── DATA ──────────────────────────────────────────────────────────────────
 
@@ -133,6 +140,38 @@ export default function TiltakslederPage() {
         body: JSON.stringify({ seksjon, tekst }),
       }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", selectedRapport?.id, "kommentarer"] }),
+  });
+
+  // ── BULK MUTATIONS ────────────────────────────────────────────────────────
+
+  const bulkGodkjenn = useMutation({
+    mutationFn: (ids: string[]) => apiRequest(`/api/rapporter/bulk/godkjenn`, {
+      method: "POST",
+      body: JSON.stringify({ ids, kommentar: bulkMessage || undefined }),
+    }),
+    onSuccess: (res: any) => {
+      toast({ title: `${res?.approved ?? 0} rapporter godkjent` });
+      qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
+      setSelectedIds(new Set());
+      setBulkMode(null);
+      setBulkMessage("");
+    },
+    onError: () => toast({ title: "Bulk-godkjenning feilet", variant: "destructive" }),
+  });
+
+  const bulkReturner = useMutation({
+    mutationFn: (ids: string[]) => apiRequest(`/api/rapporter/bulk/returner`, {
+      method: "POST",
+      body: JSON.stringify({ ids, kommentar: bulkMessage }),
+    }),
+    onSuccess: (res: any) => {
+      toast({ title: `${res?.returned ?? 0} rapporter returnert` });
+      qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
+      setSelectedIds(new Set());
+      setBulkMode(null);
+      setBulkMessage("");
+    },
+    onError: () => toast({ title: "Bulk-retur feilet", variant: "destructive" }),
   });
 
   // ── HELPERS ───────────────────────────────────────────────────────────────
@@ -219,21 +258,67 @@ export default function TiltakslederPage() {
               <div className="flex items-center gap-2">
                 <Clock className="h-4 w-4 text-amber-500" />
                 <span className="font-semibold text-sm">Venter godkjenning</span>
+                <div className="flex items-center gap-2 ml-auto">
+                  <label className="flex items-center gap-1.5 text-xs cursor-pointer">
+                    <Checkbox
+                      checked={selectedIds.size > 0 && selectedIds.size === pending.length}
+                      onCheckedChange={(c) => {
+                        if (c) setSelectedIds(new Set(pending.map(p => p.id)));
+                        else setSelectedIds(new Set());
+                      }}
+                    />
+                    <span>Velg alle</span>
+                  </label>
+                  {selectedIds.size > 0 && (
+                    <>
+                      <Badge variant="secondary" className="text-xs">{selectedIds.size} valgt</Badge>
+                      <Button size="sm" variant="outline" className="h-7 text-xs"
+                        onClick={() => setBulkMode("return")}>
+                        <ReplyAll className="h-3 w-3 mr-1" /> Returner valgte
+                      </Button>
+                      <Button size="sm" className="h-7 text-xs"
+                        onClick={() => setBulkMode("approve")}>
+                        <CheckCheck className="h-3 w-3 mr-1" /> Godkjenn valgte
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <div className="divide-y">
               {pending.map((r) => (
                 <div key={r.id} className="p-4">
                   <div className="flex items-start justify-between mb-3">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="font-semibold">{r.konsulent ?? "Ukjent"}</span>
-                        <Badge variant="secondary" className="text-xs">Venter</Badge>
-                        {r.tiltak && <Badge variant="outline" className="text-xs capitalize">{r.tiltak}</Badge>}
+                    <div className="flex items-start gap-3">
+                      <Checkbox
+                        className="mt-1"
+                        checked={selectedIds.has(r.id)}
+                        onCheckedChange={(c) => setSelectedIds(prev => {
+                          const s = new Set(prev);
+                          if (c) s.add(r.id); else s.delete(r.id);
+                          return s;
+                        })}
+                      />
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="font-semibold">{r.konsulent ?? "Ukjent"}</span>
+                          <Badge variant="secondary" className="text-xs">Venter</Badge>
+                          {r.tiltak && <Badge variant="outline" className="text-xs capitalize">{r.tiltak}</Badge>}
+                          {r.feedbackAcknowledgedAt && (
+                            <Badge variant="default" className="text-[10px] bg-emerald-600 hover:bg-emerald-600">
+                              <CheckCheck className="h-2.5 w-2.5 mr-1" /> Feedback bekreftet
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {formatPeriode(r)} · Innsendt {r.innsendt ? new Date(r.innsendt).toLocaleDateString("nb-NO") : "—"}
+                        </p>
+                        {r.feedbackAcknowledgedText && (
+                          <p className="text-xs text-emerald-700 dark:text-emerald-400 mt-1 italic">
+                            Miljøarbeiders svar: "{r.feedbackAcknowledgedText}"
+                          </p>
+                        )}
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {formatPeriode(r)} · Innsendt {r.innsendt ? new Date(r.innsendt).toLocaleDateString("nb-NO") : "—"}
-                      </p>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => openReview(r)}>
@@ -267,6 +352,51 @@ export default function TiltakslederPage() {
             </div>
           </Card>
         )}
+
+        {/* BULK-ACTION DIALOG */}
+        <Dialog open={!!bulkMode} onOpenChange={(o) => { if (!o) { setBulkMode(null); setBulkMessage(""); } }}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {bulkMode === "approve"
+                  ? `Godkjenn ${selectedIds.size} rapporter`
+                  : `Returner ${selectedIds.size} rapporter`}
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                {bulkMode === "approve"
+                  ? "Alle valgte rapporter blir godkjent. Auto-videresending til institusjon skjer per rapport. Valgfri kommentar sendes med."
+                  : "Alle valgte rapporter returneres med samme kommentar. Miljøarbeiderne må bekrefte tilbakemeldingen før de kan sende inn igjen."}
+              </p>
+              <Textarea
+                placeholder={bulkMode === "approve" ? "Valgfri kommentar (samme for alle)" : "Kommentar (påkrevd) — forklar hva som må rettes"}
+                value={bulkMessage}
+                onChange={(e) => setBulkMessage(e.target.value)}
+                rows={4}
+              />
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setBulkMode(null); setBulkMessage(""); }}>
+                Avbryt
+              </Button>
+              <Button
+                disabled={
+                  (bulkMode === "approve" ? bulkGodkjenn.isPending : bulkReturner.isPending)
+                  || (bulkMode === "return" && !bulkMessage.trim())
+                }
+                variant={bulkMode === "return" ? "destructive" : "default"}
+                onClick={() => {
+                  const ids = Array.from(selectedIds);
+                  if (bulkMode === "approve") bulkGodkjenn.mutate(ids);
+                  else bulkReturner.mutate(ids);
+                }}
+              >
+                {bulkMode === "approve" ? "Godkjenn alle" : "Returner alle"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         {/* HISTORIKK */}
         {others.length > 0 && (

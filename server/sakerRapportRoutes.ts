@@ -9,7 +9,7 @@
 
 import { Router } from "express";
 import { db } from "./db";
-import { eq, and, desc, inArray, sql, ilike } from "drizzle-orm";
+import { eq, and, desc, inArray, sql, ilike, between, gte, lte } from "drizzle-orm";
 import {
   saker, rapporter, rapportMaal, rapportAktiviteter,
   rapportKommentarer, rapportAuditLog,
@@ -17,6 +17,7 @@ import {
   vendorInstitutions, rapportTemplates,
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
+  logRow,
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
 import { emailService } from "./lib/email-service";
@@ -515,9 +516,43 @@ rapportRouter.patch("/:id", requireAuth, async (req: any, res) => {
 /**
  * POST /api/rapporter/:id/send
  * Send til godkjenning
+ *
+ * Guards:
+ *   1. If rapporten tilhører en sak, må bruker fortsatt være tildelt den.
+ *      (Tiltaksleder kan ha fjernet vedkommende mellom utkast og innsending.)
+ *   2. Hvis rapporten er returnert må miljøarbeider ha bekreftet tilbakemeldingen
+ *      (feedbackAcknowledgedAt satt) før den kan sendes på nytt.
  */
 rapportRouter.post("/:id/send", requireAuth, async (req: any, res) => {
   try {
+    // Fetch current rapport to run checks before update
+    const [current] = await db
+      .select()
+      .from(rapporter)
+      .where(and(eq(rapporter.id, req.params.id), eq(rapporter.userId, req.user.id)))
+      .limit(1);
+    if (!current) return res.status(404).json({ error: "Ikke funnet" });
+
+    // Guard 1: still assigned to sak?
+    if (current.sakId) {
+      const [sak] = await db.select().from(saker).where(eq(saker.id, current.sakId)).limit(1);
+      const tildelt = Array.isArray(sak?.tildelteUserId) ? (sak!.tildelteUserId as any[]).map(Number) : [];
+      if (sak && tildelt.length > 0 && !tildelt.includes(Number(req.user.id))) {
+        return res.status(403).json({
+          error: "Du er ikke lenger tildelt denne saken. Kontakt tiltaksleder.",
+          code: "sak_unassigned",
+        });
+      }
+    }
+
+    // Guard 2: returnert rapport krever acknowledgment
+    if (current.status === "returnert" && !current.feedbackAcknowledgedAt) {
+      return res.status(409).json({
+        error: "Du må først bekrefte at du har lest tilbakemeldingen.",
+        code: "feedback_not_acknowledged",
+      });
+    }
+
     const [updated] = await db
       .update(rapporter)
       .set({ status: "til_godkjenning", innsendt: new Date(), updatedAt: new Date() })
@@ -770,6 +805,161 @@ rapportRouter.post(
   }
 );
 
+/**
+ * POST /api/rapporter/bulk/godkjenn
+ * Body: { ids: string[], kommentar?: string }
+ *
+ * Approve many rapporter in one call. Auto-forward is still attempted
+ * per-rapport. Returns { approved, failed: [{id,error}] }.
+ */
+rapportRouter.post(
+  "/bulk/godkjenn",
+  requireAuth,
+  requireRole("vendor_admin", "super_admin"),
+  async (req: any, res) => {
+    const { ids, kommentar } = req.body ?? {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array påkrevd" });
+    }
+    if (ids.length > 100) {
+      return res.status(400).json({ error: "Maks 100 rapporter per bulk-operasjon" });
+    }
+
+    const approved: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const id of ids) {
+      try {
+        const [updated] = await db
+          .update(rapporter)
+          .set({
+            status: "godkjent",
+            godkjent: new Date(),
+            reviewedAt: new Date(),
+            reviewedBy: req.user.id,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(rapporter.id, id), eq(rapporter.status, "til_godkjenning")))
+          .returning();
+        if (!updated) {
+          failed.push({ id, error: "Ikke til godkjenning" });
+          continue;
+        }
+        await logRapportEvent(updated.id, req, "approved", "Godkjent (bulk)", { kommentar: kommentar ?? null, bulk: true });
+        if (kommentar) {
+          await db.insert(rapportKommentarer).values({
+            rapportId: id, fromUserId: req.user.id, tekst: kommentar,
+          });
+        }
+        try { await maybeForwardRapportToInstitution(updated.id); } catch (e) { console.error("bulk auto-forward failed:", e); }
+        approved.push(id);
+      } catch (e: any) {
+        failed.push({ id, error: e?.message ?? String(e) });
+      }
+    }
+
+    res.json({ approved: approved.length, approvedIds: approved, failed });
+  }
+);
+
+/**
+ * POST /api/rapporter/bulk/returner
+ * Body: { ids: string[], kommentar: string }
+ *
+ * Return many rapporter with the same feedback message.
+ */
+rapportRouter.post(
+  "/bulk/returner",
+  requireAuth,
+  requireRole("vendor_admin", "super_admin"),
+  async (req: any, res) => {
+    const { ids, kommentar } = req.body ?? {};
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "ids array påkrevd" });
+    }
+    if (!kommentar || !String(kommentar).trim()) {
+      return res.status(400).json({ error: "Kommentar er påkrevd for retur" });
+    }
+    if (ids.length > 100) {
+      return res.status(400).json({ error: "Maks 100 rapporter per bulk-operasjon" });
+    }
+
+    const returned: string[] = [];
+    const failed: Array<{ id: string; error: string }> = [];
+
+    for (const id of ids) {
+      try {
+        const [updated] = await db
+          .update(rapporter)
+          .set({
+            status: "returnert",
+            reviewedAt: new Date(),
+            reviewedBy: req.user.id,
+            reviewKommentar: kommentar,
+            feedbackAcknowledgedAt: null,
+            feedbackAcknowledgedText: null,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(rapporter.id, id), eq(rapporter.status, "til_godkjenning")))
+          .returning();
+        if (!updated) {
+          failed.push({ id, error: "Ikke til godkjenning" });
+          continue;
+        }
+        await logRapportEvent(updated.id, req, "returned", "Returnert (bulk)", { kommentar, bulk: true });
+        returned.push(id);
+      } catch (e: any) {
+        failed.push({ id, error: e?.message ?? String(e) });
+      }
+    }
+
+    res.json({ returned: returned.length, returnedIds: returned, failed });
+  }
+);
+
+/**
+ * POST /api/rapporter/:id/acknowledge-feedback
+ * Body: { tekst?: string }
+ *
+ * Miljøarbeider bekrefter å ha lest tilbakemeldingen på en returnert rapport.
+ * Tiltaksleder ser "acknowledged" indikator når rapporten sendes inn igjen.
+ */
+rapportRouter.post("/:id/acknowledge-feedback", requireAuth, async (req: any, res) => {
+  try {
+    const { tekst } = req.body ?? {};
+    const [current] = await db
+      .select()
+      .from(rapporter)
+      .where(and(eq(rapporter.id, req.params.id), eq(rapporter.userId, req.user.id)))
+      .limit(1);
+    if (!current) return res.status(404).json({ error: "Ikke funnet" });
+    if (current.status !== "returnert") {
+      return res.status(409).json({ error: "Rapporten er ikke returnert" });
+    }
+
+    const [updated] = await db
+      .update(rapporter)
+      .set({
+        feedbackAcknowledgedAt: new Date(),
+        feedbackAcknowledgedText: tekst ? String(tekst).slice(0, 2000) : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(rapporter.id, req.params.id))
+      .returning();
+
+    await logRapportEvent(
+      req.params.id, req,
+      "feedback_acknowledged",
+      tekst ? "Bekreftet tilbakemelding med svar" : "Bekreftet tilbakemelding",
+      { svar: tekst ?? null },
+    );
+
+    res.json(updated);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
 // ── MÅL ───────────────────────────────────────────────────────────────────────
 
 rapportRouter.get("/:id/maal", requireAuth, async (req, res) => {
@@ -869,6 +1059,121 @@ rapportRouter.delete(
     }
   }
 );
+
+/**
+ * POST /api/rapporter/:id/import-time-entries
+ * Body: { dryRun?: boolean, overwrite?: boolean }
+ *
+ * Hent log_row-oppføringer som faller innenfor rapportens periode for innlogget
+ * bruker og opprett rapport_aktiviteter fra dem. Duplikater (samme dato+startTid)
+ * hoppes over med mindre overwrite=true. Returnerer antall importert + preview.
+ */
+rapportRouter.post("/:id/import-time-entries", requireAuth, async (req: any, res) => {
+  try {
+    const { dryRun = false, overwrite = false } = req.body ?? {};
+    const [rap] = await db
+      .select()
+      .from(rapporter)
+      .where(and(eq(rapporter.id, req.params.id), eq(rapporter.userId, req.user.id)))
+      .limit(1);
+    if (!rap) return res.status(404).json({ error: "Ikke funnet" });
+    if (!rap.periodeFrom || !rap.periodeTo) {
+      return res.status(400).json({ error: "Rapport mangler periode" });
+    }
+
+    // log_row.userId er TEXT; rapporter.userId er INTEGER. Støtt begge-matching.
+    const entries = await db
+      .select()
+      .from(logRow)
+      .where(and(
+        eq(logRow.userId, String(req.user.id)),
+        gte(logRow.date, rap.periodeFrom),
+        lte(logRow.date, rap.periodeTo),
+      ))
+      .orderBy(logRow.date, logRow.startTime);
+
+    if (entries.length === 0) {
+      return res.json({ found: 0, imported: 0, skipped: 0, entries: [] });
+    }
+
+    // Hent eksisterende aktiviteter for duplikat-sjekk (dato+fraKl)
+    const existing = await db
+      .select()
+      .from(rapportAktiviteter)
+      .where(eq(rapportAktiviteter.rapportId, req.params.id));
+    const dupKey = (d: string, fra: string | null) => `${d}__${fra ?? ""}`;
+    const existingKeys = new Set(
+      existing.map(a => dupKey(String(a.dato), a.fraKl)),
+    );
+
+    const toInsert: any[] = [];
+    const skipped: any[] = [];
+    for (const e of entries) {
+      const key = dupKey(String(e.date), e.startTime);
+      if (existingKeys.has(key) && !overwrite) {
+        skipped.push({ date: e.date, startTime: e.startTime, reason: "duplicate" });
+        continue;
+      }
+      // minutes fra start/end
+      const parseHHMM = (t: string | null): number => {
+        if (!t) return 0;
+        const [h, m] = t.split(":").map(Number);
+        return (h || 0) * 60 + (m || 0);
+      };
+      const start = parseHHMM(e.startTime);
+      const end = parseHHMM(e.endTime);
+      const breakMins = Math.round(Number(e.breakHours ?? 0) * 60);
+      const varighet = Math.max(0, end - start - breakMins);
+
+      toInsert.push({
+        rapportId: req.params.id,
+        dato: e.date,
+        fraKl: e.startTime ?? null,
+        tilKl: e.endTime ?? null,
+        varighet,
+        type: "aktivitet" as const,
+        beskrivelse: e.activity || e.title || e.project || "Timeført aktivitet",
+        sted: e.place ?? null,
+        noterIntern: e.notes ?? null,
+      });
+    }
+
+    if (dryRun) {
+      return res.json({
+        found: entries.length, imported: 0, skipped: skipped.length,
+        preview: toInsert,
+      });
+    }
+
+    if (overwrite) {
+      // Slett eksisterende aktiviteter som matcher (dato,fraKl) før ny innsetting
+      for (const row of toInsert) {
+        await db.delete(rapportAktiviteter).where(and(
+          eq(rapportAktiviteter.rapportId, req.params.id),
+          eq(rapportAktiviteter.dato, row.dato),
+          row.fraKl ? eq(rapportAktiviteter.fraKl, row.fraKl) : sql`${rapportAktiviteter.fraKl} IS NULL`,
+        ));
+      }
+    }
+
+    if (toInsert.length > 0) {
+      await db.insert(rapportAktiviteter).values(toInsert);
+    }
+    await recalcStats(req.params.id);
+    await logRapportEvent(req.params.id, req, "time_entries_imported", `Hentet ${toInsert.length} timeføringer`, {
+      imported: toInsert.length, skipped: skipped.length, overwrite,
+    });
+
+    res.json({
+      found: entries.length,
+      imported: toInsert.length,
+      skipped: skipped.length,
+      skippedDetails: skipped,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
 
 // ── KOMMENTARER ───────────────────────────────────────────────────────────────
 
