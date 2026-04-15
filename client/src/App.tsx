@@ -56,6 +56,7 @@ const InstitutionsPage = lazy(() => import("@/pages/institutions"));
 const AdminRapportTemplatesPage = lazy(() => import("@/pages/admin-rapport-templates"));
 const AdminRapportTemplateEditPage = lazy(() => import("@/pages/admin-rapport-template-edit"));
 const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashboard"));
+const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 
 function RouteLoadingFallback() {
   return (
@@ -113,6 +114,7 @@ function Router() {
         <Route path="/blog" component={Blog} />
         <Route path="/blog/:slug" component={BlogPostPage} />
         <Route path="/p/:slug" component={BuilderPage} />
+        <Route path="/invite/:token" component={InviteAcceptPage} />
 
         {/* Protected routes */}
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>

@@ -9,6 +9,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
@@ -18,10 +19,10 @@ import { useRapportTemplates } from "@/hooks/use-rapport-templates";
 import {
   Building2, Plus, Search, Trash2, Pencil, Mail, Phone, MapPin,
   CheckCircle2, AlertCircle, Forward, Clock, Loader2,
-  FileText, FolderKanban, TrendingUp, Upload,
+  FileText, FolderKanban, TrendingUp, Upload, Hash, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
 const ADMIN_ROLES = ["vendor_admin", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"];
@@ -72,6 +73,104 @@ export default function InstitutionsPage() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkCsv, setBulkCsv] = useState("");
   const [bulkResult, setBulkResult] = useState<any>(null);
+  const [bulkTab, setBulkTab] = useState<"brreg" | "csv">("brreg");
+
+  // Brreg multi-lookup: user limes inn org-nr, vi slår opp hver parallelt.
+  const [brregInput, setBrregInput] = useState("");
+  const [brregRows, setBrregRows] = useState<Array<{
+    orgNumber: string;
+    status: "pending" | "ok" | "notfound" | "error" | "duplicate";
+    name?: string;
+    address?: string;
+    institutionType?: string;
+    selected?: boolean;
+  }>>([]);
+  const [brregLookingUp, setBrregLookingUp] = useState(false);
+
+  async function runBrregLookup() {
+    // Parse all 9-digit numbers from input
+    const candidates = Array.from(
+      new Set(
+        (brregInput.match(/\d{9}/g) ?? []).map(s => s.trim()),
+      ),
+    );
+    if (candidates.length === 0) {
+      toast({ title: "Ingen gyldige org-nr funnet", description: "Trenger 9-sifrede numre", variant: "destructive" });
+      return;
+    }
+    if (candidates.length > 50) {
+      toast({ title: "Maks 50 oppslag per gang", variant: "destructive" });
+      return;
+    }
+    const existingOrgNumbers = new Set(institutions.map(i => i.orgNumber).filter(Boolean));
+    setBrregLookingUp(true);
+    setBrregRows(candidates.map(o => ({
+      orgNumber: o,
+      status: existingOrgNumbers.has(o) ? "duplicate" : "pending",
+      selected: !existingOrgNumbers.has(o),
+    })));
+
+    // Kjør parallelt med 4-concurrency (unngå å spam'e Brreg)
+    const queue = candidates.filter(o => !existingOrgNumbers.has(o));
+    const inferType = (data: any): string | undefined => {
+      const n = (data?.navn ?? "").toLowerCase();
+      const f = (data?.organisasjonsform?.beskrivelse ?? "").toLowerCase();
+      if (n.includes("bufetat") || n.includes("barnevern")) return "barnevern";
+      if (n.includes("nav") || n.includes("arbeids- og velferd")) return "nav";
+      if (f.includes("kommune") || n.includes("kommune")) return "kommune";
+      if (n.includes("sykehus") || n.includes("helse") || n.includes("klinikk")) return "helsevesen";
+      if (f.includes("aksjeselskap") || f.includes("enkeltpersonforetak")) return "privat";
+      return undefined;
+    };
+    const processOne = async (org: string) => {
+      try {
+        const res = await fetch(`https://data.brreg.no/enhetsregisteret/api/enheter/${org}`);
+        if (res.status === 404) {
+          setBrregRows(prev => prev.map(r => r.orgNumber === org ? { ...r, status: "notfound", selected: false } : r));
+          return;
+        }
+        if (!res.ok) {
+          setBrregRows(prev => prev.map(r => r.orgNumber === org ? { ...r, status: "error", selected: false } : r));
+          return;
+        }
+        const data = await res.json();
+        const adr = data.forretningsadresse?.adresse?.join(", ");
+        const post = [data.forretningsadresse?.postnummer, data.forretningsadresse?.poststed].filter(Boolean).join(" ");
+        const address = [adr, post].filter(Boolean).join(", ");
+        setBrregRows(prev => prev.map(r => r.orgNumber === org ? {
+          ...r,
+          status: "ok",
+          name: data.navn,
+          address,
+          institutionType: inferType(data),
+          selected: true,
+        } : r));
+      } catch {
+        setBrregRows(prev => prev.map(r => r.orgNumber === org ? { ...r, status: "error", selected: false } : r));
+      }
+    };
+    // Chunked parallel
+    const chunkSize = 4;
+    for (let i = 0; i < queue.length; i += chunkSize) {
+      await Promise.all(queue.slice(i, i + chunkSize).map(processOne));
+    }
+    setBrregLookingUp(false);
+  }
+
+  function runBrregImport() {
+    const rows = brregRows.filter(r => r.status === "ok" && r.selected).map(r => ({
+      name: r.name,
+      orgNumber: r.orgNumber,
+      institutionType: r.institutionType || null,
+      address: r.address || null,
+      brregVerified: true,
+    }));
+    if (rows.length === 0) {
+      toast({ title: "Ingen institusjoner valgt", variant: "destructive" });
+      return;
+    }
+    bulkImport.mutate(rows);
+  }
   const qc = useQueryClient();
   const bulkImport = useMutation({
     mutationFn: (rows: any[]) => apiRequest("/api/institutions/bulk", {
@@ -172,6 +271,22 @@ export default function InstitutionsPage() {
     setShowDialog(true);
   };
 
+  // Auto-suggest fra eksisterende saker
+  const { data: suggestions = [], refetch: refetchSuggestions } = useQuery<Array<{ name: string; sak_count: number }>>({
+    queryKey: ["/api/institutions/suggested-from-saker"],
+    enabled: isAdmin,
+  });
+  const acceptSuggestion = useMutation({
+    mutationFn: (name: string) => apiRequest("/api/institutions", {
+      method: "POST",
+      body: JSON.stringify({ name, institutionType: "annet" }),
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/institutions"] });
+      refetchSuggestions();
+    },
+  });
+
   const handleSubmit = async () => {
     if (!form.name?.trim()) {
       toast({ title: "Navn er påkrevd", variant: "destructive" });
@@ -264,6 +379,44 @@ export default function InstitutionsPage() {
             className="pl-9"
           />
         </div>
+
+        {/* Auto-suggest fra eksisterende saker */}
+        {isAdmin && suggestions.length > 0 && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="p-4">
+              <div className="flex items-start gap-3">
+                <div className="rounded-md bg-primary/10 p-1.5 mt-0.5">
+                  <Building2 className="h-4 w-4 text-primary" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">
+                    Vi fant {suggestions.length} oppdragsgiver{suggestions.length === 1 ? "" : "e"} i sakene som ikke er registrert som institusjon
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Klikk for å opprette dem i ett klikk — du kan utdype detaljer etterpå.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {suggestions.slice(0, 12).map((s) => (
+                      <button
+                        key={s.name}
+                        disabled={acceptSuggestion.isPending}
+                        onClick={() => acceptSuggestion.mutate(s.name)}
+                        className="inline-flex items-center gap-1 text-xs rounded-full border bg-background hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors px-2.5 py-1"
+                      >
+                        <Plus className="h-3 w-3" />
+                        {s.name}
+                        <span className="opacity-60">·{s.sak_count}</span>
+                      </button>
+                    ))}
+                    {suggestions.length > 12 && (
+                      <span className="text-xs text-muted-foreground self-center">+{suggestions.length - 12} til</span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* List */}
         {isLoading ? (
@@ -612,14 +765,18 @@ export default function InstitutionsPage() {
         </Dialog>
 
         {/* Bulk-import dialog */}
-        <Dialog open={bulkOpen} onOpenChange={(o) => { setBulkOpen(o); if (!o) { setBulkCsv(""); setBulkResult(null); } }}>
-          <DialogContent className="sm:max-w-2xl">
+        <Dialog open={bulkOpen} onOpenChange={(o) => {
+          setBulkOpen(o);
+          if (!o) { setBulkCsv(""); setBulkResult(null); setBrregInput(""); setBrregRows([]); }
+        }}>
+          <DialogContent className="sm:max-w-3xl max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>Bulk-import institusjoner</DialogTitle>
               <DialogDescription>
-                Lim inn en CSV med én institusjon per linje. Header-rad er valgfri.
+                Bruk org-nr-oppslag for verifiserte data fra Brønnøysund — eller CSV ved behov.
               </DialogDescription>
             </DialogHeader>
+
             {bulkResult ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-3">
@@ -645,42 +802,140 @@ export default function InstitutionsPage() {
                     ))}
                   </div>
                 )}
+                <DialogFooter>
+                  <Button onClick={() => setBulkOpen(false)}>Ferdig</Button>
+                </DialogFooter>
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label className="text-xs">CSV-kolonner: navn, orgnr, type (barnevern/nav/kommune/privat/helsevesen/annet), contactEmail, forwardEmail</Label>
-                <Textarea
-                  value={bulkCsv}
-                  onChange={(e) => setBulkCsv(e.target.value)}
-                  rows={10}
-                  placeholder={"name,orgnumber,institutiontype,contactEmail\nBufetat Oslo,987654321,barnevern,post@example.no\nNAV Ullern,123456789,nav,kontakt@nav.no"}
-                  className="font-mono text-xs"
-                />
-              </div>
+              <Tabs value={bulkTab} onValueChange={(v) => setBulkTab(v as any)}>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="brreg">
+                    <Hash className="h-4 w-4 mr-1.5" /> Org-nr oppslag
+                  </TabsTrigger>
+                  <TabsTrigger value="csv">
+                    <Upload className="h-4 w-4 mr-1.5" /> CSV
+                  </TabsTrigger>
+                </TabsList>
+
+                {/* ── BRREG TAB ─────────────────────────────── */}
+                <TabsContent value="brreg" className="space-y-3 mt-4">
+                  <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+                    Lim inn organisasjonsnumre (9 siffer per institusjon). Vi slår opp hver i Brønnøysund-registeret og henter navn, adresse og type automatisk.
+                  </div>
+                  <Textarea
+                    value={brregInput}
+                    onChange={(e) => setBrregInput(e.target.value)}
+                    placeholder={"987654321\n123456789\n\neller kopier fra Excel — vi plukker ut alle 9-sifrede numre"}
+                    rows={4}
+                    className="font-mono text-sm"
+                    disabled={brregLookingUp}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">
+                      {(brregInput.match(/\d{9}/g) ?? []).length} org-nr funnet
+                    </span>
+                    <Button
+                      size="sm"
+                      onClick={runBrregLookup}
+                      disabled={brregLookingUp || !brregInput.trim()}
+                    >
+                      {brregLookingUp ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Search className="h-3.5 w-3.5 mr-1.5" />}
+                      {brregLookingUp ? "Slår opp…" : "Slå opp i Brreg"}
+                    </Button>
+                  </div>
+
+                  {brregRows.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-medium">
+                          {brregRows.filter(r => r.status === "ok").length} verifisert ·{" "}
+                          {brregRows.filter(r => r.status === "duplicate").length} finnes allerede ·{" "}
+                          {brregRows.filter(r => r.status === "notfound" || r.status === "error").length} feilet
+                        </span>
+                        <button
+                          className="text-primary hover:underline"
+                          onClick={() => setBrregRows(prev => prev.map(r => r.status === "ok" ? { ...r, selected: !r.selected } : r))}
+                        >
+                          Inverter valg
+                        </button>
+                      </div>
+                      <div className="rounded-md border divide-y max-h-80 overflow-y-auto">
+                        {brregRows.map((r) => (
+                          <div key={r.orgNumber} className="flex items-start gap-2 px-3 py-2 text-sm">
+                            {r.status === "pending" && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground flex-shrink-0 mt-0.5" />}
+                            {r.status === "ok" && (
+                              <input
+                                type="checkbox"
+                                checked={!!r.selected}
+                                onChange={(e) => setBrregRows(prev => prev.map(x => x.orgNumber === r.orgNumber ? { ...x, selected: e.target.checked } : x))}
+                                className="h-4 w-4 accent-primary mt-0.5 flex-shrink-0"
+                              />
+                            )}
+                            {r.status === "notfound" && <X className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />}
+                            {r.status === "error" && <AlertCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />}
+                            {r.status === "duplicate" && <CheckCircle2 className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-mono text-xs text-muted-foreground">{r.orgNumber}</span>
+                                {r.name && <span className="font-medium truncate">{r.name}</span>}
+                                {r.institutionType && (
+                                  <Badge variant="outline" className="text-[10px]">{TYPE_LABELS[r.institutionType] ?? r.institutionType}</Badge>
+                                )}
+                                {r.status === "notfound" && <Badge variant="destructive" className="text-[10px]">Ikke funnet</Badge>}
+                                {r.status === "error" && <Badge variant="destructive" className="text-[10px]">Brreg-feil</Badge>}
+                                {r.status === "duplicate" && <Badge variant="outline" className="text-[10px]">Allerede registrert</Badge>}
+                              </div>
+                              {r.address && <p className="text-xs text-muted-foreground truncate">{r.address}</p>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <DialogFooter className="pt-2">
+                        <Button variant="outline" onClick={() => setBulkOpen(false)}>Avbryt</Button>
+                        <Button
+                          disabled={bulkImport.isPending || brregRows.filter(r => r.status === "ok" && r.selected).length === 0}
+                          onClick={runBrregImport}
+                        >
+                          {bulkImport.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Plus className="h-4 w-4 mr-2" />}
+                          Opprett {brregRows.filter(r => r.status === "ok" && r.selected).length} institusjoner
+                        </Button>
+                      </DialogFooter>
+                    </div>
+                  )}
+                </TabsContent>
+
+                {/* ── CSV TAB ─────────────────────────────── */}
+                <TabsContent value="csv" className="space-y-3 mt-4">
+                  <Label className="text-xs">
+                    CSV-kolonner: navn, orgnr, type (barnevern/nav/kommune/privat/helsevesen/annet), contactEmail, forwardEmail
+                  </Label>
+                  <Textarea
+                    value={bulkCsv}
+                    onChange={(e) => setBulkCsv(e.target.value)}
+                    rows={10}
+                    placeholder={"name,orgnumber,institutiontype,contactEmail\nBufetat Oslo,987654321,barnevern,post@example.no\nNAV Ullern,123456789,nav,kontakt@nav.no"}
+                    className="font-mono text-xs"
+                  />
+                  <DialogFooter>
+                    <Button variant="outline" onClick={() => setBulkOpen(false)}>Avbryt</Button>
+                    <Button
+                      disabled={!bulkCsv.trim() || bulkImport.isPending}
+                      onClick={() => {
+                        const rows = parseCsvInstitutions(bulkCsv);
+                        if (rows.length === 0) {
+                          toast({ title: "Ingen gyldige rader", variant: "destructive" });
+                          return;
+                        }
+                        bulkImport.mutate(rows);
+                      }}
+                    >
+                      {bulkImport.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
+                      Importer CSV
+                    </Button>
+                  </DialogFooter>
+                </TabsContent>
+              </Tabs>
             )}
-            <DialogFooter>
-              {bulkResult ? (
-                <Button onClick={() => setBulkOpen(false)}>Ferdig</Button>
-              ) : (
-                <>
-                  <Button variant="outline" onClick={() => setBulkOpen(false)}>Avbryt</Button>
-                  <Button
-                    disabled={!bulkCsv.trim() || bulkImport.isPending}
-                    onClick={() => {
-                      const rows = parseCsvInstitutions(bulkCsv);
-                      if (rows.length === 0) {
-                        toast({ title: "Ingen gyldige rader", variant: "destructive" });
-                        return;
-                      }
-                      bulkImport.mutate(rows);
-                    }}
-                  >
-                    {bulkImport.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
-                    Importer
-                  </Button>
-                </>
-              )}
-            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

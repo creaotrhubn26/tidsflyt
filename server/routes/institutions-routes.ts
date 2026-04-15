@@ -106,6 +106,42 @@ export function registerInstitutionsRoutes(app: Express) {
   });
 
   /**
+   * GET /api/institutions/suggested-from-saker
+   * Returns distinct `oppdragsgiver`-verdier fra saker som ennå ikke har
+   * en tilsvarende institusjon for vendoren. Lar admin opprette dem i ett klikk.
+   */
+  app.get('/api/institutions/suggested-from-saker', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isAdminRole(req)) return res.status(403).json({ error: 'Krever vendor admin+' });
+      const vendorId = userVendorId(req);
+      if (!vendorId) return res.json([]);
+
+      const result = await db.execute(sql`
+        SELECT
+          TRIM(s.oppdragsgiver) AS name,
+          COUNT(*)::int        AS sak_count,
+          MAX(s.created_at)    AS last_seen
+        FROM saker s
+        WHERE s.vendor_id = ${vendorId}
+          AND s.oppdragsgiver IS NOT NULL
+          AND TRIM(s.oppdragsgiver) <> ''
+          AND NOT EXISTS (
+            SELECT 1 FROM vendor_institutions vi
+            WHERE vi.vendor_id = ${vendorId}
+              AND LOWER(TRIM(vi.name)) = LOWER(TRIM(s.oppdragsgiver))
+          )
+        GROUP BY TRIM(s.oppdragsgiver)
+        ORDER BY sak_count DESC, last_seen DESC
+        LIMIT 30
+      `);
+
+      res.json((result as any).rows ?? []);
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
    * POST /api/institutions/bulk — CSV-drevet bulk-import
    * Body: { rows: Array<{ name: string, orgNumber?, institutionType?, contactEmail?, forwardEmail?, autoForwardRapport?: boolean, notes? }> }
    * Returnerer { created, skipped: [{row,reason}], failed: [{row,error}] }.

@@ -1878,6 +1878,26 @@ export const rapportAktiviteter = pgTable("rapport_aktiviteter", {
   createdAt:    timestamp("created_at").defaultNow(),
 });
 
+// ── INVITE LINKS ──────────────────────────────────────────────────────────────
+// Shared invite URLs for vendors. Vendor_admin generates a link, hands it out
+// (Slack, e-post), and recipients self-onboard. Optional domain restriction
+// (e.g. only @bufetat.no), expiry, and max use count.
+
+export const vendorInviteLinks = pgTable("vendor_invite_links", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  vendorId:         integer("vendor_id").notNull(),
+  token:            text("token").notNull().unique(),
+  role:             text("role").notNull(), // miljoarbeider | tiltaksleder | teamleder | vendor_admin
+  domain:           text("domain"),         // optional — e-post må slutte på "@<domain>"
+  expiresAt:        timestamp("expires_at"),
+  maxUses:          integer("max_uses"),
+  usedCount:        integer("used_count").notNull().default(0),
+  active:           boolean("active").notNull().default(true),
+  note:             text("note"),
+  createdBy:        text("created_by"),
+  createdAt:        timestamp("created_at").defaultNow(),
+});
+
 // ── AUDIT LOG ─────────────────────────────────────────────────────────────────
 // Append-only log of significant events on a rapport. Used for compliance
 // timeline + "who changed what" investigations.

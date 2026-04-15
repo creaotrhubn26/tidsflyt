@@ -2,13 +2,13 @@ import { useEffect, useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { 
-  Users, 
-  UserPlus, Upload, 
-  Search, 
-  MoreHorizontal, 
-  Mail, 
-  CheckCircle, 
+import {
+  Users,
+  UserPlus, Upload,
+  Search,
+  MoreHorizontal,
+  Mail,
+  CheckCircle,
   XCircle,
   Shield,
   User,
@@ -18,6 +18,11 @@ import {
   Send,
   CalendarCheck,
   Hourglass,
+  Link as LinkIcon,
+  Copy,
+  Trash2,
+  Power,
+  Sparkles,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -116,6 +121,12 @@ export default function UsersPage() {
   const [bulkDialogOpen, setBulkDialogOpen] = useState(false);
   const [bulkCsvText, setBulkCsvText] = useState("");
   const [bulkResult, setBulkResult] = useState<any>(null);
+  const [linkDialogOpen, setLinkDialogOpen] = useState(false);
+  const [newLinkRole, setNewLinkRole] = useState<string>("miljoarbeider");
+  const [newLinkDomain, setNewLinkDomain] = useState("");
+  const [newLinkExpiry, setNewLinkExpiry] = useState<string>("30"); // dager
+  const [newLinkMaxUses, setNewLinkMaxUses] = useState<string>("");
+  const [newLinkNote, setNewLinkNote] = useState("");
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
   const [inviteInstitution, setInviteInstitution] = useState("");
@@ -158,6 +169,53 @@ export default function UsersPage() {
       toast({ title: "Feil", description: error.message, variant: "destructive" });
     },
   });
+
+  // ── INVITE-LINKS ────────────────────────────────────────────────────────
+
+  const { data: inviteLinks = [] } = useQuery<any[]>({
+    queryKey: ["/api/company/invite-links"],
+    enabled: linkDialogOpen,
+  });
+
+  const createLink = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/company/invite-links", {
+      role: newLinkRole,
+      domain: newLinkDomain.trim() || null,
+      expiresInDays: newLinkExpiry ? Number(newLinkExpiry) : null,
+      maxUses: newLinkMaxUses ? Number(newLinkMaxUses) : null,
+      note: newLinkNote || null,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/invite-links"] });
+      setNewLinkDomain(""); setNewLinkNote(""); setNewLinkMaxUses("");
+      toast({ title: "Lenke opprettet" });
+    },
+    onError: (e: any) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
+  });
+
+  const toggleLink = useMutation({
+    mutationFn: (data: { id: string; active: boolean }) =>
+      apiRequest("PATCH", `/api/company/invite-links/${data.id}`, { active: data.active }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/company/invite-links"] }),
+  });
+
+  const deleteLink = useMutation({
+    mutationFn: (id: string) => apiRequest("DELETE", `/api/company/invite-links/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/company/invite-links"] });
+      toast({ title: "Lenke slettet" });
+    },
+  });
+
+  const buildLinkUrl = (token: string) => `${window.location.origin}/invite/${token}`;
+  const copyLink = async (token: string) => {
+    try {
+      await navigator.clipboard.writeText(buildLinkUrl(token));
+      toast({ title: "Lenke kopiert" });
+    } catch {
+      toast({ title: "Kunne ikke kopiere", variant: "destructive" });
+    }
+  };
 
   const bulkMutation = useMutation({
     mutationFn: async (users: { user_email: string; role: string }[]) => {
@@ -276,6 +334,10 @@ export default function UsersPage() {
           </div>
           
           <div className="flex items-center gap-2">
+          <Button variant="outline" size="default" onClick={() => setLinkDialogOpen(true)} className="gap-2">
+            <LinkIcon className="h-4 w-4" />
+            Invitasjonslenker
+          </Button>
           <Button variant="outline" size="default" onClick={() => { setBulkDialogOpen(true); setBulkResult(null); }} className="gap-2">
             <Upload className="h-4 w-4" />
             Bulk-import
@@ -393,18 +455,20 @@ export default function UsersPage() {
                 Bulk-importer brukere
               </DialogTitle>
               <DialogDescription>
-                Lim inn CSV med kolonnene <code>email</code> og valgfritt <code>role</code>. Standardrolle er miljøarbeider.
+                Lim inn hva som helst med e-poster — CSV, Outlook-distribusjonsliste, møteinvitasjon eller bare en blanding. Vi finner adressene automatisk.
               </DialogDescription>
             </DialogHeader>
 
             {!bulkResult ? (
               <div className="space-y-3">
                 <div className="rounded-md border bg-muted/40 p-3 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground mb-1">Format-eksempel:</p>
-                  <pre className="text-[11px]">email,role
-ola@example.no,miljoarbeider
-kari@example.no,tiltaksleder
-per@example.no</pre>
+                  <p className="font-medium text-foreground mb-1 flex items-center gap-1"><Sparkles className="h-3 w-3 text-primary" /> Smart-paste støtter:</p>
+                  <ul className="space-y-0.5 ml-4 list-disc">
+                    <li>CSV: <code>email,role</code> per linje</li>
+                    <li>Outlook-deltakerliste, e-postsignaturer, møteinvitasjoner</li>
+                    <li>En enkelt e-post på hver linje</li>
+                  </ul>
+                  <p className="mt-1.5 italic">Standardrolle: miljøarbeider (bytt med <code>tiltaksleder</code> i samme linje for å overstyre).</p>
                 </div>
                 <div className="flex items-center gap-2">
                   <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer rounded-md border px-3 py-1.5 hover:bg-accent">
@@ -490,6 +554,137 @@ per@example.no</pre>
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Invite-link dialog */}
+        <Dialog open={linkDialogOpen} onOpenChange={setLinkDialogOpen}>
+          <DialogContent className="sm:max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <div className="flex items-center gap-3 mb-1">
+                <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-primary/10 border border-primary/20">
+                  <LinkIcon className="h-5 w-5 text-primary" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg">Invitasjonslenker</DialogTitle>
+                  <DialogDescription className="mt-0">
+                    Generer én delbar URL per rolle. Send i Slack, Teams eller e-post — mottakerne registrerer seg selv.
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            {/* Existing links */}
+            {inviteLinks.length > 0 && (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                <p className="text-xs font-medium text-muted-foreground">Aktive lenker</p>
+                {inviteLinks.map((link: any) => {
+                  const url = buildLinkUrl(link.token);
+                  const expired = link.expiresAt && new Date(link.expiresAt) < new Date();
+                  const usedUp = link.maxUses && link.usedCount >= link.maxUses;
+                  const isLive = link.active && !expired && !usedUp;
+                  return (
+                    <div key={link.id} className={`rounded-md border p-3 space-y-1.5 ${isLive ? "" : "opacity-60 bg-muted/20"}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Badge variant="secondary" className="text-[10px] capitalize">{link.role}</Badge>
+                          {link.domain && <Badge variant="outline" className="text-[10px]">@{link.domain}</Badge>}
+                          {!isLive && <Badge variant="destructive" className="text-[10px]">{expired ? "Utløpt" : usedUp ? "Brukt opp" : "Deaktivert"}</Badge>}
+                          <span className="text-[11px] text-muted-foreground">
+                            {link.usedCount ?? 0}{link.maxUses ? ` / ${link.maxUses}` : ""} brukt
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {isLive && (
+                            <Button size="sm" variant="ghost" className="h-7" onClick={() => copyLink(link.token)}>
+                              <Copy className="h-3.5 w-3.5 mr-1" /> Kopier
+                            </Button>
+                          )}
+                          <Button size="sm" variant="ghost" className="h-7" onClick={() => toggleLink.mutate({ id: link.id, active: !link.active })}>
+                            <Power className={`h-3.5 w-3.5 ${link.active ? "text-emerald-600" : "text-muted-foreground"}`} />
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => {
+                            if (window.confirm("Slett invitasjonslenken?")) deleteLink.mutate(link.id);
+                          }}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                      {isLive && (
+                        <div className="flex items-center gap-2 text-xs">
+                          <code className="flex-1 truncate font-mono bg-muted/50 px-2 py-1 rounded">{url}</code>
+                        </div>
+                      )}
+                      {link.note && <p className="text-[11px] text-muted-foreground">{link.note}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* New link form */}
+            <div className="rounded-md border bg-muted/20 p-4 space-y-3">
+              <p className="text-sm font-medium">Ny lenke</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label className="text-xs">Rolle</Label>
+                  <select
+                    value={newLinkRole}
+                    onChange={(e) => setNewLinkRole(e.target.value)}
+                    className="mt-1 w-full text-sm rounded-md border bg-background px-3 py-2"
+                  >
+                    <option value="miljoarbeider">Miljøarbeider</option>
+                    <option value="tiltaksleder">Tiltaksleder</option>
+                    <option value="teamleder">Teamleder</option>
+                    <option value="vendor_admin">Bedriftsadmin</option>
+                  </select>
+                </div>
+                <div>
+                  <Label className="text-xs">E-post-domene (valgfritt)</Label>
+                  <Input
+                    placeholder="bufetat.no"
+                    value={newLinkDomain}
+                    onChange={(e) => setNewLinkDomain(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Utløper (dager)</Label>
+                  <Input
+                    type="number"
+                    placeholder="30"
+                    value={newLinkExpiry}
+                    onChange={(e) => setNewLinkExpiry(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label className="text-xs">Maks antall registreringer</Label>
+                  <Input
+                    type="number"
+                    placeholder="ubegrenset"
+                    value={newLinkMaxUses}
+                    onChange={(e) => setNewLinkMaxUses(e.target.value)}
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <Label className="text-xs">Notat (kun synlig for admin)</Label>
+                <Input
+                  placeholder="F.eks. Teams-invitasjon Q2 2026"
+                  value={newLinkNote}
+                  onChange={(e) => setNewLinkNote(e.target.value)}
+                  className="mt-1"
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button onClick={() => createLink.mutate()} disabled={createLink.isPending}>
+                  {createLink.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}
+                  Generer lenke
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
 
@@ -972,24 +1167,30 @@ per@example.no</pre>
 // ─── CSV helpers ───────────────────────────────────────────────────────────
 
 function parseCsvForInvite(text: string): { user_email: string; role: string }[] {
+  // Smart-paste-modus: trekk ut alle e-poster fra tekst (Outlook, møteinvitasjon,
+  // CSV, etterlater rolle som "miljoarbeider" som standard når den ikke kan parses).
+  const emailGlobalRx = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
   const lines = text.trim().split(/\r?\n/).filter(l => l.trim());
   if (lines.length === 0) return [];
-  // Detect header
-  const first = lines[0].toLowerCase();
+
+  const first = (lines[0] ?? "").toLowerCase();
   const hasHeader = first.includes("email") || first.includes("e-post");
   const dataLines = hasHeader ? lines.slice(1) : lines;
 
-  const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const out: { user_email: string; role: string }[] = [];
+  // CSV-modus: split per linje for rolle-detektering
+  const out = new Map<string, { user_email: string; role: string }>();
+  const VALID_ROLES = ["miljoarbeider", "tiltaksleder", "teamleder", "vendor_admin", "admin", "super_admin"];
+
   for (const line of dataLines) {
-    const cols = line.split(/[,;]/).map(c => c.trim().replace(/^"|"$/g, ""));
-    const email = cols.find(c => emailRx.test(c));
-    if (!email) continue;
-    // Role is the first non-email column (any cell that's not the email)
-    const role = cols.find(c => c && c !== email && !emailRx.test(c)) || "miljoarbeider";
-    out.push({ user_email: email.toLowerCase(), role });
+    const cols = line.split(/[,;\t]/).map(c => c.trim().replace(/^"|"$/g, ""));
+    const emails = (line.match(emailGlobalRx) ?? []).map(e => e.toLowerCase());
+    if (emails.length === 0) continue;
+    const role = cols.find(c => VALID_ROLES.includes(c.toLowerCase())) || "miljoarbeider";
+    for (const e of emails) {
+      if (!out.has(e)) out.set(e, { user_email: e, role: role.toLowerCase() });
+    }
   }
-  return out;
+  return Array.from(out.values());
 }
 
 function parseCsvForInviteCount(text: string): number {
