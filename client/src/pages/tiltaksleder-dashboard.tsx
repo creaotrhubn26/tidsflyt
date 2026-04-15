@@ -15,6 +15,7 @@ import {
 import { format, formatDistanceToNow } from "date-fns";
 import { nb } from "date-fns/locale";
 import { cn } from "@/lib/utils";
+import { PayrollExportDialog } from "@/components/payroll-export-dialog";
 
 interface VendorSummary {
   vendor: { id: number; name: string; slug: string; logoUrl: string | null; maxUsers: number; subscriptionPlan: string } | null;
@@ -90,6 +91,9 @@ export default function TiltakslederDashboardPage() {
           <p className="text-muted-foreground mt-1">
             Hva trenger din oppmerksomhet i dag? Hvem er tilgjengelig denne uken?
           </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <PayrollExportDialog />
+          </div>
         </div>
 
         {/* Vendor onboarding + usage (kun for vendor_admin) */}

@@ -18,11 +18,12 @@
 
 import type { Express, Request, Response } from "express";
 import { db } from "../db";
-import { vendorInviteLinks, vendors, users } from "@shared/schema";
-import { and, eq, desc } from "drizzle-orm";
+import { vendorInviteLinks, vendors, users, saker } from "@shared/schema";
+import { and, eq, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 import { randomBytes } from "crypto";
 import { emailService } from "../lib/email-service";
+import { buildEmailLoginUrl } from "../custom-auth";
 
 const ALLOWED_ROLES = ["miljoarbeider", "tiltaksleder", "teamleder", "vendor_admin"];
 
@@ -111,6 +112,7 @@ export function registerInviteLinkRoutes(app: Express) {
       const lowerEmail = String(email).toLowerCase();
       const [existing] = await db.select().from(users).where(eq(users.email, lowerEmail)).limit(1);
 
+      let userIdForAssignment: string | null = null;
       if (existing) {
         if (existing.vendorId && Number(existing.vendorId) !== link.vendorId) {
           return res.status(409).json({ error: "E-posten er allerede tilknyttet en annen bedrift" });
@@ -122,14 +124,41 @@ export function registerInviteLinkRoutes(app: Express) {
           lastName: lastName || existing.lastName,
           updatedAt: new Date(),
         }).where(eq(users.id, existing.id));
+        userIdForAssignment = String(existing.id);
       } else {
-        await db.insert(users).values({
+        const [created] = await db.insert(users).values({
           email: lowerEmail,
           firstName: firstName || null,
           lastName: lastName || null,
           role: link.role,
           vendorId: link.vendorId,
-        });
+        }).returning();
+        userIdForAssignment = String(created.id);
+      }
+
+      // Pre-tildel saker hvis konfigurert på lenken
+      const preassignSakIds = Array.isArray(link.sakIds) ? (link.sakIds as string[]) : [];
+      if (preassignSakIds.length > 0 && userIdForAssignment) {
+        try {
+          const targetSaker = await db.select().from(saker).where(inArray(saker.id, preassignSakIds));
+          for (const sak of targetSaker) {
+            if (Number(sak.vendorId) !== link.vendorId) continue; // safety
+            const current = Array.isArray(sak.tildelteUserId) ? (sak.tildelteUserId as any[]).map(String) : [];
+            if (!current.includes(userIdForAssignment)) {
+              const next = [...current, userIdForAssignment];
+              // Lagre som number[] for konsistens med annen kode
+              const asNumbers = next.map(id => {
+                const n = Number(id);
+                return Number.isFinite(n) ? n : id;
+              });
+              await db.update(saker)
+                .set({ tildelteUserId: asNumbers as any, updatedAt: new Date() })
+                .where(eq(saker.id, sak.id));
+            }
+          }
+        } catch (sakErr) {
+          console.error("Pre-assign saker failed:", sakErr);
+        }
       }
 
       // Bump used_count
@@ -139,10 +168,9 @@ export function registerInviteLinkRoutes(app: Express) {
 
       // Send magic-link via emailService (best-effort)
       try {
-        await emailService.sendMagicLinkEmail?.({
-          to: lowerEmail,
-          firstName: firstName || "",
-        } as any);
+        const loginUrl = buildEmailLoginUrl(lowerEmail);
+        const fullName = [firstName, lastName].filter(Boolean).join(" ") || lowerEmail;
+        await emailService.sendEmailLoginLink(lowerEmail, fullName, loginUrl);
       } catch (mailErr) {
         console.error("Magic-link send failed in invite accept:", mailErr);
       }
@@ -184,8 +212,9 @@ export function registerInviteLinkRoutes(app: Express) {
       const vendorId = userVendorId(req);
       if (!vendorId) return res.status(400).json({ error: "Mangler vendor_id" });
 
-      const { role = "miljoarbeider", domain = null, expiresInDays = null, maxUses = null, note = null } = req.body ?? {};
+      const { role = "miljoarbeider", domain = null, expiresInDays = null, maxUses = null, note = null, sakIds = [] } = req.body ?? {};
       if (!ALLOWED_ROLES.includes(role)) return res.status(400).json({ error: "Ugyldig rolle" });
+      const cleanSakIds = Array.isArray(sakIds) ? sakIds.filter(s => typeof s === "string") : [];
 
       let expiresAt: Date | null = null;
       if (expiresInDays && Number(expiresInDays) > 0) {
@@ -202,6 +231,7 @@ export function registerInviteLinkRoutes(app: Express) {
         expiresAt,
         maxUses: maxUses ? Number(maxUses) : null,
         note: note || null,
+        sakIds: cleanSakIds,
         createdBy: String(authedUser(req)?.id ?? ""),
       }).returning();
 

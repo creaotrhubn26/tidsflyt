@@ -23,11 +23,13 @@ import {
   Trash2,
   Power,
   Sparkles,
+  Briefcase,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -127,6 +129,7 @@ export default function UsersPage() {
   const [newLinkExpiry, setNewLinkExpiry] = useState<string>("30"); // dager
   const [newLinkMaxUses, setNewLinkMaxUses] = useState<string>("");
   const [newLinkNote, setNewLinkNote] = useState("");
+  const [newLinkSakIds, setNewLinkSakIds] = useState<Set<string>>(new Set());
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
   const [inviteInstitution, setInviteInstitution] = useState("");
@@ -177,6 +180,12 @@ export default function UsersPage() {
     enabled: linkDialogOpen,
   });
 
+  // Saker for pre-tildeling
+  const { data: availableSaker = [] } = useQuery<any[]>({
+    queryKey: ["/api/saker"],
+    enabled: linkDialogOpen,
+  });
+
   const createLink = useMutation({
     mutationFn: () => apiRequest("POST", "/api/company/invite-links", {
       role: newLinkRole,
@@ -184,10 +193,12 @@ export default function UsersPage() {
       expiresInDays: newLinkExpiry ? Number(newLinkExpiry) : null,
       maxUses: newLinkMaxUses ? Number(newLinkMaxUses) : null,
       note: newLinkNote || null,
+      sakIds: Array.from(newLinkSakIds),
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/company/invite-links"] });
       setNewLinkDomain(""); setNewLinkNote(""); setNewLinkMaxUses("");
+      setNewLinkSakIds(new Set());
       toast({ title: "Lenke opprettet" });
     },
     onError: (e: any) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
@@ -490,7 +501,7 @@ export default function UsersPage() {
                 </div>
                 <Textarea
                   value={bulkCsvText}
-                  onChange={(e) => setBulkCsvText(e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setBulkCsvText(e.target.value)}
                   placeholder="Lim inn CSV her…"
                   rows={10}
                   className="font-mono text-sm"
@@ -583,12 +594,26 @@ export default function UsersPage() {
                   const expired = link.expiresAt && new Date(link.expiresAt) < new Date();
                   const usedUp = link.maxUses && link.usedCount >= link.maxUses;
                   const isLive = link.active && !expired && !usedUp;
+                  const preassignedSakIds: string[] = Array.isArray(link.sakIds) ? link.sakIds : [];
+                  const preassignedSaker = preassignedSakIds.length > 0
+                    ? (availableSaker as any[]).filter((s: any) => preassignedSakIds.includes(s.id))
+                    : [];
                   return (
                     <div key={link.id} className={`rounded-md border p-3 space-y-1.5 ${isLive ? "" : "opacity-60 bg-muted/20"}`}>
                       <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2 flex-wrap">
                           <Badge variant="secondary" className="text-[10px] capitalize">{link.role}</Badge>
                           {link.domain && <Badge variant="outline" className="text-[10px]">@{link.domain}</Badge>}
+                          {preassignedSakIds.length > 0 && (
+                            <Badge
+                              variant="outline"
+                              className="text-[10px] gap-1 border-primary/40 text-primary"
+                              title={preassignedSaker.map((s: any) => `${s.saksnummer} ${s.tittel}`).join("\n") || `${preassignedSakIds.length} sak(er)`}
+                            >
+                              <Briefcase className="h-2.5 w-2.5" />
+                              {preassignedSakIds.length} sak{preassignedSakIds.length === 1 ? "" : "er"}
+                            </Badge>
+                          )}
                           {!isLive && <Badge variant="destructive" className="text-[10px]">{expired ? "Utløpt" : usedUp ? "Brukt opp" : "Deaktivert"}</Badge>}
                           <span className="text-[11px] text-muted-foreground">
                             {link.usedCount ?? 0}{link.maxUses ? ` / ${link.maxUses}` : ""} brukt
@@ -678,6 +703,39 @@ export default function UsersPage() {
                   className="mt-1"
                 />
               </div>
+
+              {/* Pre-tildel saker */}
+              {(availableSaker as any[]).length > 0 && (
+                <div>
+                  <Label className="text-xs">Pre-tildel saker (valgfritt)</Label>
+                  <p className="text-[11px] text-muted-foreground">Nye brukere som klikker lenken blir automatisk tildelt disse sakene.</p>
+                  <div className="mt-1 max-h-32 overflow-y-auto rounded-md border bg-background p-2 space-y-1">
+                    {(availableSaker as any[]).filter((s: any) => s.status === "aktiv").map((s: any) => {
+                      const checked = newLinkSakIds.has(s.id);
+                      return (
+                        <label key={s.id} className="flex items-center gap-2 text-xs cursor-pointer hover:bg-accent/50 px-1.5 py-1 rounded">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => setNewLinkSakIds(prev => {
+                              const next = new Set(prev);
+                              if (e.target.checked) next.add(s.id); else next.delete(s.id);
+                              return next;
+                            })}
+                            className="h-3.5 w-3.5 accent-primary"
+                          />
+                          <span className="font-mono text-[10px] text-muted-foreground">{s.saksnummer}</span>
+                          <span className="truncate">{s.tittel}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  {newLinkSakIds.size > 0 && (
+                    <p className="text-[11px] text-primary mt-1">{newLinkSakIds.size} sak(er) valgt</p>
+                  )}
+                </div>
+              )}
+
               <div className="flex justify-end">
                 <Button onClick={() => createLink.mutate()} disabled={createLink.isPending}>
                   {createLink.isPending ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <LinkIcon className="h-4 w-4 mr-2" />}

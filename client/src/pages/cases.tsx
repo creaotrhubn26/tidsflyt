@@ -94,7 +94,9 @@ export default function CasesPage() {
   const { user } = useAuth();
   const currentUserId = user?.id ?? "default";
 
-  const [activeTab, setActiveTab] = useState<"overview" | "reports">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "reports" | "saker">("overview");
+  const [tildelSak, setTildelSak] = useState<any | null>(null);
+  const [selectedAssignees, setSelectedAssignees] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showCaseDialog, setShowCaseDialog] = useState(false);
   const [editingCase, setEditingCase] = useState<ProjectInfoRow | null>(null);
@@ -110,6 +112,29 @@ export default function CasesPage() {
     () => (Array.isArray(rawProjectInfoData) ? rawProjectInfoData : []),
     [rawProjectInfoData],
   );
+
+  // Saker (nytt system, /api/saker)
+  const { data: saker = [] } = useQuery<any[]>({
+    queryKey: ["/api/saker"],
+  });
+  const { data: companyTeam = [] } = useQuery<any[]>({
+    queryKey: ["/api/company/users"],
+  });
+  const tildelMutation = useMutation({
+    mutationFn: (data: { sakId: string; userIds: string[] }) =>
+      apiRequest("POST", `/api/saker/${data.sakId}/tildel`, { userIds: data.userIds.map(Number) }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/saker"] });
+      toast({ title: "Tildeling oppdatert" });
+      setTildelSak(null);
+    },
+    onError: (e: any) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
+  });
+  const openTildel = (sak: any) => {
+    const ids = Array.isArray(sak.tildelteUserId) ? sak.tildelteUserId.map(String) : [];
+    setSelectedAssignees(new Set(ids));
+    setTildelSak(sak);
+  };
 
   const { data: rawReportsData, isLoading: isLoadingReports } = useQuery<CaseReportsResponse>({
     queryKey: ["/api/case-reports", { user_id: currentUserId }],
@@ -451,11 +476,15 @@ export default function CasesPage() {
           </div>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "overview" | "reports")} className="space-y-6">
-          <TabsList className="grid w-full max-w-md grid-cols-2">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as any)} className="space-y-6">
+          <TabsList className="grid w-full max-w-2xl grid-cols-3">
             <TabsTrigger value="overview" className="gap-2">
               <FolderKanban className="h-4 w-4" />
               Saksoversikt
+            </TabsTrigger>
+            <TabsTrigger value="saker" className="gap-2">
+              <ClipboardList className="h-4 w-4" />
+              Tildeling ({saker.length})
             </TabsTrigger>
             <TabsTrigger value="reports" className="gap-2">
               <FileText className="h-4 w-4" />
@@ -609,6 +638,63 @@ export default function CasesPage() {
             )}
           </TabsContent>
 
+          {/* TILDELING-TAB: saker fra det nye sak/rapport-systemet */}
+          <TabsContent value="saker" className="space-y-3">
+            {saker.length === 0 ? (
+              <Card>
+                <CardContent className="py-10 text-center text-muted-foreground">
+                  <ClipboardList className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>Ingen saker registrert i sak-systemet ennå.</p>
+                  <p className="text-xs mt-1">Saker opprettes ved onboarding eller fra rapport-flyten.</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <div className="grid gap-3">
+                {saker.map((sak: any) => {
+                  const tildelteIds = (Array.isArray(sak.tildelteUserId) ? sak.tildelteUserId : []).map(String);
+                  const tildelteNames = tildelteIds
+                    .map((id: string) => {
+                      const u = (companyTeam as any[]).find((t: any) => String(t.id) === id);
+                      return u ? ([u.firstName, u.lastName].filter(Boolean).join(" ") || u.email) : id;
+                    });
+                  return (
+                    <Card key={sak.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Badge variant="outline" className="text-[10px] font-mono">{sak.saksnummer}</Badge>
+                              <span className="font-medium">{sak.tittel}</span>
+                              <Badge variant={sak.status === "aktiv" ? "default" : "secondary"} className="text-[10px] capitalize">{sak.status}</Badge>
+                            </div>
+                            {sak.oppdragsgiver && (
+                              <p className="text-xs text-muted-foreground mt-1">
+                                Oppdragsgiver: {sak.oppdragsgiver}
+                              </p>
+                            )}
+                            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                              {tildelteNames.length === 0 ? (
+                                <span className="text-xs text-amber-600 dark:text-amber-400 italic">Ingen tildelt — kun synlig for tiltaksleder</span>
+                              ) : (
+                                tildelteNames.map((n: string, i: number) => (
+                                  <Badge key={i} variant="secondary" className="text-[10px]">{n}</Badge>
+                                ))
+                              )}
+                            </div>
+                          </div>
+                          <Button size="sm" variant="outline" onClick={() => openTildel(sak)}>
+                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                            Tildel
+                          </Button>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+
           <TabsContent value="reports" className="space-y-4">
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               <Card>
@@ -708,6 +794,61 @@ export default function CasesPage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Tildelings-dialog for saker */}
+        <Dialog open={!!tildelSak} onOpenChange={(o) => { if (!o) setTildelSak(null); }}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Tildel medlemmer</DialogTitle>
+              <DialogDescription>
+                {tildelSak?.tittel} ({tildelSak?.saksnummer})
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-1.5 max-h-72 overflow-y-auto py-2">
+              {(companyTeam as any[]).length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  Ingen brukere i bedriften ennå.
+                </p>
+              ) : (
+                (companyTeam as any[]).map((u: any) => {
+                  const id = String(u.id);
+                  const name = [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email;
+                  const checked = selectedAssignees.has(id);
+                  return (
+                    <label key={id} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-accent/50 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => setSelectedAssignees(prev => {
+                          const s = new Set(prev);
+                          if (e.target.checked) s.add(id); else s.delete(id);
+                          return s;
+                        })}
+                        className="h-4 w-4 accent-primary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{name}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{u.email} · <span className="capitalize">{u.role ?? "user"}</span></p>
+                      </div>
+                    </label>
+                  );
+                })
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setTildelSak(null)}>Avbryt</Button>
+              <Button
+                disabled={tildelMutation.isPending}
+                onClick={() => tildelSak && tildelMutation.mutate({
+                  sakId: tildelSak.id,
+                  userIds: Array.from(selectedAssignees),
+                })}
+              >
+                Lagre {selectedAssignees.size > 0 ? `(${selectedAssignees.size})` : ""}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </PortalLayout>
   );

@@ -31,6 +31,8 @@ const Vendors = lazy(() => import("@/pages/vendors"));
 const Contact = lazy(() => import("@/pages/contact"));
 const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
+const Tilgjengelighet = lazy(() => import("@/pages/tilgjengelighet"));
+const AvvikPage = lazy(() => import("@/pages/avvik"));
 const AdminCaseReviews = lazy(() => import("@/pages/admin-case-reviews"));
 const ApiDocs = lazy(() => import("@/pages/api-docs"));
 const VendorApiAdmin = lazy(() => import("@/pages/vendor-api-admin"));
@@ -106,6 +108,9 @@ function Router() {
         <Route path="/privacy" component={Privacy} />
         <Route path="/personvern" component={Privacy} />
         <Route path="/privacy-policy" component={Privacy} />
+        <Route path="/tilgjengelighet" component={Tilgjengelighet} />
+        <Route path="/accessibility" component={Tilgjengelighet} />
+        <Route path="/avvik" component={AvvikPage} />
         <Route path="/terms" component={Terms} />
         <Route path="/vilkar" component={Terms} />
         <Route path="/terms-and-conditions" component={Terms} />

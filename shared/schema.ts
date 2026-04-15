@@ -1894,8 +1894,67 @@ export const vendorInviteLinks = pgTable("vendor_invite_links", {
   usedCount:        integer("used_count").notNull().default(0),
   active:           boolean("active").notNull().default(true),
   note:             text("note"),
+  // Sak-IDs (uuid[]) som ny bruker automatisk legges til på når de aksepterer
+  sakIds:           jsonb("sak_ids").default([]),
   createdBy:        text("created_by"),
   createdAt:        timestamp("created_at").defaultNow(),
+});
+
+// ── AVVIK / HMS ───────────────────────────────────────────────────────────────
+// Hendelser miljøarbeidere opplever på jobb: vold, skade, rutinebrudd, arbeidsmiljø.
+// Kan knyttes til rapport eller stå alene. Tiltaksleder følger opp og lukker.
+
+export const rapportAvvik = pgTable("rapport_avvik", {
+  id:                     uuid("id").defaultRandom().primaryKey(),
+  vendorId:               integer("vendor_id").notNull(),
+  userId:                 text("user_id").notNull(),
+  rapportId:              uuid("rapport_id"),
+  sakId:                  uuid("sak_id"),
+  institutionId:          uuid("institution_id"),
+
+  dateOccurred:           date("date_occurred").notNull(),
+  timeOccurred:           time("time_occurred"),
+  location:               text("location"),
+
+  severity:               text("severity").notNull(), // lav | middels | hoy | kritisk
+  category:               text("category").notNull(), // vold_trusler | egen_skade | ...
+
+  description:            text("description").notNull(),
+  immediateAction:        text("immediate_action"),
+  followUpNeeded:         boolean("follow_up_needed").notNull().default(false),
+  witnesses:              jsonb("witnesses").default([]),
+  personsInvolved:        jsonb("persons_involved").default([]),
+  attachments:            jsonb("attachments").default([]),
+
+  gdprAutoReplaced:       boolean("gdpr_auto_replaced").notNull().default(false),
+  originalDescription:    text("original_description"),
+
+  status:                 text("status").notNull().default("rapportert"), // rapportert | under_behandling | lukket
+  tiltakslederKommentar:  text("tiltaksleder_kommentar"),
+  tiltakslederLukketAv:   text("tiltaksleder_lukket_av"),
+  tiltakslederLukketAt:   timestamp("tiltaksleder_lukket_at"),
+
+  notifiedAt:             timestamp("notified_at"),
+
+  createdAt:              timestamp("created_at").notNull().defaultNow(),
+  updatedAt:              timestamp("updated_at").notNull().defaultNow(),
+});
+
+export type RapportAvvik = typeof rapportAvvik.$inferSelect;
+
+export const vendorAvvikProtokoller = pgTable("vendor_avvik_protokoller", {
+  id:                 uuid("id").defaultRandom().primaryKey(),
+  vendorId:           integer("vendor_id").notNull(),
+  institutionId:      uuid("institution_id"),
+  name:               text("name").notNull(),
+  categories:         jsonb("categories").notNull().default([]),
+  additionalFields:   jsonb("additional_fields").default([]),
+  requireWitness:     boolean("require_witness").default(false),
+  escalationEmail:    text("escalation_email"),
+  isActive:           boolean("is_active").notNull().default(true),
+  createdBy:          text("created_by"),
+  createdAt:          timestamp("created_at").notNull().defaultNow(),
+  updatedAt:          timestamp("updated_at").notNull().defaultNow(),
 });
 
 // ── AUDIT LOG ─────────────────────────────────────────────────────────────────

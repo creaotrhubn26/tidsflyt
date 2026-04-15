@@ -35,6 +35,7 @@ import { Separator } from "@/components/ui/separator";
 import { Progress }  from "@/components/ui/progress";
 import { Checkbox }  from "@/components/ui/checkbox";
 import { useToast }  from "@/hooks/use-toast";
+import { AvvikDialog } from "@/components/avvik-dialog";
 
 // Icons
 import {
@@ -490,6 +491,21 @@ export default function RapportSkrivePage() {
     enabled: !!rapportId,
   });
 
+  // Hent godkjente fravær for innlogget bruker — brukes til overlap-varsel
+  const { data: leaveRequests = [] } = useQuery<any[]>({
+    queryKey: ["/api/leave/requests", "me", "approved"],
+    queryFn: () => apiRequest(`/api/leave/requests?userId=${authUser?.id}&status=approved`),
+    enabled: !!authUser?.id,
+  });
+  const overlappingLeave = useMemo(() => {
+    if (!periodeFrom || !periodeTo) return [];
+    return (leaveRequests as any[]).filter((l: any) => {
+      if (!l.startDate || !l.endDate) return false;
+      // overlap: startDate <= periodeTo && endDate >= periodeFrom
+      return l.startDate <= periodeTo && l.endDate >= periodeFrom;
+    });
+  }, [leaveRequests, periodeFrom, periodeTo]);
+
   // Rapport status
   const rapportStatus = (existingRapport as any)?.status ?? "utkast";
   const reviewKommentar = (existingRapport as any)?.reviewKommentar;
@@ -886,6 +902,27 @@ export default function RapportSkrivePage() {
             <span className="font-semibold">GDPR</span> — Ingen navn, fødselsdatoer eller adresser. Bruk «ungdommen», «brukeren», «jenta», «gutten» osv.
           </span>
         </div>
+
+        {/* FRAVÆR-OVERLAPP — godkjent fravær overlapper rapport-perioden */}
+        {overlappingLeave.length > 0 && !isGodkjent && (
+          <div className="flex items-start gap-2 rounded-lg border border-orange-500/40 bg-orange-50/50 dark:bg-orange-950/10 px-4 py-2.5 text-sm text-orange-800 dark:text-orange-300">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="font-semibold">Du har godkjent fravær i denne perioden</p>
+              <ul className="mt-1 text-xs space-y-0.5">
+                {overlappingLeave.map((l: any) => (
+                  <li key={l.id}>
+                    <span className="font-medium">{l.leaveTypeName ?? "Fravær"}</span>:{" "}
+                    {l.startDate} → {l.endDate} ({l.days} dager)
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1 text-xs opacity-80">
+                Sjekk at aktivitetene under ikke faller på fraværsdagene.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* STATUS BANNER */}
         {isReturnert && (
@@ -1447,6 +1484,26 @@ export default function RapportSkrivePage() {
                   onEnableAutoReplace={toggleGdprAutoReplace}
                 />
                 <InlineFeedback comments={generalComments} seksjon="" onReply={(d) => replyToComment.mutate({ ...d, seksjon: undefined })} />
+              </CardContent>
+            </Card>
+
+            {/* ── AVVIK-PROMPT ──────────────────────────────────────────── */}
+            <Card className="border-amber-200 bg-amber-50/30">
+              <CardHeader className="pb-2">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-700" />
+                  <span className="font-semibold text-sm text-amber-900">Var det avvik i perioden?</span>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0 pb-4">
+                <p className="text-xs text-amber-900/80 mb-3">
+                  Hendelser, skader, trusler, rutinebrudd eller andre ting som skiller seg fra det normale — registrer dem her. Går direkte til tiltaksleder med GDPR-maskering.
+                </p>
+                <AvvikDialog
+                  rapportId={rapportId || undefined}
+                  sakId={sakId || undefined}
+                  defaultDate={periodeTo || periodeFrom || undefined}
+                />
               </CardContent>
             </Card>
 

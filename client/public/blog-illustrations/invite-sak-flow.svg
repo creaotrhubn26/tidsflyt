@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" role="img" aria-label="Invitasjonslenke med sak-pre-tildeling">
+  <rect width="800" height="380" fill="#f8fafc"/>
+  <text x="400" y="45" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#0c4a6e">Inviter og fordel saker i én operasjon</text>
+
+  <!-- Step 1 -->
+  <rect x="30" y="100" width="170" height="180" rx="12" fill="#ffffff" stroke="#0ea5e9" stroke-width="2"/>
+  <circle cx="115" cy="140" r="22" fill="#0ea5e9"/>
+  <text x="115" y="147" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#ffffff">1</text>
+  <text x="115" y="185" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">Vendor-admin</text>
+  <text x="115" y="203" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">lager lenke</text>
+  <text x="115" y="228" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">Velger rolle, utløp,</text>
+  <text x="115" y="243" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">og krysser av hvilke</text>
+  <text x="115" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">saker som skal følge</text>
+
+  <!-- Arrow 1 -->
+  <path d="M200 190 L230 190" stroke="#0ea5e9" stroke-width="2" fill="none"/>
+  <polygon points="230,185 240,190 230,195" fill="#0ea5e9"/>
+
+  <!-- Step 2 -->
+  <rect x="250" y="100" width="170" height="180" rx="12" fill="#ffffff" stroke="#0ea5e9" stroke-width="2"/>
+  <circle cx="335" cy="140" r="22" fill="#0ea5e9"/>
+  <text x="335" y="147" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#ffffff">2</text>
+  <text x="335" y="185" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">Miljøarbeider</text>
+  <text x="335" y="203" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">åpner lenken</text>
+  <text x="335" y="228" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">Skriver inn e-post og</text>
+  <text x="335" y="243" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">navn — ingen passord,</text>
+  <text x="335" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">magic-link på e-post</text>
+
+  <!-- Arrow 2 -->
+  <path d="M420 190 L450 190" stroke="#0ea5e9" stroke-width="2" fill="none"/>
+  <polygon points="450,185 460,190 450,195" fill="#0ea5e9"/>
+
+  <!-- Step 3 -->
+  <rect x="470" y="100" width="170" height="180" rx="12" fill="#ffffff" stroke="#0ea5e9" stroke-width="2"/>
+  <circle cx="555" cy="140" r="22" fill="#0ea5e9"/>
+  <text x="555" y="147" text-anchor="middle" font-family="system-ui, sans-serif" font-size="18" font-weight="700" fill="#ffffff">3</text>
+  <text x="555" y="185" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">Saker tildeles</text>
+  <text x="555" y="203" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#0c4a6e">automatisk</text>
+  <text x="555" y="228" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">Brukeren ser sine</text>
+  <text x="555" y="243" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">saker i dashboardet</text>
+  <text x="555" y="258" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#64748b">ved første innlogging</text>
+
+  <!-- Arrow 3 -->
+  <path d="M640 190 L670 190" stroke="#10b981" stroke-width="2" fill="none"/>
+  <polygon points="670,185 680,190 670,195" fill="#10b981"/>
+
+  <!-- Result -->
+  <rect x="685" y="130" width="95" height="120" rx="10" fill="#ecfdf5" stroke="#10b981" stroke-width="2"/>
+  <circle cx="732" cy="160" r="16" fill="#10b981"/>
+  <path d="M726 160 l4 4 l8 -8" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <text x="732" y="205" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#065f46">Klar til å</text>
+  <text x="732" y="221" text-anchor="middle" font-family="system-ui, sans-serif" font-size="12" font-weight="700" fill="#065f46">jobbe</text>
+
+  <text x="400" y="320" text-anchor="middle" font-family="system-ui, sans-serif" font-size="13" fill="#475569">Én lenke — alle nye brukere får riktige saker, rolle og institusjon fra første minutt.</text>
+  <text x="400" y="340" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#94a3b8">Ingen manuelt oppsett, ingen glemte tildelinger, ingen passord.</text>
+</svg>

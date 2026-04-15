@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 380" role="img" aria-label="Hvor lenge må arbeidstid oppbevares">
+  <defs>
+    <linearGradient id="bg3" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f0f9ff"/>
+      <stop offset="100%" stop-color="#ffffff"/>
+    </linearGradient>
+  </defs>
+  <rect width="800" height="380" fill="url(#bg3)"/>
+  <text x="400" y="45" text-anchor="middle" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="700" fill="#0c4a6e">Oppbevaringstid — hvor lenge gjelder hva?</text>
+
+  <!-- Axis -->
+  <line x1="80" y1="300" x2="740" y2="300" stroke="#94a3b8" stroke-width="2"/>
+  <g font-family="system-ui, sans-serif" font-size="11" fill="#64748b">
+    <line x1="80" y1="295" x2="80" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="80" y="325" text-anchor="middle">I dag</text>
+    <line x1="212" y1="295" x2="212" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="212" y="325" text-anchor="middle">+1 år</text>
+    <line x1="344" y1="295" x2="344" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="344" y="325" text-anchor="middle">+3 år</text>
+    <line x1="476" y1="295" x2="476" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="476" y="325" text-anchor="middle">+5 år</text>
+    <line x1="608" y1="295" x2="608" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="608" y="325" text-anchor="middle">+7 år</text>
+    <line x1="740" y1="295" x2="740" y2="305" stroke="#94a3b8" stroke-width="2"/>
+    <text x="740" y="325" text-anchor="middle">+10 år</text>
+  </g>
+
+  <!-- Row 1: Arbeidsmiljøloven -->
+  <rect x="80" y="100" width="396" height="32" rx="6" fill="#0ea5e9"/>
+  <text x="90" y="121" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff">Arbeidsmiljøloven § 10-7 — tilgjengelig for Arbeidstilsynet</text>
+  <text x="486" y="121" font-family="system-ui, sans-serif" font-size="12" fill="#0c4a6e">5 år</text>
+
+  <!-- Row 2: Bokføringsloven -->
+  <rect x="80" y="145" width="462" height="32" rx="6" fill="#0284c7"/>
+  <text x="90" y="166" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff">Bokføringsloven — lønns- og timelister (bilag)</text>
+  <text x="552" y="166" font-family="system-ui, sans-serif" font-size="12" fill="#0c4a6e">5 år</text>
+
+  <!-- Row 3: Skattelovgivning -->
+  <rect x="80" y="190" width="528" height="32" rx="6" fill="#075985"/>
+  <text x="90" y="211" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff">Skattebetalingsforskriften — lønnsdokumentasjon</text>
+  <text x="618" y="211" font-family="system-ui, sans-serif" font-size="12" fill="#0c4a6e">5 år</text>
+
+  <!-- Row 4: GDPR slettefrist -->
+  <rect x="80" y="235" width="264" height="32" rx="6" fill="#f59e0b"/>
+  <text x="90" y="256" font-family="system-ui, sans-serif" font-size="13" font-weight="600" fill="#ffffff">GDPR — personopplysninger (minimering)</text>
+  <text x="354" y="256" font-family="system-ui, sans-serif" font-size="12" fill="#78350f">Så kort som mulig</text>
+
+  <!-- Legend -->
+  <g transform="translate(80, 70)">
+    <rect x="0" y="0" width="14" height="14" rx="3" fill="#0ea5e9"/>
+    <text x="22" y="12" font-family="system-ui, sans-serif" font-size="12" fill="#334155">Arbeidsrett</text>
+    <rect x="110" y="0" width="14" height="14" rx="3" fill="#0284c7"/>
+    <text x="132" y="12" font-family="system-ui, sans-serif" font-size="12" fill="#334155">Regnskap</text>
+    <rect x="220" y="0" width="14" height="14" rx="3" fill="#075985"/>
+    <text x="242" y="12" font-family="system-ui, sans-serif" font-size="12" fill="#334155">Skatt</text>
+    <rect x="300" y="0" width="14" height="14" rx="3" fill="#f59e0b"/>
+    <text x="322" y="12" font-family="system-ui, sans-serif" font-size="12" fill="#334155">Personvern (GDPR)</text>
+  </g>
+
+  <text x="400" y="370" text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#94a3b8">Hovedregel: 5 år fra utløpet av regnskapsåret. GDPR krever sletting etter at formålet er oppfylt.</text>
+</svg>

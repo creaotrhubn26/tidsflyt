@@ -23,6 +23,8 @@ import {
   XCircle,
   Plus,
   Trash2,
+  Download,
+  AlertTriangle,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -1078,6 +1080,78 @@ export default function ProfilePage() {
                 disabled={profileLoading || mutation.isPending}
                 data-testid="weekly-summary-switch"
               />
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* GDPR — dine data */}
+        <Card data-testid="gdpr-card" className="border-amber-200 bg-amber-50/30 dark:bg-amber-950/10">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-4 w-4 text-amber-600" />
+              Dine personopplysninger
+            </CardTitle>
+            <CardDescription>
+              Etter GDPR har du rett til innsyn i, og sletting av, dataene vi behandler om deg.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex items-start justify-between gap-4 py-2">
+              <div className="flex-1">
+                <p className="font-medium">Last ned dine data</p>
+                <p className="text-sm text-muted-foreground">
+                  Eksporter alt vi har lagret om deg (profil, timer, rapporter, innstillinger) som JSON-fil.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  window.location.href = "/api/me/export";
+                }}
+                data-testid="gdpr-export-btn"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Eksporter
+              </Button>
+            </div>
+            <Separator />
+            <div className="flex items-start justify-between gap-4 py-2">
+              <div className="flex-1">
+                <p className="font-medium text-destructive">Slett min konto</p>
+                <p className="text-sm text-muted-foreground">
+                  Anonymiserer profilen din. Tidsregistreringer, rapporter og fraværsdata beholdes i 5 år
+                  etter bokføringsloven, men uten personidentifisering.
+                </p>
+              </div>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={async () => {
+                  const confirmed = window.confirm(
+                    "Er du sikker på at du vil slette kontoen din? Handlingen kan ikke angres.\n\nTimer og rapporter beholdes anonymisert etter bokføringsloven (5 år)."
+                  );
+                  if (!confirmed) return;
+                  const typed = window.prompt('Skriv "SLETT" for å bekrefte:');
+                  if (typed !== "SLETT") return;
+                  try {
+                    const res = await fetch("/api/me", {
+                      method: "DELETE",
+                      headers: { "Content-Type": "application/json" },
+                      credentials: "include",
+                      body: JSON.stringify({ confirm: "SLETT" }),
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    window.location.href = "/";
+                  } catch (e: any) {
+                    alert("Kunne ikke slette: " + e.message);
+                  }
+                }}
+                data-testid="gdpr-delete-btn"
+              >
+                <AlertTriangle className="h-4 w-4 mr-2" />
+                Slett konto
+              </Button>
             </div>
           </CardContent>
         </Card>

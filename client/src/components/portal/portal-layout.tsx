@@ -31,6 +31,7 @@ import {
   Send,
   Mail,
   ClipboardCheck,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,7 @@ const baseNavItems: NavItemBase[] = [
   { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/rapporter", icon: FileText, label: "Rapporter" },
   { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },
+  { path: "/avvik", icon: AlertTriangle, label: "Avvik" },
   { path: "/leave", icon: Clock, label: "Fravær" },
   { path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
   { path: "/overtime", icon: Clock, label: "Overtid" },
