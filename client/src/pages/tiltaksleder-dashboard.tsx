@@ -25,7 +25,7 @@ interface VendorSummary {
   saker: { aktiveCount: number };
   templates: { systemCount: number; ownCount: number };
   onboarding: {
-    checklist: { hasLogo: boolean; hasInstitution: boolean; hasOwnTemplate: boolean; hasTiltaksleder: boolean };
+    checklist: { hasLogo: boolean; hasInstitution: boolean; hasOwnTemplate: boolean; hasTiltaksleder: boolean; hasInviteLink: boolean; hasMiljoarbeider: boolean };
     completed: number; total: number; isDone: boolean;
   };
 }
@@ -411,10 +411,12 @@ function VendorAdminSummary({
   const { onboarding, users, rapporter, institutions, saker, templates, vendor } = summary;
 
   const steps: Array<{ key: keyof typeof onboarding.checklist; label: string; hint: string; icon: any; path: string }> = [
-    { key: "hasLogo",         label: "Last opp logo",            hint: "Brandet rapporter + e-post",  icon: Palette,      path: "/settings" },
-    { key: "hasInstitution",  label: "Legg til institusjon",     hint: "Minst én oppdragsgiver",      icon: Building2,    path: "/institusjoner" },
-    { key: "hasOwnTemplate",  label: "Klon eller lag rapport-mal", hint: "Tilpass til deres bransje",  icon: FileText,     path: "/admin/rapport-maler" },
-    { key: "hasTiltaksleder", label: "Inviter tiltaksleder",     hint: "Minst én person godkjenner",  icon: UserPlus,     path: "/invites" },
+    { key: "hasLogo",          label: "Last opp logo",              hint: "Brandet rapporter + e-post",           icon: Palette,     path: "/settings" },
+    { key: "hasInstitution",   label: "Legg til institusjon",       hint: "Søk i Brreg og koble til første sak",  icon: Building2,   path: "/institusjoner" },
+    { key: "hasOwnTemplate",   label: "Klon eller lag rapport-mal", hint: "Tilpass til deres bransje",            icon: FileText,    path: "/admin/rapport-maler" },
+    { key: "hasTiltaksleder",  label: "Inviter tiltaksleder",       hint: "Minst én person godkjenner",           icon: UserPlus,    path: "/invites" },
+    { key: "hasInviteLink",    label: "Lag delbar invitasjonslenke",hint: "Onboarding av miljøarbeidere i bulk",  icon: UserPlus,    path: "/invites" },
+    { key: "hasMiljoarbeider", label: "Registrer første miljøarbeider", hint: "Fra invitasjonslenke eller direkte", icon: Users,    path: "/users" },
   ];
 
   return (

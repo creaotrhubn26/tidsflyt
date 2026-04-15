@@ -251,12 +251,23 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
 
       const vendorOwnedMaler = maler.filter(m => !m.isSystem).length;
 
+      // Har minst én invitasjonslenke vært aktiv?
+      const inviteLinkCount = await db.execute(sql`
+        SELECT count(*)::int AS c FROM vendor_invite_links WHERE vendor_id = ${Number(vendorId)}
+      `);
+      const hasInviteLink = Number((inviteLinkCount as any).rows?.[0]?.c ?? 0) > 0;
+
+      // Har miljøarbeidere registrert seg?
+      const miljoarbeiderCount = vendorUsers.filter(u => u.role === 'miljoarbeider').length;
+
       // Onboarding-checklist
       const checklist = {
         hasLogo:           !!vendor?.logoUrl,
         hasInstitution:    instRows.length > 0,
         hasOwnTemplate:    vendorOwnedMaler > 0,
         hasTiltaksleder:   tiltakslederCount > 0,
+        hasInviteLink:     hasInviteLink,
+        hasMiljoarbeider:  miljoarbeiderCount > 0,
       };
       const completed = Object.values(checklist).filter(Boolean).length;
       const total = Object.keys(checklist).length;
