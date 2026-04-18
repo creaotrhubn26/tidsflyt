@@ -839,32 +839,35 @@ export default function DashboardPage() {
     return items;
   }, [stats, timeRange, navigate, isTiltakslederView, tiltakslederSnapshot]);
 
-  const recentItems = useMemo(
-    () => [
-      {
-        id: 1,
-        title: "Tidsregistrering Prosjekt A",
-        type: "time" as const,
-        timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-        status: "draft" as const,
-      },
-      {
-        id: 2,
-        title: "Månedsrapport November",
+  // Real "Mine siste" derived from the user's own rapporter — no mock fallback.
+  const recentItems = useMemo(() => {
+    const list = Array.isArray(myRapporter) ? myRapporter : [];
+    const statusToTone: Record<string, "draft" | "pending" | "approved"> = {
+      utkast: "draft",
+      til_godkjenning: "pending",
+      returnert: "pending",
+      godkjent: "approved",
+      sendt: "approved",
+    };
+    return list
+      .slice()
+      .sort((a: any, b: any) =>
+        new Date(b.updatedAt ?? b.innsendt ?? 0).getTime() -
+        new Date(a.updatedAt ?? a.innsendt ?? 0).getTime(),
+      )
+      .slice(0, 5)
+      .map((r: any) => ({
+        id: r.id,
+        title:
+          r.tittel ||
+          (r.klientRef ? `Rapport ${r.klientRef}` : null) ||
+          (r.periodeFrom ? `Rapport ${r.periodeFrom}` : null) ||
+          `Rapport #${r.id}`,
         type: "report" as const,
-        timestamp: new Date(Date.now() - 5 * 60 * 60 * 1000),
-        status: "pending" as const,
-      },
-      {
-        id: 3,
-        title: "Klientmøte referat",
-        type: "case" as const,
-        timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-        status: "approved" as const,
-      },
-    ],
-    [],
-  );
+        timestamp: new Date(r.updatedAt ?? r.innsendt ?? Date.now()),
+        status: statusToTone[r.status] ?? "draft",
+      }));
+  }, [myRapporter]);
 
   const activityItems = useMemo(() => {
     const actionTypeMap: Record<

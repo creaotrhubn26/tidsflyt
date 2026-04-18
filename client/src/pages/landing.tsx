@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { AlertCircle, LogIn } from "lucide-react";
+import { AlertCircle, BookOpen, LogIn } from "lucide-react";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
@@ -589,6 +589,13 @@ export default function LandingPage() {
                 <Newspaper className="h-4 w-4" />
                 Blogg
               </Link>
+              <Link
+                href="/guide"
+                className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
+              >
+                <BookOpen className="h-4 w-4" />
+                Veiledning
+              </Link>
               <a
                 href={buildGoogleAuthUrl("/dashboard")}
                 onClick={() => trackGoogleLoginClick("header_navigation")}
@@ -1054,6 +1061,13 @@ export default function LandingPage() {
                 >
                   <Newspaper className="h-4 w-4" />
                   Blogg
+                </Link>
+                <Link
+                  href="/guide"
+                  className="inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]"
+                >
+                  <BookOpen className="h-4 w-4" />
+                  Veiledning
                 </Link>
                 <button
                   type="button"
