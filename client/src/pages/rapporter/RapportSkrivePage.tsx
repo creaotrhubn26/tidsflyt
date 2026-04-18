@@ -36,6 +36,7 @@ import { Progress }  from "@/components/ui/progress";
 import { Checkbox }  from "@/components/ui/checkbox";
 import { useToast }  from "@/hooks/use-toast";
 import { AvvikDialog } from "@/components/avvik-dialog";
+import { cn } from "@/lib/utils";
 
 // Icons
 import {
@@ -83,6 +84,31 @@ interface Activity {
   noterIntern?: string;
   malId?: string;
 }
+
+// ── AVVIK LABELS ─────────────────────────────────────────────────────────────
+
+const AVVIK_SEVERITY_STYLE: Record<string, { label: string; cls: string }> = {
+  lav:     { label: "Lav",     cls: "bg-emerald-50 text-emerald-900 border-emerald-200" },
+  middels: { label: "Middels", cls: "bg-amber-50 text-amber-900 border-amber-200" },
+  hoy:     { label: "Høy",     cls: "bg-orange-50 text-orange-900 border-orange-200" },
+  kritisk: { label: "Kritisk", cls: "bg-red-50 text-red-900 border-red-200" },
+};
+
+const AVVIK_CATEGORY_LABEL: Record<string, string> = {
+  vold_trusler:   "Vold/trusler",
+  egen_skade:     "Egen skade",
+  andre_skade:    "Andres skade",
+  rutinebrudd:    "Rutinebrudd",
+  klientrelatert: "Klient",
+  arbeidsmiljo:   "Arbeidsmiljø",
+  annet:          "Annet",
+};
+
+const AVVIK_STATUS_META: Record<string, { label: string; variant: "secondary" | "default" | "outline" }> = {
+  rapportert:       { label: "Rapportert",       variant: "secondary" },
+  under_behandling: { label: "Under behandling", variant: "outline"   },
+  lukket:           { label: "Lukket",           variant: "default"   },
+};
 
 // ── GOAL TEMPLATES ───────────────────────────────────────────────────────────
 
@@ -491,6 +517,21 @@ export default function RapportSkrivePage() {
     enabled: !!rapportId,
   });
 
+  // Hent avvik meldt av innlogget bruker — filtreres til gjeldende rapport
+  const { data: mineAvvik = [] } = useQuery<any[]>({
+    queryKey: ["/api/avvik/mine"],
+    queryFn: () => apiRequest("/api/avvik/mine"),
+    enabled: !!rapportId,
+  });
+  const rapportAvvikList = useMemo(
+    () => (mineAvvik as any[]).filter((a) => a.rapportId === rapportId),
+    [mineAvvik, rapportId],
+  );
+  const hasCriticalAvvik = useMemo(
+    () => rapportAvvikList.some((a) => a.severity === "hoy" || a.severity === "kritisk"),
+    [rapportAvvikList],
+  );
+
   // Hent godkjente fravær for innlogget bruker — brukes til overlap-varsel
   const { data: leaveRequests = [] } = useQuery<any[]>({
     queryKey: ["/api/leave/requests", "me", "approved"],
@@ -644,11 +685,13 @@ export default function RapportSkrivePage() {
 
   const handleSakSelected = useCallback((id: string) => {
     setSakId(id);
-    const sak = saker.find((s) => s.id === id);
+    const sak = saker.find((s) => s.id === id) as any;
     if (!sak) return;
-    if (sak.klientRef)     setKlientRef(sak.klientRef);
-    if (sak.oppdragsgiver) setOppdragsgiver(sak.oppdragsgiver);
-    if (sak.tiltakstype)   setTiltak(sak.tiltakstype.toLowerCase());
+    if (sak.klientRef)        setKlientRef(sak.klientRef);
+    if (sak.oppdragsgiver)    setOppdragsgiver(sak.oppdragsgiver);
+    if (sak.tiltakstype)      setTiltak(sak.tiltakstype.toLowerCase());
+    if (sak.tiltakslederName) setTiltaksleder(sak.tiltakslederName);
+    if (sak.institutionName)  setBedrift(sak.institutionName);
     markDirty();
   }, [saker]);
 
@@ -1038,23 +1081,53 @@ export default function RapportSkrivePage() {
                     </Select>
                   </div>
                   <div className="space-y-2">
-                    <Label>Bedrift</Label>
-                    <Input value={bedrift} onChange={(e) => { setBedrift(e.target.value); markDirty(); }} />
+                    <Label className="flex items-center gap-1.5">
+                      Bedrift
+                      {sakId && <span className="text-[10px] font-normal text-muted-foreground">(fra sak)</span>}
+                    </Label>
+                    <Input
+                      value={bedrift}
+                      readOnly={!!sakId}
+                      disabled={!!sakId}
+                      onChange={(e) => { setBedrift(e.target.value); markDirty(); }}
+                      className={sakId ? "bg-muted/40 cursor-not-allowed" : undefined}
+                      title={sakId ? "Hentes automatisk fra tildelt sak" : undefined}
+                    />
                     {vendorInfo?.orgNumber && (
                       <p className="text-[11px] text-muted-foreground/70">Org.nr: {vendorInfo.orgNumber}</p>
                     )}
                   </div>
                   <div className="space-y-2">
-                    <Label>Oppdragsgiver</Label>
-                    <Input value={oppdragsgiver} onChange={(e) => { setOppdragsgiver(e.target.value); markDirty(); }} />
+                    <Label className="flex items-center gap-1.5">
+                      Oppdragsgiver
+                      {sakId && <span className="text-[10px] font-normal text-muted-foreground">(fra sak)</span>}
+                    </Label>
+                    <Input
+                      value={oppdragsgiver}
+                      readOnly={!!sakId}
+                      disabled={!!sakId}
+                      onChange={(e) => { setOppdragsgiver(e.target.value); markDirty(); }}
+                      className={sakId ? "bg-muted/40 cursor-not-allowed" : undefined}
+                      title={sakId ? "Hentes automatisk fra tildelt sak" : undefined}
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label>Klient-ID (anonymt)</Label>
                     <Input value={klientRef} onChange={(e) => { setKlientRef(e.target.value); markDirty(); }} placeholder="BV-2025-041" />
                   </div>
                   <div className="space-y-2">
-                    <Label>Tiltaksleder</Label>
-                    <Input value={tiltaksleder} onChange={(e) => { setTiltaksleder(e.target.value); markDirty(); }} />
+                    <Label className="flex items-center gap-1.5">
+                      Tiltaksleder
+                      {sakId && <span className="text-[10px] font-normal text-muted-foreground">(fra sak)</span>}
+                    </Label>
+                    <Input
+                      value={tiltaksleder}
+                      readOnly={!!sakId}
+                      disabled={!!sakId}
+                      onChange={(e) => { setTiltaksleder(e.target.value); markDirty(); }}
+                      className={sakId ? "bg-muted/40 cursor-not-allowed" : undefined}
+                      title={sakId ? "Hentes automatisk fra tildelt sak" : undefined}
+                    />
                   </div>
                 </div>
 
@@ -1487,23 +1560,82 @@ export default function RapportSkrivePage() {
               </CardContent>
             </Card>
 
-            {/* ── AVVIK-PROMPT ──────────────────────────────────────────── */}
-            <Card className="border-amber-200 bg-amber-50/30">
-              <CardHeader className="pb-2">
+            {/* ── AVVIK I PERIODEN ───────────────────────────────────── */}
+            <Card className={cn(
+              "shadow-sm",
+              hasCriticalAvvik
+                ? "border-amber-300 bg-amber-50/40"
+                : "border-border/70 bg-background/70",
+            )}>
+              <CardHeader className="space-y-3 pb-3">
                 <div className="flex items-center gap-2">
-                  <AlertTriangle className="h-4 w-4 text-amber-700" />
-                  <span className="font-semibold text-sm text-amber-900">Var det avvik i perioden?</span>
+                  <AlertTriangle className={cn(
+                    "h-4 w-4",
+                    hasCriticalAvvik ? "text-amber-700" : "text-primary",
+                  )} />
+                  <span className="font-semibold text-sm">Avvik i perioden</span>
+                  {rapportAvvikList.length > 0 && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      {rapportAvvikList.length} meldt
+                    </Badge>
+                  )}
+                  <div className="ml-auto">
+                    <AvvikDialog
+                      rapportId={rapportId || undefined}
+                      sakId={sakId || undefined}
+                      defaultDate={periodeTo || periodeFrom || undefined}
+                      trigger={
+                        <Button
+                          size="sm"
+                          variant={rapportAvvikList.length > 0 ? "outline" : "default"}
+                          className="gap-1.5"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                          {rapportAvvikList.length > 0 ? "Meld nytt" : "Meld avvik"}
+                        </Button>
+                      }
+                    />
+                  </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0 pb-4">
-                <p className="text-xs text-amber-900/80 mb-3">
-                  Hendelser, skader, trusler, rutinebrudd eller andre ting som skiller seg fra det normale — registrer dem her. Går direkte til tiltaksleder med GDPR-maskering.
-                </p>
-                <AvvikDialog
-                  rapportId={rapportId || undefined}
-                  sakId={sakId || undefined}
-                  defaultDate={periodeTo || periodeFrom || undefined}
-                />
+              <CardContent className="pt-0">
+                {rapportAvvikList.length === 0 ? (
+                  <div className="text-center py-6 text-muted-foreground text-sm">
+                    <AlertTriangle className="h-8 w-8 mx-auto mb-2 opacity-30" />
+                    <p className="max-w-md mx-auto">
+                      Hendelser, skader, trusler eller rutinebrudd — registrer dem her.
+                      Går direkte til tiltaksleder med GDPR-maskering.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {rapportAvvikList.map((a: any) => {
+                      const sev  = AVVIK_SEVERITY_STYLE[a.severity] ?? AVVIK_SEVERITY_STYLE.middels;
+                      const stat = AVVIK_STATUS_META[a.status]      ?? AVVIK_STATUS_META.rapportert;
+                      return (
+                        <div key={a.id} className="flex gap-3 items-start py-2 border-b last:border-0">
+                          <Badge variant="outline" className={cn("text-[10px] px-2 shrink-0 mt-0.5", sev.cls)}>
+                            {sev.label}
+                          </Badge>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground">
+                              <span className="flex items-center gap-1">
+                                <CalendarDays className="h-3 w-3" />
+                                {a.dateOccurred}
+                              </span>
+                              <span className="opacity-40">•</span>
+                              <span>{AVVIK_CATEGORY_LABEL[a.category] ?? a.category}</span>
+                              <Badge variant={stat.variant} className="text-[10px]">
+                                {stat.label}
+                              </Badge>
+                            </div>
+                            <p className="text-sm mt-0.5 line-clamp-2">{a.description}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
 

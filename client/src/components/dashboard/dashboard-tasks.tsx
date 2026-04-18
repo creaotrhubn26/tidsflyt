@@ -391,11 +391,13 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       sublabel: isTiltaksleder ? "Siste 7 dager" : "Krever handling",
       taskLabel: isTiltaksleder ? "Følg opp tiltak uten aktivitet" : "Behandle forfalt saker",
       icon: AlertTriangle,
-      iconColor: "text-red-500",
+      iconColor: "text-white",
+      iconBg: "from-red-500 to-rose-600",
       path: "/cases",
       highlight: tasks.overdueItems > 0,
-      highlightClass: "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-950/30",
-      countColor: "text-red-600",
+      tileBg: "from-red-50 to-rose-100/40 dark:from-red-950/40 dark:to-rose-900/20",
+      tileBorder: "border-red-200/60 dark:border-red-900/40",
+      countColor: "text-red-600 dark:text-red-400",
     },
     {
       key: "approvals",
@@ -404,11 +406,13 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       sublabel: isTiltaksleder ? "Må vurderes" : "Venter på deg",
       taskLabel: isTiltaksleder ? "Gjennomgå rapporter" : "Behandle godkjenninger",
       icon: AlertCircle,
-      iconColor: "text-orange-500",
+      iconColor: "text-white",
+      iconBg: "from-amber-500 to-orange-600",
       path: "/cases",
       highlight: tasks.pendingApprovals > 0,
-      highlightClass: "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20",
-      countColor: "text-primary",
+      tileBg: "from-amber-50 to-orange-100/40 dark:from-amber-950/40 dark:to-orange-900/20",
+      tileBorder: "border-amber-200/60 dark:border-amber-900/40",
+      countColor: "text-amber-600 dark:text-amber-400",
     },
     {
       key: "drafts",
@@ -417,11 +421,13 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       sublabel: isTiltaksleder ? "Neste 72 timer" : "Uferdige rapporter",
       taskLabel: isTiltaksleder ? "Sjekk tiltak nær frist" : "Fullfør utkast i rapporter",
       icon: FileText,
-      iconColor: "text-slate-500",
+      iconColor: "text-white",
+      iconBg: "from-slate-500 to-slate-700",
       path: "/cases",
       highlight: false,
-      highlightClass: "",
-      countColor: "text-primary",
+      tileBg: "from-slate-50 to-slate-100/40 dark:from-slate-900/40 dark:to-slate-800/20",
+      tileBorder: "border-slate-200/60 dark:border-slate-800/60",
+      countColor: "text-slate-700 dark:text-slate-300",
     },
     {
       key: "assigned",
@@ -430,11 +436,13 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       sublabel: isTiltaksleder ? "Krever oppfølging" : "Aktive",
       taskLabel: isTiltaksleder ? "Kontakt klientsaker uten oppfølging" : "Følg opp tildelte saker",
       icon: Briefcase,
-      iconColor: "text-blue-500",
+      iconColor: "text-white",
+      iconBg: "from-blue-500 to-indigo-600",
       path: "/cases",
       highlight: false,
-      highlightClass: "",
-      countColor: "text-primary",
+      tileBg: "from-blue-50 to-indigo-100/40 dark:from-blue-950/40 dark:to-indigo-900/20",
+      tileBorder: "border-blue-200/60 dark:border-blue-900/40",
+      countColor: "text-blue-700 dark:text-blue-400",
     },
   ];
 
@@ -479,18 +487,46 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
         )
       : null;
 
+  const totalSignals = tiles.reduce((sum, t) => sum + t.count, 0);
+
   return (
-    <Card className="rounded-2xl border-border bg-card shadow-sm">
+    <Card className={cn(
+      "rounded-2xl border shadow-sm overflow-hidden",
+      isTiltaksleder
+        ? "border-amber-200/50 dark:border-amber-900/30 bg-gradient-to-br from-amber-50/40 via-card to-card dark:from-amber-950/10"
+        : "border-border bg-card",
+    )}>
       <Collapsible open={open} onOpenChange={setOpen}>
         <CardHeader className="pb-3">
           <CollapsibleTrigger asChild>
             <button type="button" className="flex w-full items-center justify-between text-left">
-              <CardTitle className="flex items-center gap-2 text-lg">
-                <CheckCircle className="h-5 w-5 text-primary" />
-                {isTiltaksleder ? "Tiltak som krever oppfølging" : "Mine oppgaver"}
-                {pendingTasks.length > 0 && (
-                  <span className="inline-flex items-center justify-center rounded-full bg-primary text-primary-foreground text-[10px] font-bold h-4.5 min-w-[1.125rem] px-1">
-                    {pendingTasks.length}
+              <CardTitle className="flex items-center gap-3 text-lg">
+                <div className={cn(
+                  "flex items-center justify-center h-9 w-9 rounded-xl shadow-sm",
+                  isTiltaksleder
+                    ? "bg-gradient-to-br from-amber-500 to-orange-600 text-white"
+                    : "bg-primary/10 text-primary",
+                )}>
+                  <CheckCircle className="h-5 w-5" />
+                </div>
+                <div className="flex flex-col gap-0.5">
+                  <span className="leading-tight">
+                    {isTiltaksleder ? "Tiltak som krever oppfølging" : "Mine oppgaver"}
+                  </span>
+                  {isTiltaksleder && (
+                    <span className="text-[11px] font-normal text-muted-foreground">
+                      Prioritert etter alvorlighet
+                    </span>
+                  )}
+                </div>
+                {(isTiltaksleder ? totalSignals : pendingTasks.length) > 0 && (
+                  <span className={cn(
+                    "inline-flex items-center justify-center rounded-full text-[11px] font-bold h-5 min-w-[1.25rem] px-1.5",
+                    isTiltaksleder
+                      ? "bg-amber-500 text-white shadow-sm"
+                      : "bg-primary text-primary-foreground",
+                  )}>
+                    {isTiltaksleder ? totalSignals : pendingTasks.length}
                   </span>
                 )}
               </CardTitle>
@@ -502,26 +538,34 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
               />
             </button>
           </CollapsibleTrigger>
-          <CardDescription className="flex items-center gap-2">
-            {isTiltaksleder ? "Prioritert etter alvorlighet" : "Rangert etter prioritetsmodell"}
-            {!isTiltaksleder && topScore > 0 && (
-              <span className="text-[10px] text-muted-foreground/60 font-mono">
-                topp {topScore}p
-              </span>
-            )}
-            {isPersonalized && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-primary/60">
-                <Sparkles className="h-2.5 w-2.5" />
-                Personalisert
-              </span>
-            )}
-            {todayCompleted > 0 && (
-              <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold ml-auto">
-                <Check className="h-3 w-3" />
-                {todayCompleted} i dag
-              </span>
-            )}
-          </CardDescription>
+          {!isTiltaksleder && (
+            <CardDescription className="flex items-center gap-2">
+              Rangert etter prioritetsmodell
+              {topScore > 0 && (
+                <span className="text-[10px] text-muted-foreground/60 font-mono">
+                  topp {topScore}p
+                </span>
+              )}
+              {isPersonalized && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-primary/60">
+                  <Sparkles className="h-2.5 w-2.5" />
+                  Personalisert
+                </span>
+              )}
+              {todayCompleted > 0 && (
+                <span className="inline-flex items-center gap-0.5 text-[10px] text-emerald-500 dark:text-emerald-400 font-semibold ml-auto">
+                  <Check className="h-3 w-3" />
+                  {todayCompleted} i dag
+                </span>
+              )}
+            </CardDescription>
+          )}
+          {isTiltaksleder && todayCompleted > 0 && (
+            <div className="text-[11px] inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold pt-1">
+              <Check className="h-3 w-3" />
+              {todayCompleted} fullført i dag
+            </div>
+          )}
         </CardHeader>
 
         <CollapsibleContent>
@@ -531,56 +575,69 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {visibleTiles.map((tile) => {
                 const Icon = tile.icon;
+                const hasItems = tile.count > 0;
                 return (
-                  <Button
+                  <button
                     key={tile.key}
-                    variant="outline"
-                    className={cn(
-                      "group relative h-auto flex-col items-start gap-2 p-4 transition-all hover:shadow-md hover:-translate-y-px active:translate-y-0",
-                      tile.count === 0 && !isTiltaksleder && "opacity-40",
-                      tile.highlight ? tile.highlightClass : "hover:bg-accent",
-                    )}
+                    type="button"
                     onClick={() => navigate(resolveDashboardPath(tile.path))}
+                    className={cn(
+                      "group relative flex flex-col items-stretch gap-3 rounded-xl border p-4 text-left transition-all duration-200",
+                      "hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                      hasItems
+                        ? cn("bg-gradient-to-br", tile.tileBg, tile.tileBorder)
+                        : "border-border bg-muted/30 opacity-70",
+                    )}
                   >
-                    <div className="flex w-full items-center justify-between">
-                      <span className={cn("text-2xl font-bold tabular-nums", tile.countColor)}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className={cn(
+                        "flex items-center justify-center h-9 w-9 rounded-lg shadow-sm bg-gradient-to-br shrink-0",
+                        hasItems ? tile.iconBg : "from-muted-foreground/30 to-muted-foreground/40",
+                      )}>
+                        <Icon className={cn("h-5 w-5", hasItems ? tile.iconColor : "text-background")} />
+                      </div>
+                      <span className={cn(
+                        "text-3xl font-bold tabular-nums leading-none",
+                        hasItems ? tile.countColor : "text-muted-foreground/50",
+                      )}>
                         {tile.count}
                       </span>
-                      <div className="flex items-center gap-1">
-                        {tile.count > 0 && (
-                          <button
-                            type="button"
-                            title="Lag oppgave fra dette"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setDraft(tile.taskLabel);
-                              setDraftLink({ url: tile.path, label: tile.label });
-                              setSuggestedLink(null);
-                              setTimeout(() => {
-                                inputRef.current?.focus();
-                                inputRef.current?.select();
-                              }, 30);
-                            }}
-                            className="hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-background border border-border hover:bg-primary hover:text-primary-foreground hover:border-primary transition-colors"
-                            aria-label="Lag oppgave fra dette"
-                          >
-                            <Plus className="h-3 w-3" />
-                          </button>
-                        )}
-                        <Icon className={cn("h-5 w-5", tile.iconColor)} />
-                      </div>
                     </div>
-                    <div className="text-left">
-                      <div className="font-medium text-sm">{tile.label}</div>
-                      <div className="text-xs text-muted-foreground">{tile.sublabel}</div>
+                    <div className="space-y-0.5">
+                      <div className="font-semibold text-sm leading-tight">{tile.label}</div>
+                      <div className="text-[11px] text-muted-foreground">{tile.sublabel}</div>
                     </div>
-                  </Button>
+                    {hasItems && (
+                      <button
+                        type="button"
+                        title="Lag oppgave fra dette"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDraft(tile.taskLabel);
+                          setDraftLink({ url: tile.path, label: tile.label });
+                          setSuggestedLink(null);
+                          setTimeout(() => {
+                            inputRef.current?.focus();
+                            inputRef.current?.select();
+                          }, 30);
+                        }}
+                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex h-6 w-6 items-center justify-center rounded-full bg-background/80 backdrop-blur border border-border shadow-sm hover:bg-primary hover:text-primary-foreground hover:border-primary"
+                        aria-label="Lag oppgave fra dette"
+                      >
+                        <Plus className="h-3 w-3" />
+                      </button>
+                    )}
+                  </button>
                 );
               })}
               {isTiltaksleder && visibleTiles.length === 0 && (
-                <p className="col-span-full text-sm text-muted-foreground italic py-2">
-                  Ingen akutte oppfølgingspunkter akkurat nå.
-                </p>
+                <div className="col-span-full flex flex-col items-center justify-center py-10 px-4 rounded-xl border border-dashed border-border bg-muted/20">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-500/20 to-emerald-600/20 border border-emerald-500/20 mb-3">
+                    <Check className="h-6 w-6 text-emerald-500" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground">Alt under kontroll</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">Ingen akutte oppfølgingspunkter akkurat nå.</p>
+                </div>
               )}
             </div>
 

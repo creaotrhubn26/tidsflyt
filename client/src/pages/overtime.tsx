@@ -319,19 +319,6 @@ export default function OvertimePage() {
           </div>
         </div>
 
-        {/* Disabled banner */}
-        {overtimeDisabled && (
-          <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-50/50 dark:bg-amber-950/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-400">
-            <Clock className="h-4 w-4 flex-shrink-0 mt-0.5" />
-            <div>
-              <span className="font-semibold">Overtidsregistrering er deaktivert</span>
-              <p className="text-xs mt-1 opacity-80">
-                Din tiltaksleder har skrudd av overtidsberegning for din bruker. Kontakt tiltaksleder om du mener det er feil.
-              </p>
-            </div>
-          </div>
-        )}
-
         {/* View mode toggle & range picker */}
         <Card>
           <CardContent className="p-4 flex flex-col md:flex-row md:items-center gap-3">

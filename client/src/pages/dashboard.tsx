@@ -708,6 +708,13 @@ export default function DashboardPage() {
     staleTime: 30_000,
   });
 
+  // Real tiltaksleder counts — rapporter awaiting THIS leder's approval (not user-approval count)
+  const { data: tiltakslederSnapshot } = useQuery<{ pendingApprovals: any[] }>({
+    queryKey: ["/api/tiltaksleder/dashboard"],
+    enabled: isTiltakslederView,
+    staleTime: 30_000,
+  });
+
   const myTasks: TaskCounts = useMemo(() => {
     const list = Array.isArray(myRapporter) ? myRapporter : [];
     const draftsCount = list.filter((r: any) => r.status === "utkast").length;
@@ -725,9 +732,13 @@ export default function DashboardPage() {
       };
     }
     if (isTiltakslederView) {
-      // For tiltaksleder viser pendingApprovals hvor mange rapporter venter på godkjenning
+      // Real count of rapporter awaiting THIS leder's review (from /api/tiltaksleder/dashboard).
+      // Avoids leaking the unrelated /api/stats user-approval count.
+      const tiltakslederPending = Array.isArray(tiltakslederSnapshot?.pendingApprovals)
+        ? tiltakslederSnapshot!.pendingApprovals.length
+        : 0;
       return {
-        pendingApprovals: stats?.pendingApprovals ?? 0,
+        pendingApprovals: tiltakslederPending,
         myDrafts: draftsCount,
         assignedCases: list.length,
         overdueItems: 0,
@@ -739,7 +750,7 @@ export default function DashboardPage() {
       assignedCases: list.length,
       overdueItems: 0,
     };
-  }, [myRapporter, stats, isMiljoarbeiderView, isTiltakslederView]);
+  }, [myRapporter, stats, isMiljoarbeiderView, isTiltakslederView, tiltakslederSnapshot]);
 
   // Real status signals for tiltaksleder — counts from their rapport data
   const statusSignals = useMemo<StatusSignal[]>(() => {
@@ -795,11 +806,14 @@ export default function DashboardPage() {
 
   const alerts: DashboardAlert[] = useMemo(() => {
     const items: DashboardAlert[] = [];
-    if (isTiltakslederView && stats && stats.pendingApprovals > 4) {
+    const tiltakslederPending = Array.isArray(tiltakslederSnapshot?.pendingApprovals)
+      ? tiltakslederSnapshot!.pendingApprovals.length
+      : 0;
+    if (isTiltakslederView && tiltakslederPending > 4) {
       items.push({
         id: 10,
         type: "warning",
-        title: `Tiltak mangler rapportering (${stats.pendingApprovals})`,
+        title: `Tiltak mangler rapportering (${tiltakslederPending})`,
         description: "Viktig fordi kontinuitet i dokumentasjon påvirker faglig kvalitet. Neste steg: gå til tiltak og fordel gjennomgang.",
         action: () => navigate("/cases"),
       });
@@ -823,7 +837,7 @@ export default function DashboardPage() {
       });
     }
     return items;
-  }, [stats, timeRange, navigate, isTiltakslederView]);
+  }, [stats, timeRange, navigate, isTiltakslederView, tiltakslederSnapshot]);
 
   const recentItems = useMemo(
     () => [

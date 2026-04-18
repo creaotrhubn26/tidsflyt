@@ -36,6 +36,20 @@ const EMAIL_LINK_TTL_SECONDS = 15 * 60;
 const DEFAULT_POST_AUTH_REDIRECT = "/dashboard";
 const AUTH_RETURN_TO_SESSION_KEY = "authReturnTo";
 
+const HARDCODED_SUPER_ADMIN_EMAILS = ["daniel@creatorhubn.com"];
+
+function getSuperAdminEmails(): Set<string> {
+  const fromEnv = (process.env.SUPER_ADMIN_EMAILS || "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  return new Set([...HARDCODED_SUPER_ADMIN_EMAILS, ...fromEnv]);
+}
+
+function isSuperAdminEmail(email: string): boolean {
+  return getSuperAdminEmails().has(email.trim().toLowerCase());
+}
+
 function getEmailLoginSecret(): string {
   return (
     process.env.EMAIL_MAGIC_LINK_SECRET ||
@@ -120,9 +134,17 @@ async function resolveAuthorizedUserByEmail({
     .where(sql`lower(${adminUsers.email}) = ${normalizedEmail}`)
     .limit(1);
 
-  const adminIsActive = matchingAdmin?.isActive !== false;
-  const adminRole = matchingAdmin?.role || "vendor_admin";
-  const adminVendorId = matchingAdmin?.vendorId ?? null;
+  const isAllowlistedSuperAdmin = isSuperAdminEmail(normalizedEmail);
+  const adminIsActive = matchingAdmin
+    ? matchingAdmin.isActive !== false
+    : isAllowlistedSuperAdmin;
+  const adminRole = isAllowlistedSuperAdmin
+    ? "super_admin"
+    : matchingAdmin?.role || "vendor_admin";
+  const adminVendorId = isAllowlistedSuperAdmin
+    ? null
+    : matchingAdmin?.vendorId ?? null;
+  const hasAdminGrant = !!matchingAdmin || isAllowlistedSuperAdmin;
   const derivedFirstName =
     firstName?.trim() ||
     matchingAdmin?.username?.trim() ||
@@ -135,7 +157,7 @@ async function resolveAuthorizedUserByEmail({
     let resolvedUser = existingUser;
 
     if (
-      matchingAdmin &&
+      hasAdminGrant &&
       adminIsActive &&
       (existingUser.role !== adminRole ||
         (existingUser.vendorId ?? null) !== adminVendorId ||
@@ -178,7 +200,7 @@ async function resolveAuthorizedUserByEmail({
     };
   }
 
-  if (matchingAdmin && adminIsActive) {
+  if (hasAdminGrant && adminIsActive) {
     const [createdUser] = await db
       .insert(users)
       .values({

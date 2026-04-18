@@ -23,7 +23,6 @@ const secondaryItems: MobileNavItem[] = [
   { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },
   { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
-  { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
   { path: "/leave", icon: Clock, label: "Fravær" },
   { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
   { path: "/profile", icon: User, label: "Profil" },

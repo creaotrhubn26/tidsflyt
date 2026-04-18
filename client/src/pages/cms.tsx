@@ -466,7 +466,19 @@ export default function CMSPage() {
     const token = getAdminToken();
     if (token) {
       setIsAuthenticated(true);
+      return;
     }
+    // Try to mint a JWT from an existing Google/session login (e.g. super-admin email)
+    fetch('/api/admin/session-token', { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) return null;
+        const data = await res.json().catch(() => null);
+        if (data?.token) {
+          setAdminToken(data.token);
+          setIsAuthenticated(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -564,13 +576,27 @@ export function CMSPageLegacy() {
   const isSuperAdmin = adminProfile?.role === 'super_admin';
 
   useEffect(() => {
-    const token = getAdminToken();
-    if (token) {
+    const loadProfile = (token: string) => {
       setIsAuthenticated(true);
       authenticatedApiRequest('/api/admin/profile')
         .then((profile: AdminProfile) => setAdminProfile(profile))
         .catch(() => {});
+    };
+    const existing = getAdminToken();
+    if (existing) {
+      loadProfile(existing);
+      return;
     }
+    fetch('/api/admin/session-token', { credentials: 'include' })
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json().catch(() => null);
+        if (data?.token) {
+          setAdminToken(data.token);
+          loadProfile(data.token);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const handleLogout = () => {

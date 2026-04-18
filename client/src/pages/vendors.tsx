@@ -66,22 +66,45 @@ interface VendorAdmin {
   created_at: string;
 }
 
-function authenticatedApiRequest(url: string, options: RequestInit = {}) {
-  const token = localStorage.getItem('admin_token');
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-      ...options.headers,
-    },
-  }).then(async res => {
-    if (!res.ok) {
-      const error = await res.json();
-      throw new Error(error.error || 'Request failed');
+async function getOrMintAdminToken(): Promise<string | null> {
+  const existing = sessionStorage.getItem('cms_admin_token');
+  if (existing) return existing;
+  try {
+    const res = await fetch('/api/admin/session-token', { credentials: 'include' });
+    if (!res.ok) return null;
+    const data = await res.json().catch(() => null);
+    if (data?.token) {
+      sessionStorage.setItem('cms_admin_token', data.token);
+      return data.token;
     }
-    return res.json();
-  });
+  } catch {}
+  return null;
+}
+
+async function authenticatedApiRequest(url: string, options: RequestInit = {}) {
+  const send = async (token: string | null) =>
+    fetch(url, {
+      ...options,
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+
+  let token = await getOrMintAdminToken();
+  let res = await send(token);
+  if (res.status === 401) {
+    sessionStorage.removeItem('cms_admin_token');
+    token = await getOrMintAdminToken();
+    if (token) res = await send(token);
+  }
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ error: 'Request failed' }));
+    throw new Error(error.error || 'Request failed');
+  }
+  return res.json();
 }
 
 export default function VendorsPage() {

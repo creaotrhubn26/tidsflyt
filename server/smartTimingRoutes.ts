@@ -871,6 +871,45 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // Mint a CMS-compatible JWT for the currently session-authenticated admin user.
+  // Lets Google OAuth users use admin pages without a separate username/password.
+  app.get("/api/admin/session-token", async (req: any, res) => {
+    if (!req.isAuthenticated?.() || !req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    const sessionUser = req.user;
+    const role = sessionUser.role;
+    const adminRoles = new Set(['super_admin', 'hovedadmin', 'admin', 'vendor_admin']);
+    if (!adminRoles.has(role)) {
+      return res.status(403).json({ error: 'Insufficient role' });
+    }
+
+    let vendorName: string | null = null;
+    let vendorSlug: string | null = null;
+    if (sessionUser.vendorId) {
+      try {
+        const v = await pool.query('SELECT name, slug FROM vendors WHERE id = $1', [sessionUser.vendorId]);
+        vendorName = v.rows[0]?.name ?? null;
+        vendorSlug = v.rows[0]?.slug ?? null;
+      } catch {}
+    }
+
+    const token = jwt.sign(
+      {
+        id: sessionUser.id,
+        username: sessionUser.email,
+        email: sessionUser.email,
+        role,
+        vendorId: sessionUser.vendorId ?? null,
+        vendorName,
+        vendorSlug,
+      },
+      JWT_SECRET,
+      { expiresIn: '24h' }
+    );
+    res.json({ token, role, email: sessionUser.email, vendorId: sessionUser.vendorId ?? null });
+  });
+
   app.get("/api/admin/profile", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(

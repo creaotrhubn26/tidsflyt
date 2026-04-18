@@ -82,6 +82,54 @@ export const sakerRouter = Router();
  * - Tiltaksleder (vendor_admin): Ser alle saker de har opprettet
  * - Super admin:                Ser alle saker
  */
+async function enrichSaker(rows: any[]) {
+  if (!rows.length) return rows;
+
+  const institutionIds = Array.from(
+    new Set(rows.map((r) => r.institutionId).filter(Boolean)),
+  );
+  const tiltakslederIds = Array.from(
+    new Set(rows.map((r) => r.tiltakslederId).filter((v) => v != null)),
+  );
+
+  const [instRows, lederRows] = await Promise.all([
+    institutionIds.length
+      ? db
+          .select({ id: vendorInstitutions.id, name: vendorInstitutions.name })
+          .from(vendorInstitutions)
+          .where(inArray(vendorInstitutions.id, institutionIds as string[]))
+      : Promise.resolve([] as { id: string; name: string }[]),
+    tiltakslederIds.length
+      ? db
+          .select({
+            id: users.id,
+            firstName: users.firstName,
+            lastName: users.lastName,
+            email: users.email,
+          })
+          .from(users)
+          .where(inArray(users.id, tiltakslederIds as any))
+      : Promise.resolve([] as any[]),
+  ]);
+
+  const instName = new Map(instRows.map((i) => [i.id, i.name]));
+  const lederName = new Map(
+    lederRows.map((u) => [
+      String(u.id),
+      [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || "",
+    ]),
+  );
+
+  return rows.map((r) => ({
+    ...r,
+    institutionName: r.institutionId ? instName.get(r.institutionId) ?? null : null,
+    tiltakslederName:
+      r.tiltakslederId != null
+        ? lederName.get(String(r.tiltakslederId)) ?? null
+        : null,
+  }));
+}
+
 sakerRouter.get("/", requireAuth, async (req: any, res) => {
   try {
     const { id: userId, role, vendorId } = req.user;
@@ -98,7 +146,7 @@ sakerRouter.get("/", requireAuth, async (req: any, res) => {
           )
         )
         .orderBy(desc(saker.createdAt));
-      return res.json(rows);
+      return res.json(await enrichSaker(rows));
     }
 
     if (role === "vendor_admin") {
@@ -107,12 +155,12 @@ sakerRouter.get("/", requireAuth, async (req: any, res) => {
         .from(saker)
         .where(eq(saker.tiltakslederId, userId))
         .orderBy(desc(saker.createdAt));
-      return res.json(rows);
+      return res.json(await enrichSaker(rows));
     }
 
     // super_admin
     const rows = await db.select().from(saker).orderBy(desc(saker.createdAt));
-    return res.json(rows);
+    return res.json(await enrichSaker(rows));
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }

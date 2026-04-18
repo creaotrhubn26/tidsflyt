@@ -92,12 +92,22 @@ interface NotificationItem {
   created_at: string;
 }
 
+type NavCategory =
+  | "oversikt"
+  | "saker"
+  | "rapportering"
+  | "tid"
+  | "kommunikasjon"
+  | "administrasjon"
+  | "system";
+
 interface NavItem {
   path: string;
   icon: typeof LayoutDashboard;
   label: string;
   badge?: number;
   kind?: "route" | "modal";
+  category: NavCategory;
 }
 
 interface NavItemBase {
@@ -106,32 +116,65 @@ interface NavItemBase {
   label: string;
   roles?: string[];
   kind?: "route" | "modal";
+  category: NavCategory;
 }
 
+const NAV_CATEGORY_ORDER: NavCategory[] = [
+  "oversikt",
+  "saker",
+  "rapportering",
+  "tid",
+  "kommunikasjon",
+  "administrasjon",
+  "system",
+];
+
+const NAV_CATEGORY_LABELS: Record<NavCategory, string> = {
+  oversikt: "Oversikt",
+  saker: "Saker & klienter",
+  rapportering: "Rapportering",
+  tid: "Tid & fravær",
+  kommunikasjon: "Økonomi & kommunikasjon",
+  administrasjon: "Administrasjon",
+  system: "System",
+};
+
 const baseNavItems: NavItemBase[] = [
-  { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-  { path: "/tiltaksleder", icon: ClipboardCheck, label: "Tiltaksleder", roles: ["tiltaksleder", "teamleder", "vendor_admin"] },
-  { path: "__getting-started__", icon: ClipboardList, label: "Kom i gang med Tidum", kind: "modal" },
-  { path: "/time", icon: Clock, label: "Timeføring" },
-  { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
-  { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
-  { path: "/institusjoner", icon: Building2, label: "Institusjoner" },
-  { path: "/admin/rapport-maler", icon: FileText, label: "Rapport-maler", roles: ["vendor_admin", "hovedadmin", "admin", "super_admin"] },
-  { path: "/case-reports", icon: ClipboardList, label: "Saksrapporter" },
-  { path: "/rapporter", icon: FileText, label: "Rapporter" },
-  { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },
-  { path: "/avvik", icon: AlertTriangle, label: "Avvik" },
-  { path: "/leave", icon: Clock, label: "Fravær" },
-  { path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
-  { path: "/overtime", icon: Clock, label: "Overtid" },
-  { path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
-  { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder", "miljoarbeider"] },
-  { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
-  { path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
-  { path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
-  { path: "/admin/tester-feedback", icon: Lightbulb, label: "Tester-feedback", roles: ["super_admin"] },
-  { path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
-  { path: "/settings", icon: Settings, label: "Innstillinger" },
+  // Oversikt
+  { category: "oversikt", path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
+  { category: "oversikt", path: "/tiltaksleder", icon: ClipboardCheck, label: "Tiltaksleder", roles: ["tiltaksleder", "teamleder", "vendor_admin"] },
+  { category: "oversikt", path: "__getting-started__", icon: ClipboardList, label: "Kom i gang med Tidum", kind: "modal" },
+
+  // Saker & klienter
+  { category: "saker", path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
+  { category: "saker", path: "/institusjoner", icon: Building2, label: "Institusjoner", roles: ["tiltaksleder", "vendor_admin", "hovedadmin", "admin", "super_admin"] },
+  { category: "saker", path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
+
+  // Rapportering
+  { category: "rapportering", path: "/rapporter", icon: FileText, label: "Rapporter" },
+  { category: "rapportering", path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },
+  { category: "rapportering", path: "/admin/rapport-maler", icon: FileText, label: "Rapport-maler", roles: ["vendor_admin", "hovedadmin", "admin", "super_admin"] },
+  { category: "rapportering", path: "/avvik", icon: AlertTriangle, label: "Avvik" },
+
+  // Tid & fravær
+  { category: "tid", path: "/time", icon: Clock, label: "Timeføring" },
+  { category: "tid", path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder", "miljoarbeider"] },
+  { category: "tid", path: "/overtime", icon: Clock, label: "Overtid" },
+  { category: "tid", path: "/leave", icon: Clock, label: "Fravær" },
+  { category: "tid", path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
+
+  // Økonomi & kommunikasjon
+  { category: "kommunikasjon", path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
+  { category: "kommunikasjon", path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
+  { category: "kommunikasjon", path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
+
+  // Administrasjon (super-admin only)
+  { category: "administrasjon", path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
+  { category: "administrasjon", path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
+  { category: "administrasjon", path: "/admin/tester-feedback", icon: Lightbulb, label: "Tester-feedback", roles: ["super_admin"] },
+
+  // System
+  { category: "system", path: "/settings", icon: Settings, label: "Innstillinger" },
 ];
 
 interface PortalLayoutProps {
@@ -341,17 +384,31 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
 
   const headerActivityCount = headerActivityItems.length;
 
+  // For miljøarbeider: only show "Overtid" tab if their tiltaksleder hasn't disabled overtime tracking.
+  const { data: overtimeSettings } = useQuery<{ trackOvertime?: boolean }>({
+    queryKey: ["/api/overtime/settings", effectiveUserId],
+    queryFn: () =>
+      fetch(`/api/overtime/settings?userId=${encodeURIComponent(effectiveUserId)}`, {
+        credentials: "include",
+      }).then((r) => (r.ok ? r.json() : null)),
+    enabled: isMiljoarbeider && !!effectiveUserId,
+    staleTime: 60_000,
+  });
+  const overtimeHiddenForWorker =
+    isMiljoarbeider && overtimeSettings?.trackOvertime === false;
+
   const navItems: NavItem[] = useMemo(
     () =>
       baseNavItems
         .filter((item) => !(item.path === "/time" && normalizedCurrentUserRole === "tiltaksleder"))
+        .filter((item) => !(item.path === "/overtime" && overtimeHiddenForWorker))
         .filter((item) => !item.roles || item.roles.map((role) => normalizeRole(role)).includes(normalizedCurrentUserRole))
         .map((item) => ({
           ...item,
           kind: item.kind || "route",
           badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
         })),
-    [normalizedCurrentUserRole, pendingCount],
+    [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker],
   );
 
   const activePageLabel = useMemo(
@@ -415,56 +472,72 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
       </div>
 
       <ScrollArea className="flex-1 py-4">
-        <nav className="space-y-1 px-2">
-          {navItems.map((item) => {
-            const isActive = item.path === "/dashboard"
-              ? location === "/dashboard" || location === "/"
-              : location === item.path || (item.path !== "/" && location.startsWith(item.path + "/"));
-            const Icon = item.icon;
-            const itemClassName = cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
-              collapsed && !mobile && "justify-center px-2",
-              isActive
-                ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
-                : "text-[#d2e4e8] hover:bg-white/10 hover:text-white"
-            );
-
-            if (item.kind === "modal") {
-              return (
-                <button
-                  key={item.path}
-                  type="button"
-                  className={itemClassName}
-                  onClick={() => setIsGettingStartedOpen(true)}
-                  data-testid="sidebar-kom-i-gang-med-tidum"
-                >
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-                  {(!collapsed || mobile) && (
-                    <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
-                  )}
-                </button>
-              );
-            }
-
+        <nav className="space-y-4 px-2">
+          {NAV_CATEGORY_ORDER.map((category) => {
+            const itemsInCategory = navItems.filter((item) => item.category === category);
+            if (itemsInCategory.length === 0) return null;
+            const isCollapsedDesktop = collapsed && !mobile;
             return (
-              <Link
-                key={item.path}
-                href={item.path}
-                className={itemClassName}
-                data-testid={`sidebar-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
-              >
-                <Icon className="h-5 w-5 flex-shrink-0" />
-                {(!collapsed || mobile) && (
-                  <>
-                    <span className="flex-1 text-sm font-medium">{item.label}</span>
-                    {item.badge && (
-                      <Badge className="h-5 px-1.5 text-xs bg-white/20 text-white border border-white/30">
-                        {item.badge}
-                      </Badge>
-                    )}
-                  </>
+              <div key={category} className="space-y-1">
+                {!isCollapsedDesktop ? (
+                  <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#a4c0c5]/70">
+                    {NAV_CATEGORY_LABELS[category]}
+                  </p>
+                ) : (
+                  <div className="mx-2 my-1 border-t border-white/10" aria-hidden />
                 )}
-              </Link>
+                {itemsInCategory.map((item) => {
+                  const isActive = item.path === "/dashboard"
+                    ? location === "/dashboard" || location === "/"
+                    : location === item.path || (item.path !== "/" && location.startsWith(item.path + "/"));
+                  const Icon = item.icon;
+                  const itemClassName = cn(
+                    "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
+                    isCollapsedDesktop && "justify-center px-2",
+                    isActive
+                      ? "bg-white/15 text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.2)]"
+                      : "text-[#d2e4e8] hover:bg-white/10 hover:text-white"
+                  );
+
+                  if (item.kind === "modal") {
+                    return (
+                      <button
+                        key={item.path}
+                        type="button"
+                        className={itemClassName}
+                        onClick={() => setIsGettingStartedOpen(true)}
+                        data-testid="sidebar-kom-i-gang-med-tidum"
+                      >
+                        <Icon className="h-5 w-5 flex-shrink-0" />
+                        {!isCollapsedDesktop && (
+                          <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
+                        )}
+                      </button>
+                    );
+                  }
+
+                  return (
+                    <Link
+                      key={item.path}
+                      href={item.path}
+                      className={itemClassName}
+                      data-testid={`sidebar-${item.label.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Icon className="h-5 w-5 flex-shrink-0" />
+                      {!isCollapsedDesktop && (
+                        <>
+                          <span className="flex-1 text-sm font-medium">{item.label}</span>
+                          {item.badge && (
+                            <Badge className="h-5 px-1.5 text-xs bg-white/20 text-white border border-white/30">
+                              {item.badge}
+                            </Badge>
+                          )}
+                        </>
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
             );
           })}
         </nav>
