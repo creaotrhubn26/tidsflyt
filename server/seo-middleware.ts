@@ -92,9 +92,10 @@ const STATIC_PAGE_SEO: Record<string, PageMeta> = {
     ogImage: "https://tidum.no/screenshots/time-tracking.png",
   },
   "/guide": {
-    title: "Interaktiv guide – Tidum",
+    title: "Brukerveiledning Tidum – timeføring, rapporter og admin",
     description:
-      "Lær hvordan du bruker Tidum med vår interaktive guide. Kom i gang på minutter.",
+      "Komplett guide til Tidum: dashboard, saker, rapportskriving, godkjenning, timeføring, fravær og leverandøradministrasjon. Søk eller bla gjennom kategoriene.",
+    canonical: "https://tidum.no/guide",
     ogImage: DEFAULT_OG_IMAGE,
   },
   "/blog": {

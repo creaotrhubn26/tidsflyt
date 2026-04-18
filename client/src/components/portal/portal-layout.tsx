@@ -66,7 +66,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { normalizeRole } from "@shared/roles";
-import { ProductTour, TourReplayButton, DEFAULT_TIDUM_TOUR } from "@/components/onboarding/product-tour";
+import { ProductTour, TourReplayButton, buildTourSteps, type TidumTourRole } from "@/components/onboarding/product-tour";
 import { useStuckDetection } from "@/hooks/use-stuck-detection";
 
 interface CompanyUser {
@@ -322,6 +322,16 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const normalizedCurrentUserRole = effectiveRole;
   const effectiveUserId = user?.id || authUser?.id || resolvedPortalUser?.id || "";
   const isMiljoarbeider = effectiveRole === "miljoarbeider";
+
+  // Vendor / institution name for personalising the tour. Cached server-side.
+  const { data: vendorOrgInfo } = useQuery<{ name?: string } | null>({
+    queryKey: ["/api/vendor/org-info"],
+    queryFn: () => fetch("/api/vendor/org-info", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null),
+    enabled: !!effectiveUserId && normalizedCurrentUserRole !== "miljoarbeider",
+    staleTime: 5 * 60_000,
+  });
 
   const { data: headerActivitiesData = [], isLoading: headerActivitiesLoading } = useQuery<HeaderActivity[]>({
     queryKey: ["/api/activities", { limit: "20", source: "header" }],
@@ -844,9 +854,13 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
         />
       ) : null}
 
-      {/* Interactive product tour */}
+      {/* Interactive product tour — personalised by name + role */}
       <ProductTour
-        steps={DEFAULT_TIDUM_TOUR}
+        steps={buildTourSteps({
+          role: tourRoleFromEffective(normalizedCurrentUserRole),
+          displayName: currentUser.name,
+          vendorName: vendorOrgInfo?.name ?? null,
+        })}
         open={tourOpen}
         onClose={closeTour}
       />
@@ -1119,6 +1133,16 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
       })()}
     </div>
   );
+}
+
+/** Map effective sidebar role to the role buckets the tour understands. */
+function tourRoleFromEffective(role: string): TidumTourRole {
+  const r = (role || "").toLowerCase();
+  if (r === "miljoarbeider" || r === "user" || r === "member") return "miljoarbeider";
+  if (r === "tiltaksleder" || r === "teamleder" || r === "case_manager") return "tiltaksleder";
+  if (r === "vendor_admin" || r === "hovedadmin" || r === "admin") return "vendor_admin";
+  if (r === "super_admin") return "super_admin";
+  return "default";
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

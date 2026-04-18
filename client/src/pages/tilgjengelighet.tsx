@@ -122,6 +122,12 @@ export default function Tilgjengelighet() {
     title: "Tilgjengelighetserklæring – Tidum",
     description:
       "Tidum jobber for WCAG 2.1 AA-samsvar. Les samsvarsstatus, kjente avvik og hvordan du gir tilbakemelding om tilgjengelighet.",
+    ogTitle: "Tilgjengelighetserklæring for Tidum",
+    ogDescription:
+      "Status for WCAG 2.1 AA i Tidum, kjente avvik og kanaler for tilbakemelding.",
+    ogImage: "https://tidum.no/screenshots/landing.png",
+    ogImageAlt: "Tidum tilgjengelighet — WCAG 2.1 AA-samsvar",
+    ogType: "website",
     canonical: "https://tidum.no/tilgjengelighet",
   });
 

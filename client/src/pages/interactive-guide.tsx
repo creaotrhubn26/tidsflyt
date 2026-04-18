@@ -441,8 +441,45 @@ const FAQ: { q: string; a: string }[] = [
 export default function InteractiveGuide() {
   usePublicLightTheme();
   useSEO({
-    title: "Brukerveiledning — Tidum",
-    description: "Komplett guide til Tidum: dashboard, saker, rapporter, timeføring, fravær og admin. Søk eller bla gjennom kategoriene.",
+    title: "Brukerveiledning Tidum – timeføring, rapporter og admin",
+    description:
+      "Komplett guide til Tidum: dashboard, saker, rapportskriving, godkjenning, timeføring, fravær og leverandøradministrasjon. Søk eller bla gjennom kategoriene.",
+    ogTitle: "Brukerveiledning Tidum – kom raskt i gang",
+    ogDescription:
+      "Guide for miljøarbeidere, tiltaksledere og admin: alle funksjonene i Tidum forklart med trinn for trinn og tips.",
+    ogImage: "https://tidum.no/screenshots/landing.png",
+    ogImageAlt: "Tidum brukerveiledning – kategorier for dashboard, saker, rapporter, tid og fravær",
+    ogType: "website",
+    twitterCard: "summary_large_image",
+    canonical: "https://tidum.no/guide",
+    jsonLd: [
+      {
+        "@context": "https://schema.org",
+        "@type": "WebPage",
+        name: "Brukerveiledning Tidum",
+        url: "https://tidum.no/guide",
+        inLanguage: "nb-NO",
+        description:
+          "Komplett guide til Tidum: dashboard, saker, rapportskriving, godkjenning, timeføring, fravær og leverandøradministrasjon.",
+        isPartOf: { "@type": "WebSite", name: "Tidum", url: "https://tidum.no" },
+        breadcrumb: {
+          "@type": "BreadcrumbList",
+          itemListElement: [
+            { "@type": "ListItem", position: 1, name: "Tidum", item: "https://tidum.no/" },
+            { "@type": "ListItem", position: 2, name: "Veiledning", item: "https://tidum.no/guide" },
+          ],
+        },
+      },
+      {
+        "@context": "https://schema.org",
+        "@type": "FAQPage",
+        mainEntity: FAQ.map(({ q, a }) => ({
+          "@type": "Question",
+          name: q,
+          acceptedAnswer: { "@type": "Answer", text: a },
+        })),
+      },
+    ],
   });
 
   const [, navigate] = useLocation();

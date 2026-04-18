@@ -51,7 +51,7 @@ function HeroMockup() {
                   <div className="absolute inset-[8px] overflow-hidden rounded-[15px] bg-[#f8fbfa]">
                   <img
                     src="/screenshots/tidum-time-desktop.png"
-                    alt=""
+                    alt="Skjermbilde av Tidum timeføring på desktop — oversikt over registrerte timer, prosjekt og status"
                     className="h-full w-full object-cover object-left-top"
                   />
                   </div>
@@ -67,7 +67,7 @@ function HeroMockup() {
                 <div className="overflow-hidden rounded-[28px] bg-[#fbfcfb]">
                   <img
                     src="/screenshots/tidum-time-mobile.png"
-                    alt=""
+                    alt="Tidum mobilapp for timeregistrering — stempel inn og ut fra arbeidsplassen"
                     className="block h-auto w-full object-cover object-top"
                   />
                 </div>
@@ -85,7 +85,7 @@ function HeroMockup() {
                   <div className="absolute inset-[10px] overflow-hidden rounded-[17px] bg-[#f8fbfa] md:rounded-[20px]">
                   <img
                     src="/screenshots/tidum-time-desktop.png"
-                    alt=""
+                    alt="Tidum dashboard — timeregistrering, rapporter og oversikt for ledere"
                     className="h-full w-full object-cover object-left-top"
                   />
                   </div>
@@ -101,7 +101,7 @@ function HeroMockup() {
                 <div className="overflow-hidden rounded-[28px] bg-[#fbfcfb]">
                   <img
                     src="/screenshots/tidum-time-mobile.png"
-                    alt=""
+                    alt="Tidum mobilapp for miljøarbeidere — rask timeregistrering på farten"
                     className="block h-auto w-full object-cover object-top"
                   />
                 </div>
@@ -910,7 +910,7 @@ export default function LandingPage() {
                     {variant === "time" ? (
                       <img
                         src="/screenshots/tidum-time-desktop.png"
-                        alt=""
+                        alt="Tidum timeføring — registrer timer per sak med automatisk beregning"
                         className="h-full w-full object-cover object-top"
                       />
                     ) : (

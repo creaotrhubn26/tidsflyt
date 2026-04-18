@@ -277,54 +277,243 @@ export function ProductTour({ steps, open, startIndex = 0, onClose }: ProductTou
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
-   Default tour steps for Tidum (referenced from PortalLayout).
-   Anchored to existing data-testid selectors in the sidebar.
+   Tour step builder — personalised by name, role and (optionally) vendor.
    ───────────────────────────────────────────────────────────────────────── */
 
-export const DEFAULT_TIDUM_TOUR: TourStep[] = [
-  {
-    id: "welcome",
-    title: "Velkommen til Tidum 👋",
-    body: "Vi tar deg gjennom de viktigste delene på under et minutt. Du kan hoppe over når som helst.",
-    placement: "center",
-    navigateTo: "/dashboard",
-  },
-  {
-    id: "dashboard",
-    title: "Dashboardet er hjemmebasen",
-    body: "Her ser du alt som krever oppfølging — rapporter, tiltak, klientsaker. Tilpasses din rolle.",
-    selector: '[data-testid="sidebar-dashboard"]',
-    placement: "right",
-  },
-  {
-    id: "saker",
-    title: "Saker og klienter",
-    body: "Opprett saker direkte fra Brønnøysundregisteret, tildel miljøarbeidere og hold institusjonene oversiktlige.",
-    selector: '[data-testid="guide-category-saker"], [data-testid="sidebar-saker"], [data-testid="sidebar-institusjoner"]',
-    placement: "right",
-  },
-  {
-    id: "rapportering",
-    title: "Rapportering",
-    body: "Skriv saksrapporter med auto‑lagring. Bedrift og oppdragsgiver fylles automatisk fra saken.",
-    selector: '[data-testid="sidebar-rapporter"]',
-    placement: "right",
-  },
-  {
-    id: "tid",
-    title: "Tid og fravær",
-    body: "Stempel inn/ut, registrer aktivitet, søk om fravær — alt i én flyt.",
-    selector: '[data-testid="sidebar-timeføring"]',
-    placement: "right",
-  },
-  {
+export type TidumTourRole =
+  | "miljoarbeider"
+  | "tiltaksleder"
+  | "vendor_admin"
+  | "super_admin"
+  | "default";
+
+export interface BuildTourOptions {
+  role: TidumTourRole;
+  /** Display name (e.g. "Daniel Hansen"). Used to extract first name. */
+  displayName?: string | null;
+  /** Vendor / institution name for vendor_admin context, e.g. "Aurora Velferd AS". */
+  vendorName?: string | null;
+}
+
+const firstName = (full?: string | null) =>
+  (full ?? "").trim().split(/\s+/)[0] || null;
+
+const ROLE_GREETING: Record<TidumTourRole, string> = {
+  miljoarbeider: "Velkommen som miljøarbeider",
+  tiltaksleder: "Velkommen som tiltaksleder",
+  vendor_admin: "Velkommen, leverandøradmin",
+  super_admin: "Velkommen tilbake, super‑admin",
+  default: "Velkommen til Tidum",
+};
+
+export function buildTourSteps({ role, displayName, vendorName }: BuildTourOptions): TourStep[] {
+  const fn = firstName(displayName);
+  const greetTitle = `${ROLE_GREETING[role] ?? ROLE_GREETING.default}${fn ? `, ${fn}` : ""} 👋`;
+  const vendorTag = vendorName ? ` for ${vendorName}` : "";
+
+  // Common closing step ----------------------------------------------------
+  const helpStep: TourStep = {
     id: "help",
     title: "Trenger du hjelp underveis?",
-    body: "«Kom i gang med Tidum» finner du alltid i menyen. For en komplett guide, besøk /guide.",
+    body: "«Kom i gang med Tidum» ligger alltid i menyen, og «?»-knappen nede til høyre gjenåpner denne omvisningen. For en komplett guide: gå til /guide.",
     selector: '[data-testid="sidebar-kom-i-gang-med-tidum"]',
     placement: "right",
-  },
-];
+  };
+  const dashboardStep: TourStep = {
+    id: "dashboard",
+    title: "Dashboardet er hjemmebasen",
+    body: "Her ser du alt som krever oppfølging — prioritert etter rollen din.",
+    selector: '[data-testid="sidebar-dashboard"]',
+    placement: "right",
+  };
+
+  // Miljøarbeider ---------------------------------------------------------
+  if (role === "miljoarbeider") {
+    return [
+      {
+        id: "welcome",
+        title: greetTitle,
+        body: `Vi tar deg gjennom det du trenger for å registrere timer og skrive rapporter${vendorTag}. Tar under et minutt.`,
+        placement: "center",
+        navigateTo: "/dashboard",
+      },
+      dashboardStep,
+      {
+        id: "rapporter",
+        title: "Skriv rapportene dine her",
+        body: "Velg en sak du er tildelt — bedrift, oppdragsgiver og tiltaksleder fylles automatisk. Auto‑lagring tar resten.",
+        selector: '[data-testid="sidebar-rapporter"]',
+        placement: "right",
+      },
+      {
+        id: "tid",
+        title: "Registrer timer",
+        body: "Stempel inn/ut eller fyll inn manuelt. Aktivitets‑forslag basert på dine tidligere mønstre.",
+        selector: '[data-testid="sidebar-timeføring"]',
+        placement: "right",
+      },
+      {
+        id: "fravar",
+        title: "Søk om fravær",
+        body: "Ferie, sykefravær eller annet — tiltakslederen din ser det automatisk.",
+        selector: '[data-testid="sidebar-fravær"]',
+        placement: "right",
+      },
+      helpStep,
+    ];
+  }
+
+  // Tiltaksleder / teamleder -----------------------------------------------
+  if (role === "tiltaksleder") {
+    return [
+      {
+        id: "welcome",
+        title: greetTitle,
+        body: `Du har overordnet ansvar for saker, godkjenning og team${vendorTag}. Vi viser deg de viktigste arbeidsflyene.`,
+        placement: "center",
+        navigateTo: "/dashboard",
+      },
+      {
+        id: "tiltaksleder-oversikt",
+        title: "Din lederoversikt",
+        body: "Se ventende godkjenninger, returnerte rapporter og hvem på teamet som er tilgjengelig.",
+        selector: '[data-testid="sidebar-tiltaksleder"]',
+        placement: "right",
+      },
+      {
+        id: "saker",
+        title: "Opprett og tildel saker",
+        body: "Søk i Brønnøysundregisteret når du oppretter — fyller inn org.nr og adresse automatisk. Tildel deretter miljøarbeidere.",
+        selector: '[data-testid="sidebar-saker"]',
+        placement: "right",
+      },
+      {
+        id: "godkjenning",
+        title: "Godkjenn rapporter",
+        body: "Returner med kommentar per seksjon hvis noe må fikses, eller godkjenn direkte.",
+        selector: '[data-testid="sidebar-godkjenning"]',
+        placement: "right",
+      },
+      {
+        id: "invites",
+        title: "Inviter miljøarbeidere",
+        body: "Lag én delbar lenke som flere kan bruke — eller send personlige invitasjoner.",
+        selector: '[data-testid="sidebar-invitasjoner"]',
+        placement: "right",
+      },
+      helpStep,
+    ];
+  }
+
+  // Vendor admin / institution admin --------------------------------------
+  if (role === "vendor_admin") {
+    return [
+      {
+        id: "welcome",
+        title: greetTitle,
+        body: `Du administrerer hele leverandøren${vendorTag}. La oss gå gjennom institusjoner, maler og brukere.`,
+        placement: "center",
+        navigateTo: "/dashboard",
+      },
+      dashboardStep,
+      {
+        id: "institusjoner",
+        title: "Institusjoner og oppdragsgivere",
+        body: "Legg til institusjonene dere jobber for. Brønnøysundregisteret‑søk gjør jobben lett.",
+        selector: '[data-testid="sidebar-institusjoner"]',
+        placement: "right",
+      },
+      {
+        id: "rapport-maler",
+        title: "Tilpass rapport‑maler",
+        body: "Definer hvilke seksjoner rapporter skal ha for hver sektor. Sett standardmal per institusjon.",
+        selector: '[data-testid="sidebar-rapport-maler"]',
+        placement: "right",
+      },
+      {
+        id: "saker",
+        title: "Opprett og tildel saker",
+        body: "Bygd inn Brreg‑søk fyller inn org.nr og adresse automatisk når du oppretter en ny sak.",
+        selector: '[data-testid="sidebar-saker"]',
+        placement: "right",
+      },
+      {
+        id: "invites",
+        title: "Inviter team",
+        body: "Delbar lenke eller personlige invitasjoner — alle havner under riktig leverandør automatisk.",
+        selector: '[data-testid="sidebar-invitasjoner"]',
+        placement: "right",
+      },
+      helpStep,
+    ];
+  }
+
+  // Super admin -----------------------------------------------------------
+  if (role === "super_admin") {
+    return [
+      {
+        id: "welcome",
+        title: greetTitle,
+        body: "Du har tilgang til alle leverandører, CMS og prototype‑testere. Her er admin‑hjørnene du oftest bruker.",
+        placement: "center",
+        navigateTo: "/dashboard",
+      },
+      dashboardStep,
+      {
+        id: "leverandorer",
+        title: "Leverandøradministrasjon",
+        body: "Opprett nye leverandører via Brreg‑søk og legg til vendor‑admins med magic‑link.",
+        selector: '[data-testid="sidebar-leverandører"]',
+        placement: "right",
+      },
+      {
+        id: "cms",
+        title: "CMS",
+        body: "Rediger landingsside, blogg og innhold — Google‑innlogging gir deg automatisk tilgang.",
+        selector: '[data-testid="sidebar-cms"]',
+        placement: "right",
+      },
+      {
+        id: "tester-feedback",
+        title: "Prototype‑testere",
+        body: "Inviter eksterne testere og samle tilbakemelding direkte i appen.",
+        selector: '[data-testid="sidebar-tester-feedback"]',
+        placement: "right",
+      },
+      helpStep,
+    ];
+  }
+
+  // Default fallback — generic ---------------------------------------------
+  return [
+    {
+      id: "welcome",
+      title: greetTitle,
+      body: "Vi tar deg gjennom de viktigste delene på under et minutt. Du kan hoppe over når som helst.",
+      placement: "center",
+      navigateTo: "/dashboard",
+    },
+    dashboardStep,
+    {
+      id: "rapportering",
+      title: "Rapportering",
+      body: "Skriv saksrapporter med auto‑lagring. Bedrift og oppdragsgiver fylles automatisk fra saken.",
+      selector: '[data-testid="sidebar-rapporter"]',
+      placement: "right",
+    },
+    {
+      id: "tid",
+      title: "Tid og fravær",
+      body: "Stempel inn/ut, registrer aktivitet, søk om fravær — alt i én flyt.",
+      selector: '[data-testid="sidebar-timeføring"]',
+      placement: "right",
+    },
+    helpStep,
+  ];
+}
+
+/** @deprecated Use buildTourSteps({role, displayName, vendorName}) instead. */
+export const DEFAULT_TIDUM_TOUR: TourStep[] = buildTourSteps({ role: "default" });
 
 /**
  * Floating "?" button shown after the tour is dismissed — restarts the tour
