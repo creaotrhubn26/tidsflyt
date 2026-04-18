@@ -1,5 +1,22 @@
 import { Link, useLocation } from "wouter";
-import { LayoutDashboard, Clock, FileText, User, ClipboardList, FolderKanban, MoreHorizontal, Send, UserPlus, X } from "lucide-react";
+import {
+  LayoutDashboard,
+  Clock,
+  FileText,
+  User,
+  ClipboardList,
+  FolderKanban,
+  MoreHorizontal,
+  Send,
+  UserPlus,
+  X,
+  AlertTriangle,
+  TrendingUp,
+  CheckCircle,
+  Building2,
+  Settings,
+  ClipboardCheck,
+} from "lucide-react";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useRolePreview } from "@/hooks/use-role-preview";
@@ -20,11 +37,18 @@ const primaryItems: MobileNavItem[] = [
 
 // Secondary items shown in the "More" sheet
 const secondaryItems: MobileNavItem[] = [
+  { path: "/tiltaksleder", icon: ClipboardCheck, label: "Lederoversikt", roles: ["tiltaksleder", "teamleder", "vendor_admin"] },
   { path: "/rapporter/godkjenning", icon: ClipboardList, label: "Godkjenning", roles: ["tiltaksleder"] },
   { path: "/cases", icon: FolderKanban, label: "Saker", roles: ["tiltaksleder"] },
+  { path: "/institusjoner", icon: Building2, label: "Institusjoner", roles: ["tiltaksleder", "vendor_admin", "hovedadmin", "admin", "super_admin"] },
   { path: "/invites", icon: UserPlus, label: "Invitasjoner", roles: ["tiltaksleder"] },
+  { path: "/timesheets", icon: CheckCircle, label: "Timelister", roles: ["tiltaksleder", "miljoarbeider"] },
+  { path: "/recurring", icon: ClipboardList, label: "Faste oppgaver" },
+  { path: "/overtime", icon: TrendingUp, label: "Overtid" },
   { path: "/leave", icon: Clock, label: "Fravær" },
+  { path: "/avvik", icon: AlertTriangle, label: "Avvik" },
   { path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
+  { path: "/settings", icon: Settings, label: "Innstillinger" },
   { path: "/profile", icon: User, label: "Profil" },
 ];
 
