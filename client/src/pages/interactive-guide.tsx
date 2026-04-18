@@ -1,1009 +1,892 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Link } from 'wouter';
-import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useLocation } from "wouter";
 import {
-  Clock,
-  BarChart3,
-  FileText,
-  Settings,
   ArrowRight,
-  ChevronRight,
+  Building2,
   CheckCircle2,
-  Sparkles,
-  SlidersHorizontal,
-  Palette,
-  Hand,
-  Target,
-  PenSquare,
-  CalendarDays,
-  Inbox,
-  RefreshCcw,
-  Eye,
-  CheckCircle,
+  ChevronRight,
   ClipboardCheck,
-  ScanSearch,
-  Smartphone,
-  Home,
   ClipboardList,
-  Users,
-  Lightbulb,
-  NotebookPen,
+  Clock,
+  FileText,
+  Folder,
+  HelpCircle,
+  Inbox,
+  LayoutDashboard,
+  Mail,
+  Palette,
+  PlayCircle,
+  Plus,
+  Search,
+  Send,
+  Settings,
+  Shield,
+  Sparkles,
   Timer,
   TrendingUp,
-  Phone,
-  Monitor,
-  Image as ImageIcon,
-  Sunrise,
-  Camera,
-  Brain,
+  UserPlus,
+  Users,
   Zap,
-  AlertTriangle,
-  CircleHelp,
-  Plus,
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { tidumPageStyles } from '@/lib/tidum-page-styles';
-import { useSEO } from '@/hooks/use-seo';
-import { usePublicLightTheme } from '@/hooks/use-public-light-theme';
-import tidumWordmark from '@assets/tidum-wordmark.png';
+  type LucideIcon,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useSEO } from "@/hooks/use-seo";
+import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
+import tidumWordmark from "@assets/tidum-wordmark.png";
 
-const COLORS = {
-  primary: '#1F6B73',
-  secondary: '#4E9A6F',
-  accent: '#3A8B73',
-  textDark: '#1E2A2C',
-  textLight: '#5F6B6D',
-  bgLight: '#F9FCFB',
-  border: '#D5DDD9',
-};
+/* ─────────────────────────────────────────────────────────────────────────
+   GUIDE DATA — categorical, mirrors the in-app sidebar (portal-layout.tsx).
+   Update this array when features change; the rendering loop adapts.
+   ───────────────────────────────────────────────────────────────────────── */
 
-interface FAQItem {
-  question: string;
-  answer: string;
+type Role = "miljoarbeider" | "tiltaksleder" | "vendor_admin" | "super_admin";
+
+interface Article {
+  id: string;
+  title: string;
+  summary: string;
+  icon: LucideIcon;
+  inAppPath?: string;
+  roles?: Role[];
+  steps?: { label: string; detail?: string }[];
+  tips?: string[];
+  screenshot?: string; // path under /guide-screenshots/<file>.png — falls back to illustration
 }
 
-const faqItems: FAQItem[] = [
+interface Category {
+  id: string;
+  label: string;
+  blurb: string;
+  icon: LucideIcon;
+  accent: string; // tailwind gradient classes
+  articles: Article[];
+}
+
+const CATEGORIES: Category[] = [
   {
-    question: 'Hvordan gjenoppretter jeg en slettet oppføring?',
-    answer: 'Kontakt administrator. Slettede oppføringer flyttes til gjenopprettingsbingen og kan gjenopprettes innen 30 dager.',
+    id: "oversikt",
+    label: "Oversikt",
+    blurb: "Start dagen med dashboardet — alt du trenger å gjøre samlet på ett sted.",
+    icon: LayoutDashboard,
+    accent: "from-sky-500 to-blue-600",
+    articles: [
+      {
+        id: "dashboard",
+        title: "Dashboardet",
+        summary: "Personalisert hjemmebase: oppgaver, varsler og snarveier prioritert etter rolle.",
+        icon: LayoutDashboard,
+        inAppPath: "/dashboard",
+        screenshot: "dashboard.png",
+        steps: [
+          { label: "Sjekk Tiltak som krever oppfølging", detail: "Fargekodede tiles viser deg hva som haster — rapporter til gjennomgang, tiltak nær frist, klientsaker uten kontakt." },
+          { label: "Bruk hurtigaksjoner", detail: "Kortene øverst tar deg rett til å registrere timer, åpne en sak eller skrive en ny rapport." },
+          { label: "Følg statistikken", detail: "Trender for timer, brukere og saker oppdateres automatisk for valgt periode." },
+        ],
+        tips: [
+          "Bytt periode (uke/måned/i dag) øverst til høyre for å se data i kontekst.",
+          "Klikk på en tile for å hoppe rett til den filtrerte listen.",
+        ],
+      },
+      {
+        id: "tiltaksleder-oversikt",
+        title: "Tiltaksleder‑oversikten",
+        summary: "Egen oversikt for ledere: ventende godkjenninger, returnerte rapporter og teamets tilgjengelighet.",
+        icon: ClipboardCheck,
+        inAppPath: "/tiltaksleder",
+        roles: ["tiltaksleder", "vendor_admin"],
+        screenshot: "tiltaksleder-dashboard.png",
+        steps: [
+          { label: "Gjennomgå rapporter", detail: "Se hvem som venter på godkjenning og åpne dem direkte." },
+          { label: "Følg opp returnerte rapporter", detail: "Listen viser hvem som har fått en kommentar tilbake — sjekk at endringer kommer." },
+          { label: "Sjekk fravær neste 14 dager", detail: "Planlegg bemanning før uka starter." },
+        ],
+      },
+      {
+        id: "kom-i-gang",
+        title: "Kom i gang med Tidum",
+        summary: "Sjekkliste som ledet deg gjennom de første viktige stegene — finnes i sidemenyen.",
+        icon: PlayCircle,
+        steps: [
+          { label: "Bekreft profilen din" },
+          { label: "Legg til første institusjon (Brreg‑søk)", detail: "Slå opp organisasjonsnummer eller bedriftsnavn for å auto‑fylle adresse + virksomhetstype." },
+          { label: "Opprett første sak og tildel miljøarbeidere" },
+          { label: "Inviter teamet via delbar lenke" },
+        ],
+      },
+    ],
   },
   {
-    question: 'Kan jeg redigere rapporter etter innsending?',
-    answer: 'Sendt rapporter er låst for compliance. Hvis avvist, kan du revidere og sende på nytt.',
+    id: "saker",
+    label: "Saker & klienter",
+    blurb: "Opprett saker, koble dem til oppdragsgivere, og tildel dem til miljøarbeidere.",
+    icon: Folder,
+    accent: "from-indigo-500 to-purple-600",
+    articles: [
+      {
+        id: "ny-sak",
+        title: "Opprette en sak",
+        summary: "Brønnøysundregisteret er innebygd — søk, koble og bli ferdig på sekunder.",
+        icon: Plus,
+        inAppPath: "/cases",
+        roles: ["tiltaksleder", "vendor_admin"],
+        screenshot: "ny-sak.png",
+        steps: [
+          { label: "Klikk «Ny sak»" },
+          { label: "Søk i Brønnøysundregisteret", detail: "Skriv organisasjonsnummeret (9 siffer) eller bedriftsnavn — adresse, virksomhetstype og kontaktinfo fylles inn." },
+          { label: "Velg klient og tiltakstype" },
+          { label: "Tildel miljøarbeidere", detail: "De får varsel og saken dukker opp i deres «Mine saker»." },
+        ],
+        tips: [
+          "Lim inn org.nr fra utklippstavlen — Tidum oppdager formatet automatisk.",
+          "Saksnummer genereres etter mønsteret du har valgt under Innstillinger → Saksnummer.",
+        ],
+      },
+      {
+        id: "tildele",
+        title: "Tildele saker",
+        summary: "Flere miljøarbeidere kan jobbe på samme sak. Tildelinger varsler dem direkte.",
+        icon: UserPlus,
+        roles: ["tiltaksleder", "vendor_admin"],
+        steps: [
+          { label: "Åpne saken" },
+          { label: "Klikk «Tildel»", detail: "Velg én eller flere brukere — de får e‑post og dashboardvarsel." },
+        ],
+      },
+      {
+        id: "institusjoner",
+        title: "Institusjoner og oppdragsgivere",
+        summary: "Administrer hvilke virksomheter dere jobber for — kun synlig for ledere og admin.",
+        icon: Building2,
+        inAppPath: "/institusjoner",
+        roles: ["tiltaksleder", "vendor_admin", "super_admin"],
+        screenshot: "institusjoner.png",
+        steps: [
+          { label: "Legg til ny institusjon", detail: "Bruk Brreg‑søk for å sikre korrekt org.nr og adresse." },
+          { label: "Velg standard rapportmal", detail: "Saker tilknyttet denne institusjonen får automatisk valgt mal når miljøarbeider skriver rapport." },
+        ],
+      },
+      {
+        id: "invitasjoner",
+        title: "Invitasjoner og delbare lenker",
+        summary: "Inviter team via e‑post eller én delbar lenke som flere kan bruke.",
+        icon: UserPlus,
+        inAppPath: "/invites",
+        roles: ["tiltaksleder", "vendor_admin"],
+        screenshot: "invitasjoner.png",
+        tips: [
+          "Delbare lenker kan begrenses i tid eller antall bruk.",
+          "Brukere som registrerer seg via lenken havner automatisk på riktig leverandør.",
+        ],
+      },
+    ],
   },
   {
-    question: 'Hva skjer hvis tilgangsforespørselen blir avslått?',
-    answer: 'Du får beskjed med årsaking. Kontakt godkjenneren for klargjøring og innse ny forespørsel etter justering.',
+    id: "rapportering",
+    label: "Rapportering",
+    blurb: "Skriv strukturerte saksrapporter, send til godkjenning, håndter avvik.",
+    icon: FileText,
+    accent: "from-emerald-500 to-teal-600",
+    articles: [
+      {
+        id: "ny-rapport",
+        title: "Skrive en saksrapport",
+        summary: "Rapportmaler tilpasser seg sektor og institusjon. Bedrift, oppdragsgiver og tiltaksleder fylles automatisk.",
+        icon: FileText,
+        inAppPath: "/rapporter",
+        screenshot: "rapport-skrive.png",
+        steps: [
+          { label: "Velg en tildelt sak" },
+          { label: "Bedrift, oppdragsgiver og tiltaksleder fylles automatisk", detail: "Disse feltene er låst når en sak er valgt — det sikrer konsistens på tvers av rapporter." },
+          { label: "Fyll inn periode, mål og aktiviteter", detail: "Aktivitets‑maler gir deg standardstruktur du kan tilpasse." },
+          { label: "Auto‑lagring tar resten", detail: "Tidum lagrer endringer fortløpende — du kan trygt lukke fanen." },
+          { label: "Send til godkjenning når du er ferdig" },
+        ],
+        tips: [
+          "GDPR‑hjelperen fjerner automatisk personnavn fra fritekst hvis det er aktivert i Innstillinger.",
+          "Dobbeltklikk en aktivitet i ukesvisningen for rask redigering.",
+        ],
+      },
+      {
+        id: "godkjenning",
+        title: "Godkjenne rapporter",
+        summary: "Som tiltaksleder ser du innsendte rapporter under «Godkjenning». Returner med kommentar når noe må fikses.",
+        icon: ClipboardCheck,
+        inAppPath: "/rapporter/godkjenning",
+        roles: ["tiltaksleder"],
+        screenshot: "godkjenning.png",
+        steps: [
+          { label: "Åpne rapporten" },
+          { label: "Legg igjen kommentar per seksjon", detail: "Forfatteren ser kommentarene direkte på rett sted." },
+          { label: "Godkjenn eller returner" },
+        ],
+      },
+      {
+        id: "rapport-maler",
+        title: "Rapport‑maler (admin)",
+        summary: "Definer hvilke seksjoner en rapport skal inneholde for ulike sektorer.",
+        icon: ClipboardList,
+        inAppPath: "/admin/rapport-maler",
+        roles: ["vendor_admin", "super_admin"],
+        steps: [
+          { label: "Klone systemmal eller start blank" },
+          { label: "Legg til seksjoner (tekst, sjekkliste, observasjon)" },
+          { label: "Velg standardmal per institusjon", detail: "Spar miljøarbeideren for å velge mal hver gang." },
+        ],
+      },
+      {
+        id: "avvik",
+        title: "Avvik og hendelser",
+        summary: "Registrer avvik direkte fra en rapport. Alvorlighetsgrad: lav, middels, høy, kritisk.",
+        icon: Shield,
+        inAppPath: "/avvik",
+        screenshot: "avvik.png",
+        tips: [
+          "Avvik knyttet til en rapport flagges automatisk for tiltakslederen ved godkjenning.",
+          "Kritiske avvik utløser umiddelbart varsel.",
+        ],
+      },
+    ],
   },
   {
-    question: 'Hvor ofte bør jeg generere rapporter?',
-    answer: 'Generelt månedlig for organisasjon. Personlig: ukentlige sammendrag for å identifisere trender og forbedringspunkter.',
+    id: "tid",
+    label: "Tid & fravær",
+    blurb: "Timeføring, timelister, overtid og fravær — én flyt, ingen dobbelregistrering.",
+    icon: Clock,
+    accent: "from-amber-500 to-orange-600",
+    articles: [
+      {
+        id: "timeforing",
+        title: "Timeføring",
+        summary: "Stempel inn/ut, registrer aktivitet manuelt, eller la AI foreslå basert på tidligere mønstre.",
+        icon: Timer,
+        inAppPath: "/time",
+        screenshot: "timeforing.png",
+        steps: [
+          { label: "Velg sak og aktivitet" },
+          { label: "Bruk timer eller fyll inn manuelt" },
+          { label: "Aktivitets‑forslag", detail: "Systemet foreslår aktivitet ut fra tid på dagen og tidligere mønstre — godta eller skriv selv." },
+        ],
+      },
+      {
+        id: "timelister",
+        title: "Timelister",
+        summary: "Månedlige timelister genereres automatisk fra registrerte timer.",
+        icon: ClipboardList,
+        inAppPath: "/timesheets",
+        roles: ["miljoarbeider", "tiltaksleder"],
+        screenshot: "timelister.png",
+      },
+      {
+        id: "overtid",
+        title: "Overtid",
+        summary: "Automatisk beregning av 50 % og 100 % tillegg basert på dine terskelverdier.",
+        icon: TrendingUp,
+        inAppPath: "/overtime",
+        screenshot: "overtid.png",
+        tips: [
+          "Tiltaksleder kan deaktivere overtidsregistrering per bruker — da skjules fanen helt for miljøarbeideren.",
+          "Standard er 7,5 t/dag og 37,5 t/uke. Endre i Innstillinger på siden.",
+        ],
+      },
+      {
+        id: "fravar",
+        title: "Fravær",
+        summary: "Søk om ferie, sykefravær eller annet. Tiltaksleder ser planlagt fravær i sin oversikt.",
+        icon: Clock,
+        inAppPath: "/leave",
+      },
+      {
+        id: "faste-oppgaver",
+        title: "Faste oppgaver",
+        summary: "Tilbakevendende sjekklistepunkter du må gjøre daglig, ukentlig eller månedlig.",
+        icon: ClipboardList,
+        inAppPath: "/recurring",
+      },
+    ],
   },
   {
-    question: 'Kan jeg eksportere dataene mine?',
-    answer: 'Ja! Eksporter som CSV, Excel eller PDF. Perfekt for egen analyse eller deling med andre.',
+    id: "kommunikasjon",
+    label: "Økonomi & kommunikasjon",
+    blurb: "Fakturaer, e‑post og videresending — hold kontakten med oppdragsgiverne ryddig.",
+    icon: Send,
+    accent: "from-pink-500 to-rose-600",
+    articles: [
+      {
+        id: "fakturaer",
+        title: "Fakturaer",
+        summary: "Generer fakturaer fra registrerte timer per oppdragsgiver eller sak.",
+        icon: FileText,
+        inAppPath: "/invoices",
+        roles: ["tiltaksleder", "vendor_admin"],
+      },
+      {
+        id: "epost",
+        title: "E‑post",
+        summary: "Send rapporter, fakturaer eller meldinger direkte fra Tidum.",
+        icon: Mail,
+        inAppPath: "/email",
+        roles: ["tiltaksleder", "vendor_admin"],
+      },
+      {
+        id: "send-videre",
+        title: "Send videre",
+        summary: "Videresend rapporter og dokumenter til oppdragsgiver med revisjons‑logging.",
+        icon: Send,
+        inAppPath: "/forward",
+        roles: ["tiltaksleder"],
+      },
+    ],
   },
   {
-    question: 'Hvordan justerer jeg hvor mange forslag Tidum viser?',
-    answer: 'Gå til Innstillinger → Forslag. Velg modus, hyppighet og sikkerhetsterskel. Høyere terskel gir færre, men tryggere forslag.',
+    id: "administrasjon",
+    label: "Administrasjon",
+    blurb: "Leverandøradministrasjon, CMS og tester‑program — kun for super‑admin.",
+    icon: Shield,
+    accent: "from-slate-600 to-slate-800",
+    articles: [
+      {
+        id: "leverandorer",
+        title: "Leverandøradministrasjon",
+        summary: "Opprett nye leverandører via Brreg‑søk, administrer admin‑brukere, se statistikk.",
+        icon: Building2,
+        inAppPath: "/vendors",
+        roles: ["super_admin"],
+        screenshot: "vendors.png",
+        steps: [
+          { label: "Klikk «Ny leverandør»" },
+          { label: "Søk org.nr eller bedriftsnavn", detail: "Tidum henter navn, adresse og org.form fra Brønnøysundregisteret automatisk." },
+          { label: "Velg abonnement og maks brukere" },
+          { label: "Legg til vendor‑admin", detail: "Magic‑link‑invitasjon på e‑post — ingen passord nødvendig." },
+        ],
+      },
+      {
+        id: "cms",
+        title: "CMS",
+        summary: "Rediger landingsside, blogg og innhold direkte fra Tidum. Innlogging via Google fungerer for super‑admin.",
+        icon: Palette,
+        inAppPath: "/cms",
+        roles: ["super_admin"],
+      },
+      {
+        id: "tester-feedback",
+        title: "Prototype‑testere",
+        summary: "Inviter eksterne testere som gir tilbakemelding via flytende knapp i appen.",
+        icon: Sparkles,
+        inAppPath: "/admin/tester-feedback",
+        roles: ["super_admin"],
+      },
+    ],
   },
   {
-    question: 'Hva betyr "Ikke foreslå igjen"?',
-    answer: 'Når du velger dette på et forslag, legges verdien i blokklisten din. Du kan fjerne blokkeringen i Innstillinger når som helst.',
+    id: "system",
+    label: "System & innstillinger",
+    blurb: "Personlige preferanser, varsler, GDPR og språk.",
+    icon: Settings,
+    accent: "from-gray-500 to-gray-700",
+    articles: [
+      {
+        id: "innstillinger",
+        title: "Innstillinger",
+        summary: "Tema, språk, varsler, GDPR‑hjelper, eksportformater — alt samlet på ett sted.",
+        icon: Settings,
+        inAppPath: "/settings",
+      },
+    ],
   },
 ];
 
-const FAQAccordion: React.FC<{ item: FAQItem }> = ({ item }) => {
-  const [isOpen, setIsOpen] = useState(false);
+const FAQ: { q: string; a: string }[] = [
+  {
+    q: "Jeg ser ikke «Overtid»‑fanen — hvor er den?",
+    a: "Tiltakslederen din kan ha deaktivert overtidsregistrering for deg. Når det er deaktivert, gjemmes fanen helt fra menyen. Snakk med tiltakslederen hvis du mener det er feil.",
+  },
+  {
+    q: "Hvorfor er bedrift, oppdragsgiver og tiltaksleder låst når jeg skriver rapport?",
+    a: "Disse feltene fylles automatisk fra saken som er tildelt deg. Det sikrer at alle rapporter på samme sak har konsistent informasjon. Kontakt tiltakslederen din hvis du må endre dem.",
+  },
+  {
+    q: "Kan jeg redigere en rapport etter at den er sendt inn?",
+    a: "Innsendte rapporter er låst for endringer. Hvis du oppdager en feil, be tiltakslederen returnere rapporten — da kan du redigere og sende inn på nytt.",
+  },
+  {
+    q: "Hvordan inviterer jeg flere kolleger samtidig?",
+    a: "Gå til Invitasjoner i menyen og lag en delbar lenke. Den kan deles på Slack, e‑post eller hvor som helst — alle som åpner den blir registrert under riktig leverandør.",
+  },
+  {
+    q: "Hvor finner jeg gamle rapporter?",
+    a: "Gå til Rapporter‑fanen. Bruk filtrene for å begrense på status, periode eller sak. Godkjente rapporter er alltid søkbare.",
+  },
+  {
+    q: "Hvordan logger jeg inn på CMS?",
+    a: "For super‑admin: bare logg inn med Google på vanlig vis — du får automatisk CMS‑tilgang uten ekstra passord.",
+  },
+  {
+    q: "Hvor mange brukere kan jeg ha?",
+    a: "Avhenger av abonnementet ditt. Standard er 50 brukere; Premium har høyere grense. Kontakt support for oppgradering.",
+  },
+  {
+    q: "Hva skjer med dataene mine ved oppsigelse?",
+    a: "All data eksporteres til deg i CSV/JSON innen 30 dager etter oppsigelse, og slettes deretter permanent fra serverne våre.",
+  },
+];
+
+/* ─────────────────────────────────────────────────────────────────────────
+   PAGE
+   ───────────────────────────────────────────────────────────────────────── */
+
+export default function InteractiveGuide() {
+  usePublicLightTheme();
+  useSEO({
+    title: "Brukerveiledning — Tidum",
+    description: "Komplett guide til Tidum: dashboard, saker, rapporter, timeføring, fravær og admin. Søk eller bla gjennom kategoriene.",
+  });
+
+  const [, navigate] = useLocation();
+  const [query, setQuery] = useState("");
+  const [activeCategory, setActiveCategory] = useState<string | null>(null);
+
+  const trimmedQuery = query.trim().toLowerCase();
+  const isSearching = trimmedQuery.length > 1;
+
+  // Restore scroll target from hash on mount
+  useEffect(() => {
+    const hash = window.location.hash.slice(1);
+    if (hash) {
+      setActiveCategory(hash);
+      requestAnimationFrame(() => {
+        document.getElementById(hash)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    }
+  }, []);
+
+  const filteredCategories = useMemo(() => {
+    if (!isSearching) return CATEGORIES;
+    return CATEGORIES.map((c) => ({
+      ...c,
+      articles: c.articles.filter((a) => {
+        const haystack = [
+          a.title,
+          a.summary,
+          ...(a.steps?.map((s) => `${s.label} ${s.detail ?? ""}`) ?? []),
+          ...(a.tips ?? []),
+        ]
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(trimmedQuery);
+      }),
+    })).filter((c) => c.articles.length > 0);
+  }, [isSearching, trimmedQuery]);
+
+  const totalArticleCount = CATEGORIES.reduce((n, c) => n + c.articles.length, 0);
+  const matchCount = filteredCategories.reduce((n, c) => n + c.articles.length, 0);
 
   return (
-    <div
-      className={`p-6 rounded-lg bg-gradient-to-r from-[#F9FCFB] to-[#F2FAF8] border transition-all hover:border-[#1F6B73] ${isOpen ? 'border-[var(--ig-primary)]' : 'border-[#D8E6DF]'}`}
-    >
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between font-bold cursor-pointer"
-      >
-        <span className="text-[var(--ig-text-dark)]">{item.question}</span>
-        <span
-          className={`text-[var(--ig-text-light)] transition-transform ${isOpen ? 'rotate-180' : ''}`}
-        >
-          ▼
-        </span>
-      </button>
-      {isOpen && (
-        <p className="text-sm mt-4 text-[var(--ig-text-light)]">
-          {item.answer}
+    <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-900">
+      {/* ── Top nav ── */}
+      <header className="sticky top-0 z-30 backdrop-blur bg-white/80 border-b border-slate-200">
+        <div className="max-w-6xl mx-auto px-4 lg:px-8 h-16 flex items-center justify-between gap-4">
+          <Link href="/" className="flex items-center gap-2">
+            <img src={tidumWordmark} alt="Tidum" className="h-7 w-auto" />
+            <span className="text-xs uppercase tracking-wider font-semibold text-slate-500">
+              Veiledning
+            </span>
+          </Link>
+          <div className="flex items-center gap-2">
+            <Button asChild variant="ghost" size="sm">
+              <Link href="/">Til forsiden</Link>
+            </Button>
+            <Button asChild size="sm">
+              <Link href="/dashboard">
+                Åpne Tidum
+                <ArrowRight className="h-4 w-4 ml-1" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* ── Hero + Search ── */}
+      <section className="max-w-4xl mx-auto px-4 lg:px-8 pt-16 pb-10 text-center">
+        <Badge variant="outline" className="mb-4 text-xs gap-1.5 border-emerald-300 text-emerald-700 bg-emerald-50">
+          <Sparkles className="h-3 w-3" />
+          Oppdatert {new Date().toLocaleDateString("nb-NO", { month: "long", year: "numeric" })}
+        </Badge>
+        <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
+          Slik bruker du Tidum
+        </h1>
+        <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-8 leading-relaxed">
+          Komplett veiledning til alt — fra første pålogging til avansert rapportering.
+          Søk, eller hopp rett til kategorien du trenger.
         </p>
+        <div className="relative max-w-xl mx-auto">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Søk i guiden — for eksempel «rapport», «overtid», «sak»…"
+            className="h-14 pl-11 pr-4 text-base shadow-sm border-slate-200 bg-white focus-visible:ring-2 focus-visible:ring-emerald-400/40"
+            data-testid="guide-search"
+          />
+          {isSearching && (
+            <p className="absolute -bottom-7 left-1 text-xs text-slate-500">
+              {matchCount} av {totalArticleCount} treff
+            </p>
+          )}
+        </div>
+      </section>
+
+      {/* ── Quick start strip ── */}
+      {!isSearching && (
+        <section className="max-w-6xl mx-auto px-4 lg:px-8 pb-10">
+          <div className="grid gap-3 md:grid-cols-3">
+            <QuickCard
+              icon={LayoutDashboard}
+              label="1. Bli kjent med dashboardet"
+              hint="Hvordan navigere oversikten"
+              onClick={() => navigate("#oversikt")}
+            />
+            <QuickCard
+              icon={FileText}
+              label="2. Skriv din første rapport"
+              hint="Steg for steg"
+              onClick={() => navigate("#rapportering")}
+            />
+            <QuickCard
+              icon={Clock}
+              label="3. Registrer timer"
+              hint="Med eller uten timer"
+              onClick={() => navigate("#tid")}
+            />
+          </div>
+        </section>
       )}
+
+      {/* ── Category nav (sticky on desktop) ── */}
+      {!isSearching && (
+        <nav className="max-w-6xl mx-auto px-4 lg:px-8 pb-4">
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((c) => {
+              const Icon = c.icon;
+              const isActive = activeCategory === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => {
+                    setActiveCategory(c.id);
+                    document.getElementById(c.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                    history.replaceState(null, "", `#${c.id}`);
+                  }}
+                  className={`flex items-center gap-2 rounded-full border px-4 py-2 text-sm font-medium transition-all ${
+                    isActive
+                      ? "border-emerald-500 bg-emerald-50 text-emerald-700 shadow-sm"
+                      : "border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50/40"
+                  }`}
+                  data-testid={`guide-category-${c.id}`}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+      )}
+
+      {/* ── Categories + articles ── */}
+      <main className="max-w-6xl mx-auto px-4 lg:px-8 pb-16 space-y-16">
+        {filteredCategories.length === 0 && (
+          <div className="text-center py-20 text-slate-500">
+            <Search className="h-10 w-10 mx-auto mb-3 opacity-40" />
+            <p className="text-base">Ingen treff på «{query}».</p>
+            <Button variant="ghost" className="mt-3" onClick={() => setQuery("")}>
+              Tøm søk
+            </Button>
+          </div>
+        )}
+
+        {filteredCategories.map((category) => (
+          <section key={category.id} id={category.id} className="scroll-mt-24">
+            <CategoryHeader category={category} />
+            <div className="grid gap-5 mt-6 md:grid-cols-2">
+              {category.articles.map((article) => (
+                <ArticleCard
+                  key={article.id}
+                  article={article}
+                  category={category}
+                  isHighlighted={isSearching}
+                  onOpenInApp={(p) => navigate(p)}
+                />
+              ))}
+            </div>
+          </section>
+        ))}
+      </main>
+
+      {/* ── Stuck CTA ── */}
+      <section className="border-t border-slate-200 bg-white">
+        <div className="max-w-4xl mx-auto px-4 lg:px-8 py-14 text-center">
+          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md mb-4">
+            <HelpCircle className="h-6 w-6" />
+          </div>
+          <h2 className="text-2xl font-bold mb-2">Sitter du fast?</h2>
+          <p className="text-slate-600 mb-6 max-w-xl mx-auto">
+            Du kan starte den interaktive omvisningen inne i appen når som helst — den peker på
+            riktig knapp på riktig side. Hvis det fortsatt er uklart, send oss en e‑post.
+          </p>
+          <div className="flex flex-wrap justify-center gap-3">
+            <Button asChild>
+              <Link href="/dashboard?tour=restart">
+                <PlayCircle className="h-4 w-4 mr-2" />
+                Start interaktiv omvisning
+              </Link>
+            </Button>
+            <Button asChild variant="outline">
+              <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`}>
+                <Inbox className="h-4 w-4 mr-2" />
+                Kontakt support
+              </a>
+            </Button>
+          </div>
+        </div>
+      </section>
+
+      {/* ── FAQ ── */}
+      <section className="max-w-4xl mx-auto px-4 lg:px-8 py-14">
+        <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
+          <Zap className="h-5 w-5 text-emerald-500" />
+          Vanlige spørsmål
+        </h2>
+        <div className="space-y-3">
+          {FAQ.map((item, idx) => (
+            <FAQAccordion key={idx} q={item.q} a={item.a} />
+          ))}
+        </div>
+      </section>
+
+      {/* ── Footer ── */}
+      <footer className="border-t border-slate-200 bg-slate-50">
+        <div className="max-w-6xl mx-auto px-4 lg:px-8 py-8 text-sm text-slate-500 flex flex-wrap items-center justify-between gap-3">
+          <span>© {new Date().getFullYear()} Tidum</span>
+          <div className="flex gap-4">
+            <Link href="/privacy" className="hover:text-slate-700">Personvern</Link>
+            <Link href="/terms" className="hover:text-slate-700">Vilkår</Link>
+            <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`} className="hover:text-slate-700">Support</a>
+          </div>
+        </div>
+      </footer>
     </div>
   );
-};
+}
 
-const ScreenshotPlaceholder: React.FC<{
-  title: string;
-  icon?: React.ReactNode;
-  size: string;
-  src?: string;
-}> = ({ title, icon, size, src }) => {
-  if (src) {
+/* ─────────────────────────────────────────────────────────────────────────
+   SUBCOMPONENTS
+   ───────────────────────────────────────────────────────────────────────── */
+
+function CategoryHeader({ category }: { category: Category }) {
+  const Icon = category.icon;
+  return (
+    <div className="flex items-start gap-4">
+      <div className={`flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br ${category.accent} text-white shadow-md shrink-0`}>
+        <Icon className="h-6 w-6" />
+      </div>
+      <div>
+        <h2 className="text-2xl font-bold tracking-tight">{category.label}</h2>
+        <p className="text-slate-600 mt-1 text-base leading-relaxed">{category.blurb}</p>
+      </div>
+    </div>
+  );
+}
+
+function ArticleCard({
+  article,
+  category,
+  isHighlighted,
+  onOpenInApp,
+}: {
+  article: Article;
+  category: Category;
+  isHighlighted: boolean;
+  onOpenInApp: (path: string) => void;
+}) {
+  const Icon = article.icon;
+  const [expanded, setExpanded] = useState(isHighlighted);
+  return (
+    <Card className={`overflow-hidden transition-all ${expanded ? "shadow-md" : "hover:shadow-sm"} bg-white border-slate-200`}>
+      {/* Screenshot or illustration */}
+      <ArticleVisual article={article} accent={category.accent} icon={Icon} />
+
+      <CardHeader className="pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4 text-slate-400" />
+            <CardTitle className="text-lg leading-tight">{article.title}</CardTitle>
+          </div>
+          {article.roles && article.roles.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {article.roles.map((r) => (
+                <Badge key={r} variant="outline" className="text-[10px] capitalize">
+                  {ROLE_LABELS[r] ?? r}
+                </Badge>
+              ))}
+            </div>
+          )}
+        </div>
+        <CardDescription className="leading-relaxed">{article.summary}</CardDescription>
+      </CardHeader>
+
+      <CardContent>
+        {(article.steps || article.tips) && (
+          <button
+            type="button"
+            onClick={() => setExpanded((e) => !e)}
+            className="text-sm font-medium text-emerald-700 hover:text-emerald-800 inline-flex items-center gap-1 mb-3"
+          >
+            {expanded ? "Skjul detaljer" : "Vis steg for steg"}
+            <ChevronRight className={`h-3.5 w-3.5 transition-transform ${expanded ? "rotate-90" : ""}`} />
+          </button>
+        )}
+
+        {expanded && article.steps && (
+          <ol className="space-y-2.5 mb-4">
+            {article.steps.map((s, i) => (
+              <li key={i} className="flex gap-3 text-sm">
+                <span className="flex-shrink-0 inline-flex items-center justify-center h-6 w-6 rounded-full bg-emerald-100 text-emerald-700 text-xs font-bold">
+                  {i + 1}
+                </span>
+                <div>
+                  <p className="font-medium text-slate-800">{s.label}</p>
+                  {s.detail && <p className="text-slate-600 mt-0.5">{s.detail}</p>}
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
+
+        {expanded && article.tips && article.tips.length > 0 && (
+          <div className="rounded-lg bg-amber-50/60 border border-amber-200/70 p-3 text-sm text-amber-900">
+            <p className="font-semibold flex items-center gap-1.5 mb-1.5">
+              <Sparkles className="h-3.5 w-3.5" />
+              Tips
+            </p>
+            <ul className="space-y-1 ml-5 list-disc marker:text-amber-500">
+              {article.tips.map((t, i) => (
+                <li key={i}>{t}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {article.inAppPath && (
+          <div className="mt-4 flex items-center gap-2">
+            <Button size="sm" variant="outline" onClick={() => onOpenInApp(article.inAppPath!)}>
+              Åpne i Tidum
+              <ArrowRight className="h-3.5 w-3.5 ml-1.5" />
+            </Button>
+            <code className="text-[11px] font-mono text-slate-500">{article.inAppPath}</code>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ArticleVisual({
+  article,
+  accent,
+  icon,
+}: {
+  article: Article;
+  accent: string;
+  icon: LucideIcon;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+  const Icon = icon;
+
+  // Try real screenshot first; fall back to illustrated panel.
+  if (article.screenshot && !imgFailed) {
     return (
-      <div className="rounded-lg overflow-hidden border border-[#D8E6DF] flex items-center justify-center bg-white">
-        <img src={src} alt={title} className="w-full h-auto object-cover" />
+      <div className="relative aspect-[16/9] bg-slate-100 border-b border-slate-200 overflow-hidden">
+        <img
+          src={`/guide-screenshots/${article.screenshot}`}
+          alt={`Skjermbilde av ${article.title}`}
+          loading="lazy"
+          onError={() => setImgFailed(true)}
+          className="w-full h-full object-cover"
+        />
       </div>
     );
   }
 
   return (
-    <div
-      className="rounded-lg p-8 border-2 border-dashed border-[#D8E6DF] h-[280px] flex items-center justify-center bg-gradient-to-br from-[#E6F2EE] to-[#DDE9E5]"
+    <div className={`aspect-[16/9] bg-gradient-to-br ${accent} relative overflow-hidden border-b border-slate-200`}>
+      <div className="absolute inset-0 opacity-20" style={{
+        backgroundImage:
+          "radial-gradient(circle at 20% 30%, rgba(255,255,255,0.4), transparent 40%), radial-gradient(circle at 80% 70%, rgba(255,255,255,0.3), transparent 40%)",
+      }} />
+      <div className="absolute inset-0 flex items-center justify-center">
+        <div className="text-white/90 flex flex-col items-center gap-3">
+          <Icon className="h-12 w-12 drop-shadow" />
+          <span className="text-xs uppercase tracking-wider font-semibold opacity-80">
+            {article.title}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuickCard({ icon: Icon, label, hint, onClick }: {
+  icon: LucideIcon; label: string; hint: string; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 text-left hover:shadow-md hover:border-emerald-300 hover:-translate-y-0.5 transition-all"
     >
-      <div className="text-center">
-        <div className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-white text-[var(--ig-primary)]">
-          {icon || <ImageIcon className="h-6 w-6" />}
-        </div>
-        <p className="font-semibold mb-2 text-[var(--ig-primary)]">
-          {title}
-        </p>
-        <p className="text-sm text-[var(--ig-text-light)]">
-          Skjermbilde vil vises her etter konfigurering
-        </p>
-        <p className="text-xs mt-3 text-[#95A3A6]">
-          Min. {size} anbefalt
-        </p>
+      <div className="flex items-center justify-center h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 text-white shrink-0">
+        <Icon className="h-5 w-5" />
       </div>
-    </div>
+      <div className="flex-1 min-w-0">
+        <p className="font-semibold text-sm leading-tight">{label}</p>
+        <p className="text-xs text-slate-500 mt-0.5">{hint}</p>
+      </div>
+      <ChevronRight className="h-4 w-4 text-slate-400 group-hover:text-emerald-600 transition-colors" />
+    </button>
   );
-};
+}
 
-const WhiskerIllustrationPlaceholder: React.FC<{
-  title: string;
-  description: string;
-  src?: string;
-}> = ({ title, description, src }) => (
-  <div className="rounded-lg overflow-hidden border border-[#D8E6DF] bg-white">
-    {src ? (
-      <img src={src} alt={title} className="w-full h-auto object-cover" />
-    ) : (
-      <div
-        className="p-8 border-2 border-dashed border-[#C084FC] min-h-[300px] bg-[rgba(196,132,252,0.08)] flex items-center justify-center"
+function FAQAccordion({ q, a }: { q: string; a: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div
+      className={`rounded-xl border bg-white p-5 transition-all ${
+        open ? "border-emerald-300 shadow-sm" : "border-slate-200 hover:border-slate-300"
+      }`}
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-4 text-left"
       >
-        <div className="text-center">
-          <div className="mx-auto mb-4 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white/90 text-[#9333EA]">
-            <Palette className="h-7 w-7" />
-          </div>
-          <p className="font-semibold mb-2 text-[#9333EA]">
-            {title}
-          </p>
-          <p className="text-sm max-w-xs text-[#7E22CE]">
-            {description}
-          </p>
-          <p className="text-xs mt-4 px-3 py-1 bg-white rounded-full inline-block text-[#C084FC]">
-            Whisker illustration - upload here
-          </p>
-        </div>
-      </div>
-    )}
-    <div className="px-4 py-3 border-t border-[#E6EFEA] bg-[#F9FCFB]">
-      <p className="text-sm font-medium text-[#36545B]">{title}</p>
-      <p className="text-xs text-[var(--ig-text-light)] mt-1">{description}</p>
-    </div>
-  </div>
-);
-
-const StepBadge: React.FC<{ number: number }> = ({ number }) => (
-  <div
-    className="w-11 h-11 rounded-full flex items-center justify-center font-bold text-lg text-white flex-shrink-0 bg-[linear-gradient(135deg,var(--ig-primary),var(--ig-secondary))]"
-  >
-    {number}
-  </div>
-);
-
-const InfoBox: React.FC<{ children: React.ReactNode; type?: 'success' | 'info' | 'warning' }> = ({
-  children,
-  type = 'info',
-}) => {
-  const classMap = {
-    success: 'bg-[#E7F3EE] border-[#4E9A6F] text-[#2A6452]',
-    info: 'bg-[#F0F5F7] border-[var(--ig-primary,#1F6B73)] text-[var(--ig-text-dark,#1E2A2C)]',
-    warning: 'bg-[#FEF3E6] border-[#D97706] text-[#92400E]',
-  };
-
-  return (
-    <div className={`border-l-4 p-4 rounded ${classMap[type]}`}>
-      {children}
+        <span className="font-semibold text-slate-800">{q}</span>
+        <ChevronRight
+          className={`h-4 w-4 text-slate-400 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+      </button>
+      {open && <p className="mt-3 text-sm text-slate-600 leading-relaxed">{a}</p>}
     </div>
   );
+}
+
+const ROLE_LABELS: Record<Role, string> = {
+  miljoarbeider: "Miljøarbeider",
+  tiltaksleder: "Tiltaksleder",
+  vendor_admin: "Vendor admin",
+  super_admin: "Super admin",
 };
-
-const WorkflowSVG: React.FC = () => {
-  const steps = [
-    { title: 'Klikk Start', desc: 'Begynn arbeid', icon: Hand, bg: 'bg-[#E7F3EE]' },
-    { title: 'Velg prosjekt', desc: 'Tildel oppgave', icon: Target, bg: 'bg-[#F0F5F7]' },
-    { title: 'Legg til detaljer', desc: 'Beskriv arbeid', icon: PenSquare, bg: 'bg-[#F5EFE1]' },
-    { title: 'Lagre', desc: 'Fullstendig', icon: CheckCircle, bg: 'bg-[#E8F5EE]' },
-  ] as const;
-
-  return (
-    <div className="grid grid-cols-1 gap-3 md:grid-cols-4">
-      {steps.map((step) => {
-        const Icon = step.icon;
-        return (
-          <div key={step.title} className={`rounded-xl border border-[#D8E6DF] p-4 ${step.bg}`}>
-            <Icon className="mb-3 h-6 w-6 text-[var(--ig-primary)]" />
-            <p className="text-sm font-semibold text-[var(--ig-text-dark)]">{step.title}</p>
-            <p className="mt-1 text-xs text-[var(--ig-text-light)]">{step.desc}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const ReportGenerationSVG: React.FC = () => {
-  const steps = [
-    { title: 'Åpne Rapporter', icon: BarChart3 },
-    { title: 'Velg periode', icon: CalendarDays },
-    { title: 'Rapporttype', icon: ClipboardList },
-    { title: 'Generer', icon: Sparkles },
-    { title: 'Eksporter', icon: Inbox },
-  ] as const;
-
-  return (
-    <div className="mb-6 grid grid-cols-1 gap-3 md:grid-cols-5">
-      {steps.map((step) => {
-        const Icon = step.icon;
-        return (
-          <div key={step.title} className="rounded-xl border border-[#D8E6DF] bg-white p-4 text-center">
-            <Icon className="mx-auto mb-2 h-6 w-6 text-[var(--ig-secondary)]" />
-            <p className="text-xs font-semibold text-[var(--ig-text-dark)]">{step.title}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const CaseLifecycleSVG: React.FC = () => {
-  const stages = [
-    { title: 'Opprettet', sub: 'Innledende info', icon: Inbox },
-    { title: 'Dokumentasjon', sub: 'Samle bevis', icon: NotebookPen },
-    { title: 'Gjennomgang', sub: 'Venter godkjenning', icon: Eye },
-    { title: 'Godkjent', sub: 'Bekreftet', icon: CheckCircle2 },
-  ] as const;
-
-  return (
-    <div className="mb-8 grid grid-cols-1 gap-3 md:grid-cols-4">
-      {stages.map((stage) => {
-        const Icon = stage.icon;
-        return (
-          <div key={stage.title} className="rounded-xl border border-[#D8E6DF] bg-white p-4 text-center">
-            <Icon className="mx-auto mb-2 h-6 w-6 text-[var(--ig-primary)]" />
-            <p className="text-sm font-semibold text-[var(--ig-text-dark)]">{stage.title}</p>
-            <p className="mt-1 text-xs text-[var(--ig-text-light)]">{stage.sub}</p>
-          </div>
-        );
-      })}
-    </div>
-  );
-};
-
-const AccessRequestSVG: React.FC = () => (
-  <div className="mb-6 grid gap-3 md:grid-cols-5">
-    <div className="rounded-xl border border-[#D8E6DF] bg-[#E7F3EE] p-4 text-center">
-      <NotebookPen className="mx-auto mb-2 h-6 w-6 text-[var(--ig-primary)]" />
-      <p className="text-sm font-semibold text-[var(--ig-text-dark)]">Forespørsel</p>
-      <p className="mt-1 text-xs text-[var(--ig-text-light)]">Innsendt av bruker</p>
-    </div>
-    <div className="rounded-xl border border-[#D8E6DF] bg-[#F0F5F7] p-4 text-center">
-      <Eye className="mx-auto mb-2 h-6 w-6 text-[var(--ig-primary)]" />
-      <p className="text-sm font-semibold text-[var(--ig-text-dark)]">Gjennomgang</p>
-      <p className="mt-1 text-xs text-[var(--ig-text-light)]">Leder vurderer</p>
-    </div>
-    <div className="rounded-xl border border-[#D8E6DF] bg-[#F5EFE1] p-4 text-center">
-      <ClipboardCheck className="mx-auto mb-2 h-6 w-6 text-[var(--ig-primary)]" />
-      <p className="text-sm font-semibold text-[var(--ig-text-dark)]">Avgjøring</p>
-      <p className="mt-1 text-xs text-[var(--ig-text-light)]">Godkjent eller avvist</p>
-    </div>
-    <div className="rounded-xl border border-[#D8E6DF] bg-[#E8F5EE] p-4 text-center">
-      <CheckCircle2 className="mx-auto mb-2 h-6 w-6 text-[var(--ig-secondary)]" />
-      <p className="text-sm font-semibold text-[#2A6452]">Godkjent</p>
-    </div>
-    <div className="rounded-xl border border-[#D8E6DF] bg-[#FEF3E6] p-4 text-center">
-      <RefreshCcw className="mx-auto mb-2 h-6 w-6 text-[#D97706]" />
-      <p className="text-sm font-semibold text-[#92400E]">Avvist / revidering</p>
-    </div>
-  </div>
-);
-
-export const InteractiveGuide: React.FC = () => {
-  const observerRef = useRef<IntersectionObserver | null>(null);
-  usePublicLightTheme();
-
-  useSEO({
-    title: "Interaktiv guide – Lær Tidum",
-    description: "Steg-for-steg guide til Tidum. Lær timeføring, rapportering og prosjektstyring på en enkel måte.",
-    canonical: "https://tidum.no/guide",
-  });
-
-  useEffect(() => {
-    observerRef.current = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) {
-            entry.target.classList.add('animate-fadeIn');
-            observerRef.current?.unobserve(entry.target);
-          }
-        });
-      },
-      { threshold: 0.1 }
-    );
-
-    document.querySelectorAll('[data-observe]').forEach((el) => {
-      observerRef.current?.observe(el);
-    });
-
-    return () => observerRef.current?.disconnect();
-  }, []);
-
-  return (
-    <main className="tidum-page tidum-page--public">
-      <style>{tidumPageStyles}
-      {`
-        .ig-page { --ig-primary: ${COLORS.primary}; --ig-secondary: ${COLORS.secondary}; --ig-accent: ${COLORS.accent}; --ig-text-dark: ${COLORS.textDark}; --ig-text-light: ${COLORS.textLight}; --ig-bg-light: ${COLORS.bgLight}; --ig-border: ${COLORS.border}; }
-      `}
-      </style>
-
-      <div className="rt-container pb-20 pt-8 ig-page">
-        {/* ── Hero / Header Panel ── */}
-        <section className="tidum-panel tidum-fade-up relative overflow-hidden rounded-[28px]">
-          <div className="pointer-events-none absolute -left-16 top-[34%] h-36 w-96 rotate-[-14deg] rounded-[999px] bg-[rgba(131,171,145,0.2)]" />
-          <div className="pointer-events-none absolute right-[-140px] top-14 h-80 w-[520px] rounded-[999px] bg-[rgba(194,205,195,0.24)]" />
-
-          <header className="relative z-10 flex items-center justify-between border-b border-[var(--color-border)] px-6 py-5 sm:px-8">
-            <div className="flex items-center gap-3">
-              <Link href="/">
-                <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto sm:h-11 cursor-pointer" />
-              </Link>
-            </div>
-            <div className="flex items-center gap-4 sm:gap-6">
-              <Link href="/hvorfor" className="hidden items-center gap-2 text-base text-[#26373C] transition-colors hover:text-[var(--color-primary)] sm:inline-flex">
-                Hvorfor Tidum?
-              </Link>
-              <Link href="/kontakt">
-                <Button className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold">
-                  Be om demo
-                  <ArrowRight className="ml-2 h-4 w-4" />
-                </Button>
-              </Link>
-            </div>
-          </header>
-
-          <div className="relative z-10 px-6 py-12 sm:px-8 sm:py-16 text-center max-w-4xl mx-auto">
-            <h1 className="tidum-title">
-              Velkommen til <span className="text-[var(--color-primary)]">Tidum</span>
-            </h1>
-            <p className="tidum-text mt-6 max-w-2xl mx-auto">
-              Behersk kunsten med <span className="font-semibold text-[var(--color-primary)]">intelligent arbeidstidsregistrering</span>.
-              Registrer, analyser og optimaliser hver time av din profesjonelle reise.
-            </p>
-            <div className="mt-6 max-w-2xl mx-auto">
-              <InfoBox type="info">
-                <span className="inline-flex items-center gap-2">
-                  <FileText className="h-4 w-4" />
-                  Denne interaktive veiledningen tar deg gjennom alle funksjoner med historier, eksempler og reelle arbeitsflyter.
-                </span>
-              </InfoBox>
-              <p className="mt-3 inline-flex items-center gap-2 rounded-xl border border-[#D8E6DF] bg-white/80 px-3 py-2 text-sm text-[var(--ig-text-dark)]">
-                <Lightbulb className="h-4 w-4 text-[var(--ig-primary)]" />
-                Illustrasjonsmock er tilgjengelig for admin i CMS Visual Editor.
-              </p>
-            </div>
-          </div>
-        </section>
-
-        {/* Content */}
-        <div className="max-w-7xl mx-auto mt-12">
-        {/* TIME REGISTRATION */}
-        <section className="tidum-fade-up mb-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E7F3EE]">
-              <Clock size={24} className="text-[#3A8B73]" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
-                Registrer din tid
-              </h2>
-              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                Din profesjonelle dagbok starter her
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
-            <div className="flex gap-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E7F3EE] text-[var(--ig-primary)]">
-                <Sunrise className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Din første dag med Tidum</h3>
-                <p className="leading-relaxed text-[var(--color-text-muted)]">
-                  Hver profesjonell dag forteller en historie. Når du registrerer tid, bygger du ikke bare et tidsarkiv—du dokumenterer dine
-                  arbeidsresultater. Hver oppføring blir en byggesten i din profesjonelle fortelling, og skaper mønstre som avslører dine
-                  arbeidsvanер, produktivitetspakker og områder for forbedring.
-                </p>
-              </div>
-            </div>
-            <div className="mt-6">
-              <WhiskerIllustrationPlaceholder
-                title="Morning Routine Illustration"
-                description="A person starting their day with Tidum, coffee in hand, ready to track their work..."
-                src="/illustrations/morning-routine.png"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mb-6">
-            <h3 className="font-semibold mb-6 text-[var(--color-primary)] flex items-center gap-2">
-              <Camera className="h-4 w-4" />
-              Arbeidsflyt for tidsregistrering
-            </h3>
-            <WorkflowSVG />
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
-              <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-[#1D2C31]">
-                <Plus className="h-4 w-4 text-[var(--ig-primary)]" /> Opprett tidsføring i 4 steg
-              </h3>
-              <div className="space-y-6">
-                {[1, 2, 3, 4].map((num) => {
-                  const steps = [
-                    { title: 'Start stoppeklokken', desc: 'Trykk "Start" når du begynner å arbeide' },
-                    { title: 'Velg prosjekt', desc: 'Tildel oppgaven til riktig prosjekt' },
-                    { title: 'Legg til detaljer', desc: 'Beskriv det du arbeidet med' },
-                    { title: 'Lagre oppføringen', desc: 'Fullfør registreringen' },
-                  ];
-                  const step = steps[num - 1];
-                  return (
-                    <div key={num} className="flex gap-4">
-                      <StepBadge number={num} />
-                      <div>
-                        <p className="font-semibold text-[var(--color-primary)]">
-                          {step.title}
-                        </p>
-                        <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                          {step.desc}
-                        </p>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <ScreenshotPlaceholder title="Tidsregistrering Skjermbilde" icon={<Smartphone className="h-6 w-6" />} size="480x360px" src="/screenshots/time-tracking.webp" />
-          </div>
-        </section>
-
-        {/* SMART SUGGESTIONS */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F5F7]">
-              <Sparkles size={24} className="text-[var(--color-primary)]" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
-                Smarte forslag i Tidum
-              </h2>
-              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                Få hjelp fra historikken din, med full kontroll
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
-            <div className="flex gap-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F5F7] text-[var(--ig-primary)]">
-                <Brain className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Personlige forslag med forklaring</h3>
-                <p className="leading-relaxed text-[var(--color-text-muted)]">
-                  Tidum foreslår prosjekt, tekst, timer og kopiering fra forrige måned basert på tidligere føringer.
-                  Hvert forslag viser <span className="font-semibold text-[var(--color-primary)]">hvorfor</span> og
-                  <span className="font-semibold text-[var(--color-primary)]"> sikkerhet</span> slik at du kan vurdere
-                  raskt før du bruker det.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-6">
-            {[
-              {
-                icon: Home,
-                title: "Dashboard",
-                desc: "Bruk forslag direkte i Quick Log. Du kan også velge «Hele uka» eller «Kopier måned».",
-              },
-              {
-                icon: Clock,
-                title: "Timeføring",
-                desc: "Forslagskort viser prosjekt, beskrivelse og timer med forklaring. Velg «Bruk», «Ikke nå» eller «Aldri».",
-              },
-              {
-                icon: ClipboardList,
-                title: "Saksrapporter",
-                desc: "Foreslått sak, felt og kopiering fra forrige måned. Du kan blokkere en sak fra videre forslag.",
-              },
-              {
-                icon: CalendarDays,
-                title: "Rapporter",
-                desc: "Planleggingsforslag gjenbruker sist brukte rapportplan med tydelig hvorfor/sikkerhet.",
-              },
-            ].map((item, idx) => (
-              <div key={idx} className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-5">
-                <div className="flex items-center gap-3 mb-3">
-                  <item.icon className="h-6 w-6 text-[var(--ig-primary)]" />
-                  <h4 className="font-semibold text-[#1D2C31]">{item.title}</h4>
-                </div>
-                <p className="text-sm text-[var(--color-text-muted)]">{item.desc}</p>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mb-6">
-            <h3 className="text-lg font-semibold mb-6 flex items-center gap-2 text-[#1D2C31]">
-              <SlidersHorizontal size={18} className="text-[var(--color-primary)]" />
-              Slik setter du opp forslag riktig
-            </h3>
-            <div className="space-y-6">
-              {[1, 2, 3, 4, 5].map((num) => {
-                const steps = [
-                  { title: "Åpne Innstillinger → Forslag", desc: "Her styrer du hele forslagssystemet." },
-                  { title: "Velg modus", desc: "Av, Kun dashboard, Balansert eller Proaktiv." },
-                  { title: "Juster hyppighet og terskel", desc: "Bruk høyere terskel om du vil ha færre forslag med høyere sikkerhet." },
-                  { title: "Lær opp systemet", desc: "Bruk «Bruk», «Ikke nå» eller «Ikke foreslå igjen» for å tilpasse forslagene." },
-                  { title: "Tilbakestill ved behov", desc: "Du kan alltid gå tilbake til team-standard fra Innstillinger." },
-                ];
-                const step = steps[num - 1];
-                return (
-                  <div key={num} className="flex gap-4">
-                    <StepBadge number={num} />
-                    <div>
-                      <p className="font-semibold text-[var(--color-primary)]">{step.title}</p>
-                      <p className="text-sm mt-1 text-[var(--color-text-muted)]">{step.desc}</p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <InfoBox type="success">
-            <span className="inline-flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4" />
-              <span><span className="font-bold">Tips for ansatte:</span> Start med Balansert modus og terskel på 45–60% for en rolig og presis flyt.</span>
-            </span>
-          </InfoBox>
-          <div className="mt-4">
-            <InfoBox type="info">
-              <span className="inline-flex items-center gap-2">
-                <Users className="h-4 w-4" />
-                <span><span className="font-bold">Tips for ledere:</span> Sett team-standard per rolle og bruk KPI-kortet i Innstillinger for å følge treffsikkerhet og spart tid.</span>
-              </span>
-            </InfoBox>
-          </div>
-        </section>
-
-        {/* REPORTS */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8F5EE]">
-              <BarChart3 size={24} className="text-[#4E9A6F]" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
-                Rapporter og analyse
-              </h2>
-              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                Gjør tidsdata om til innsikter
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
-            <div className="flex gap-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#E8F5EE] text-[var(--ig-secondary)]">
-                <TrendingUp className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Fra tall til historier</h3>
-                <p className="leading-relaxed text-[var(--color-text-muted)]">
-                  Rapporter gjør dataene dine meningsfulle. Du oppdager hvilke prosjekter som forbruker mest tid, hvordan produktiviteten
-                  varierer, og hvor muligheter for optimalisering ligger. Rapporter gjør rutinearbeid om til forretnetsforstand.
-                </p>
-              </div>
-            </div>
-            <div className="mt-6">
-              <WhiskerIllustrationPlaceholder
-                title="Data Analytics Journey"
-                description="Charts and graphs coming to life, showing productivity insights and trends..."
-                src="/illustrations/data-analytics.png"
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            {[
-              {
-                icon: CheckCircle2,
-                title: 'Sammendrag',
-                desc: 'Rask oversikt over totale timer, prosjektfordeling og metrics',
-                examples: ['Total timer: 160h', 'Gjennomsnitt/dag: 8h', 'Top prosjekt: Platform'],
-              },
-              {
-                icon: Zap,
-                title: 'Detaljert',
-                desc: 'Dyp analyse med dag-for-dag sammenbrudd og trender',
-                examples: ['Daglig søylegrafikk', 'Prosjektfordeling', 'Trendanalyse'],
-              },
-              {
-                icon: Timer,
-                title: 'Analyse',
-                desc: 'Visuell presentasjon av mønstre og prediktive innsikter',
-                examples: ['Interaktive grafer', 'Mønstertellinger', 'Prediksjoner'],
-              },
-            ].map((report, idx) => (
-              <div key={idx} className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-5">
-                <div className="flex items-center gap-3 mb-4">
-                  <report.icon className="h-5 w-5 text-[var(--color-primary)]" />
-                  <h4 className="font-semibold text-[#1D2C31]">{report.title}</h4>
-                </div>
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  {report.desc}
-                </p>
-                <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
-                  <p className="text-xs font-semibold text-[var(--color-primary)] flex items-center gap-1.5">
-                    <BarChart3 className="h-3.5 w-3.5" />
-                    Eksempel:
-                  </p>
-                  <ul className="text-xs mt-2 text-[var(--color-text-muted)]">
-                    {report.examples.map((ex, i) => (
-                      <li key={i}>✓ {ex}</li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mb-6">
-            <h3 className="text-lg font-semibold mb-4 text-[#1D2C31] flex items-center gap-2">
-              <Camera className="h-4 w-4" />
-              Eksempel: Rapport Dashboard
-            </h3>
-            <ScreenshotPlaceholder title="Rapport Dashboard Skjermbilde" icon={<ClipboardList className="h-6 w-6" />} size="900x320px" src="/screenshots/reports-dashboard.webp" />
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
-            <h3 className="text-lg font-semibold mb-8 text-[#1D2C31]">Slik genererer du din første rapport</h3>
-            <ReportGenerationSVG />
-            <div className="space-y-6">
-              {[1, 2, 3, 4].map((num) => {
-                const steps = [
-                  { title: 'Gå til Rapporter', desc: 'Åpne Rapporter fra menyen', color: COLORS.secondary },
-                  { title: 'Velg periode', desc: 'Denne måneden, forrige måned, eller egendefinert', color: COLORS.secondary },
-                  { title: 'Velg rapporttype', desc: 'Sammendrag, Detaljert eller Analyse', color: COLORS.secondary },
-                  { title: 'Generer og del', desc: 'Eksporter som PDF, Excel eller CSV', color: COLORS.secondary },
-                ];
-                const step = steps[num - 1];
-                return (
-                  <div key={num} className="flex gap-4">
-                    <StepBadge number={num} />
-                    <div>
-                      <p className="font-semibold text-[var(--ig-secondary)]">
-                        {step.title}
-                      </p>
-                      <p className="text-sm mt-1 text-[var(--ig-text-light)]">
-                        {step.desc}
-                      </p>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <InfoBox type="success">
-              <span className="inline-flex items-center gap-2">
-                <Sparkles className="h-4 w-4 text-[var(--color-primary)]" />
-                <span><span className="font-bold text-[var(--color-primary)]">Godkjenningsflyt:</span> Rapporter må ofte godkjennes av
-                leder. Du får notifikasjoner når de er behandlet.</span>
-              </span>
-            </InfoBox>
-          </div>
-        </section>
-
-        {/* CASE MANAGEMENT */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F5EFE1]">
-              <FileText size={24} className="text-[#8F7E52]" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
-                Sakshåndtering
-              </h2>
-              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                Spor, dokumenter og løs saker systematisk
-              </p>
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-6 sm:p-8 shadow-[0_8px_28px_rgba(22,43,49,0.06)] mb-6">
-            <div className="flex gap-4">
-              <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F5EFE1] text-[#8F7E52]">
-                <ScanSearch className="h-6 w-6" />
-              </div>
-              <div>
-                <h3 className="text-xl font-semibold text-[#1D2C31] mb-2">Dokumentasjon som gir kraft</h3>
-                <p className="leading-relaxed text-[var(--color-text-muted)]">
-                  Hver sak forteller en historie fra påbegynnelse til løsning. Detaljert dokumentasjon skaper en kunnskapsbase som hjelper
-                  teamet ditt lære, forbedres og ta bedre avgjørelser. Saker er ikke bare poster—de er leksjoner som blir verdifulle for hele
-                  organisasjonen.
-                </p>
-              </div>
-            </div>
-            <div className="mt-6">
-              <WhiskerIllustrationPlaceholder
-                title="Documentation & Collaboration"
-                description="Team members collaborating, sharing knowledge, and building a robust knowledge base..."
-                src="/illustrations/collaboration.png"
-              />
-            </div>
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
-            <h3 className="text-lg font-semibold mb-8 text-[#1D2C31]">Sakens livssyklus</h3>
-            <CaseLifecycleSVG />
-            <div className="space-y-6">
-              {[
-                { icon: Inbox, title: 'Sak opprettet', desc: 'Ny sak med innledende informasjon', colorClass: 'text-[var(--ig-primary)]' },
-                { icon: RefreshCcw, title: 'Dokumentasjon', desc: 'Samle bevis og dokumenter funn', colorClass: 'text-[var(--ig-secondary)]' },
-                { icon: Eye, title: 'Gjennomgang', desc: 'Venter på ledelse/admin-godkjenning', colorClass: 'text-[#D97706]' },
-                { icon: CheckCircle2, title: 'Løsning & lukking', desc: 'Godkjent og lagt til kunnskapsbase', colorClass: 'text-[var(--ig-secondary)]' },
-              ].map((stage, idx) => (
-                <div key={idx} className="flex gap-6">
-                  <div className={`inline-flex h-7 w-7 items-center justify-center ${stage.colorClass}`}>
-                    <stage.icon className="h-5 w-5" />
-                  </div>
-                  <div className="flex-1">
-                    <p className={`font-bold ${stage.colorClass}`}>
-                      {idx + 1}. {stage.title}
-                    </p>
-                    <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                      {stage.desc}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <InfoBox type="warning">
-              <span className="inline-flex items-center gap-2">
-                <AlertTriangle className="h-4 w-4" />
-                <span><span className="font-bold">Best practice:</span> Dokumenter alltid grundig. Fremtidsteammedlemmer vil takke deg for klare,
-                detaljerte saker.</span>
-              </span>
-            </InfoBox>
-          </div>
-        </section>
-
-        {/* ADMINISTRATION */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
-          <div className="flex items-center gap-4 mb-10">
-            <div className="inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#F0F5F7]">
-              <Settings size={24} className="text-[var(--color-primary)]" />
-            </div>
-            <div>
-              <h2 className="text-3xl font-semibold tracking-tight text-[#15343D]">
-                Administrasjon
-              </h2>
-              <p className="text-sm mt-1 text-[var(--color-text-muted)]">
-                Styr brukere, tilgang og ressurser
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-            <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8">
-              <h3 className="text-lg font-semibold mb-6 text-[#1D2C31]">Saksgodkjenning</h3>
-              <div className="space-y-4">
-                <InfoBox type="success">
-                  <p className="text-sm">
-                    <span className="font-semibold">Admin deling</span>
-                  </p>
-                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
-                    Oversikt over alle innsendte saker som venter gjennomgang
-                  </p>
-                </InfoBox>
-
-                <InfoBox type="info">
-                  <p className="text-sm">
-                    <span className="font-semibold">Godkjenn/Avvis</span>
-                  </p>
-                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
-                    Sett status eller be om revisjon med kommentarer
-                  </p>
-                </InfoBox>
-
-                <InfoBox type="warning">
-                  <p className="text-sm">
-                    <span className="font-semibold">Kvalitetssjekk</span>
-                  </p>
-                  <p className="text-xs mt-1 text-[var(--ig-text-light)]">
-                    Sikre konsistens og fullständighet i dokumentasjonen
-                  </p>
-                </InfoBox>
-              </div>
-            </div>
-
-            <ScreenshotPlaceholder title="Admin Panel Skjermbilde" icon={<Monitor className="h-6 w-6" />} size="600x240px" src="/screenshots/admin-panel.webp" />
-          </div>
-
-          <div className="rounded-2xl border border-[var(--color-border)] bg-white/90 p-6 sm:p-8 mt-5">
-            <h3 className="text-lg font-semibold mb-6 text-[#1D2C31]">Tilgangsforespørsel arbeidsflyt</h3>
-            <AccessRequestSVG />
-
-            <div className="grid grid-cols-3 gap-4">
-              {['Innsendt', 'Vurdert', 'Fullstendig'].map((title, idx) => (
-                <div key={idx} className="rounded-xl border border-[var(--color-border)] bg-white/90 p-4 text-center">
-                  <p className="font-semibold text-sm mb-2 text-[var(--color-primary)]">
-                    {title}
-                  </p>
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    {idx === 0 && 'Bruker sender forespørsel om tilgang'}
-                    {idx === 1 && 'Leder gjennomgår og avgjør'}
-                    {idx === 2 && 'Bruker får beskjed om resultat'}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* BEST PRACTICES */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-section)] p-6 sm:p-8" data-observe>
-          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] mb-8 flex items-center gap-3">
-            <Lightbulb className="h-8 w-8 text-[var(--ig-primary)]" />
-            Best practices
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {[
-              { icon: Target, title: 'Vær konsistent', desc: 'Registrer tid daglig. Konsistens skaper ærlige data og bedre innsikter.' },
-              { icon: NotebookPen, title: 'Detaljer betyr noe', desc: 'Legg til meningsfulle beskrivelser. Framtidig deg vil takke deg.' },
-              { icon: Timer, title: 'Tidsblokker', desc: 'Del dagen inn i fokuserte blokker. Det avslører mønstre bedre.' },
-              { icon: ScanSearch, title: 'Gjennomgang', desc: 'Generer ukerapporter. Spot trender tidlig og juster strategi.' },
-              { icon: Users, title: 'Samarbeid', desc: 'Del kunnskap gjennom saksmeldinger. Hele teamet vinner.' },
-              { icon: BarChart3, title: 'Data først', desc: 'Bruk analyser til å begrunne avgjørelser. Data taler sterkere.' },
-            ].map((practice, idx) => (
-              <div key={idx} className="rounded-2xl border border-[var(--color-border)] bg-white/95 p-5 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
-                <div className="flex items-start gap-4">
-                  <practice.icon className="h-7 w-7 text-[var(--ig-primary)]" />
-                  <div>
-                    <h4 className="font-semibold text-[#1D2C31]">{practice.title}</h4>
-                    <p className="text-sm mt-2 text-[var(--color-text-muted)]">
-                      {practice.desc}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* FAQ */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8" data-observe>
-          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] mb-8 flex items-center gap-3">
-            <CircleHelp className="h-8 w-8 text-[var(--ig-primary)]" />
-            Ofte stilte spørsmål
-          </h2>
-          <div className="space-y-4">
-            {faqItems.map((item, idx) => (
-              <FAQAccordion key={idx} item={item} />
-            ))}
-          </div>
-        </section>
-
-        {/* CTA */}
-        <section className="tidum-fade-up mt-12 rounded-3xl border border-[#1a5d65] bg-[var(--color-primary)] px-6 py-10 text-white sm:px-8 text-center">
-          <h2 className="text-[clamp(28px,4vw,42px)] font-semibold tracking-tight">
-            Klar til å mestre din tid?
-          </h2>
-          <p className="mx-auto mt-4 max-w-2xl text-white/85">
-            Du har nå alt du trenger for å bruke Tidum effektivt. Start rolig, vær konsistent, og se dine produktivitetsinnsikter vokse.
-          </p>
-          <div className="mt-7 flex flex-wrap items-center justify-center gap-3">
-            <Link href="/kontakt">
-              <Button className="h-auto rounded-xl bg-white px-6 py-3 text-[var(--color-primary)] hover:bg-white/90 font-semibold">
-                <Sparkles className="mr-2 h-4 w-4" />
-                Kom i gang
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Button>
-            </Link>
-            <Link href="/kontakt">
-              <Button
-                variant="outline"
-                className="h-auto rounded-xl border-white/70 px-6 py-3 text-white hover:bg-white/10 font-semibold"
-              >
-                <Phone className="mr-2 h-4 w-4" />
-                Kontakt support
-                <ChevronRight className="ml-1.5 h-4 w-4" />
-              </Button>
-            </Link>
-          </div>
-        </section>
-        </div>
-
-        {/* ── Footer ── */}
-        <footer className="tidum-fade-up mt-10 rounded-3xl border border-[var(--color-border)] bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(245,248,246,0.92))] px-6 py-8 sm:px-8">
-          <div className="grid gap-8 md:grid-cols-[1.2fr,0.9fr,1fr]">
-            <div>
-              <img src={tidumWordmark} alt="Tidum" className="h-10 w-auto" />
-              <p className="mt-4 max-w-md text-sm leading-relaxed text-[var(--color-text-muted)]">
-                Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.
-              </p>
-              <Link href="/kontakt" className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]">
-                {TIDUM_SUPPORT_EMAIL}
-              </Link>
-            </div>
-
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Snarveier</p>
-              <div className="mt-3 grid gap-2 text-sm">
-                <Link href="/" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
-                  <ChevronRight className="h-4 w-4" />
-                  Forside
-                </Link>
-                <Link href="/hvorfor" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
-                  <ChevronRight className="h-4 w-4" />
-                  Hvorfor Tidum?
-                </Link>
-                <Link href="/personvern" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
-                  <ChevronRight className="h-4 w-4" />
-                  Personvern
-                </Link>
-                <Link href="/vilkar" className="inline-flex items-center gap-2 text-left text-[#2B3C41] transition-colors hover:text-[var(--color-primary)]">
-                  <ChevronRight className="h-4 w-4" />
-                  Vilkår
-                </Link>
-              </div>
-            </div>
-
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-wide text-[#35545B]">Trygghet</p>
-              <div className="mt-3 grid gap-2">
-                {[
-                  "Bygget for norsk arbeidsliv",
-                  "Personvern først",
-                  "Klar for dokumentasjonskrav",
-                ].map((item) => (
-                  <div key={item} className="inline-flex items-start gap-2 rounded-lg bg-white/75 px-3 py-2 text-sm text-[#2B3C41]">
-                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-secondary)]" />
-                    <span>{item}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-7 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-4 text-xs text-[var(--color-text-muted)]">
-            <p>© {new Date().getFullYear()} Tidum. Alle rettigheter reservert.</p>
-            <p>Enkel registrering. Trygg dokumentasjon. Full oversikt.</p>
-          </div>
-        </footer>
-      </div>
-    </main>
-  );
-};
-
-export default InteractiveGuide;

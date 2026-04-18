@@ -30,10 +30,12 @@ userStateRouter.get("/settings", requireAuth, async (req: any, res) => {
     if (!row) {
       [row] = await db.insert(userSettings).values({ userId }).returning();
     }
+    const prefs = (row.dashboardPrefs ?? {}) as Record<string, any>;
     res.json({
       gdprAutoReplace: row.gdprAutoReplace ?? false,
       onboardingCompleted: row.onboardingCompleted ?? false,
-      dashboardPrefs: row.dashboardPrefs ?? {},
+      dashboardPrefs: prefs,
+      tourCompleted: !!prefs.tourCompleted,
     });
   } catch (e) {
     res.status(500).json({ error: String(e) });
@@ -47,6 +49,16 @@ userStateRouter.patch("/settings", requireAuth, async (req: any, res) => {
     if (typeof req.body.gdprAutoReplace === "boolean") allowed.gdprAutoReplace = req.body.gdprAutoReplace;
     if (typeof req.body.onboardingCompleted === "boolean") allowed.onboardingCompleted = req.body.onboardingCompleted;
     if (req.body.dashboardPrefs && typeof req.body.dashboardPrefs === "object") allowed.dashboardPrefs = req.body.dashboardPrefs;
+    // tourCompleted is stored as a key inside dashboardPrefs jsonb (no schema change needed)
+    if (typeof req.body.tourCompleted === "boolean") {
+      const [existingRow] = await db
+        .select()
+        .from(userSettings)
+        .where(eq(userSettings.userId, userId))
+        .limit(1);
+      const currentPrefs = (existingRow?.dashboardPrefs ?? {}) as Record<string, any>;
+      allowed.dashboardPrefs = { ...currentPrefs, tourCompleted: req.body.tourCompleted };
+    }
     if (Object.keys(allowed).length === 0) return res.status(400).json({ error: "Ingen gyldige felter" });
     allowed.updatedAt = new Date();
 

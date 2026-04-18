@@ -32,6 +32,8 @@ import {
   Mail,
   ClipboardCheck,
   AlertTriangle,
+  HelpCircle,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -64,6 +66,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { normalizeRole } from "@shared/roles";
+import { ProductTour, TourReplayButton, DEFAULT_TIDUM_TOUR } from "@/components/onboarding/product-tour";
+import { useStuckDetection } from "@/hooks/use-stuck-detection";
 
 interface CompanyUser {
   id: number;
@@ -217,18 +221,61 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const [onboardingCompleted, setOnboardingCompleted] = useState(() => {
     try { return localStorage.getItem("tidum_onboarding_done") === "1"; } catch { return false; }
   });
+  // Tour state — separate from onboarding checklist
+  const [tourCompleted, setTourCompleted] = useState(() => {
+    try { return localStorage.getItem("tidum_tour_done") === "1"; } catch { return false; }
+  });
+  const [tourOpen, setTourOpen] = useState(false);
+
   useEffect(() => {
     fetch("/api/user-state/settings", { credentials: "include" })
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         if (data && typeof data.onboardingCompleted === "boolean") {
           setOnboardingCompleted(data.onboardingCompleted);
-          // Sync local mirror so next page load is instant + correct
           try { localStorage.setItem("tidum_onboarding_done", data.onboardingCompleted ? "1" : "0"); } catch {}
+        }
+        if (data && typeof data.tourCompleted === "boolean") {
+          setTourCompleted(data.tourCompleted);
+          try { localStorage.setItem("tidum_tour_done", data.tourCompleted ? "1" : "0"); } catch {}
         }
       })
       .catch(() => { /* offline tolerated */ });
   }, []);
+
+  // Auto-launch the tour on first dashboard visit, or when ?tour=restart is set.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("tour") === "restart") {
+      setTourOpen(true);
+      params.delete("tour");
+      const newSearch = params.toString();
+      const newUrl = window.location.pathname + (newSearch ? `?${newSearch}` : "");
+      window.history.replaceState(null, "", newUrl);
+      return;
+    }
+    if (!tourCompleted && (location === "/dashboard" || location === "/")) {
+      const t = window.setTimeout(() => setTourOpen(true), 1200);
+      return () => window.clearTimeout(t);
+    }
+  }, [tourCompleted, location]);
+
+  const closeTour = useCallback((completed: boolean) => {
+    setTourOpen(false);
+    if (completed) {
+      setTourCompleted(true);
+      try { localStorage.setItem("tidum_tour_done", "1"); } catch {}
+      fetch("/api/user-state/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ tourCompleted: true }),
+      }).catch(() => {});
+    }
+  }, []);
+
+  // Stuck detection — discrete "Trenger du hjelp?" prompt when triggered
+  const stuckDetection = useStuckDetection();
   const [isHeaderActivityOpen, setIsHeaderActivityOpen] = useState(false);
   const { user: authUser, isLoading: authLoading } = useAuth();
   const {
@@ -797,6 +844,34 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
         />
       ) : null}
 
+      {/* Interactive product tour */}
+      <ProductTour
+        steps={DEFAULT_TIDUM_TOUR}
+        open={tourOpen}
+        onClose={closeTour}
+      />
+
+      {/* Floating help button — restart tour or open guide */}
+      {tourCompleted && !tourOpen && (
+        <TourReplayButton onClick={() => setTourOpen(true)} />
+      )}
+
+      {/* Stuck-detection prompt */}
+      {stuckDetection.stuck && !tourOpen && (
+        <StuckHelperPrompt
+          reason={stuckDetection.reason}
+          onDismiss={stuckDetection.dismiss}
+          onStartTour={() => {
+            stuckDetection.dismiss();
+            setTourOpen(true);
+          }}
+          onOpenGuide={() => {
+            stuckDetection.dismiss();
+            navigate("/guide");
+          }}
+        />
+      )}
+
       {(() => {
         // Roles who get the institutions step (admins/managers who set up the registry)
         const showsInstitutionsStep = ["vendor_admin", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]
@@ -1042,6 +1117,75 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
       </Dialog>
       );
       })()}
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Stuck-detection floating prompt — surfaces a contextual help offer when
+   the user appears idle, lost, or frustrated.
+   ───────────────────────────────────────────────────────────────────────── */
+function StuckHelperPrompt({
+  reason,
+  onDismiss,
+  onStartTour,
+  onOpenGuide,
+}: {
+  reason: "idle" | "nav" | "dialog" | null;
+  onDismiss: () => void;
+  onStartTour: () => void;
+  onOpenGuide: () => void;
+}) {
+  const messages: Record<NonNullable<typeof reason>, { title: string; body: string }> = {
+    idle: {
+      title: "Trenger du hjelp?",
+      body: "Du har vært inaktiv en stund. Skal vi vise deg rundt eller åpne guiden?",
+    },
+    nav: {
+      title: "Litt vrient å finne fram?",
+      body: "Det ser ut som du leter — vi kan vise deg rundt på 30 sekunder.",
+    },
+    dialog: {
+      title: "Står du fast i denne dialogen?",
+      body: "Det er ikke åpenbart — vi kan vise deg rundt eller åpne en kort forklaring.",
+    },
+  };
+  const msg = messages[reason ?? "idle"];
+
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-40 w-80 rounded-2xl bg-white border border-slate-200 shadow-2xl overflow-hidden animate-in slide-in-from-bottom-2 duration-200"
+      role="status"
+      data-testid="stuck-helper-prompt"
+    >
+      <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white flex items-center gap-2">
+        <HelpCircle className="h-4 w-4" />
+        <span className="text-sm font-semibold flex-1">{msg.title}</span>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-white/15"
+          aria-label="Lukk"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="px-4 py-3 text-sm text-slate-600">{msg.body}</div>
+      <div className="px-4 pb-3 flex flex-wrap gap-2">
+        <Button size="sm" onClick={onStartTour}>
+          Vis omvisning
+        </Button>
+        <Button size="sm" variant="outline" onClick={onOpenGuide}>
+          Åpne guiden
+        </Button>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="text-xs text-slate-400 hover:text-slate-600 ml-auto self-center"
+        >
+          Ikke nå
+        </button>
+      </div>
     </div>
   );
 }
