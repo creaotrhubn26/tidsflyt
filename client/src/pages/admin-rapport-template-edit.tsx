@@ -531,11 +531,164 @@ function SectionEditor({
                   onChange={(items) => onChange({ items })}
                 />
               )}
+
+              {(section.type === "goals_list" ||
+                section.type === "activities_log" ||
+                section.type === "structured_observations") && (
+                <PreviewSamplesEditor
+                  section={section}
+                  readOnly={readOnly}
+                  onChange={(previewSamples) => onChange({ previewSamples })}
+                />
+              )}
             </div>
           </div>
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+// ─── Preview samples editor ────────────────────────────────────────────────
+// Lets template admins customize what appears in the right-side live preview
+// for goals_list, activities_log and structured_observations sections.
+function PreviewSamplesEditor({
+  section, readOnly, onChange,
+}: {
+  section: RapportTemplateSection;
+  readOnly: boolean;
+  onChange: (samples: NonNullable<RapportTemplateSection["previewSamples"]>) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const samples = section.previewSamples ?? {};
+
+  const updateGoals = (next: NonNullable<typeof samples.goals>) =>
+    onChange({ ...samples, goals: next });
+  const updateActivities = (next: NonNullable<typeof samples.activities>) =>
+    onChange({ ...samples, activities: next });
+  const updateObservations = (next: NonNullable<typeof samples.observations>) =>
+    onChange({ ...samples, observations: next });
+
+  return (
+    <div className="rounded-lg border bg-muted/20 p-3 space-y-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between text-left"
+      >
+        <Label className="text-xs cursor-pointer">
+          Tilpass forhåndsvisning <span className="text-muted-foreground font-normal">(valgfritt)</span>
+        </Label>
+        <ChevronDown
+          className={cn("h-3.5 w-3.5 text-muted-foreground transition-transform", open && "rotate-180")}
+        />
+      </button>
+
+      {open && (
+        <div className="space-y-2 pt-1">
+          {section.type === "goals_list" && (
+            <SampleRowsEditor
+              rows={samples.goals ?? [{ label: "Mål 1 — eksempel", progress: "60%" }, { label: "Mål 2 — eksempel", progress: "30%" }]}
+              fields={[
+                { key: "label",    placeholder: "Måltekst",        flex: 3 },
+                { key: "progress", placeholder: "60%",              flex: 1 },
+              ]}
+              readOnly={readOnly}
+              onChange={(rows) => updateGoals(rows as any)}
+              addLabel="Legg til måleksempel"
+            />
+          )}
+
+          {section.type === "activities_log" && (
+            <SampleRowsEditor
+              rows={samples.activities ?? [
+                { date: "15.04", label: "Klientmøte", duration: "2t",     location: "Hjemme" },
+                { date: "18.04", label: "Aktivitet",  duration: "1t 30m", location: "Ute" },
+              ]}
+              fields={[
+                { key: "date",     placeholder: "15.04",       flex: 1 },
+                { key: "label",    placeholder: "Aktivitet",   flex: 2 },
+                { key: "duration", placeholder: "2t",          flex: 1 },
+                { key: "location", placeholder: "Sted",        flex: 1 },
+              ]}
+              readOnly={readOnly}
+              onChange={(rows) => updateActivities(rows as any)}
+              addLabel="Legg til aktivitetseksempel"
+            />
+          )}
+
+          {section.type === "structured_observations" && (
+            <SampleRowsEditor
+              rows={samples.observations ?? [{ date: "15.04", tag: "Trygghet", text: "Observasjon…" }]}
+              fields={[
+                { key: "date", placeholder: "15.04",     flex: 1 },
+                { key: "tag",  placeholder: "Tag",       flex: 1 },
+                { key: "text", placeholder: "Tekst",     flex: 3 },
+              ]}
+              readOnly={readOnly}
+              onChange={(rows) => updateObservations(rows as any)}
+              addLabel="Legg til observasjonseksempel"
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SampleRowsEditor({
+  rows, fields, readOnly, onChange, addLabel,
+}: {
+  rows: Record<string, string | undefined>[];
+  fields: { key: string; placeholder: string; flex: number }[];
+  readOnly: boolean;
+  onChange: (rows: Record<string, string | undefined>[]) => void;
+  addLabel: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      {rows.map((row, i) => (
+        <div key={i} className="flex items-center gap-1.5 rounded-md bg-background border px-2 py-1">
+          {fields.map((f) => (
+            <Input
+              key={f.key}
+              value={row[f.key] ?? ""}
+              onChange={(e) => {
+                const next = [...rows];
+                next[i] = { ...next[i], [f.key]: e.target.value };
+                onChange(next);
+              }}
+              disabled={readOnly}
+              placeholder={f.placeholder}
+              className="h-7 text-xs border-0 shadow-none focus-visible:ring-0 px-1"
+              style={{ flex: f.flex }}
+            />
+          ))}
+          {!readOnly && (
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-6 w-6 p-0 text-muted-foreground hover:text-destructive shrink-0"
+              onClick={() => onChange(rows.filter((_, j) => j !== i))}
+              aria-label="Fjern rad"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+          )}
+        </div>
+      ))}
+      {!readOnly && (
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 text-xs"
+          onClick={() => onChange([...rows, Object.fromEntries(fields.map((f) => [f.key, ""]))])}
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          {addLabel}
+        </Button>
+      )}
+    </div>
   );
 }
 
@@ -686,27 +839,29 @@ function PreviewSection({ index, section }: { index: number; section: RapportTem
 
       {section.type === "goals_list" && (
         <div className="space-y-1">
-          <div className="rounded-md bg-muted/40 px-2 py-1 text-[11px] flex items-center justify-between">
-            <span>Mål 1 — eksempel</span>
-            <span className="text-muted-foreground">60%</span>
-          </div>
-          <div className="rounded-md bg-muted/40 px-2 py-1 text-[11px] flex items-center justify-between">
-            <span>Mål 2 — eksempel</span>
-            <span className="text-muted-foreground">30%</span>
-          </div>
+          {(section.previewSamples?.goals ?? [
+            { label: "Mål 1 — eksempel", progress: "60%" },
+            { label: "Mål 2 — eksempel", progress: "30%" },
+          ]).map((g, i) => (
+            <div key={i} className="rounded-md bg-muted/40 px-2 py-1 text-[11px] flex items-center justify-between">
+              <span>{g.label || "(uten tekst)"}</span>
+              <span className="text-muted-foreground">{g.progress}</span>
+            </div>
+          ))}
         </div>
       )}
 
       {section.type === "activities_log" && (
-        <div className="rounded-md border p-2 text-[10px] text-muted-foreground">
-          <div className="flex items-center justify-between">
-            <span>15.04 · Klientmøte · 2t</span>
-            <span>Hjemme</span>
-          </div>
-          <div className="flex items-center justify-between mt-1">
-            <span>18.04 · Aktivitet · 1t 30m</span>
-            <span>Ute</span>
-          </div>
+        <div className="rounded-md border p-2 text-[10px] text-muted-foreground space-y-1">
+          {(section.previewSamples?.activities ?? [
+            { date: "15.04", label: "Klientmøte", duration: "2t",     location: "Hjemme" },
+            { date: "18.04", label: "Aktivitet",  duration: "1t 30m", location: "Ute" },
+          ]).map((a, i) => (
+            <div key={i} className="flex items-center justify-between">
+              <span>{[a.date, a.label, a.duration].filter(Boolean).join(" · ")}</span>
+              {a.location && <span>{a.location}</span>}
+            </div>
+          ))}
         </div>
       )}
 
@@ -730,10 +885,14 @@ function PreviewSection({ index, section }: { index: number; section: RapportTem
 
       {section.type === "structured_observations" && (
         <div className="space-y-1">
-          <div className="rounded-md bg-muted/40 px-2 py-1.5">
-            <p className="text-[10px] text-muted-foreground">15.04 · Trygghet</p>
-            <p className="text-[11px] italic text-muted-foreground mt-0.5">Observasjon…</p>
-          </div>
+          {(section.previewSamples?.observations ?? [
+            { date: "15.04", tag: "Trygghet", text: "Observasjon…" },
+          ]).map((o, i) => (
+            <div key={i} className="rounded-md bg-muted/40 px-2 py-1.5">
+              <p className="text-[10px] text-muted-foreground">{[o.date, o.tag].filter(Boolean).join(" · ")}</p>
+              <p className="text-[11px] italic text-muted-foreground mt-0.5">{o.text || "Observasjon…"}</p>
+            </div>
+          ))}
           <button className="text-[10px] text-primary font-medium">+ Legg til observasjon</button>
         </div>
       )}

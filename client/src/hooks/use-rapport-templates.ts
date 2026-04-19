@@ -9,6 +9,15 @@ export interface RapportTemplateSection {
   helpText?: string;
   items?: string[];
   minItems?: number;
+  /**
+   * Optional admin-editable example rows shown in the live preview pane while
+   * designing the template. Falls back to built-in defaults when omitted.
+   */
+  previewSamples?: {
+    goals?: { label: string; progress: string }[];
+    activities?: { date: string; label: string; duration: string; location?: string }[];
+    observations?: { date: string; tag: string; text: string }[];
+  };
 }
 
 export interface RapportTemplate {
