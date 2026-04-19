@@ -2,11 +2,15 @@
  * useStuckDetection — detects when a user appears stuck inside the app and
  * surfaces a one-time helper signal. Three heuristics:
  *
- *  1. Idle on the same page for >45s without meaningful interaction.
+ *  1. Idle on the same page for >idleMs without meaningful interaction.
  *  2. Repeated open/close of the same dialog within a short window
  *     (frustration signal).
  *  3. Fast back/forward navigation across the same routes (lost-in-app
  *     signal).
+ *
+ * Thresholds and enabled state are read from CMS guide-config so admins
+ * can tune behavior without redeploying. Telemetry events are emitted on
+ * every trip + dismissal so future ML can learn what works.
  *
  * Returns { stuck, dismiss, reset }.  `stuck` is true when a heuristic fires;
  * dismiss() suppresses it for the current page; reset() re-arms after
@@ -15,12 +19,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
-
-const IDLE_MS = 45_000;
-const NAV_WINDOW_MS = 15_000;
-const NAV_THRESHOLD = 4; // 4 navigation events in 15s → lost
-const DIALOG_WINDOW_MS = 12_000;
-const DIALOG_THRESHOLD = 3; // open/close same target 3+ times in 12s → frustrated
+import { useGuideConfig } from "./use-guide-config";
 
 export function useStuckDetection(): {
   stuck: boolean;
@@ -28,6 +27,13 @@ export function useStuckDetection(): {
   dismiss: () => void;
   reset: () => void;
 } {
+  const { config } = useGuideConfig();
+  const enabled = config.stuck.enabled;
+  const IDLE_MS = config.stuck.thresholds.idleMs;
+  const NAV_WINDOW_MS = config.stuck.thresholds.navWindowMs;
+  const NAV_THRESHOLD = config.stuck.thresholds.navThreshold;
+  const DIALOG_WINDOW_MS = config.stuck.thresholds.dialogWindowMs;
+  const DIALOG_THRESHOLD = config.stuck.thresholds.dialogThreshold;
   const [location] = useLocation();
   const [stuck, setStuck] = useState(false);
   const [reason, setReason] = useState<"idle" | "nav" | "dialog" | null>(null);
@@ -39,11 +45,17 @@ export function useStuckDetection(): {
 
   const trip = useCallback(
     (r: "idle" | "nav" | "dialog") => {
+      if (!enabled) return;
       if (dismissedFor.current.has(location)) return;
       setStuck(true);
       setReason(r);
+      // Telemetry hook — emits a window event so the host app can wire
+      // analytics or experimentation tooling without changing this hook.
+      try {
+        window.dispatchEvent(new CustomEvent("tidum:stuck", { detail: { reason: r, path: location } }));
+      } catch {}
     },
-    [location]
+    [enabled, location]
   );
 
   // ── Idle detection ─────────────────────────────────────────────────────

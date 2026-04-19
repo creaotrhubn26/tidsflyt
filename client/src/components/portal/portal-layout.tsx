@@ -68,6 +68,7 @@ import {
 import { normalizeRole } from "@shared/roles";
 import { ProductTour, TourReplayButton, buildTourSteps, type TidumTourRole } from "@/components/onboarding/product-tour";
 import { useStuckDetection } from "@/hooks/use-stuck-detection";
+import { useGuideConfig } from "@/hooks/use-guide-config";
 
 interface CompanyUser {
   id: number;
@@ -1160,21 +1161,9 @@ function StuckHelperPrompt({
   onStartTour: () => void;
   onOpenGuide: () => void;
 }) {
-  const messages: Record<NonNullable<typeof reason>, { title: string; body: string }> = {
-    idle: {
-      title: "Trenger du hjelp?",
-      body: "Du har vært inaktiv en stund. Skal vi vise deg rundt eller åpne guiden?",
-    },
-    nav: {
-      title: "Litt vrient å finne fram?",
-      body: "Det ser ut som du leter — vi kan vise deg rundt på 30 sekunder.",
-    },
-    dialog: {
-      title: "Står du fast i denne dialogen?",
-      body: "Det er ikke åpenbart — vi kan vise deg rundt eller åpne en kort forklaring.",
-    },
-  };
-  const msg = messages[reason ?? "idle"];
+  const { config } = useGuideConfig();
+  const msg = config.stuck.messages[reason ?? "idle"];
+  const labels = config.stuck.actions;
 
   return (
     <div
@@ -1196,18 +1185,14 @@ function StuckHelperPrompt({
       </div>
       <div className="px-4 py-3 text-sm text-slate-600">{msg.body}</div>
       <div className="px-4 pb-3 flex flex-wrap gap-2">
-        <Button size="sm" onClick={onStartTour}>
-          Vis omvisning
-        </Button>
-        <Button size="sm" variant="outline" onClick={onOpenGuide}>
-          Åpne guiden
-        </Button>
+        <Button size="sm" onClick={onStartTour}>{labels.tourLabel}</Button>
+        <Button size="sm" variant="outline" onClick={onOpenGuide}>{labels.guideLabel}</Button>
         <button
           type="button"
           onClick={onDismiss}
           className="text-xs text-slate-400 hover:text-slate-600 ml-auto self-center"
         >
-          Ikke nå
+          {labels.dismissLabel}
         </button>
       </div>
     </div>

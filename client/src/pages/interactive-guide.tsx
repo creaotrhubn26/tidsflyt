@@ -35,404 +35,41 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
+import { useGuideConfig } from "@/hooks/use-guide-config";
+import type { GuideArticle, GuideCategory, GuideFAQItem, GuideRole } from "@shared/guide-config";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
-/* ─────────────────────────────────────────────────────────────────────────
-   GUIDE DATA — categorical, mirrors the in-app sidebar (portal-layout.tsx).
-   Update this array when features change; the rendering loop adapts.
-   ───────────────────────────────────────────────────────────────────────── */
+/* Resolve string icon names from config to Lucide components. */
+const ICON_MAP: Record<string, LucideIcon> = {
+  ArrowRight, Building2, CheckCircle2, ChevronRight, ClipboardCheck, ClipboardList,
+  Clock, FileText, Folder, HelpCircle, Inbox, LayoutDashboard, Mail, Palette,
+  PlayCircle, Plus, Search, Send, Settings, Shield, Sparkles, Timer, TrendingUp,
+  UserPlus, Users, Zap,
+};
+const resolveIcon = (name?: string): LucideIcon =>
+  (name && ICON_MAP[name]) || HelpCircle;
 
-type Role = "miljoarbeider" | "tiltaksleder" | "vendor_admin" | "super_admin";
-
-interface Article {
-  id: string;
-  title: string;
-  summary: string;
+/* View-model variants where the icon string has been resolved to a component. */
+type ViewArticle = Omit<GuideArticle, "icon"> & { icon: LucideIcon };
+type ViewCategory = Omit<GuideCategory, "icon" | "articles"> & {
   icon: LucideIcon;
-  inAppPath?: string;
-  roles?: Role[];
-  steps?: { label: string; detail?: string }[];
-  tips?: string[];
-  screenshot?: string; // path under /guide-screenshots/<file>.png — falls back to illustration
+  articles: ViewArticle[];
+};
+
+/** Map common video URLs (YouTube/Vimeo) into an embed URL. */
+function toEmbedUrl(url: string): { type: "iframe" | "file"; src: string } {
+  // YouTube watch / share / embed → embed
+  const yt = url.match(/(?:youtube\.com\/(?:watch\?v=|embed\/|shorts\/)|youtu\.be\/)([\w-]{6,})/);
+  if (yt) return { type: "iframe", src: `https://www.youtube.com/embed/${yt[1]}` };
+  // Vimeo
+  const vm = url.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vm) return { type: "iframe", src: `https://player.vimeo.com/video/${vm[1]}` };
+  // Already an embed URL
+  if (/\/embed\//.test(url) || /player\./.test(url)) return { type: "iframe", src: url };
+  // Direct file (mp4, webm, mov)
+  return { type: "file", src: url };
 }
-
-interface Category {
-  id: string;
-  label: string;
-  blurb: string;
-  icon: LucideIcon;
-  accent: string; // tailwind gradient classes
-  articles: Article[];
-}
-
-const CATEGORIES: Category[] = [
-  {
-    id: "oversikt",
-    label: "Oversikt",
-    blurb: "Start dagen med dashboardet — alt du trenger å gjøre samlet på ett sted.",
-    icon: LayoutDashboard,
-    accent: "from-sky-500 to-blue-600",
-    articles: [
-      {
-        id: "dashboard",
-        title: "Dashboardet",
-        summary: "Personalisert hjemmebase: oppgaver, varsler og snarveier prioritert etter rolle.",
-        icon: LayoutDashboard,
-        inAppPath: "/dashboard",
-        screenshot: "dashboard.png",
-        steps: [
-          { label: "Sjekk Tiltak som krever oppfølging", detail: "Fargekodede tiles viser deg hva som haster — rapporter til gjennomgang, tiltak nær frist, klientsaker uten kontakt." },
-          { label: "Bruk hurtigaksjoner", detail: "Kortene øverst tar deg rett til å registrere timer, åpne en sak eller skrive en ny rapport." },
-          { label: "Følg statistikken", detail: "Trender for timer, brukere og saker oppdateres automatisk for valgt periode." },
-        ],
-        tips: [
-          "Bytt periode (uke/måned/i dag) øverst til høyre for å se data i kontekst.",
-          "Klikk på en tile for å hoppe rett til den filtrerte listen.",
-        ],
-      },
-      {
-        id: "tiltaksleder-oversikt",
-        title: "Tiltaksleder‑oversikten",
-        summary: "Egen oversikt for ledere: ventende godkjenninger, returnerte rapporter og teamets tilgjengelighet.",
-        icon: ClipboardCheck,
-        inAppPath: "/tiltaksleder",
-        roles: ["tiltaksleder", "vendor_admin"],
-        screenshot: "tiltaksleder-dashboard.png",
-        steps: [
-          { label: "Gjennomgå rapporter", detail: "Se hvem som venter på godkjenning og åpne dem direkte." },
-          { label: "Følg opp returnerte rapporter", detail: "Listen viser hvem som har fått en kommentar tilbake — sjekk at endringer kommer." },
-          { label: "Sjekk fravær neste 14 dager", detail: "Planlegg bemanning før uka starter." },
-        ],
-      },
-      {
-        id: "kom-i-gang",
-        title: "Kom i gang med Tidum",
-        summary: "Sjekkliste som ledet deg gjennom de første viktige stegene — finnes i sidemenyen.",
-        icon: PlayCircle,
-        steps: [
-          { label: "Bekreft profilen din" },
-          { label: "Legg til første institusjon (Brreg‑søk)", detail: "Slå opp organisasjonsnummer eller bedriftsnavn for å auto‑fylle adresse + virksomhetstype." },
-          { label: "Opprett første sak og tildel miljøarbeidere" },
-          { label: "Inviter teamet via delbar lenke" },
-        ],
-      },
-    ],
-  },
-  {
-    id: "saker",
-    label: "Saker & klienter",
-    blurb: "Opprett saker, koble dem til oppdragsgivere, og tildel dem til miljøarbeidere.",
-    icon: Folder,
-    accent: "from-indigo-500 to-purple-600",
-    articles: [
-      {
-        id: "ny-sak",
-        title: "Opprette en sak",
-        summary: "Brønnøysundregisteret er innebygd — søk, koble og bli ferdig på sekunder.",
-        icon: Plus,
-        inAppPath: "/cases",
-        roles: ["tiltaksleder", "vendor_admin"],
-        screenshot: "ny-sak.png",
-        steps: [
-          { label: "Klikk «Ny sak»" },
-          { label: "Søk i Brønnøysundregisteret", detail: "Skriv organisasjonsnummeret (9 siffer) eller bedriftsnavn — adresse, virksomhetstype og kontaktinfo fylles inn." },
-          { label: "Velg klient og tiltakstype" },
-          { label: "Tildel miljøarbeidere", detail: "De får varsel og saken dukker opp i deres «Mine saker»." },
-        ],
-        tips: [
-          "Lim inn org.nr fra utklippstavlen — Tidum oppdager formatet automatisk.",
-          "Saksnummer genereres etter mønsteret du har valgt under Innstillinger → Saksnummer.",
-        ],
-      },
-      {
-        id: "tildele",
-        title: "Tildele saker",
-        summary: "Flere miljøarbeidere kan jobbe på samme sak. Tildelinger varsler dem direkte.",
-        icon: UserPlus,
-        roles: ["tiltaksleder", "vendor_admin"],
-        steps: [
-          { label: "Åpne saken" },
-          { label: "Klikk «Tildel»", detail: "Velg én eller flere brukere — de får e‑post og dashboardvarsel." },
-        ],
-      },
-      {
-        id: "institusjoner",
-        title: "Institusjoner og oppdragsgivere",
-        summary: "Administrer hvilke virksomheter dere jobber for — kun synlig for ledere og admin.",
-        icon: Building2,
-        inAppPath: "/institusjoner",
-        roles: ["tiltaksleder", "vendor_admin", "super_admin"],
-        screenshot: "institusjoner.png",
-        steps: [
-          { label: "Legg til ny institusjon", detail: "Bruk Brreg‑søk for å sikre korrekt org.nr og adresse." },
-          { label: "Velg standard rapportmal", detail: "Saker tilknyttet denne institusjonen får automatisk valgt mal når miljøarbeider skriver rapport." },
-        ],
-      },
-      {
-        id: "invitasjoner",
-        title: "Invitasjoner og delbare lenker",
-        summary: "Inviter team via e‑post eller én delbar lenke som flere kan bruke.",
-        icon: UserPlus,
-        inAppPath: "/invites",
-        roles: ["tiltaksleder", "vendor_admin"],
-        screenshot: "invitasjoner.png",
-        tips: [
-          "Delbare lenker kan begrenses i tid eller antall bruk.",
-          "Brukere som registrerer seg via lenken havner automatisk på riktig leverandør.",
-        ],
-      },
-    ],
-  },
-  {
-    id: "rapportering",
-    label: "Rapportering",
-    blurb: "Skriv strukturerte saksrapporter, send til godkjenning, håndter avvik.",
-    icon: FileText,
-    accent: "from-emerald-500 to-teal-600",
-    articles: [
-      {
-        id: "ny-rapport",
-        title: "Skrive en saksrapport",
-        summary: "Rapportmaler tilpasser seg sektor og institusjon. Bedrift, oppdragsgiver og tiltaksleder fylles automatisk.",
-        icon: FileText,
-        inAppPath: "/rapporter",
-        screenshot: "rapport-skrive.png",
-        steps: [
-          { label: "Velg en tildelt sak" },
-          { label: "Bedrift, oppdragsgiver og tiltaksleder fylles automatisk", detail: "Disse feltene er låst når en sak er valgt — det sikrer konsistens på tvers av rapporter." },
-          { label: "Fyll inn periode, mål og aktiviteter", detail: "Aktivitets‑maler gir deg standardstruktur du kan tilpasse." },
-          { label: "Auto‑lagring tar resten", detail: "Tidum lagrer endringer fortløpende — du kan trygt lukke fanen." },
-          { label: "Send til godkjenning når du er ferdig" },
-        ],
-        tips: [
-          "GDPR‑hjelperen fjerner automatisk personnavn fra fritekst hvis det er aktivert i Innstillinger.",
-          "Dobbeltklikk en aktivitet i ukesvisningen for rask redigering.",
-        ],
-      },
-      {
-        id: "godkjenning",
-        title: "Godkjenne rapporter",
-        summary: "Som tiltaksleder ser du innsendte rapporter under «Godkjenning». Returner med kommentar når noe må fikses.",
-        icon: ClipboardCheck,
-        inAppPath: "/rapporter/godkjenning",
-        roles: ["tiltaksleder"],
-        screenshot: "godkjenning.png",
-        steps: [
-          { label: "Åpne rapporten" },
-          { label: "Legg igjen kommentar per seksjon", detail: "Forfatteren ser kommentarene direkte på rett sted." },
-          { label: "Godkjenn eller returner" },
-        ],
-      },
-      {
-        id: "rapport-maler",
-        title: "Rapport‑maler (admin)",
-        summary: "Definer hvilke seksjoner en rapport skal inneholde for ulike sektorer.",
-        icon: ClipboardList,
-        inAppPath: "/admin/rapport-maler",
-        roles: ["vendor_admin", "super_admin"],
-        steps: [
-          { label: "Klone systemmal eller start blank" },
-          { label: "Legg til seksjoner (tekst, sjekkliste, observasjon)" },
-          { label: "Velg standardmal per institusjon", detail: "Spar miljøarbeideren for å velge mal hver gang." },
-        ],
-      },
-      {
-        id: "avvik",
-        title: "Avvik og hendelser",
-        summary: "Registrer avvik direkte fra en rapport. Alvorlighetsgrad: lav, middels, høy, kritisk.",
-        icon: Shield,
-        inAppPath: "/avvik",
-        screenshot: "avvik.png",
-        tips: [
-          "Avvik knyttet til en rapport flagges automatisk for tiltakslederen ved godkjenning.",
-          "Kritiske avvik utløser umiddelbart varsel.",
-        ],
-      },
-    ],
-  },
-  {
-    id: "tid",
-    label: "Tid & fravær",
-    blurb: "Timeføring, timelister, overtid og fravær — én flyt, ingen dobbelregistrering.",
-    icon: Clock,
-    accent: "from-amber-500 to-orange-600",
-    articles: [
-      {
-        id: "timeforing",
-        title: "Timeføring",
-        summary: "Stempel inn/ut, registrer aktivitet manuelt, eller la AI foreslå basert på tidligere mønstre.",
-        icon: Timer,
-        inAppPath: "/time",
-        screenshot: "timeforing.png",
-        steps: [
-          { label: "Velg sak og aktivitet" },
-          { label: "Bruk timer eller fyll inn manuelt" },
-          { label: "Aktivitets‑forslag", detail: "Systemet foreslår aktivitet ut fra tid på dagen og tidligere mønstre — godta eller skriv selv." },
-        ],
-      },
-      {
-        id: "timelister",
-        title: "Timelister",
-        summary: "Månedlige timelister genereres automatisk fra registrerte timer.",
-        icon: ClipboardList,
-        inAppPath: "/timesheets",
-        roles: ["miljoarbeider", "tiltaksleder"],
-        screenshot: "timelister.png",
-      },
-      {
-        id: "overtid",
-        title: "Overtid",
-        summary: "Automatisk beregning av 50 % og 100 % tillegg basert på dine terskelverdier.",
-        icon: TrendingUp,
-        inAppPath: "/overtime",
-        screenshot: "overtid.png",
-        tips: [
-          "Tiltaksleder kan deaktivere overtidsregistrering per bruker — da skjules fanen helt for miljøarbeideren.",
-          "Standard er 7,5 t/dag og 37,5 t/uke. Endre i Innstillinger på siden.",
-        ],
-      },
-      {
-        id: "fravar",
-        title: "Fravær",
-        summary: "Søk om ferie, sykefravær eller annet. Tiltaksleder ser planlagt fravær i sin oversikt.",
-        icon: Clock,
-        inAppPath: "/leave",
-      },
-      {
-        id: "faste-oppgaver",
-        title: "Faste oppgaver",
-        summary: "Tilbakevendende sjekklistepunkter du må gjøre daglig, ukentlig eller månedlig.",
-        icon: ClipboardList,
-        inAppPath: "/recurring",
-      },
-    ],
-  },
-  {
-    id: "kommunikasjon",
-    label: "Økonomi & kommunikasjon",
-    blurb: "Fakturaer, e‑post og videresending — hold kontakten med oppdragsgiverne ryddig.",
-    icon: Send,
-    accent: "from-pink-500 to-rose-600",
-    articles: [
-      {
-        id: "fakturaer",
-        title: "Fakturaer",
-        summary: "Generer fakturaer fra registrerte timer per oppdragsgiver eller sak.",
-        icon: FileText,
-        inAppPath: "/invoices",
-        roles: ["tiltaksleder", "vendor_admin"],
-      },
-      {
-        id: "epost",
-        title: "E‑post",
-        summary: "Send rapporter, fakturaer eller meldinger direkte fra Tidum.",
-        icon: Mail,
-        inAppPath: "/email",
-        roles: ["tiltaksleder", "vendor_admin"],
-      },
-      {
-        id: "send-videre",
-        title: "Send videre",
-        summary: "Videresend rapporter og dokumenter til oppdragsgiver med revisjons‑logging.",
-        icon: Send,
-        inAppPath: "/forward",
-        roles: ["tiltaksleder"],
-      },
-    ],
-  },
-  {
-    id: "administrasjon",
-    label: "Administrasjon",
-    blurb: "Leverandøradministrasjon, CMS og tester‑program — kun for super‑admin.",
-    icon: Shield,
-    accent: "from-slate-600 to-slate-800",
-    articles: [
-      {
-        id: "leverandorer",
-        title: "Leverandøradministrasjon",
-        summary: "Opprett nye leverandører via Brreg‑søk, administrer admin‑brukere, se statistikk.",
-        icon: Building2,
-        inAppPath: "/vendors",
-        roles: ["super_admin"],
-        screenshot: "vendors.png",
-        steps: [
-          { label: "Klikk «Ny leverandør»" },
-          { label: "Søk org.nr eller bedriftsnavn", detail: "Tidum henter navn, adresse og org.form fra Brønnøysundregisteret automatisk." },
-          { label: "Velg abonnement og maks brukere" },
-          { label: "Legg til vendor‑admin", detail: "Magic‑link‑invitasjon på e‑post — ingen passord nødvendig." },
-        ],
-      },
-      {
-        id: "cms",
-        title: "CMS",
-        summary: "Rediger landingsside, blogg og innhold direkte fra Tidum. Innlogging via Google fungerer for super‑admin.",
-        icon: Palette,
-        inAppPath: "/cms",
-        roles: ["super_admin"],
-      },
-      {
-        id: "tester-feedback",
-        title: "Prototype‑testere",
-        summary: "Inviter eksterne testere som gir tilbakemelding via flytende knapp i appen.",
-        icon: Sparkles,
-        inAppPath: "/admin/tester-feedback",
-        roles: ["super_admin"],
-      },
-    ],
-  },
-  {
-    id: "system",
-    label: "System & innstillinger",
-    blurb: "Personlige preferanser, varsler, GDPR og språk.",
-    icon: Settings,
-    accent: "from-gray-500 to-gray-700",
-    articles: [
-      {
-        id: "innstillinger",
-        title: "Innstillinger",
-        summary: "Tema, språk, varsler, GDPR‑hjelper, eksportformater — alt samlet på ett sted.",
-        icon: Settings,
-        inAppPath: "/settings",
-      },
-    ],
-  },
-];
-
-const FAQ: { q: string; a: string }[] = [
-  {
-    q: "Jeg ser ikke «Overtid»‑fanen — hvor er den?",
-    a: "Tiltakslederen din kan ha deaktivert overtidsregistrering for deg. Når det er deaktivert, gjemmes fanen helt fra menyen. Snakk med tiltakslederen hvis du mener det er feil.",
-  },
-  {
-    q: "Hvorfor er bedrift, oppdragsgiver og tiltaksleder låst når jeg skriver rapport?",
-    a: "Disse feltene fylles automatisk fra saken som er tildelt deg. Det sikrer at alle rapporter på samme sak har konsistent informasjon. Kontakt tiltakslederen din hvis du må endre dem.",
-  },
-  {
-    q: "Kan jeg redigere en rapport etter at den er sendt inn?",
-    a: "Innsendte rapporter er låst for endringer. Hvis du oppdager en feil, be tiltakslederen returnere rapporten — da kan du redigere og sende inn på nytt.",
-  },
-  {
-    q: "Hvordan inviterer jeg flere kolleger samtidig?",
-    a: "Gå til Invitasjoner i menyen og lag en delbar lenke. Den kan deles på Slack, e‑post eller hvor som helst — alle som åpner den blir registrert under riktig leverandør.",
-  },
-  {
-    q: "Hvor finner jeg gamle rapporter?",
-    a: "Gå til Rapporter‑fanen. Bruk filtrene for å begrense på status, periode eller sak. Godkjente rapporter er alltid søkbare.",
-  },
-  {
-    q: "Hvordan logger jeg inn på CMS?",
-    a: "For super‑admin: bare logg inn med Google på vanlig vis — du får automatisk CMS‑tilgang uten ekstra passord.",
-  },
-  {
-    q: "Hvor mange brukere kan jeg ha?",
-    a: "Avhenger av abonnementet ditt. Standard er 50 brukere; Premium har høyere grense. Kontakt support for oppgradering.",
-  },
-  {
-    q: "Hva skjer med dataene mine ved oppsigelse?",
-    a: "All data eksporteres til deg i CSV/JSON innen 30 dager etter oppsigelse, og slettes deretter permanent fra serverne våre.",
-  },
-];
 
 /* ─────────────────────────────────────────────────────────────────────────
    PAGE
@@ -440,6 +77,18 @@ const FAQ: { q: string; a: string }[] = [
 
 export default function InteractiveGuide() {
   usePublicLightTheme();
+  const { config } = useGuideConfig();
+
+  // Resolve icon strings → Lucide components once per config change.
+  const viewCategories = useMemo<ViewCategory[]>(
+    () => config.categories.map((c) => ({
+      ...c,
+      icon: resolveIcon(c.icon),
+      articles: c.articles.map((a) => ({ ...a, icon: resolveIcon(a.icon) })),
+    })),
+    [config.categories],
+  );
+
   useSEO({
     title: "Brukerveiledning Tidum – timeføring, rapporter og admin",
     description:
@@ -473,7 +122,7 @@ export default function InteractiveGuide() {
       {
         "@context": "https://schema.org",
         "@type": "FAQPage",
-        mainEntity: FAQ.map(({ q, a }) => ({
+        mainEntity: config.faq.map(({ q, a }) => ({
           "@type": "Question",
           name: q,
           acceptedAnswer: { "@type": "Answer", text: a },
@@ -500,9 +149,9 @@ export default function InteractiveGuide() {
     }
   }, []);
 
-  const filteredCategories = useMemo(() => {
-    if (!isSearching) return CATEGORIES;
-    return CATEGORIES.map((c) => ({
+  const filteredCategories = useMemo<ViewCategory[]>(() => {
+    if (!isSearching) return viewCategories;
+    return viewCategories.map((c) => ({
       ...c,
       articles: c.articles.filter((a) => {
         const haystack = [
@@ -516,9 +165,9 @@ export default function InteractiveGuide() {
         return haystack.includes(trimmedQuery);
       }),
     })).filter((c) => c.articles.length > 0);
-  }, [isSearching, trimmedQuery]);
+  }, [isSearching, trimmedQuery, viewCategories]);
 
-  const totalArticleCount = CATEGORIES.reduce((n, c) => n + c.articles.length, 0);
+  const totalArticleCount = viewCategories.reduce((n, c) => n + c.articles.length, 0);
   const matchCount = filteredCategories.reduce((n, c) => n + c.articles.length, 0);
 
   return (
@@ -547,24 +196,29 @@ export default function InteractiveGuide() {
       </header>
 
       {/* ── Hero + Search ── */}
-      <section className="max-w-4xl mx-auto px-4 lg:px-8 pt-16 pb-10 text-center">
-        <Badge variant="outline" className="mb-4 text-xs gap-1.5 border-emerald-300 text-emerald-700 bg-emerald-50">
-          <Sparkles className="h-3 w-3" />
-          Oppdatert {new Date().toLocaleDateString("nb-NO", { month: "long", year: "numeric" })}
-        </Badge>
+      <section className={`max-w-4xl mx-auto px-4 lg:px-8 pt-16 pb-10 ${
+        config.layout.heroAlign === "left" ? "text-left" : "text-center"
+      }`}>
+        {config.layout.showUpdatedBadge && config.hero.updatedLabel && (
+          <Badge variant="outline" className="mb-4 text-xs gap-1.5 border-emerald-300 text-emerald-700 bg-emerald-50">
+            <Sparkles className="h-3 w-3" />
+            {config.hero.updatedLabel} {new Date().toLocaleDateString("nb-NO", { month: "long", year: "numeric" })}
+          </Badge>
+        )}
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-          Slik bruker du Tidum
+          {config.hero.title}
         </h1>
-        <p className="text-lg text-slate-600 max-w-2xl mx-auto mb-8 leading-relaxed">
-          Komplett veiledning til alt — fra første pålogging til avansert rapportering.
-          Søk, eller hopp rett til kategorien du trenger.
+        <p className={`text-lg text-slate-600 max-w-2xl mb-8 leading-relaxed ${
+          config.layout.heroAlign === "left" ? "" : "mx-auto"
+        }`}>
+          {config.hero.subtitle}
         </p>
-        <div className="relative max-w-xl mx-auto">
+        <div className={`relative max-w-xl ${config.layout.heroAlign === "left" ? "" : "mx-auto"}`}>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Søk i guiden — for eksempel «rapport», «overtid», «sak»…"
+            placeholder={config.hero.searchPlaceholder}
             className="h-14 pl-11 pr-4 text-base shadow-sm border-slate-200 bg-white focus-visible:ring-2 focus-visible:ring-emerald-400/40"
             data-testid="guide-search"
           />
@@ -577,7 +231,7 @@ export default function InteractiveGuide() {
       </section>
 
       {/* ── Quick start strip ── */}
-      {!isSearching && (
+      {!isSearching && config.layout.showQuickStart && (
         <section className="max-w-6xl mx-auto px-4 lg:px-8 pb-10">
           <div className="grid gap-3 md:grid-cols-3">
             <QuickCard
@@ -606,7 +260,7 @@ export default function InteractiveGuide() {
       {!isSearching && (
         <nav className="max-w-6xl mx-auto px-4 lg:px-8 pb-4">
           <div className="flex flex-wrap gap-2">
-            {CATEGORIES.map((c) => {
+            {viewCategories.map((c) => {
               const Icon = c.icon;
               const isActive = activeCategory === c.id;
               return (
@@ -665,45 +319,49 @@ export default function InteractiveGuide() {
       </main>
 
       {/* ── Stuck CTA ── */}
-      <section className="border-t border-slate-200 bg-white">
-        <div className="max-w-4xl mx-auto px-4 lg:px-8 py-14 text-center">
-          <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md mb-4">
-            <HelpCircle className="h-6 w-6" />
+      {config.layout.showStuckCTA && (
+        <section className="border-t border-slate-200 bg-white">
+          <div className="max-w-4xl mx-auto px-4 lg:px-8 py-14 text-center">
+            <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md mb-4">
+              <HelpCircle className="h-6 w-6" />
+            </div>
+            <h2 className="text-2xl font-bold mb-2">Sitter du fast?</h2>
+            <p className="text-slate-600 mb-6 max-w-xl mx-auto">
+              Du kan starte den interaktive omvisningen inne i appen når som helst — den peker på
+              riktig knapp på riktig side. Hvis det fortsatt er uklart, send oss en e‑post.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button asChild>
+                <Link href="/dashboard?tour=restart">
+                  <PlayCircle className="h-4 w-4 mr-2" />
+                  Start interaktiv omvisning
+                </Link>
+              </Button>
+              <Button asChild variant="outline">
+                <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`}>
+                  <Inbox className="h-4 w-4 mr-2" />
+                  Kontakt support
+                </a>
+              </Button>
+            </div>
           </div>
-          <h2 className="text-2xl font-bold mb-2">Sitter du fast?</h2>
-          <p className="text-slate-600 mb-6 max-w-xl mx-auto">
-            Du kan starte den interaktive omvisningen inne i appen når som helst — den peker på
-            riktig knapp på riktig side. Hvis det fortsatt er uklart, send oss en e‑post.
-          </p>
-          <div className="flex flex-wrap justify-center gap-3">
-            <Button asChild>
-              <Link href="/dashboard?tour=restart">
-                <PlayCircle className="h-4 w-4 mr-2" />
-                Start interaktiv omvisning
-              </Link>
-            </Button>
-            <Button asChild variant="outline">
-              <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`}>
-                <Inbox className="h-4 w-4 mr-2" />
-                Kontakt support
-              </a>
-            </Button>
-          </div>
-        </div>
-      </section>
+        </section>
+      )}
 
       {/* ── FAQ ── */}
+      {config.layout.showFAQ && (
       <section className="max-w-4xl mx-auto px-4 lg:px-8 py-14">
         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
           <Zap className="h-5 w-5 text-emerald-500" />
           Vanlige spørsmål
         </h2>
         <div className="space-y-3">
-          {FAQ.map((item, idx) => (
+          {config.faq.map((item: GuideFAQItem, idx: number) => (
             <FAQAccordion key={idx} q={item.q} a={item.a} />
           ))}
         </div>
       </section>
+      )}
 
       {/* ── Footer ── */}
       <footer className="border-t border-slate-200 bg-slate-50">
@@ -724,7 +382,7 @@ export default function InteractiveGuide() {
    SUBCOMPONENTS
    ───────────────────────────────────────────────────────────────────────── */
 
-function CategoryHeader({ category }: { category: Category }) {
+function CategoryHeader({ category }: { category: ViewCategory }) {
   const Icon = category.icon;
   return (
     <div className="flex items-start gap-4">
@@ -745,8 +403,8 @@ function ArticleCard({
   isHighlighted,
   onOpenInApp,
 }: {
-  article: Article;
-  category: Category;
+  article: ViewArticle;
+  category: ViewCategory;
   isHighlighted: boolean;
   onOpenInApp: (path: string) => void;
 }) {
@@ -837,19 +495,48 @@ function ArticleVisual({
   accent,
   icon,
 }: {
-  article: Article;
+  article: ViewArticle;
   accent: string;
   icon: LucideIcon;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
   const Icon = icon;
 
-  // Try real screenshot first; fall back to illustrated panel.
+  // Priority: video → screenshot → illustration. Each falls back if missing.
+  if (article.videoUrl) {
+    const embed = toEmbedUrl(article.videoUrl);
+    return (
+      <div className="relative aspect-[16/9] bg-slate-900 border-b border-slate-200 overflow-hidden">
+        {embed.type === "iframe" ? (
+          <iframe
+            src={embed.src}
+            title={article.videoLabel || `Videoguide: ${article.title}`}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            loading="lazy"
+            className="w-full h-full"
+          />
+        ) : (
+          <video
+            src={embed.src}
+            controls
+            preload="metadata"
+            className="w-full h-full object-cover"
+          />
+        )}
+      </div>
+    );
+  }
+  // Accepts either a filename under /guide-screenshots/ or a full URL
+  // (http://, https://, or absolute /path) so admin uploads can override.
   if (article.screenshot && !imgFailed) {
+    const src = /^(https?:|\/)/.test(article.screenshot)
+      ? article.screenshot
+      : `/guide-screenshots/${article.screenshot}`;
     return (
       <div className="relative aspect-[16/9] bg-slate-100 border-b border-slate-200 overflow-hidden">
         <img
-          src={`/guide-screenshots/${article.screenshot}`}
+          src={src}
           alt={`Skjermbilde av ${article.title}`}
           loading="lazy"
           onError={() => setImgFailed(true)}
@@ -921,7 +608,7 @@ function FAQAccordion({ q, a }: { q: string; a: string }) {
   );
 }
 
-const ROLE_LABELS: Record<Role, string> = {
+const ROLE_LABELS: Partial<Record<GuideRole, string>> = {
   miljoarbeider: "Miljøarbeider",
   tiltaksleder: "Tiltaksleder",
   vendor_admin: "Vendor admin",

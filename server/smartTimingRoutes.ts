@@ -2070,6 +2070,58 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: GUIDE / TOUR / STUCK CONFIG ==========
+  app.get("/api/cms/guide-config", async (_req, res) => {
+    try {
+      const { mergeGuideConfig, GUIDE_CONFIG_KEY } = await import("@shared/guide-config");
+      const result = await pool.query(
+        'SELECT value FROM site_settings WHERE key = $1',
+        [GUIDE_CONFIG_KEY],
+      );
+      let parsed: any = null;
+      if (result.rows.length > 0) {
+        const raw = result.rows[0].value;
+        try { parsed = typeof raw === "string" ? JSON.parse(raw) : raw; } catch { parsed = null; }
+      }
+      res.setHeader("Cache-Control", "public, max-age=30");
+      res.json(mergeGuideConfig(parsed));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/guide-config", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { GUIDE_CONFIG_KEY, mergeGuideConfig } = await import("@shared/guide-config");
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      // Validate by round-tripping through the merger so we always store
+      // a fully-shaped config and never reject partial updates.
+      const merged = mergeGuideConfig(req.body);
+      const value = JSON.stringify(merged);
+      const existing = await pool.query(
+        'SELECT * FROM site_settings WHERE key = $1',
+        [GUIDE_CONFIG_KEY],
+      );
+      if (existing.rows.length > 0) {
+        await pool.query(
+          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
+          [value, GUIDE_CONFIG_KEY],
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO site_settings (key, value) VALUES ($1, $2)',
+          [GUIDE_CONFIG_KEY, value],
+        );
+      }
+      res.json(merged);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: SITE SETTINGS ==========
   app.get("/api/cms/settings", async (_req, res) => {
     try {
