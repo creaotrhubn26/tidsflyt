@@ -18,6 +18,8 @@ export interface PortalSidebarOverride {
   hidden?: boolean;
   /** Move the item to a different category. */
   category?: string;
+  /** Sort key within the (overridden or default) category. Lower = earlier. */
+  order?: number;
 }
 
 export interface PublicLink {

@@ -21,7 +21,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plus, RotateCcw, Save, Trash2, Link as LinkIcon, ExternalLink, Menu } from "lucide-react";
+import {
+  Loader2, Plus, RotateCcw, Save, Trash2, Link as LinkIcon, ExternalLink,
+  Menu, GripVertical,
+} from "lucide-react";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 const KEY = ["/api/cms/nav-config"];
 
@@ -170,38 +176,33 @@ export function NavEditor() {
           <TabsTrigger value="footer">Public footer</TabsTrigger>
         </TabsList>
 
-        {/* ── SIDEBAR — rename / hide ── */}
+        {/* ── SIDEBAR — reorder / rename / hide ── */}
         <TabsContent value="sidebar">
           <Card>
             <CardHeader>
               <CardTitle className="text-base">Portal-sidebar</CardTitle>
               <CardDescription>
-                Endre etiketten som vises, eller skjul et menyvalg helt. Stier kan ikke endres
-                — de er knyttet til sidene i koden.
+                Dra rader for å endre rekkefølge innenfor hver kategori. Endre etiketten,
+                eller skjul et menyvalg helt. Stier er knyttet til sidene i koden og kan
+                ikke endres her.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
-              {SIDEBAR_PATHS.map((row) => {
-                const o = draft.portalSidebarOverrides[row.path] ?? {};
-                return (
-                  <div key={row.path} className="flex items-center gap-2 rounded-md border p-2 bg-background">
-                    <code className="text-[11px] font-mono text-muted-foreground shrink-0 w-44 truncate">{row.path}</code>
-                    <Input
-                      value={o.label ?? ""}
-                      onChange={(e) => updateOverride(row.path, { label: e.target.value || undefined })}
-                      placeholder={row.defaultLabel}
-                      className="h-8 text-sm flex-1"
-                    />
-                    <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0">
-                      <Switch
-                        checked={!o.hidden}
-                        onCheckedChange={(v) => updateOverride(row.path, { hidden: !v })}
-                      />
-                      {o.hidden ? "Skjult" : "Synlig"}
-                    </label>
-                  </div>
-                );
-              })}
+            <CardContent className="space-y-4">
+              <SidebarReorderEditor
+                overrides={draft.portalSidebarOverrides}
+                onUpdate={updateOverride}
+                onReorder={(category, orderedPaths) => {
+                  // Normalise to compact integers so subsequent moves are stable
+                  setDraft((d) => {
+                    const next = { ...d.portalSidebarOverrides };
+                    orderedPaths.forEach((p, idx) => {
+                      next[p] = { ...next[p], order: idx };
+                    });
+                    return { ...d, portalSidebarOverrides: next };
+                  });
+                  setDirty(true);
+                }}
+              />
             </CardContent>
           </Card>
         </TabsContent>
@@ -251,6 +252,143 @@ export function NavEditor() {
           />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/**
+ * Reorderable sidebar editor — groups SIDEBAR_PATHS by their effective
+ * category (override or default), shows a drag handle per row, and keeps
+ * an inline label/hidden toggle next to each row.
+ */
+function SidebarReorderEditor({
+  overrides,
+  onUpdate,
+  onReorder,
+}: {
+  overrides: Record<string, { label?: string; hidden?: boolean; category?: string; order?: number }>;
+  onUpdate: (path: string, patch: { label?: string; hidden?: boolean }) => void;
+  onReorder: (category: string, orderedPaths: string[]) => void;
+}) {
+  const grouped = CATEGORY_KEYS.map((cat) => {
+    const items = SIDEBAR_PATHS.filter(
+      (row) => (overrides[row.path]?.category ?? row.defaultCategory) === cat,
+    );
+    items.sort((a, b) => {
+      const oa = overrides[a.path]?.order;
+      const ob = overrides[b.path]?.order;
+      if (oa != null && ob != null) return oa - ob;
+      if (oa != null) return -1;
+      if (ob != null) return 1;
+      return SIDEBAR_PATHS.indexOf(a) - SIDEBAR_PATHS.indexOf(b);
+    });
+    return { category: cat, items };
+  }).filter((g) => g.items.length > 0);
+
+  return (
+    <div className="space-y-5">
+      {grouped.map(({ category, items }) => (
+        <CategoryGroup
+          key={category}
+          category={category}
+          items={items}
+          overrides={overrides}
+          onUpdate={onUpdate}
+          onReorder={(ordered) => onReorder(category, ordered)}
+        />
+      ))}
+    </div>
+  );
+}
+
+function CategoryGroup({
+  category, items, overrides, onUpdate, onReorder,
+}: {
+  category: string;
+  items: { path: string; defaultLabel: string }[];
+  overrides: Record<string, { label?: string; hidden?: boolean; category?: string; order?: number }>;
+  onUpdate: (path: string, patch: { label?: string; hidden?: boolean }) => void;
+  onReorder: (orderedPaths: string[]) => void;
+}) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const oldIndex = items.findIndex((i) => i.path === e.active.id);
+    const newIndex = items.findIndex((i) => i.path === e.over!.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const reordered = arrayMove(items, oldIndex, newIndex).map((i) => i.path);
+    onReorder(reordered);
+  };
+
+  return (
+    <div>
+      <p className="px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {CATEGORY_DEFAULTS[category]}
+      </p>
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={items.map((i) => i.path)} strategy={verticalListSortingStrategy}>
+          <div className="space-y-1.5">
+            {items.map((row) => (
+              <SidebarRow
+                key={row.path}
+                path={row.path}
+                defaultLabel={row.defaultLabel}
+                override={overrides[row.path]}
+                onUpdate={onUpdate}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
+    </div>
+  );
+}
+
+function SidebarRow({
+  path, defaultLabel, override, onUpdate,
+}: {
+  path: string;
+  defaultLabel: string;
+  override?: { label?: string; hidden?: boolean };
+  onUpdate: (path: string, patch: { label?: string; hidden?: boolean }) => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: path });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : "auto" as const,
+  };
+  const o = override ?? {};
+  return (
+    <div ref={setNodeRef} style={style} className="flex items-center gap-2 rounded-md border p-2 bg-background">
+      <button
+        {...attributes}
+        {...listeners}
+        type="button"
+        className="h-6 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
+        aria-label="Dra for å flytte"
+      >
+        <GripVertical className="h-3.5 w-3.5" />
+      </button>
+      <code className="text-[11px] font-mono text-muted-foreground shrink-0 w-40 truncate">{path}</code>
+      <Input
+        value={o.label ?? ""}
+        onChange={(e) => onUpdate(path, { label: e.target.value || undefined })}
+        placeholder={defaultLabel}
+        className="h-8 text-sm flex-1"
+      />
+      <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground shrink-0">
+        <Switch
+          checked={!o.hidden}
+          onCheckedChange={(v) => onUpdate(path, { hidden: !v })}
+        />
+        {o.hidden ? "Skjult" : "Synlig"}
+      </label>
     </div>
   );
 }

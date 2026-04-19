@@ -542,7 +542,18 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
       <ScrollArea className="flex-1 py-4">
         <nav className="space-y-4 px-2">
           {NAV_CATEGORY_ORDER.map((category) => {
-            const itemsInCategory = navItems.filter((item) => item.category === category);
+            const itemsInCategory = navItems
+              .filter((item) => item.category === category)
+              .map((item, naturalIndex) => ({ item, naturalIndex }))
+              .sort((a, b) => {
+                const oa = navConfig.portalSidebarOverrides[a.item.path]?.order;
+                const ob = navConfig.portalSidebarOverrides[b.item.path]?.order;
+                if (oa != null && ob != null) return oa - ob;
+                if (oa != null) return -1;
+                if (ob != null) return 1;
+                return a.naturalIndex - b.naturalIndex;
+              })
+              .map(({ item }) => item);
             if (itemsInCategory.length === 0) return null;
             const isCollapsedDesktop = collapsed && !mobile;
             return (
