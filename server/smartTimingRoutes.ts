@@ -2393,21 +2393,58 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       await ensureStuckTable();
       const days = Math.min(365, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
-      const result = await pool.query(
-        `SELECT reason, variant_id, action, COUNT(*)::int AS count
-           FROM stuck_events
-          WHERE created_at >= NOW() - $1::interval
-          GROUP BY reason, variant_id, action
-          ORDER BY reason, variant_id NULLS FIRST, action`,
-        [`${days} days`],
-      );
+
+      const [aggregated, daily, topPaths] = await Promise.all([
+        pool.query(
+          `SELECT reason, variant_id, action, COUNT(*)::int AS count
+             FROM stuck_events
+            WHERE created_at >= NOW() - $1::interval
+            GROUP BY reason, variant_id, action
+            ORDER BY reason, variant_id NULLS FIRST, action`,
+          [`${days} days`],
+        ),
+        pool.query(
+          `SELECT
+             date_trunc('day', created_at) AS day,
+             reason,
+             action,
+             COUNT(*)::int AS count
+            FROM stuck_events
+           WHERE created_at >= NOW() - $1::interval
+           GROUP BY 1, 2, 3
+           ORDER BY 1`,
+          [`${days} days`],
+        ),
+        pool.query(
+          `SELECT path, COUNT(*)::int AS shown
+             FROM stuck_events
+            WHERE created_at >= NOW() - $1::interval
+              AND action = 'shown'
+              AND path IS NOT NULL
+            GROUP BY path
+            ORDER BY shown DESC
+            LIMIT 20`,
+          [`${days} days`],
+        ),
+      ]);
+
       res.json({
         days,
-        rows: result.rows.map((r) => ({
+        rows: aggregated.rows.map((r) => ({
           reason: r.reason,
           variantId: r.variant_id,
           action: r.action,
           count: r.count,
+        })),
+        daily: daily.rows.map((r) => ({
+          day: r.day,
+          reason: r.reason,
+          action: r.action,
+          count: r.count,
+        })),
+        topPaths: topPaths.rows.map((r) => ({
+          path: r.path,
+          shown: r.shown,
         })),
       });
     } catch (err: any) {

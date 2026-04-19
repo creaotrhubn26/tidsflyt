@@ -27,13 +27,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertCircle, ChevronRight, Download, ExternalLink, Eye, History,
+  AlertCircle, BarChart3, ChevronRight, Download, ExternalLink, Eye, History,
   Image as ImageIcon, Layout, Lightbulb, Loader2, Plus, RotateCcw, Save,
   Settings as SettingsIcon, Sparkles, Trash2, Upload, Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MediaPicker } from "./media-picker";
 import { CategoriesEditor } from "./categories-editor";
+import { StuckStatsPage } from "./stuck-stats";
 import { PREVIEW_STORAGE_KEY } from "@/hooks/use-guide-config";
 
 const KEY = ["/api/cms/guide-config"];
@@ -310,6 +311,7 @@ export function GuideEditor() {
           <TabsTrigger value="faq">FAQ</TabsTrigger>
           <TabsTrigger value="stuck"><AlertCircle className="h-3.5 w-3.5 mr-1" />Sitter‑fast</TabsTrigger>
           <TabsTrigger value="tour"><Video className="h-3.5 w-3.5 mr-1" />Omvisning</TabsTrigger>
+          <TabsTrigger value="stats"><BarChart3 className="h-3.5 w-3.5 mr-1" />Statistikk</TabsTrigger>
           <TabsTrigger value="advanced"><SettingsIcon className="h-3.5 w-3.5 mr-1" />Avansert</TabsTrigger>
           <TabsTrigger value="versions"><History className="h-3.5 w-3.5 mr-1" />Versjoner</TabsTrigger>
         </TabsList>
@@ -667,6 +669,11 @@ export function GuideEditor() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* ── STATISTIKK ── */}
+        <TabsContent value="stats" className="space-y-3">
+          <StuckStatsPage />
         </TabsContent>
 
         {/* ── AVANSERT — STUCK RULES ── */}
