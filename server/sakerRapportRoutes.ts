@@ -119,6 +119,7 @@ async function enrichSaker(rows: any[]) {
       [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || "",
     ]),
   );
+  const lederEmail = new Map(lederRows.map((u) => [String(u.id), u.email ?? null]));
 
   return rows.map((r) => ({
     ...r,
@@ -126,6 +127,10 @@ async function enrichSaker(rows: any[]) {
     tiltakslederName:
       r.tiltakslederId != null
         ? lederName.get(String(r.tiltakslederId)) ?? null
+        : null,
+    tiltakslederEmail:
+      r.tiltakslederId != null
+        ? lederEmail.get(String(r.tiltakslederId)) ?? null
         : null,
   }));
 }

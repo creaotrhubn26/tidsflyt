@@ -20,11 +20,14 @@ import { Label }    from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge }    from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar as CalendarPicker } from "@/components/ui/calendar";
 import { RichTextEditor } from "@/components/ui/rich-text-editor";
 import {
   X, Minus, Maximize2, Minimize2, Send, Paperclip,
   ChevronDown, ChevronUp, FileText, Users, Trash2, Eye,
   Sparkles, Calendar, Loader2, AlertTriangle, Wand2, Check,
+  Briefcase, CalendarDays, Clock,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -72,8 +75,9 @@ export function ComposeModal() {
   const [showTeam, setShowTeam] = useState(false);
   const [recipientName, setRecipientName] = useState("");
 
-  // ── New: rich text mode, attachments, draft, scheduling, AI dialog
-  const [richMode, setRichMode] = useState(false);
+  // ── New: attachments, draft, scheduling, AI dialog
+  // Body is always rich text; toggle removed.
+  const richMode = true;
   const [attachments, setAttachments] = useState<Array<{ url: string; filename: string; size?: number }>>([]);
   const [draftId, setDraftId] = useState<number | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
@@ -131,6 +135,48 @@ export function ComposeModal() {
     queryFn: async () => { const r = await apiRequest("GET", "/api/email/team-members"); return r.json(); },
     enabled: isOpen && isTiltaksleder,
   });
+
+  // User's saker — feeds the smart "sak" dropdown in template variables and
+  // auto-fills the recipient with the sak's tiltakslederEmail.
+  const { data: composeSaker = [] } = useQuery<any[]>({
+    queryKey: ["/api/saker"],
+    queryFn: async () => { const r = await apiRequest("GET", "/api/saker"); return r.json(); },
+    enabled: isOpen,
+  });
+
+  // ── Subject auto-render from template + vars when user hasn't manually edited it
+  const [subjectDirty, setSubjectDirty] = useState(false);
+  const _selectedTemplateForSubject = templates.find(t => t.id === selectedTemplateId);
+  useEffect(() => {
+    if (!_selectedTemplateForSubject) return;
+    if (subjectDirty) return;
+    let rendered = _selectedTemplateForSubject.subject;
+    const senderName = [user?.firstName, user?.lastName].filter(Boolean).join(" ") || "";
+    const vars: Record<string, string> = {
+      avsender: senderName,
+      mottaker: recipientName || "",
+      ...templateVars,
+    };
+    for (const [k, val] of Object.entries(vars)) {
+      if (val) rendered = rendered.replace(new RegExp(`\\{\\{${k}\\}\\}`, "g"), val);
+    }
+    setSubject(rendered);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [_selectedTemplateForSubject, templateVars, recipientName, subjectDirty]);
+
+  // ── When a sak is picked in template vars, auto-fill recipient
+  useEffect(() => {
+    const sakValue = templateVars.sak || templateVars.saksnavn || templateVars.saksnummer;
+    if (!sakValue) return;
+    const sak = composeSaker.find((s: any) =>
+      s.tittel === sakValue || s.saksnummer === sakValue || s.id === sakValue,
+    );
+    if (sak?.tiltakslederEmail && !to) {
+      setTo(sak.tiltakslederEmail);
+      if (sak.tiltakslederName && !recipientName) setRecipientName(sak.tiltakslederName);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateVars.sak, templateVars.saksnavn, templateVars.saksnummer, composeSaker]);
 
   // ── Send (also handles scheduled sends via the drafts endpoint)
   const sendMutation = useMutation({
@@ -254,9 +300,11 @@ export function ComposeModal() {
         tone: aiState.tone,
       });
       const data = await res.json();
-      if (data?.subject) setSubject(data.subject);
+      if (data?.subject) {
+        setSubject(data.subject);
+        setSubjectDirty(true);
+      }
       if (data?.body) {
-        setRichMode(true);
         setBody(data.body);
       }
       setAiOpen(false);
@@ -272,6 +320,7 @@ export function ComposeModal() {
 
   function loadTemplate(tpl: EmailTemplate) {
     setSelectedTemplateId(tpl.id);
+    setSubjectDirty(false);
     setSubject(tpl.subject);
     // Don't dump raw HTML into the textarea — keep the user-authored text only.
     // The `{{melding}}` variable is wired to the body field (see sendMutation).
@@ -364,7 +413,7 @@ export function ComposeModal() {
   // ── Container classes
   const containerClass = isFullscreen
     ? "fixed inset-0 z-50 bg-background flex flex-col"
-    : "fixed bottom-0 right-0 md:right-6 z-50 w-full md:w-[520px] md:max-h-[85vh] bg-card border border-border md:rounded-t-2xl shadow-2xl flex flex-col md:bottom-0";
+    : "fixed bottom-0 right-0 md:right-6 z-50 w-full md:w-[720px] lg:w-[820px] md:max-h-[90vh] bg-card border border-border md:rounded-t-2xl shadow-2xl flex flex-col md:bottom-0";
 
   return (
     <>
@@ -421,15 +470,6 @@ export function ComposeModal() {
             />
             <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setAiOpen(true)}>
               <Sparkles className="h-3 w-3" /> AI‑utkast
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn("h-7 text-xs gap-1", richMode && "bg-primary/10 text-primary")}
-              onClick={() => setRichMode((m) => !m)}
-              title="Bytt mellom rik tekst og vanlig tekst"
-            >
-              <Wand2 className="h-3 w-3" /> {richMode ? "Vanlig" : "Rik tekst"}
             </Button>
             <div className="flex-1" />
             {gdpr.hits.length > 0 && (
@@ -497,16 +537,14 @@ export function ComposeModal() {
               <div className="grid grid-cols-2 gap-2">
                 {selectedTemplate.variables
                   .filter(v => !["avsender", "melding", "mottaker"].includes(v))
-                  .map(v => (
-                    <div key={v}>
-                      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">{v}</Label>
-                      <Input
-                        className="h-8 text-xs mt-0.5"
-                        value={templateVars[v] ?? ""}
-                        placeholder={`Skriv ${v}…`}
-                        onChange={e => setTemplateVars(prev => ({ ...prev, [v]: e.target.value }))}
-                      />
-                    </div>
+                  .map((v) => (
+                    <SmartTemplateVar
+                      key={v}
+                      varName={v}
+                      value={templateVars[v] ?? ""}
+                      onChange={(val) => setTemplateVars((prev) => ({ ...prev, [v]: val }))}
+                      saker={composeSaker}
+                    />
                   ))}
               </div>
             </div>
@@ -543,31 +581,27 @@ export function ComposeModal() {
             {/* Subject */}
             <div className="flex items-center gap-2 py-1.5 border-b">
               <span className="text-xs text-muted-foreground w-8 flex-shrink-0">Emne</span>
-              <Input value={subject} onChange={e => setSubject(e.target.value)} placeholder="Emne…"
-                className="border-0 shadow-none h-8 text-sm font-medium focus-visible:ring-0 px-0" />
+              <Input
+                value={subject}
+                onChange={(e) => { setSubject(e.target.value); setSubjectDirty(true); }}
+                placeholder="Emne…"
+                className="border-0 shadow-none h-8 text-sm font-medium focus-visible:ring-0 px-0"
+              />
             </div>
           </div>
 
           {/* Body / Preview */}
           <div className="px-4 py-3 flex-1">
             {showPreview ? (
-              <div className="text-sm min-h-[120px] p-3 rounded-lg bg-muted/30 border overflow-auto max-h-[60vh]"
+              <div className="text-sm min-h-[180px] p-3 rounded-lg bg-muted/30 border overflow-auto max-h-[60vh]"
                 dangerouslySetInnerHTML={{ __html: getPreviewHtml() }} />
-            ) : richMode ? (
-              <RichTextEditor
-                value={body}
-                onChange={setBody}
-                placeholder={selectedTemplate ? "Skriv meldingen din her — mal-rammen legges til automatisk." : "Skriv meldingen din her…"}
-                minHeight="180px"
-              />
             ) : (
               <>
-                <Textarea
-                  ref={bodyRef}
+                <RichTextEditor
                   value={body}
-                  onChange={e => setBody(e.target.value)}
+                  onChange={setBody}
                   placeholder={selectedTemplate ? "Skriv meldingen din her — mal-rammen legges til automatisk." : "Skriv meldingen din her…"}
-                  className="min-h-[120px] md:min-h-[180px] border-0 shadow-none resize-none text-sm focus-visible:ring-0 p-0"
+                  minHeight="240px"
                 />
                 {selectedTemplate && (
                   <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1.5">
@@ -613,25 +647,7 @@ export function ComposeModal() {
               {sendMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : sendAt ? <Calendar className="h-3.5 w-3.5" /> : <Send className="h-3.5 w-3.5" />}
               {sendMutation.isPending ? "Sender…" : sendAt ? "Planlegg" : "Send"}
             </Button>
-            <div className="flex items-center gap-1">
-              <Calendar className="h-3 w-3 text-muted-foreground" />
-              <Input
-                type="datetime-local"
-                value={sendAt}
-                onChange={(e) => setSendAt(e.target.value)}
-                className="h-7 w-44 text-xs"
-                title="La stå tom for å sende nå"
-              />
-              {sendAt && (
-                <button
-                  type="button"
-                  onClick={() => setSendAt("")}
-                  className="text-[10px] text-muted-foreground hover:text-foreground"
-                >
-                  Send nå
-                </button>
-              )}
-            </div>
+            <ScheduleSendPicker value={sendAt} onChange={setSendAt} />
           </div>
           <div className="flex items-center gap-1">
             {selectedTemplate && (
@@ -756,5 +772,276 @@ export function ComposeModal() {
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   SmartTemplateVar — picks the right input control based on variable name.
+   - sak / saksnavn / saksnummer  → dropdown of the user's saker
+   - periode / måned / month       → calendar-month picker (default = current)
+   - dato / startdato / sluttdato  → date picker
+   - other                          → free-text input
+   ───────────────────────────────────────────────────────────────────────── */
+function SmartTemplateVar({
+  varName, value, onChange, saker,
+}: {
+  varName: string;
+  value: string;
+  onChange: (v: string) => void;
+  saker: any[];
+}) {
+  const lname = varName.toLowerCase();
+  const isSak = ["sak", "saksnavn", "saksnummer", "klient"].includes(lname);
+  const isPeriod = ["periode", "måned", "maaned", "month"].includes(lname);
+  const isDate = ["dato", "startdato", "sluttdato", "frist", "forfallsdato"].includes(lname);
+
+  // Default the period to current month on first render so users can leave it as-is
+  useEffect(() => {
+    if (isPeriod && !value) {
+      const now = new Date();
+      const label = now.toLocaleString("nb-NO", { month: "long", year: "numeric" });
+      onChange(label.charAt(0).toUpperCase() + label.slice(1));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPeriod]);
+
+  if (isSak) {
+    return (
+      <div>
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+          <Briefcase className="h-2.5 w-2.5" />{varName}
+        </Label>
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="mt-0.5 h-8 w-full rounded-md border bg-background px-2 text-xs"
+        >
+          <option value="">— Velg sak —</option>
+          {saker.map((s) => (
+            <option key={s.id} value={s.tittel || s.saksnummer}>
+              {s.tittel ? `${s.saksnummer} — ${s.tittel}` : s.saksnummer}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
+
+  if (isPeriod) {
+    // Quick presets + free text override
+    const now = new Date();
+    const presets = [-1, 0, 1].map((offset) => {
+      const d = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+      const label = d.toLocaleString("nb-NO", { month: "long", year: "numeric" });
+      return label.charAt(0).toUpperCase() + label.slice(1);
+    });
+    return (
+      <div>
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+          <CalendarDays className="h-2.5 w-2.5" />{varName}
+        </Label>
+        <div className="flex items-center gap-1 mt-0.5">
+          <Input
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="f.eks. April 2026"
+            className="h-8 text-xs flex-1"
+          />
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button variant="outline" size="sm" className="h-8 px-2 shrink-0">
+                <CalendarDays className="h-3 w-3" />
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-auto p-2 space-y-1">
+              {presets.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => onChange(p)}
+                  className="w-full text-left rounded-md px-2 py-1 text-xs hover:bg-accent"
+                >
+                  {p}
+                </button>
+              ))}
+            </PopoverContent>
+          </Popover>
+        </div>
+      </div>
+    );
+  }
+
+  if (isDate) {
+    return (
+      <div>
+        <Label className="text-[10px] uppercase tracking-wide text-muted-foreground flex items-center gap-1">
+          <CalendarDays className="h-2.5 w-2.5" />{varName}
+        </Label>
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" size="sm" className="h-8 w-full justify-start mt-0.5 text-xs font-normal">
+              <CalendarDays className="h-3 w-3 mr-1.5" />
+              {value || `Velg ${varName}…`}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="start" className="p-0 w-auto">
+            <CalendarPicker
+              mode="single"
+              selected={value ? new Date(value.split('.').reverse().join('-')) : undefined}
+              onSelect={(d) => {
+                if (d) {
+                  // Norwegian-friendly DD.MM.YYYY
+                  const dd = String(d.getDate()).padStart(2, '0');
+                  const mm = String(d.getMonth() + 1).padStart(2, '0');
+                  onChange(`${dd}.${mm}.${d.getFullYear()}`);
+                }
+              }}
+              initialFocus
+            />
+          </PopoverContent>
+        </Popover>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <Label className="text-[10px] uppercase tracking-wide text-muted-foreground">{varName}</Label>
+      <Input
+        className="h-8 text-xs mt-0.5"
+        value={value}
+        placeholder={`Skriv ${varName}…`}
+        onChange={(e) => onChange(e.target.value)}
+      />
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   ScheduleSendPicker — pretty Calendar+time popover with quick presets.
+   ───────────────────────────────────────────────────────────────────────── */
+function ScheduleSendPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const parsed = value ? new Date(value) : null;
+
+  const setDateAndTime = (d: Date | undefined, time: string) => {
+    if (!d) return;
+    const [h, m] = (time || "09:00").split(":").map(Number);
+    const next = new Date(d);
+    next.setHours(h || 9, m || 0, 0, 0);
+    // datetime-local format YYYY-MM-DDTHH:MM (no timezone)
+    const pad = (n: number) => String(n).padStart(2, "0");
+    onChange(`${next.getFullYear()}-${pad(next.getMonth() + 1)}-${pad(next.getDate())}T${pad(next.getHours())}:${pad(next.getMinutes())}`);
+  };
+
+  const presets = [
+    {
+      label: "Om 1 time",
+      get: () => { const d = new Date(); d.setHours(d.getHours() + 1, 0, 0, 0); return d; },
+    },
+    {
+      label: "I morgen kl. 09",
+      get: () => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return d; },
+    },
+    {
+      label: "Mandag kl. 09",
+      get: () => {
+        const d = new Date();
+        const day = d.getDay() || 7;
+        d.setDate(d.getDate() + (8 - day));
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+    {
+      label: "Neste mandag kl. 09",
+      get: () => {
+        const d = new Date();
+        const day = d.getDay() || 7;
+        d.setDate(d.getDate() + (15 - day));
+        d.setHours(9, 0, 0, 0);
+        return d;
+      },
+    },
+  ];
+
+  const formatLabel = (d: Date) =>
+    d.toLocaleString("nb-NO", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+  const currentTime = parsed
+    ? `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`
+    : "09:00";
+
+  return (
+    <div className="flex items-center gap-1">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(
+              "h-8 gap-1.5 text-xs",
+              parsed && "border-primary/40 bg-primary/5 text-primary",
+            )}
+          >
+            <Calendar className="h-3 w-3" />
+            {parsed ? formatLabel(parsed) : "Planlegg sending"}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-auto p-0">
+          <div className="grid grid-cols-[auto_1fr] gap-0">
+            <div className="border-r p-2 space-y-1 bg-muted/20 min-w-[140px]">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-2 pb-1">
+                Hurtigvalg
+              </p>
+              {presets.map((p) => (
+                <button
+                  key={p.label}
+                  type="button"
+                  onClick={() => {
+                    const d = p.get();
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    onChange(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+                    setOpen(false);
+                  }}
+                  className="w-full text-left rounded-md px-2 py-1.5 text-xs hover:bg-background flex items-center gap-1.5"
+                >
+                  <Clock className="h-3 w-3 text-muted-foreground" />
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            <div className="p-2 space-y-2">
+              <CalendarPicker
+                mode="single"
+                selected={parsed ?? undefined}
+                onSelect={(d) => setDateAndTime(d, currentTime)}
+                disabled={(date) => date < new Date(new Date().setHours(0, 0, 0, 0))}
+                initialFocus
+              />
+              <div className="flex items-center gap-2 px-2 pb-1">
+                <Clock className="h-3.5 w-3.5 text-muted-foreground" />
+                <Input
+                  type="time"
+                  value={currentTime}
+                  onChange={(e) => parsed && setDateAndTime(parsed, e.target.value)}
+                  className="h-8 text-sm"
+                />
+              </div>
+            </div>
+          </div>
+        </PopoverContent>
+      </Popover>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="text-[10px] text-muted-foreground hover:text-foreground px-1"
+          title="Send nå i stedet"
+        >
+          ×
+        </button>
+      )}
+    </div>
   );
 }
