@@ -81,11 +81,18 @@ export default function InteractiveGuide() {
   const brand = useBrandInfo();
 
   // Resolve icon strings → Lucide components once per config change.
+  // Defensive: a CMS-saved category may lack `articles` if the admin
+  // built it via the JSON tab and removed the array; never let that
+  // crash the page.
   const viewCategories = useMemo<ViewCategory[]>(
-    () => config.categories.map((c) => ({
+    () => (Array.isArray(config.categories) ? config.categories : []).map((c) => ({
       ...c,
       icon: resolveIcon(c.icon),
-      articles: c.articles.map((a) => ({ ...a, icon: resolveIcon(a.icon) })),
+      accent: c.accent || "from-slate-500 to-slate-700",
+      articles: (Array.isArray(c.articles) ? c.articles : []).map((a) => ({
+        ...a,
+        icon: resolveIcon(a.icon),
+      })),
     })),
     [config.categories],
   );
@@ -123,7 +130,7 @@ export default function InteractiveGuide() {
       {
         "@context": "https://schema.org",
         "@type": "FAQPage",
-        mainEntity: config.faq.map(({ q, a }) => ({
+        mainEntity: (Array.isArray(config.faq) ? config.faq : []).map(({ q, a }) => ({
           "@type": "Question",
           name: q,
           acceptedAnswer: { "@type": "Answer", text: a },
@@ -363,7 +370,7 @@ export default function InteractiveGuide() {
           Vanlige spørsmål
         </h2>
         <div className="space-y-3">
-          {config.faq.map((item: GuideFAQItem, idx: number) => (
+          {(Array.isArray(config.faq) ? config.faq : []).map((item: GuideFAQItem, idx: number) => (
             <FAQAccordion key={idx} q={item.q} a={item.a} />
           ))}
         </div>
