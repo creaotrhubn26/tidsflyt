@@ -553,10 +553,6 @@ export const DEFAULT_GUIDE_CONFIG: GuideConfig = {
       a: "Gå til Rapporter‑fanen. Bruk filtrene for å begrense på status, periode eller sak. Godkjente rapporter er alltid søkbare.",
     },
     {
-      q: "Hvordan logger jeg inn på CMS?",
-      a: "For super‑admin: bare logg inn med Google på vanlig vis — du får automatisk CMS‑tilgang uten ekstra passord.",
-    },
-    {
       q: "Hvor mange brukere kan jeg ha?",
       a: "Avhenger av abonnementet ditt. Standard er 50 brukere; Premium har høyere grense. Kontakt support for oppgradering.",
     },
