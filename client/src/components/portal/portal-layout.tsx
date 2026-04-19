@@ -71,6 +71,7 @@ import { useStuckDetection } from "@/hooks/use-stuck-detection";
 import { useGuideConfig } from "@/hooks/use-guide-config";
 import { useNavConfig } from "@/hooks/use-nav-config";
 import { pickVariant, recordStuckEvent } from "@/lib/stuck-experiments";
+import { useTranslation } from "react-i18next";
 
 interface CompanyUser {
   id: number;
@@ -213,8 +214,37 @@ export function PortalLayout({ children, user }: PortalLayoutProps) {
   );
 }
 
+/** Map sidebar item paths to i18n keys so labels translate live when the
+ *  language toggles, while baseNavItems stays the source of truth for
+ *  routes/icons/roles. Falls back to the baked-in label if no key exists. */
+const NAV_LABEL_KEYS: Record<string, string> = {
+  '/dashboard': 'nav.dashboard',
+  '/tiltaksleder': 'nav.tiltaksleder',
+  '__getting-started__': 'nav.gettingStarted',
+  '/cases': 'nav.saker',
+  '/institusjoner': 'nav.institusjoner',
+  '/invites': 'nav.invitasjoner',
+  '/rapporter': 'nav.rapporter',
+  '/rapporter/godkjenning': 'nav.godkjenning',
+  '/admin/rapport-maler': 'nav.rapportMaler',
+  '/avvik': 'nav.avvik',
+  '/time': 'nav.timeforing',
+  '/timesheets': 'nav.timelister',
+  '/overtime': 'nav.overtid',
+  '/leave': 'nav.fravar',
+  '/recurring': 'nav.fasteOppgaver',
+  '/invoices': 'nav.fakturaer',
+  '/email': 'nav.epost',
+  '/forward': 'nav.sendVidere',
+  '/vendors': 'nav.leverandorer',
+  '/cms': 'nav.cms',
+  '/admin/tester-feedback': 'nav.testerFeedback',
+  '/settings': 'nav.innstillinger',
+};
+
 function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const [location, navigate] = useLocation();
+  const { t } = useTranslation();
   const [collapsed, setCollapsed] = useState(false);
   const { openCompose } = useCompose();
   const [isGettingStartedOpen, setIsGettingStartedOpen] = useState(false);
@@ -536,7 +566,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
           size={collapsed && !mobile ? "icon" : "default"}
         >
           <Mail className="h-4 w-4" />
-          {(!collapsed || mobile) && <span>Skriv e-post</span>}
+          {(!collapsed || mobile) && <span>{t('nav.compose', 'Skriv e-post')}</span>}
         </Button>
       </div>
 
@@ -561,7 +591,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
               <div key={category} className="space-y-1">
                 {!isCollapsedDesktop ? (
                   <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#a4c0c5]/70">
-                    {navConfig.portalCategoryLabels[category] || NAV_CATEGORY_LABELS[category]}
+                    {navConfig.portalCategoryLabels[category] || t(`nav.categories.${category}`, NAV_CATEGORY_LABELS[category])}
                   </p>
                 ) : (
                   <div className="mx-2 my-1 border-t border-white/10" aria-hidden />
@@ -590,7 +620,9 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                       >
                         <Icon className="h-5 w-5 flex-shrink-0" />
                         {!isCollapsedDesktop && (
-                          <span className="flex-1 text-left text-sm font-medium">{item.label}</span>
+                          <span className="flex-1 text-left text-sm font-medium">
+                            {NAV_LABEL_KEYS[item.path] ? t(NAV_LABEL_KEYS[item.path], item.label) : item.label}
+                          </span>
                         )}
                       </button>
                     );
@@ -606,7 +638,9 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                       <Icon className="h-5 w-5 flex-shrink-0" />
                       {!isCollapsedDesktop && (
                         <>
-                          <span className="flex-1 text-sm font-medium">{item.label}</span>
+                          <span className="flex-1 text-sm font-medium">
+                            {NAV_LABEL_KEYS[item.path] ? t(NAV_LABEL_KEYS[item.path], item.label) : item.label}
+                          </span>
                           {item.badge && (
                             <Badge className="h-5 px-1.5 text-xs bg-white/20 text-white border border-white/30">
                               {item.badge}

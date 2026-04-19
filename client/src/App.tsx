@@ -7,6 +7,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeBootstrap } from "@/components/theme-bootstrap";
+import "@/lib/i18n"; // initialise i18next (side-effect import)
+import { LanguageBootstrap } from "@/components/language-bootstrap";
 import { AuthGuard } from "@/components/auth-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AnalyticsRuntime } from "@/components/analytics-runtime";
@@ -194,6 +196,7 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <ThemeProvider defaultTheme="system" storageKey="smart-timing-theme">
           <ThemeBootstrap />
+          <LanguageBootstrap />
           <TooltipProvider>
             <Toaster />
             <AnalyticsRuntime />

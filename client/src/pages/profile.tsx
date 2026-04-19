@@ -43,6 +43,7 @@ import { useRolePreview } from "@/hooks/use-role-preview";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { canAccessVendorApiAdmin, getRoleLabel, normalizeRole } from "@shared/roles";
 import { useToast } from "@/hooks/use-toast";
+import { setAppLanguage } from "@/lib/i18n";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
 import { type SuggestionMode, type SuggestionFrequency, type SuggestionBlockCategory } from "@/lib/suggestion-settings";
 
@@ -235,8 +236,9 @@ export default function ProfilePage() {
     mutation.mutate(patch);
   }
 
-  /* ── Language save (auto-saves on change) ── */
+  /* ── Language save (auto-saves on change + applies immediately) ── */
   function saveLanguage(lang: string) {
+    setAppLanguage(lang);
     mutation.mutate({ language: lang as "no" | "en" });
   }
 
