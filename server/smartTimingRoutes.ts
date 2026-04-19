@@ -4078,14 +4078,36 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Public: list published posts with pagination, category & tag filtering
+  /**
+   * Lazy auto-publish: any scheduled post whose scheduled_at has passed
+   * is flipped to "published" on the next public read. Means we don't need
+   * a cron worker — first visitor after the timestamp triggers publication.
+   */
+  async function autoPublishScheduled() {
+    try {
+      await pool.query(
+        `UPDATE cms_posts
+           SET status = 'published',
+               published_at = COALESCE(published_at, scheduled_at, NOW()),
+               updated_at = NOW()
+         WHERE status = 'scheduled'
+           AND scheduled_at IS NOT NULL
+           AND scheduled_at <= NOW()`,
+      );
+    } catch (e) {
+      console.warn('autoPublishScheduled failed:', e);
+    }
+  }
+
   app.get("/api/blog", async (req, res) => {
     try {
+      await autoPublishScheduled();
       const { page = '1', limit = '12', category, tag, q } = req.query;
       const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
       const limitNum = Math.min(50, Math.max(1, parseInt(limit as string, 10) || 12));
       const offset = (pageNum - 1) * limitNum;
 
-      let query = `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.author, p.category_id, 
+      let query = `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.author, p.category_id,
                     p.tags, p.status, p.reading_time, p.word_count, p.published_at, p.created_at, p.updated_at,
                     c.name as category_name, c.slug as category_slug
                     FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id`;
@@ -4184,6 +4206,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Public: get single post by slug
   app.get("/api/blog/:slug", async (req, res) => {
     try {
+      await autoPublishScheduled();
       const result = await pool.query(
         `SELECT p.*, c.name as category_name, c.slug as category_slug
          FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id
