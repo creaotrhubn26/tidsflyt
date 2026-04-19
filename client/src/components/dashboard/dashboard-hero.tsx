@@ -93,7 +93,10 @@ export function DashboardHero({
   const periodLabel = useMemo(() => getPeriodLabel(timeRange), [timeRange]);
   const isTiltaksleder = mode === "tiltaksleder";
   const isMiljoarbeider = mode === "miljoarbeider";
-  const createFollowUpPath = "/case-reports?create=1";
+  // Saksrapporter-fanen er fjernet — miljøarbeidere bruker /rapporter
+  // (write-flow er /rapporter/ny). De gamle /case-reports?create=1
+  // routene førte til en deaktivert side.
+  const createFollowUpPath = "/rapporter/ny";
   const primaryActionPath = isTiltaksleder
     ? "/cases"
     : isMiljoarbeider
@@ -107,12 +110,12 @@ export function DashboardHero({
   const overviewActionPath = isTiltaksleder
     ? "/cases"
     : isMiljoarbeider
-      ? "/case-reports"
+      ? "/rapporter"
       : "/cases";
   const reportsShortcutPath = isTiltaksleder
     ? "/cases"
     : isMiljoarbeider
-      ? "/case-reports"
+      ? "/rapporter"
       : "/reports";
 
   /* ── Live relative-time state ── */

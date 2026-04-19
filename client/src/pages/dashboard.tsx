@@ -1068,7 +1068,16 @@ export default function DashboardPage() {
             onTimeRangeChange={handleTimeRangeChange}
             statsFetching={statsFetching}
             statsLoading={statsLoading}
-            pendingApprovals={stats?.pendingApprovals ?? 0}
+            // Bruk rolle-spesifikt antall — `stats.pendingApprovals` er
+            // antall ikke-godkjente brukere (admin-info), ikke noe en
+            // miljøarbeider eller tiltaksleder skal se på toppen.
+            pendingApprovals={
+              isMiljoarbeiderView
+                ? 0
+                : isTiltakslederView
+                  ? (Array.isArray(tiltakslederSnapshot?.pendingApprovals) ? tiltakslederSnapshot!.pendingApprovals.length : 0)
+                  : (stats?.pendingApprovals ?? 0)
+            }
             lastUpdated={lastUpdated}
             userName={user?.firstName || undefined}
             navigate={navigate}
