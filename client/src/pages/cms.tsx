@@ -10,6 +10,7 @@ import { VisualBuilder } from "@/components/cms/visual-builder";
 import { GuideEditor } from "@/components/cms/guide-editor";
 import { BrandEditor } from "@/components/cms/brand-editor";
 import { NavEditor } from "@/components/cms/nav-editor";
+import { MediaPicker } from "@/components/cms/media-picker";
 import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
 import { CrawlerDashboard } from "@/components/cms/crawler-dashboard";
 import { Badge } from "@/components/ui/badge";
@@ -393,6 +394,8 @@ function ImageUploader({
     }
   };
 
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   return (
     <div className="space-y-2">
       <Label>{label}</Label>
@@ -403,6 +406,15 @@ function ImageUploader({
           placeholder={placeholder}
           className="flex-1"
         />
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          onClick={() => setPickerOpen(true)}
+          title="Velg fra mediabibliotek"
+        >
+          <Image className="h-4 w-4" />
+        </Button>
         <label className="cursor-pointer" data-testid="button-upload-image">
           <input
             type="file"
@@ -411,13 +423,19 @@ function ImageUploader({
             className="hidden"
             data-testid="input-file-upload"
           />
-          <Button type="button" variant="outline" size="icon" disabled={isUploading} asChild>
+          <Button type="button" variant="outline" size="icon" disabled={isUploading} asChild title="Last opp ny fil">
             <span>
               {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
             </span>
           </Button>
         </label>
       </div>
+      <MediaPicker
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        onSelect={(url) => onChange(url)}
+        title={`Velg ${label.toLowerCase()}`}
+      />
       {/* Upload Progress Bar */}
       {isUploading && (
         <div className="space-y-1" data-testid="upload-progress">

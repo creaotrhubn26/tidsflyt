@@ -27,12 +27,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertCircle, ChevronRight, ExternalLink, Eye, Image as ImageIcon, Layout,
-  Lightbulb, Loader2, Plus, RotateCcw, Save, Settings as SettingsIcon,
-  Sparkles, Trash2, Video,
+  AlertCircle, ChevronRight, ExternalLink, Eye, History, Image as ImageIcon,
+  Layout, Lightbulb, Loader2, Plus, RotateCcw, Save,
+  Settings as SettingsIcon, Sparkles, Trash2, Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MediaPicker } from "./media-picker";
+import { CategoriesEditor } from "./categories-editor";
 import { PREVIEW_STORAGE_KEY } from "@/hooks/use-guide-config";
 
 const KEY = ["/api/cms/guide-config"];
@@ -242,6 +243,7 @@ export function GuideEditor() {
           <TabsTrigger value="stuck"><AlertCircle className="h-3.5 w-3.5 mr-1" />Sitter‑fast</TabsTrigger>
           <TabsTrigger value="tour"><Video className="h-3.5 w-3.5 mr-1" />Omvisning</TabsTrigger>
           <TabsTrigger value="advanced"><SettingsIcon className="h-3.5 w-3.5 mr-1" />Avansert</TabsTrigger>
+          <TabsTrigger value="versions"><History className="h-3.5 w-3.5 mr-1" />Versjoner</TabsTrigger>
         </TabsList>
 
         {/* ── INNHOLD ── */}
@@ -399,39 +401,61 @@ export function GuideEditor() {
 
         {/* ── KATEGORIER ── */}
         <TabsContent value="categories" className="space-y-3">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">Kategorier og artikler</CardTitle>
-              <CardDescription>
-                Strukturen er dypt nestet — rediger som JSON. Hver kategori har{" "}
-                <code>id, label, blurb, icon, accent, articles[]</code>. Artikler har{" "}
-                <code>id, title, summary, icon, inAppPath, roles?, steps?, tips?, screenshot?, videoUrl?</code>.
-                Se Lucide‑ikon‑navn på <a className="text-primary underline" href="https://lucide.dev/icons/" target="_blank" rel="noreferrer">lucide.dev</a>.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11px] text-muted-foreground">
-                  Tips: plasser markøren der du vil ha bilde-URL og klikk «Sett inn bilde».
-                </p>
-                <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
-                  <ImageIcon className="h-3.5 w-3.5 mr-1" />
-                  Sett inn bilde
-                </Button>
-              </div>
-              <Textarea
-                ref={categoriesTextareaRef}
-                value={categoriesJson}
-                onChange={(e) => { setCategoriesJson(e.target.value); setDirty(true); }}
-                rows={28}
-                spellCheck={false}
-                className="font-mono text-xs"
+          <Tabs defaultValue="visual">
+            <TabsList>
+              <TabsTrigger value="visual">Visuell editor</TabsTrigger>
+              <TabsTrigger value="json">Rå JSON (avansert)</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="visual" className="pt-3">
+              <CategoriesEditor
+                categories={(() => {
+                  // The structured editor edits the parsed objects, but we keep
+                  // the JSON textarea as canonical state. Parse on demand and
+                  // fall back to the form state on parse errors.
+                  try { return JSON.parse(categoriesJson); }
+                  catch { return draft.categories; }
+                })()}
+                onChange={(next) => {
+                  setCategoriesJson(JSON.stringify(next, null, 2));
+                  setDirty(true);
+                }}
               />
-              {jsonErrors.categories && (
-                <p className="text-xs text-destructive mt-2">JSON‑feil: {jsonErrors.categories}</p>
-              )}
-            </CardContent>
-          </Card>
+            </TabsContent>
+
+            <TabsContent value="json" className="pt-3">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Rå JSON</CardTitle>
+                  <CardDescription>
+                    For dyp tilpasning. Den visuelle editoren skriver til samme JSON.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] text-muted-foreground">
+                      Plasser markøren der du vil ha bilde-URL og klikk «Sett inn bilde».
+                    </p>
+                    <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                      <ImageIcon className="h-3.5 w-3.5 mr-1" />
+                      Sett inn bilde
+                    </Button>
+                  </div>
+                  <Textarea
+                    ref={categoriesTextareaRef}
+                    value={categoriesJson}
+                    onChange={(e) => { setCategoriesJson(e.target.value); setDirty(true); }}
+                    rows={28}
+                    spellCheck={false}
+                    className="font-mono text-xs"
+                  />
+                  {jsonErrors.categories && (
+                    <p className="text-xs text-destructive mt-2">JSON‑feil: {jsonErrors.categories}</p>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </Tabs>
 
           <MediaPicker
             open={pickerOpen}
@@ -609,8 +633,88 @@ export function GuideEditor() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* ── VERSJONER — rollback ── */}
+        <TabsContent value="versions" className="space-y-3">
+          <VersionsHistory
+            onRestore={(snapshot) => {
+              if (!confirm("Tilbakestill guide-konfigurasjonen til denne versjonen? Endringer som ikke er lagret går tapt.")) return;
+              try {
+                const merged = mergeGuideConfig(JSON.parse(snapshot));
+                setDraft(merged);
+                setCategoriesJson(JSON.stringify(merged.categories, null, 2));
+                setRulesJson(JSON.stringify(merged.stuck.rules, null, 2));
+                setWelcomeJson(JSON.stringify(merged.tour.welcomeOverrides ?? {}, null, 2));
+                setDirty(true);
+                toast({ title: "Tilbakestilt", description: "Bla gjennom og klikk «Lagre» for å publisere." });
+              } catch (e: any) {
+                toast({ title: "Kunne ikke tolke versjon", description: e.message, variant: "destructive" });
+              }
+            }}
+          />
+        </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+/** Versions history — fetches /api/cms/guide-config/history and offers rollback. */
+function VersionsHistory({ onRestore }: { onRestore: (snapshot: string) => void }) {
+  const { data: history = [], isLoading } = useQuery<any[]>({
+    queryKey: ["/api/cms/guide-config/history"],
+    queryFn: async () => {
+      const res = await fetch("/api/cms/guide-config/history", { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    staleTime: 30_000,
+  });
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base flex items-center gap-2">
+          <History className="h-4 w-4" />
+          Tidligere versjoner
+        </CardTitle>
+        <CardDescription>
+          Hver gang du lagrer, snapshotes forrige versjon. De siste 20 holdes — eldre slettes automatisk.
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8 text-muted-foreground text-sm">
+            <Loader2 className="h-4 w-4 animate-spin mr-2" />Laster…
+          </div>
+        ) : history.length === 0 ? (
+          <p className="text-sm text-muted-foreground italic">
+            Ingen tidligere versjoner ennå. Lagring genererer den første snapshoten.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {history.map((entry, i) => (
+              <div key={i} className="flex items-center gap-3 rounded-md border p-3 bg-muted/20">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">
+                    {new Date(entry.savedAt).toLocaleString("nb-NO", {
+                      day: "2-digit", month: "long", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Lagret av {entry.savedBy ?? "ukjent"}
+                  </p>
+                </div>
+                <Button size="sm" variant="outline" onClick={() => onRestore(entry.snapshot)}>
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Tilbakestill
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

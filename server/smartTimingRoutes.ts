@@ -2210,6 +2210,43 @@ export function registerSmartTimingRoutes(app: Express) {
         'SELECT * FROM site_settings WHERE key = $1',
         [GUIDE_CONFIG_KEY],
       );
+      // Snapshot the current version into the history before overwriting.
+      // Keeps the last 20 entries so we don't grow unbounded.
+      try {
+        const HISTORY_KEY = "guide_config_history";
+        const prev = existing.rows.length > 0
+          ? (typeof existing.rows[0].value === "string" ? existing.rows[0].value : JSON.stringify(existing.rows[0].value))
+          : null;
+        if (prev) {
+          const histRow = await pool.query(
+            'SELECT value FROM site_settings WHERE key = $1',
+            [HISTORY_KEY],
+          );
+          let history: any[] = [];
+          if (histRow.rows.length > 0) {
+            try {
+              const raw = histRow.rows[0].value;
+              const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+              if (Array.isArray(parsed)) history = parsed;
+            } catch {}
+          }
+          history.unshift({
+            savedAt: new Date().toISOString(),
+            savedBy: req.admin?.email || req.admin?.id || null,
+            snapshot: prev,
+          });
+          history = history.slice(0, 20);
+          const histValue = JSON.stringify(history);
+          if (histRow.rows.length > 0) {
+            await pool.query('UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [histValue, HISTORY_KEY]);
+          } else {
+            await pool.query('INSERT INTO site_settings (key, value) VALUES ($1, $2)', [HISTORY_KEY, histValue]);
+          }
+        }
+      } catch (e) {
+        console.warn('guide-config history snapshot failed:', e);
+      }
+
       if (existing.rows.length > 0) {
         await pool.query(
           'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
@@ -2222,6 +2259,27 @@ export function registerSmartTimingRoutes(app: Express) {
         );
       }
       res.json(merged);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/cms/guide-config/history", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      const r = await pool.query("SELECT value FROM site_settings WHERE key = 'guide_config_history'");
+      let history: any[] = [];
+      if (r.rows.length > 0) {
+        try {
+          const raw = r.rows[0].value;
+          const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+          if (Array.isArray(parsed)) history = parsed;
+        } catch {}
+      }
+      res.json(history);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
