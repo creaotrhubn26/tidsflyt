@@ -27,11 +27,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertCircle, ChevronRight, Image as ImageIcon, Layout, Lightbulb, Loader2,
-  Plus, RotateCcw, Save, Settings as SettingsIcon, Sparkles, Trash2, Video,
+  AlertCircle, ChevronRight, ExternalLink, Eye, Image as ImageIcon, Layout,
+  Lightbulb, Loader2, Plus, RotateCcw, Save, Settings as SettingsIcon,
+  Sparkles, Trash2, Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MediaPicker } from "./media-picker";
+import { PREVIEW_STORAGE_KEY } from "@/hooks/use-guide-config";
 
 const KEY = ["/api/cms/guide-config"];
 
@@ -171,6 +173,26 @@ export function GuideEditor() {
     setDirty(true);
   };
 
+  /** Stash the current draft (with parsed JSON sections) in sessionStorage
+   *  and open /guide?preview=cms in a new tab so admins can verify before
+   *  saving. JSON parse errors fall back to the form-state values. */
+  const handlePreview = () => {
+    let categories = draft.categories;
+    let rules = draft.stuck.rules;
+    let welcome = draft.tour.welcomeOverrides;
+    try { categories = JSON.parse(categoriesJson); } catch {}
+    try { rules = JSON.parse(rulesJson); } catch {}
+    try { welcome = welcomeJson.trim() ? JSON.parse(welcomeJson) : welcome; } catch {}
+    const preview = {
+      ...draft,
+      categories,
+      stuck: { ...draft.stuck, rules },
+      tour: { ...draft.tour, welcomeOverrides: welcome },
+    };
+    try { sessionStorage.setItem(PREVIEW_STORAGE_KEY, JSON.stringify(preview)); } catch {}
+    window.open("/guide?preview=cms", "_blank");
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-muted-foreground">
@@ -196,6 +218,10 @@ export function GuideEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handlePreview} title="Åpne /guide med dette utkastet i en ny fane">
+            <Eye className="h-3.5 w-3.5 mr-1" />
+            Forhåndsvis utkast
+          </Button>
           <Button variant="ghost" size="sm" onClick={handleReset} title="Tilbakestill til Tidums standardverdier">
             <RotateCcw className="h-3.5 w-3.5 mr-1" />
             Tilbakestill

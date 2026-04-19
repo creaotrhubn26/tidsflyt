@@ -77,7 +77,7 @@ function toEmbedUrl(url: string): { type: "iframe" | "file"; src: string } {
 
 export default function InteractiveGuide() {
   usePublicLightTheme();
-  const { config } = useGuideConfig();
+  const { config, isPreview } = useGuideConfig();
   const brand = useBrandInfo();
 
   // Resolve icon strings → Lucide components once per config change.
@@ -173,6 +173,12 @@ export default function InteractiveGuide() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-white via-slate-50 to-slate-100 text-slate-900">
+      {isPreview && (
+        <div className="sticky top-0 z-40 bg-amber-500 text-white text-xs font-semibold py-1.5 px-4 text-center shadow-md">
+          Forhåndsvisning fra CMS — endringer er ikke lagret. Lukk fanen eller fjern <code className="font-mono">?preview=cms</code> for å se den publiserte versjonen.
+        </div>
+      )}
+
       {/* ── Top nav ── */}
       <header className="sticky top-0 z-30 backdrop-blur bg-white/80 border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 lg:px-8 h-16 flex items-center justify-between gap-4">
