@@ -211,28 +211,28 @@ export default function InteractiveGuide() {
 
       {/* ── Hero + Search ── */}
       <section className={`max-w-4xl mx-auto px-4 lg:px-8 pt-16 pb-10 ${
-        config.layout.heroAlign === "left" ? "text-left" : "text-center"
+        config.layout?.heroAlign === "left" ? "text-left" : "text-center"
       }`}>
-        {config.layout.showUpdatedBadge && config.hero.updatedLabel && (
+        {config.layout?.showUpdatedBadge && config.hero?.updatedLabel && (
           <Badge variant="outline" className="mb-4 text-xs gap-1.5 border-emerald-300 text-emerald-700 bg-emerald-50">
             <Sparkles className="h-3 w-3" />
-            {config.hero.updatedLabel} {new Date().toLocaleDateString("nb-NO", { month: "long", year: "numeric" })}
+            {config.hero?.updatedLabel} {new Date().toLocaleDateString("nb-NO", { month: "long", year: "numeric" })}
           </Badge>
         )}
         <h1 className="text-4xl md:text-5xl font-bold tracking-tight mb-4">
-          {config.hero.title}
+          {config.hero?.title || "Slik bruker du Tidum"}
         </h1>
         <p className={`text-lg text-slate-600 max-w-2xl mb-8 leading-relaxed ${
-          config.layout.heroAlign === "left" ? "" : "mx-auto"
+          config.layout?.heroAlign === "left" ? "" : "mx-auto"
         }`}>
-          {config.hero.subtitle}
+          {config.hero?.subtitle}
         </p>
-        <div className={`relative max-w-xl ${config.layout.heroAlign === "left" ? "" : "mx-auto"}`}>
+        <div className={`relative max-w-xl ${config.layout?.heroAlign === "left" ? "" : "mx-auto"}`}>
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={config.hero.searchPlaceholder}
+            placeholder={config.hero?.searchPlaceholder ?? "Søk i guiden…"}
             className="h-14 pl-11 pr-4 text-base shadow-sm border-slate-200 bg-white focus-visible:ring-2 focus-visible:ring-emerald-400/40"
             data-testid="guide-search"
           />
@@ -245,7 +245,7 @@ export default function InteractiveGuide() {
       </section>
 
       {/* ── Quick start strip ── */}
-      {!isSearching && config.layout.showQuickStart && (
+      {!isSearching && config.layout?.showQuickStart && (
         <section className="max-w-6xl mx-auto px-4 lg:px-8 pb-10">
           <div className="grid gap-3 md:grid-cols-3">
             <QuickCard
@@ -333,7 +333,7 @@ export default function InteractiveGuide() {
       </main>
 
       {/* ── Stuck CTA ── */}
-      {config.layout.showStuckCTA && (
+      {config.layout?.showStuckCTA && (
         <section className="border-t border-slate-200 bg-white">
           <div className="max-w-4xl mx-auto px-4 lg:px-8 py-14 text-center">
             <div className="inline-flex items-center justify-center h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-md mb-4">
@@ -363,7 +363,7 @@ export default function InteractiveGuide() {
       )}
 
       {/* ── FAQ ── */}
-      {config.layout.showFAQ && (
+      {config.layout?.showFAQ && (
       <section className="max-w-4xl mx-auto px-4 lg:px-8 py-14">
         <h2 className="text-2xl font-bold mb-6 flex items-center gap-2">
           <Zap className="h-5 w-5 text-emerald-500" />

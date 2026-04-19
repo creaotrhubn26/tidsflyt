@@ -76,7 +76,11 @@ export function StuckStatsPage() {
     for (const r of filteredRows) {
       const key = `${r.reason}::${r.variantId ?? "control"}`;
       const cur = map.get(key) ?? { reason: r.reason, variantId: r.variantId ?? "control", shown: 0, tour: 0, guide: 0, dismissed: 0 };
-      (cur as any)[r.action] = ((cur as any)[r.action] ?? 0) + r.count;
+      // Only known actions roll up — server validates these but be defensive
+      // so a stray row in the DB can't pollute the chart object shape.
+      if (r.action === "shown" || r.action === "tour" || r.action === "guide" || r.action === "dismissed") {
+        (cur as any)[r.action] = ((cur as any)[r.action] ?? 0) + r.count;
+      }
       map.set(key, cur);
     }
     return Array.from(map.values()).map((v) => ({
@@ -96,9 +100,15 @@ export function StuckStatsPage() {
     const filtered = (data?.daily ?? []).filter((r) => reasonFilter === "all" || r.reason === reasonFilter);
     const byDay = new Map<string, { day: string; shown: number; tour: number; guide: number; dismissed: number }>();
     for (const r of filtered) {
-      const dayKey = new Date(r.day).toISOString().slice(0, 10);
+      const d = new Date(r.day);
+      if (Number.isNaN(d.getTime())) continue; // skip rows with garbled timestamps
+      const dayKey = d.toISOString().slice(0, 10);
       const cur = byDay.get(dayKey) ?? { day: dayKey, shown: 0, tour: 0, guide: 0, dismissed: 0 };
-      (cur as any)[r.action] = ((cur as any)[r.action] ?? 0) + r.count;
+      // Only known actions roll up — server validates these but be defensive
+      // so a stray row in the DB can't pollute the chart object shape.
+      if (r.action === "shown" || r.action === "tour" || r.action === "guide" || r.action === "dismissed") {
+        (cur as any)[r.action] = ((cur as any)[r.action] ?? 0) + r.count;
+      }
       byDay.set(dayKey, cur);
     }
     return Array.from(byDay.values()).sort((a, b) => a.day.localeCompare(b.day));

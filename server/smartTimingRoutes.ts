@@ -2311,11 +2311,19 @@ export function registerSmartTimingRoutes(app: Express) {
       if (!bundle || typeof bundle !== "object") {
         return res.status(400).json({ error: "Ugyldig bundle" });
       }
+      // Re-merge guide-config through its merger so a partial bundle can't
+      // strip required fields (layout, hero, etc.) and crash /guide later.
+      const { mergeGuideConfig } = await import("@shared/guide-config");
+      const { mergeNavConfig } = await import("@shared/nav-config");
+
       const keys = ["guide_config", "nav_config", "brand_info"] as const;
       const applied: string[] = [];
       for (const key of keys) {
         if (!(key in bundle) || bundle[key] == null) continue;
-        const value = JSON.stringify(bundle[key]);
+        let normalized: any = bundle[key];
+        if (key === "guide_config") normalized = mergeGuideConfig(normalized);
+        else if (key === "nav_config") normalized = mergeNavConfig(normalized);
+        const value = JSON.stringify(normalized);
         const existing = await pool.query('SELECT id FROM site_settings WHERE key = $1', [key]);
         if (existing.rows.length > 0) {
           await pool.query('UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [value, key]);

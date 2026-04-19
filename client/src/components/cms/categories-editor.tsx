@@ -118,12 +118,18 @@ export function CategoriesEditor({
 }
 
 function CategoryCard({
-  category, onChange, onRemove,
+  category: rawCategory, onChange, onRemove,
 }: {
   category: GuideCategory;
   onChange: (patch: Partial<GuideCategory>) => void;
   onRemove: () => void;
 }) {
+  // Defensive: a category saved without articles via the JSON tab would
+  // crash every .length / .map / .findIndex below. Normalise once here.
+  const category: GuideCategory = {
+    ...rawCategory,
+    articles: Array.isArray(rawCategory.articles) ? rawCategory.articles : [],
+  };
   const [expanded, setExpanded] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
   const style = {
@@ -140,6 +146,7 @@ function CategoryCard({
 
   const updateArticle = (idx: number, patch: Partial<GuideArticle>) => {
     const next = [...category.articles];
+    if (idx < 0 || idx >= next.length) return; // stale reference after another delete
     next[idx] = { ...next[idx], ...patch };
     onChange({ articles: next });
   };
