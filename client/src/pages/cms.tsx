@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
+import { GuideEditor } from "@/components/cms/guide-editor";
 import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
 import { CrawlerDashboard } from "@/components/cms/crawler-dashboard";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,7 @@ import {
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
   Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle, Pencil,
+  Lightbulb,
   type LucideIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -558,6 +560,25 @@ export default function CMSPage() {
     );
   }
 
+  // Allow direct linking to a focused editor (e.g. /cms?editor=guide).
+  const params = new URLSearchParams(window.location.search);
+  const focusedEditor = params.get("editor");
+  if (focusedEditor === "guide") {
+    return (
+      <div className="min-h-screen bg-background p-6">
+        <div className="max-w-5xl mx-auto">
+          <div className="mb-4 flex items-center justify-between">
+            <a href="/cms" className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1">
+              ← Tilbake til CMS
+            </a>
+            <Button variant="ghost" size="sm" onClick={handleLogout}>Logg ut</Button>
+          </div>
+          <GuideEditor />
+        </div>
+      </div>
+    );
+  }
+
   return <VisualBuilder onLogout={handleLogout} />;
 }
 
@@ -717,6 +738,9 @@ export function CMSPageLegacy() {
           <TabsTrigger value="why-page" data-testid="tab-why-page">
             <FileText className="h-4 w-4 mr-1" />Hvorfor
           </TabsTrigger>
+          <TabsTrigger value="guide" data-testid="tab-guide">
+            <Lightbulb className="h-4 w-4 mr-1" />Guide
+          </TabsTrigger>
           <TabsTrigger value="crawler" data-testid="tab-crawler">
             <Globe className="h-4 w-4 mr-1" />Crawler
           </TabsTrigger>
@@ -802,6 +826,10 @@ export function CMSPageLegacy() {
 
         <TabsContent value="why-page">
           <WhyPageEditor />
+        </TabsContent>
+
+        <TabsContent value="guide">
+          <GuideEditor />
         </TabsContent>
 
         <TabsContent value="crawler">
