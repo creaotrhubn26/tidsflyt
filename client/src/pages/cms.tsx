@@ -9,6 +9,7 @@ import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
 import { GuideEditor } from "@/components/cms/guide-editor";
 import { BrandEditor } from "@/components/cms/brand-editor";
+import { NavEditor } from "@/components/cms/nav-editor";
 import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
 import { CrawlerDashboard } from "@/components/cms/crawler-dashboard";
 import { Badge } from "@/components/ui/badge";
@@ -745,6 +746,9 @@ export function CMSPageLegacy() {
           <TabsTrigger value="brand" data-testid="tab-brand">
             <Building2 className="h-4 w-4 mr-1" />Merkevare
           </TabsTrigger>
+          <TabsTrigger value="nav" data-testid="tab-nav">
+            <Menu className="h-4 w-4 mr-1" />Sidebar
+          </TabsTrigger>
           <TabsTrigger value="crawler" data-testid="tab-crawler">
             <Globe className="h-4 w-4 mr-1" />Crawler
           </TabsTrigger>
@@ -838,6 +842,10 @@ export function CMSPageLegacy() {
 
         <TabsContent value="brand">
           <BrandEditor />
+        </TabsContent>
+
+        <TabsContent value="nav">
+          <NavEditor />
         </TabsContent>
 
         <TabsContent value="crawler">

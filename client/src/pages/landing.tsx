@@ -1,5 +1,7 @@
 import { Link, useLocation } from "wouter";
-import { AlertCircle, BookOpen, LogIn } from "lucide-react";
+import { AlertCircle, BookOpen, ExternalLink, LogIn } from "lucide-react";
+import { useNavConfig } from "@/hooks/use-nav-config";
+import { isExternalHref } from "@shared/nav-config";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
@@ -462,6 +464,7 @@ const howItWorksSteps = [
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   usePublicLightTheme();
+  const navConfig = useNavConfig();
   const authError =
     typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("error")
@@ -596,6 +599,26 @@ export default function LandingPage() {
                 <BookOpen className="h-4 w-4" />
                 Veiledning
               </Link>
+              {navConfig.publicHeaderLinks.map((link) => {
+                const external = link.external ?? isExternalHref(link.href);
+                const className = "hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex";
+                return external ? (
+                  <a
+                    key={link.href}
+                    href={link.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={className}
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                    {link.label}
+                  </a>
+                ) : (
+                  <Link key={link.href} href={link.href} className={className}>
+                    {link.label}
+                  </Link>
+                );
+              })}
               <a
                 href={buildGoogleAuthUrl("/dashboard")}
                 onClick={() => trackGoogleLoginClick("header_navigation")}
@@ -1069,6 +1092,27 @@ export default function LandingPage() {
                   <BookOpen className="h-4 w-4" />
                   Veiledning
                 </Link>
+                {navConfig.publicFooterLinks.map((link) => {
+                  const external = link.external ?? isExternalHref(link.href);
+                  const className = "inline-flex items-center gap-2 text-left text-[#2B3C41] dark:text-[#b8ccd1] transition-colors hover:text-[var(--color-primary)]";
+                  return external ? (
+                    <a
+                      key={link.href}
+                      href={link.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={className}
+                    >
+                      <ExternalLink className="h-4 w-4" />
+                      {link.label}
+                    </a>
+                  ) : (
+                    <Link key={link.href} href={link.href} className={className}>
+                      <ChevronRight className="h-4 w-4" />
+                      {link.label}
+                    </Link>
+                  );
+                })}
                 <button
                   type="button"
                   onClick={() => goToContact("footer_navigation")}

@@ -2070,6 +2070,58 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: NAVIGATION OVERRIDES ==========
+  app.get("/api/cms/nav-config", async (_req, res) => {
+    try {
+      const { mergeNavConfig, NAV_CONFIG_KEY } = await import("@shared/nav-config");
+      const result = await pool.query(
+        'SELECT value FROM site_settings WHERE key = $1',
+        [NAV_CONFIG_KEY],
+      );
+      let parsed: any = null;
+      if (result.rows.length > 0) {
+        try {
+          const raw = result.rows[0].value;
+          parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        } catch { parsed = null; }
+      }
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.json(mergeNavConfig(parsed));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/nav-config", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { mergeNavConfig, NAV_CONFIG_KEY } = await import("@shared/nav-config");
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      const merged = mergeNavConfig(req.body);
+      const value = JSON.stringify(merged);
+      const existing = await pool.query(
+        'SELECT id FROM site_settings WHERE key = $1',
+        [NAV_CONFIG_KEY],
+      );
+      if (existing.rows.length > 0) {
+        await pool.query(
+          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
+          [value, NAV_CONFIG_KEY],
+        );
+      } else {
+        await pool.query(
+          'INSERT INTO site_settings (key, value) VALUES ($1, $2)',
+          [NAV_CONFIG_KEY, value],
+        );
+      }
+      res.json(merged);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: BRAND INFO (footer email/phone/address) ==========
   app.get("/api/cms/brand", async (_req, res) => {
     try {

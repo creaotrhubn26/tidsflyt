@@ -69,6 +69,7 @@ import { normalizeRole } from "@shared/roles";
 import { ProductTour, TourReplayButton, buildTourSteps, type TidumTourRole } from "@/components/onboarding/product-tour";
 import { useStuckDetection } from "@/hooks/use-stuck-detection";
 import { useGuideConfig } from "@/hooks/use-guide-config";
+import { useNavConfig } from "@/hooks/use-nav-config";
 
 interface CompanyUser {
   id: number;
@@ -455,18 +456,27 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const overtimeHiddenForWorker =
     isMiljoarbeider && overtimeSettings?.trackOvertime === false;
 
+  const navConfig = useNavConfig();
+
   const navItems: NavItem[] = useMemo(
     () =>
       baseNavItems
         .filter((item) => !(item.path === "/time" && normalizedCurrentUserRole === "tiltaksleder"))
         .filter((item) => !(item.path === "/overtime" && overtimeHiddenForWorker))
         .filter((item) => !item.roles || item.roles.map((role) => normalizeRole(role)).includes(normalizedCurrentUserRole))
-        .map((item) => ({
-          ...item,
-          kind: item.kind || "route",
-          badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
-        })),
-    [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker],
+        // Apply CMS overrides: rename labels, hide items, move to other categories.
+        .filter((item) => !navConfig.portalSidebarOverrides[item.path]?.hidden)
+        .map((item) => {
+          const override = navConfig.portalSidebarOverrides[item.path];
+          return {
+            ...item,
+            label: override?.label || item.label,
+            category: (override?.category as NavCategory) || item.category,
+            kind: item.kind || "route",
+            badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
+          };
+        }),
+    [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker, navConfig.portalSidebarOverrides],
   );
 
   const activePageLabel = useMemo(
@@ -539,7 +549,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
               <div key={category} className="space-y-1">
                 {!isCollapsedDesktop ? (
                   <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-[#a4c0c5]/70">
-                    {NAV_CATEGORY_LABELS[category]}
+                    {navConfig.portalCategoryLabels[category] || NAV_CATEGORY_LABELS[category]}
                   </p>
                 ) : (
                   <div className="mx-2 my-1 border-t border-white/10" aria-hidden />
