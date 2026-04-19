@@ -36,8 +36,8 @@ import { Badge } from "@/components/ui/badge";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { useGuideConfig } from "@/hooks/use-guide-config";
+import { useBrandInfo } from "@/hooks/use-brand-info";
 import type { GuideArticle, GuideCategory, GuideFAQItem, GuideRole } from "@shared/guide-config";
-import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 
 /* Resolve string icon names from config to Lucide components. */
@@ -78,6 +78,7 @@ function toEmbedUrl(url: string): { type: "iframe" | "file"; src: string } {
 export default function InteractiveGuide() {
   usePublicLightTheme();
   const { config } = useGuideConfig();
+  const brand = useBrandInfo();
 
   // Resolve icon strings → Lucide components once per config change.
   const viewCategories = useMemo<ViewCategory[]>(
@@ -338,7 +339,7 @@ export default function InteractiveGuide() {
                 </Link>
               </Button>
               <Button asChild variant="outline">
-                <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`}>
+                <a href={`mailto:${brand.supportEmail}`}>
                   <Inbox className="h-4 w-4 mr-2" />
                   Kontakt support
                 </a>
@@ -370,7 +371,7 @@ export default function InteractiveGuide() {
           <div className="flex gap-4">
             <Link href="/privacy" className="hover:text-slate-700">Personvern</Link>
             <Link href="/terms" className="hover:text-slate-700">Vilkår</Link>
-            <a href={`mailto:${TIDUM_SUPPORT_EMAIL}`} className="hover:text-slate-700">Support</a>
+            <a href={`mailto:${brand.supportEmail}`} className="hover:text-slate-700">Support</a>
           </div>
         </div>
       </footer>

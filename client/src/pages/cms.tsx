@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { SmartTimingLogo } from "@/components/smart-timing-logo";
 import { VisualBuilder } from "@/components/cms/visual-builder";
 import { GuideEditor } from "@/components/cms/guide-editor";
+import { BrandEditor } from "@/components/cms/brand-editor";
 import { PowerVisualEditor } from "@/components/cms/power-visual-editor";
 import { CrawlerDashboard } from "@/components/cms/crawler-dashboard";
 import { Badge } from "@/components/ui/badge";
@@ -741,6 +742,9 @@ export function CMSPageLegacy() {
           <TabsTrigger value="guide" data-testid="tab-guide">
             <Lightbulb className="h-4 w-4 mr-1" />Guide
           </TabsTrigger>
+          <TabsTrigger value="brand" data-testid="tab-brand">
+            <Building2 className="h-4 w-4 mr-1" />Merkevare
+          </TabsTrigger>
           <TabsTrigger value="crawler" data-testid="tab-crawler">
             <Globe className="h-4 w-4 mr-1" />Crawler
           </TabsTrigger>
@@ -830,6 +834,10 @@ export function CMSPageLegacy() {
 
         <TabsContent value="guide">
           <GuideEditor />
+        </TabsContent>
+
+        <TabsContent value="brand">
+          <BrandEditor />
         </TabsContent>
 
         <TabsContent value="crawler">
@@ -5907,6 +5915,11 @@ function PagesEditor() {
     queryFn: () => authenticatedApiRequest('/api/cms/pages/terms'),
   });
 
+  const { data: tilgjengelighetPage, isLoading: tilgjengelighetLoading } = useQuery({
+    queryKey: ['/api/cms/pages', 'tilgjengelighet'],
+    queryFn: () => authenticatedApiRequest('/api/cms/pages/tilgjengelighet'),
+  });
+
   return (
     <div className="space-y-6">
       <Card>
@@ -5930,6 +5943,9 @@ function PagesEditor() {
               </TabsTrigger>
               <TabsTrigger value="terms" data-testid="tab-page-terms">
                 <FileText className="h-4 w-4 mr-1" />Vilkår
+              </TabsTrigger>
+              <TabsTrigger value="tilgjengelighet" data-testid="tab-page-tilgjengelighet">
+                <Shield className="h-4 w-4 mr-1" />Tilgjengelighet
               </TabsTrigger>
             </TabsList>
 
@@ -5963,10 +5979,24 @@ function PagesEditor() {
                   <Loader2 className="h-6 w-6 animate-spin" />
                 </div>
               ) : (
-                <ContentPageEditor 
-                  pageType="terms" 
+                <ContentPageEditor
+                  pageType="terms"
                   content={termsPage}
                   title="Brukervilkår"
+                />
+              )}
+            </TabsContent>
+
+            <TabsContent value="tilgjengelighet">
+              {tilgjengelighetLoading ? (
+                <div className="flex justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                </div>
+              ) : (
+                <ContentPageEditor
+                  pageType="tilgjengelighet"
+                  content={tilgjengelighetPage}
+                  title="Tilgjengelighetserklæring"
                 />
               )}
             </TabsContent>

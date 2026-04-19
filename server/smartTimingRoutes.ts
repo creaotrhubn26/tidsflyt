@@ -2070,6 +2070,59 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ========== CMS: BRAND INFO (footer email/phone/address) ==========
+  app.get("/api/cms/brand", async (_req, res) => {
+    try {
+      const result = await pool.query(
+        `SELECT value FROM site_settings WHERE key = 'brand_info'`,
+      );
+      let parsed: any = {};
+      if (result.rows.length > 0) {
+        try {
+          const raw = result.rows[0].value;
+          parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+        } catch { parsed = {}; }
+      }
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.json({
+        supportEmail: parsed?.supportEmail || "hello@creatorhubn.com",
+        supportPhone: parsed?.supportPhone || "+47 97 95 92 94",
+        supportAddress: parsed?.supportAddress || "Oslo, Norge",
+        legalEmail: parsed?.legalEmail || "juridisk@creatorhubn.com",
+        companyName: parsed?.companyName || "Tidum",
+        companyTagline: parsed?.companyTagline || "Arbeidstidssystem for felt, turnus og norsk dokumentasjonskrav.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/brand", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      const allowed: Record<string, string> = {};
+      for (const k of ["supportEmail", "supportPhone", "supportAddress", "legalEmail", "companyName", "companyTagline"]) {
+        if (typeof req.body?.[k] === "string") allowed[k] = req.body[k];
+      }
+      const value = JSON.stringify(allowed);
+      const existing = await pool.query("SELECT id FROM site_settings WHERE key = 'brand_info'");
+      if (existing.rows.length > 0) {
+        await pool.query(
+          "UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = 'brand_info'",
+          [value],
+        );
+      } else {
+        await pool.query("INSERT INTO site_settings (key, value) VALUES ('brand_info', $1)", [value]);
+      }
+      res.json({ ok: true, brand: allowed });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ========== CMS: GUIDE / TOUR / STUCK CONFIG ==========
   app.get("/api/cms/guide-config", async (_req, res) => {
     try {

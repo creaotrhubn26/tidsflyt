@@ -1,12 +1,16 @@
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Accessibility, ChevronRight, CheckCircle2, CircleAlert } from "lucide-react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { LegalRichText } from "@/components/legal-rich-text";
+import { useBrandInfo } from "@/hooks/use-brand-info";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
+
+interface PageContent { title?: string; subtitle?: string; content?: string }
 
 const LAST_UPDATED = "15. april 2026";
 
@@ -118,6 +122,15 @@ Ansvarlig for tilgjengelighetsarbeidet: Produktteamet i Creatorhub AS, som drift
 
 export default function Tilgjengelighet() {
   usePublicLightTheme();
+  const brand = useBrandInfo();
+  // Pull editable copy from CMS (falls back to baked-in default below).
+  const { data: cmsPage } = useQuery<PageContent>({
+    queryKey: ["/api/cms/pages/tilgjengelighet"],
+    staleTime: 5 * 60_000,
+  });
+  const cmsContent = cmsPage?.content?.trim();
+  const renderedContent = cmsContent && cmsContent.length > 0 ? cmsContent : TILGJENGELIGHET_CONTENT;
+
   useSEO({
     title: "Tilgjengelighetserklæring – Tidum",
     description:
@@ -202,10 +215,10 @@ export default function Tilgjengelighet() {
               <div>
                 <p className="text-sm font-semibold text-[#1E2C30]">Tilbakemelding</p>
                 <a
-                  href={`mailto:${TIDUM_SUPPORT_EMAIL}?subject=Tilgjengelighet`}
+                  href={`mailto:${brand.supportEmail}?subject=Tilgjengelighet`}
                   className="text-sm text-[var(--color-primary)] hover:underline"
                 >
-                  {TIDUM_SUPPORT_EMAIL}
+                  {brand.supportEmail}
                 </a>
               </div>
             </div>
@@ -215,7 +228,7 @@ export default function Tilgjengelighet() {
         {/* Content */}
         <section className="tidum-fade-up mt-8 rounded-3xl border border-[var(--color-border)] bg-white p-6 sm:p-8 md:p-10">
           <div className="max-w-none">
-            <LegalRichText content={TILGJENGELIGHET_CONTENT} />
+            <LegalRichText content={renderedContent} />
           </div>
         </section>
 
@@ -231,7 +244,7 @@ export default function Tilgjengelighet() {
                 href="/kontakt"
                 className="mt-3 inline-block text-sm font-medium text-[var(--color-primary)] transition-colors hover:text-[var(--color-primary-hover)]"
               >
-                {TIDUM_SUPPORT_EMAIL}
+                {brand.supportEmail}
               </Link>
             </div>
 
