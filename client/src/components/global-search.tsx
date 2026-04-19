@@ -1,14 +1,30 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import { useLocation } from "wouter";
-import { 
-  Search, 
-  Clock, 
-  FileText, 
-  Users, 
+import {
+  Search,
+  Clock,
+  FileText,
+  Users,
   ArrowRight,
   X,
   Command,
+  LayoutDashboard,
+  ClipboardCheck,
+  ClipboardList,
+  Building2,
+  CheckCircle,
+  TrendingUp,
+  AlertTriangle,
+  Send,
+  Mail,
+  Palette,
+  Settings,
+  HelpCircle,
+  UserPlus,
+  FolderKanban,
+  Sparkles,
 } from "lucide-react";
+import { normalizeRole } from "@shared/roles";
 import {
   Dialog,
   DialogContent,
@@ -21,14 +37,48 @@ import { useRolePreview } from "@/hooks/use-role-preview";
 
 interface SearchResult {
   id: string;
-  type: "report" | "user" | "case" | "time_entry" | "page";
+  type: "page" | "guide";
   title: string;
   description?: string;
   icon: any;
-  href?: string;
-  metadata?: any;
-  timestamp?: string;
+  href: string;
+  /** Extra search keywords (in addition to title + description). */
+  keywords?: string[];
+  /** Roles that should see this entry. Empty = visible to everyone. */
+  roles?: string[];
 }
+
+/** All navigable pages in the portal. Real, no fake data. */
+const PORTAL_PAGES: SearchResult[] = [
+  { id: "dashboard",     type: "page", title: "Dashboard",            href: "/dashboard",                 icon: LayoutDashboard, description: "Oversikt over dagen din", keywords: ["hjem", "start"] },
+  { id: "tiltaksleder",  type: "page", title: "Lederoversikt",        href: "/tiltaksleder",              icon: ClipboardCheck,  description: "Godkjenninger og team", keywords: ["leder", "oversikt", "team"], roles: ["tiltaksleder", "teamleder", "vendor_admin"] },
+  { id: "saker",         type: "page", title: "Saker",                href: "/cases",                     icon: FolderKanban,    description: "Klient- og oppdragssaker", keywords: ["sak", "klient", "oppdrag"], roles: ["tiltaksleder", "vendor_admin", "super_admin"] },
+  { id: "institusjoner", type: "page", title: "Institusjoner",        href: "/institusjoner",             icon: Building2,       description: "Bedrifter og oppdragsgivere", keywords: ["bedrift", "oppdragsgiver", "brreg"], roles: ["tiltaksleder", "vendor_admin", "hovedadmin", "admin", "super_admin"] },
+  { id: "invites",       type: "page", title: "Invitasjoner",         href: "/invites",                   icon: UserPlus,        description: "Inviter team og delbare lenker", keywords: ["invitere", "bruker", "ansatt"], roles: ["tiltaksleder"] },
+
+  { id: "rapporter",     type: "page", title: "Rapporter",            href: "/rapporter",                 icon: FileText,        description: "Skriv og bla i saksrapporter", keywords: ["rapport", "saksrapport", "skriv"] },
+  { id: "godkjenning",   type: "page", title: "Godkjenning",          href: "/rapporter/godkjenning",     icon: ClipboardCheck,  description: "Rapporter som venter på godkjenning", keywords: ["godkjenn", "vurdering", "review"], roles: ["tiltaksleder"] },
+  { id: "rapport-maler", type: "page", title: "Rapport-maler",        href: "/admin/rapport-maler",       icon: ClipboardList,   description: "Definer rapport-strukturer", keywords: ["mal", "template", "rapportmal"], roles: ["vendor_admin", "hovedadmin", "admin", "super_admin"] },
+  { id: "avvik",         type: "page", title: "Avvik",                href: "/avvik",                     icon: AlertTriangle,   description: "Registrer og følg opp hendelser", keywords: ["hendelse", "vold", "uhell"] },
+
+  { id: "timeforing",    type: "page", title: "Timeføring",           href: "/time",                      icon: Clock,           description: "Stempel inn/ut og registrer aktivitet", keywords: ["timer", "time", "stempel", "klokke", "registrer"] },
+  { id: "timesheets",    type: "page", title: "Timelister",           href: "/timesheets",                icon: CheckCircle,     description: "Månedlige timelister", keywords: ["timeliste", "månedsoversikt"], roles: ["tiltaksleder", "miljoarbeider"] },
+  { id: "overtime",      type: "page", title: "Overtid",              href: "/overtime",                  icon: TrendingUp,      description: "Overtidstimer og beregning", keywords: ["overtid", "merarbeid"] },
+  { id: "leave",         type: "page", title: "Fravær",               href: "/leave",                     icon: Clock,           description: "Søk om ferie og sykefravær", keywords: ["ferie", "syk", "permisjon"] },
+  { id: "recurring",     type: "page", title: "Faste oppgaver",       href: "/recurring",                 icon: ClipboardList,   description: "Tilbakevendende oppgaver", keywords: ["fast", "rutine", "ukentlig", "månedlig"] },
+
+  { id: "invoices",      type: "page", title: "Fakturaer",            href: "/invoices",                  icon: FileText,        description: "Generer og send fakturaer", keywords: ["faktura", "økonomi"], roles: ["tiltaksleder"] },
+  { id: "email",         type: "page", title: "E-post",               href: "/email",                     icon: Mail,            description: "Send e-post fra Tidum", keywords: ["mail", "epost", "send"], roles: ["tiltaksleder"] },
+  { id: "forward",       type: "page", title: "Send videre",          href: "/forward",                   icon: Send,            description: "Videresend rapporter til oppdragsgiver", keywords: ["videresend", "share"], roles: ["tiltaksleder"] },
+
+  { id: "vendors",       type: "page", title: "Leverandører",         href: "/vendors",                   icon: Building2,       description: "Administrer leverandører", keywords: ["leverandor", "vendor", "kunde"], roles: ["super_admin"] },
+  { id: "cms",           type: "page", title: "CMS",                  href: "/cms",                       icon: Palette,         description: "Rediger landingsside og blogg", keywords: ["innhold", "side", "blogg"], roles: ["super_admin"] },
+  { id: "tester",        type: "page", title: "Tester-feedback",      href: "/admin/tester-feedback",     icon: Sparkles,        description: "Tilbakemelding fra prototype-testere", keywords: ["tester", "feedback", "prototype"], roles: ["super_admin"] },
+
+  { id: "settings",      type: "page", title: "Innstillinger",        href: "/settings",                  icon: Settings,        description: "Profil, varsler og preferanser", keywords: ["innstilling", "preferanser", "profil", "tema", "språk"] },
+
+  { id: "guide",         type: "guide", title: "Brukerveiledning",    href: "/guide",                     icon: HelpCircle,      description: "Søkbar guide til alle funksjoner", keywords: ["hjelp", "guide", "veiledning", "manual"] },
+];
 
 export function GlobalSearch() {
   const [open, setOpen] = useState(false);
@@ -37,85 +87,48 @@ export function GlobalSearch() {
   const { effectiveRole } = useRolePreview();
   const inputRef = useRef<HTMLInputElement>(null);
   const selectedIndex = useRef<number>(0);
-  const isTiltaksleder = effectiveRole === "tiltaksleder";
 
-  // Mock search results
+  // Real, role-aware page search — no mock entities.
   const results = useMemo((): SearchResult[] => {
+    const role = normalizeRole(effectiveRole);
+    const allowed = PORTAL_PAGES.filter(
+      (p) => !p.roles || p.roles.map(normalizeRole).includes(role),
+    );
+
     if (!query.trim()) {
-      const defaultResults: SearchResult[] = [
-        { id: "1", type: "page", title: "Dashboard", href: "/dashboard", icon: FileText, description: "Oversikt og statistikk" },
-        { id: "2", type: "page", title: "Timeføring", href: "/time-tracking", icon: Clock, description: "Registrer arbeidstid" },
-        { id: "4", type: "page", title: "Invitasjoner", href: "/invites", icon: Users, description: "Administrer brukere og invitasjoner" },
-      ];
-      if (isTiltaksleder) {
-        defaultResults.splice(2, 0, {
-          id: "3",
-          type: "page",
-          title: "Rapporter",
-          href: "/reports",
-          icon: FileText,
-          description: "Se og eksporter rapporter",
-        });
-      }
-      return defaultResults;
+      // Default: surface the most-used handful for quick keyboard nav.
+      const defaultIds = ["dashboard", "rapporter", "timeforing", "guide"];
+      if (role === "tiltaksleder") defaultIds.splice(2, 0, "godkjenning");
+      return defaultIds
+        .map((id) => allowed.find((p) => p.id === id))
+        .filter((p): p is SearchResult => !!p);
     }
 
-    const filtered: SearchResult[] = [];
     const q = query.toLowerCase();
+    const matches = allowed
+      .map((p) => {
+        const haystack = [
+          p.title,
+          p.description ?? "",
+          ...(p.keywords ?? []),
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(q)) return null;
+        // Title-prefix matches rank highest, then word-boundary, then substring.
+        const titleLower = p.title.toLowerCase();
+        let score = 0;
+        if (titleLower.startsWith(q)) score = 100;
+        else if (titleLower.includes(q)) score = 60;
+        else score = 20;
+        return { page: p, score };
+      })
+      .filter((m): m is { page: SearchResult; score: number } => !!m)
+      .sort((a, b) => b.score - a.score)
+      .map((m) => m.page);
 
-    // Mock case reports
-    if ("case".includes(q) || "rapport".includes(q)) {
-      filtered.push({
-        id: "case-1",
-        type: "case",
-        title: "SAK-2024-001 - Kundesupport",
-        href: "/case-reports",
-        icon: FileText,
-        description: "Venter på godkjenning",
-        timestamp: "I dag 14:30",
-      });
-    }
-
-    // Mock users
-    if ("bruker".includes(q) || "ansatt".includes(q)) {
-      filtered.push({
-        id: "user-1",
-        type: "user",
-        title: "John Doe",
-        href: "/invites",
-        icon: Users,
-        description: "Saksbehandler",
-        metadata: { role: "case_manager" },
-      });
-    }
-
-    // Mock time entries
-    if ("time".includes(q) || "timer".includes(q) || "arbeid".includes(q)) {
-      filtered.push({
-        id: "time-1",
-        type: "time_entry",
-        title: "Timeføring i dag",
-        href: "/time-tracking",
-        icon: Clock,
-        description: "7.5t registrert",
-        timestamp: "I dag",
-      });
-    }
-
-    // Mock pages
-    if (isTiltaksleder && "rapporter".includes(q)) {
-      filtered.push({
-        id: "page-1",
-        type: "page",
-        title: "Rapporter",
-        href: "/reports",
-        icon: FileText,
-        description: "Se og eksporter rapporter",
-      });
-    }
-
-    return filtered.slice(0, 8);
-  }, [isTiltaksleder, query]);
+    return matches.slice(0, 8);
+  }, [effectiveRole, query]);
 
   // Handle keyboard shortcuts
   useEffect(() => {
@@ -218,7 +231,7 @@ export function GlobalSearch() {
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate">{result.title}</p>
                           <p className="text-xs text-muted-foreground truncate">
-                            {result.description || (result.timestamp && `${result.timestamp}`)}
+                            {result.description}
                           </p>
                         </div>
                         <ArrowRight className="h-4 w-4 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
