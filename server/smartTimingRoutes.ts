@@ -2264,6 +2264,157 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  /**
+   * Export the entire CMS-editable bundle as one JSON file. Includes
+   * guide-config, nav-config and brand-info — enough to mirror the
+   * configuration between staging and production with one click.
+   */
+  app.get("/api/cms/config-bundle", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      const keys = ["guide_config", "nav_config", "brand_info"];
+      const result = await pool.query(
+        'SELECT key, value FROM site_settings WHERE key = ANY($1::text[])',
+        [keys],
+      );
+      const bundle: Record<string, any> = {
+        $version: 1,
+        $exportedAt: new Date().toISOString(),
+        $exportedBy: req.admin?.email || req.admin?.id || null,
+      };
+      for (const k of keys) bundle[k] = null;
+      for (const row of result.rows) {
+        try {
+          bundle[row.key] = typeof row.value === "string" ? JSON.parse(row.value) : row.value;
+        } catch {
+          bundle[row.key] = row.value;
+        }
+      }
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename="tidum-cms-bundle-${new Date().toISOString().slice(0, 10)}.json"`);
+      res.json(bundle);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/config-bundle", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      const bundle = req.body;
+      if (!bundle || typeof bundle !== "object") {
+        return res.status(400).json({ error: "Ugyldig bundle" });
+      }
+      const keys = ["guide_config", "nav_config", "brand_info"] as const;
+      const applied: string[] = [];
+      for (const key of keys) {
+        if (!(key in bundle) || bundle[key] == null) continue;
+        const value = JSON.stringify(bundle[key]);
+        const existing = await pool.query('SELECT id FROM site_settings WHERE key = $1', [key]);
+        if (existing.rows.length > 0) {
+          await pool.query('UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [value, key]);
+        } else {
+          await pool.query('INSERT INTO site_settings (key, value) VALUES ($1, $2)', [key, value]);
+        }
+        applied.push(key);
+      }
+      res.json({ ok: true, applied });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  /**
+   * Stuck-detection telemetry. Self-bootstraps the table on first POST so
+   * we don't need a separate migration step. Public endpoint (any visitor
+   * is generating the events) but body is small + sanitised.
+   */
+  let stuckTableReady = false;
+  async function ensureStuckTable() {
+    if (stuckTableReady) return;
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS stuck_events (
+        id SERIAL PRIMARY KEY,
+        created_at TIMESTAMPTZ DEFAULT NOW(),
+        reason TEXT NOT NULL,
+        variant_id TEXT,
+        action TEXT NOT NULL,
+        path TEXT,
+        session_id TEXT
+      );
+    `);
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_created_at ON stuck_events (created_at DESC);');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_reason ON stuck_events (reason);');
+    stuckTableReady = true;
+  }
+
+  app.post("/api/cms/stuck-events", async (req, res) => {
+    try {
+      await ensureStuckTable();
+      const { reason, variantId, action, path, sessionId } = req.body ?? {};
+      if (typeof reason !== "string" || typeof action !== "string") {
+        return res.status(400).json({ error: "reason og action er påkrevd" });
+      }
+      // Reject obviously invalid values to avoid junk in the table
+      const validActions = new Set(["shown", "tour", "guide", "dismissed"]);
+      const validReasons = new Set(["idle", "nav", "dialog"]);
+      if (!validActions.has(action) || !validReasons.has(reason)) {
+        return res.status(400).json({ error: "ugyldig reason eller action" });
+      }
+      await pool.query(
+        `INSERT INTO stuck_events (reason, variant_id, action, path, session_id)
+         VALUES ($1, $2, $3, $4, $5)`,
+        [
+          reason,
+          typeof variantId === "string" ? variantId.slice(0, 64) : null,
+          action,
+          typeof path === "string" ? path.slice(0, 256) : null,
+          typeof sessionId === "string" ? sessionId.slice(0, 64) : null,
+        ],
+      );
+      res.json({ ok: true });
+    } catch (err: any) {
+      // Best-effort — don't crash on telemetry errors
+      res.status(200).json({ ok: false, error: err.message });
+    }
+  });
+
+  app.get("/api/cms/stuck-stats", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const role = req.admin?.role;
+      if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
+        return res.status(403).json({ error: "Krever admin-rolle" });
+      }
+      await ensureStuckTable();
+      const days = Math.min(365, Math.max(1, parseInt(String(req.query.days ?? "30"), 10) || 30));
+      const result = await pool.query(
+        `SELECT reason, variant_id, action, COUNT(*)::int AS count
+           FROM stuck_events
+          WHERE created_at >= NOW() - $1::interval
+          GROUP BY reason, variant_id, action
+          ORDER BY reason, variant_id NULLS FIRST, action`,
+        [`${days} days`],
+      );
+      res.json({
+        days,
+        rows: result.rows.map((r) => ({
+          reason: r.reason,
+          variantId: r.variant_id,
+          action: r.action,
+          count: r.count,
+        })),
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/cms/guide-config/history", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const role = req.admin?.role;

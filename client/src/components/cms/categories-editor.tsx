@@ -23,6 +23,9 @@ import {
   ChevronDown, ChevronRight, GripVertical, Image as ImageIcon, Plus, Trash2,
   Video, Lightbulb,
 } from "lucide-react";
+import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { MediaPicker } from "./media-picker";
 
 const ROLE_OPTIONS: GuideRole[] = ["miljoarbeider", "tiltaksleder", "vendor_admin", "super_admin"];
@@ -72,12 +75,17 @@ export function CategoriesEditor({
     onChange(categories.filter((_, i) => i !== idx));
   };
 
-  const moveCategory = (idx: number, dir: -1 | 1) => {
-    const next = idx + dir;
-    if (next < 0 || next >= categories.length) return;
-    const arr = [...categories];
-    [arr[idx], arr[next]] = [arr[next], arr[idx]];
-    onChange(arr);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const handleDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const oldIdx = categories.findIndex((c) => c.id === e.active.id);
+    const newIdx = categories.findIndex((c) => c.id === e.over!.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onChange(arrayMove(categories, oldIdx, newIdx));
   };
 
   return (
@@ -87,18 +95,20 @@ export function CategoriesEditor({
           Ingen kategorier ennå. Legg til en for å bygge guidens struktur.
         </p>
       )}
-      {categories.map((cat, idx) => (
-        <CategoryCard
-          key={cat.id || idx}
-          category={cat}
-          onChange={(patch) => updateCategory(idx, patch)}
-          onRemove={() => removeCategory(idx)}
-          onMoveUp={() => moveCategory(idx, -1)}
-          onMoveDown={() => moveCategory(idx, 1)}
-          isFirst={idx === 0}
-          isLast={idx === categories.length - 1}
-        />
-      ))}
+      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={categories.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+          <div className="space-y-3">
+            {categories.map((cat, idx) => (
+              <CategoryCard
+                key={cat.id || idx}
+                category={cat}
+                onChange={(patch) => updateCategory(idx, patch)}
+                onRemove={() => removeCategory(idx)}
+              />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
       <Button variant="outline" size="sm" onClick={addCategory}>
         <Plus className="h-3.5 w-3.5 mr-1" />
         Ny kategori
@@ -108,17 +118,25 @@ export function CategoriesEditor({
 }
 
 function CategoryCard({
-  category, onChange, onRemove, onMoveUp, onMoveDown, isFirst, isLast,
+  category, onChange, onRemove,
 }: {
   category: GuideCategory;
   onChange: (patch: Partial<GuideCategory>) => void;
   onRemove: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  isFirst: boolean;
-  isLast: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: category.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : "auto" as const,
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const updateArticle = (idx: number, patch: Partial<GuideArticle>) => {
     const next = [...category.articles];
@@ -140,18 +158,28 @@ function CategoryCard({
     if (!confirm(`Slett artikkelen «${category.articles[idx].title}»?`)) return;
     onChange({ articles: category.articles.filter((_, i) => i !== idx) });
   };
-  const moveArticle = (idx: number, dir: -1 | 1) => {
-    const next = idx + dir;
-    if (next < 0 || next >= category.articles.length) return;
-    const arr = [...category.articles];
-    [arr[idx], arr[next]] = [arr[next], arr[idx]];
-    onChange({ articles: arr });
+  const handleArticleDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const oldIdx = category.articles.findIndex((a) => a.id === e.active.id);
+    const newIdx = category.articles.findIndex((a) => a.id === e.over!.id);
+    if (oldIdx === -1 || newIdx === -1) return;
+    onChange({ articles: arrayMove(category.articles, oldIdx, newIdx) });
   };
 
   return (
-    <Card className="overflow-hidden">
+    <Card ref={setNodeRef} style={style} className="overflow-hidden">
       <CardHeader className="py-3 px-4 cursor-pointer" onClick={() => setExpanded((e) => !e)}>
         <div className="flex items-center gap-2">
+          <button
+            {...attributes}
+            {...listeners}
+            type="button"
+            className="h-7 w-6 flex items-center justify-center text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="Dra for å flytte kategori"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
           <div className={cn("h-8 w-8 rounded-lg bg-gradient-to-br shadow-sm shrink-0", category.accent)} />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate">{category.label || "(uten navn)"}</p>
@@ -159,12 +187,6 @@ function CategoryCard({
               {category.articles.length} artikkel{category.articles.length === 1 ? "" : "er"} · ID: {category.id}
             </p>
           </div>
-          <Button size="sm" variant="ghost" disabled={isFirst} onClick={(e) => { e.stopPropagation(); onMoveUp(); }} aria-label="Flytt opp">
-            ↑
-          </Button>
-          <Button size="sm" variant="ghost" disabled={isLast} onClick={(e) => { e.stopPropagation(); onMoveDown(); }} aria-label="Flytt ned">
-            ↓
-          </Button>
           <Button size="sm" variant="ghost" className="text-destructive" onClick={(e) => { e.stopPropagation(); onRemove(); }} aria-label="Slett kategori">
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
@@ -220,20 +242,20 @@ function CategoryCard({
                 <Plus className="h-3 w-3 mr-1" />Ny artikkel
               </Button>
             </div>
-            <div className="space-y-2">
-              {category.articles.map((article, i) => (
-                <ArticleCard
-                  key={article.id || i}
-                  article={article}
-                  onChange={(patch) => updateArticle(i, patch)}
-                  onRemove={() => removeArticle(i)}
-                  onMoveUp={() => moveArticle(i, -1)}
-                  onMoveDown={() => moveArticle(i, 1)}
-                  isFirst={i === 0}
-                  isLast={i === category.articles.length - 1}
-                />
-              ))}
-            </div>
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleArticleDragEnd}>
+              <SortableContext items={category.articles.map((a) => a.id)} strategy={verticalListSortingStrategy}>
+                <div className="space-y-2">
+                  {category.articles.map((article, i) => (
+                    <ArticleCard
+                      key={article.id || i}
+                      article={article}
+                      onChange={(patch) => updateArticle(i, patch)}
+                      onRemove={() => removeArticle(i)}
+                    />
+                  ))}
+                </div>
+              </SortableContext>
+            </DndContext>
           </div>
         </CardContent>
       )}
@@ -242,18 +264,21 @@ function CategoryCard({
 }
 
 function ArticleCard({
-  article, onChange, onRemove, onMoveUp, onMoveDown, isFirst, isLast,
+  article, onChange, onRemove,
 }: {
   article: GuideArticle;
   onChange: (patch: Partial<GuideArticle>) => void;
   onRemove: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
-  isFirst: boolean;
-  isLast: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: article.id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+    zIndex: isDragging ? 50 : "auto" as const,
+  };
 
   const toggleRole = (role: GuideRole) => {
     const cur = new Set(article.roles ?? []);
@@ -278,17 +303,24 @@ function ArticleCard({
   const removeTip = (i: number) => onChange({ tips: (article.tips ?? []).filter((_, j) => j !== i) });
 
   return (
-    <div className="rounded-md border bg-muted/20">
+    <div ref={setNodeRef} style={style} className="rounded-md border bg-muted/20">
       <div
         className="flex items-center gap-2 px-3 py-2 cursor-pointer"
         onClick={() => setExpanded((e) => !e)}
       >
-        <GripVertical className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+        <button
+          {...attributes}
+          {...listeners}
+          type="button"
+          className="h-6 w-6 flex items-center justify-center text-muted-foreground/60 hover:text-foreground cursor-grab active:cursor-grabbing touch-none shrink-0"
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Dra for å flytte artikkel"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
         <p className="text-sm font-medium flex-1 truncate">{article.title || "(uten tittel)"}</p>
         {article.videoUrl && <Video className="h-3 w-3 text-muted-foreground" />}
         {article.screenshot && <ImageIcon className="h-3 w-3 text-muted-foreground" />}
-        <Button size="sm" variant="ghost" disabled={isFirst} onClick={(e) => { e.stopPropagation(); onMoveUp(); }}>↑</Button>
-        <Button size="sm" variant="ghost" disabled={isLast} onClick={(e) => { e.stopPropagation(); onMoveDown(); }}>↓</Button>
         <Button size="sm" variant="ghost" className="text-destructive" onClick={(e) => { e.stopPropagation(); onRemove(); }}>
           <Trash2 className="h-3 w-3" />
         </Button>

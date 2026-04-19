@@ -61,6 +61,22 @@ export type StuckReason = "idle" | "nav" | "dialog";
 export interface StuckMessage {
   title: string;
   body: string;
+  /**
+   * Optional A/B variants. When present and non-empty, the runtime picks
+   * one deterministically per session (so a user sees the same variant
+   * every trip during a session) and emits the variant id in telemetry.
+   * The top-level title/body acts as the implicit "control" — admins can
+   * leave it as the canonical message and add experimental alternates here.
+   */
+  variants?: StuckMessageVariant[];
+}
+
+export interface StuckMessageVariant {
+  id: string;
+  title: string;
+  body: string;
+  /** Selection weight relative to other variants (default 1). */
+  weight?: number;
 }
 
 /**
@@ -610,9 +626,27 @@ export function mergeGuideConfig(
       enabled: override.stuck?.enabled ?? DEFAULT_GUIDE_CONFIG.stuck.enabled,
       thresholds: { ...DEFAULT_GUIDE_CONFIG.stuck.thresholds, ...(override.stuck?.thresholds ?? {}) },
       messages: {
-        idle:   { ...DEFAULT_GUIDE_CONFIG.stuck.messages.idle,   ...(override.stuck?.messages?.idle   ?? {}) },
-        nav:    { ...DEFAULT_GUIDE_CONFIG.stuck.messages.nav,    ...(override.stuck?.messages?.nav    ?? {}) },
-        dialog: { ...DEFAULT_GUIDE_CONFIG.stuck.messages.dialog, ...(override.stuck?.messages?.dialog ?? {}) },
+        idle: {
+          ...DEFAULT_GUIDE_CONFIG.stuck.messages.idle,
+          ...(override.stuck?.messages?.idle ?? {}),
+          variants: Array.isArray(override.stuck?.messages?.idle?.variants)
+            ? (override.stuck!.messages!.idle!.variants as StuckMessageVariant[])
+            : undefined,
+        },
+        nav: {
+          ...DEFAULT_GUIDE_CONFIG.stuck.messages.nav,
+          ...(override.stuck?.messages?.nav ?? {}),
+          variants: Array.isArray(override.stuck?.messages?.nav?.variants)
+            ? (override.stuck!.messages!.nav!.variants as StuckMessageVariant[])
+            : undefined,
+        },
+        dialog: {
+          ...DEFAULT_GUIDE_CONFIG.stuck.messages.dialog,
+          ...(override.stuck?.messages?.dialog ?? {}),
+          variants: Array.isArray(override.stuck?.messages?.dialog?.variants)
+            ? (override.stuck!.messages!.dialog!.variants as StuckMessageVariant[])
+            : undefined,
+        },
       },
       actions: { ...DEFAULT_GUIDE_CONFIG.stuck.actions, ...(override.stuck?.actions ?? {}) },
       rules: Array.isArray(override.stuck?.rules)

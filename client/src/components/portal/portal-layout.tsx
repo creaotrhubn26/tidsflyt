@@ -70,6 +70,7 @@ import { ProductTour, TourReplayButton, buildTourSteps, type TidumTourRole } fro
 import { useStuckDetection } from "@/hooks/use-stuck-detection";
 import { useGuideConfig } from "@/hooks/use-guide-config";
 import { useNavConfig } from "@/hooks/use-nav-config";
+import { pickVariant, recordStuckEvent } from "@/lib/stuck-experiments";
 
 interface CompanyUser {
   id: number;
@@ -1183,8 +1184,30 @@ function StuckHelperPrompt({
   onOpenGuide: () => void;
 }) {
   const { config } = useGuideConfig();
-  const msg = config.stuck.messages[reason ?? "idle"];
+  const baseMsg = config.stuck.messages[reason ?? "idle"];
+  const picked = useMemo(
+    () => pickVariant((reason ?? "idle") as any, baseMsg),
+    [reason, baseMsg],
+  );
   const labels = config.stuck.actions;
+
+  // Telemetry: record the impression once when this prompt mounts.
+  useEffect(() => {
+    recordStuckEvent({
+      reason: (reason ?? "idle") as any,
+      variantId: picked.variantId,
+      action: "shown",
+    });
+  }, [reason, picked.variantId]);
+
+  const handleAction = (action: "tour" | "guide" | "dismissed", cb: () => void) => {
+    recordStuckEvent({
+      reason: (reason ?? "idle") as any,
+      variantId: picked.variantId,
+      action,
+    });
+    cb();
+  };
 
   return (
     <div
@@ -1194,23 +1217,23 @@ function StuckHelperPrompt({
     >
       <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white flex items-center gap-2">
         <HelpCircle className="h-4 w-4" />
-        <span className="text-sm font-semibold flex-1">{msg.title}</span>
+        <span className="text-sm font-semibold flex-1">{picked.title}</span>
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => handleAction("dismissed", onDismiss)}
           className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-white/15"
           aria-label="Lukk"
         >
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="px-4 py-3 text-sm text-slate-600">{msg.body}</div>
+      <div className="px-4 py-3 text-sm text-slate-600">{picked.body}</div>
       <div className="px-4 pb-3 flex flex-wrap gap-2">
-        <Button size="sm" onClick={onStartTour}>{labels.tourLabel}</Button>
-        <Button size="sm" variant="outline" onClick={onOpenGuide}>{labels.guideLabel}</Button>
+        <Button size="sm" onClick={() => handleAction("tour", onStartTour)}>{labels.tourLabel}</Button>
+        <Button size="sm" variant="outline" onClick={() => handleAction("guide", onOpenGuide)}>{labels.guideLabel}</Button>
         <button
           type="button"
-          onClick={onDismiss}
+          onClick={() => handleAction("dismissed", onDismiss)}
           className="text-xs text-slate-400 hover:text-slate-600 ml-auto self-center"
         >
           {labels.dismissLabel}

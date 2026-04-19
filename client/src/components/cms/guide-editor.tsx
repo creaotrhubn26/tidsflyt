@@ -27,9 +27,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertCircle, ChevronRight, ExternalLink, Eye, History, Image as ImageIcon,
-  Layout, Lightbulb, Loader2, Plus, RotateCcw, Save,
-  Settings as SettingsIcon, Sparkles, Trash2, Video,
+  AlertCircle, ChevronRight, Download, ExternalLink, Eye, History,
+  Image as ImageIcon, Layout, Lightbulb, Loader2, Plus, RotateCcw, Save,
+  Settings as SettingsIcon, Sparkles, Trash2, Upload, Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { MediaPicker } from "./media-picker";
@@ -60,6 +60,7 @@ export function GuideEditor() {
   const [welcomeJson, setWelcomeJson] = useState("");
   const [jsonErrors, setJsonErrors] = useState<{ categories?: string; rules?: string; welcome?: string }>({});
   const categoriesTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
 
   /** Insert text at the textarea cursor, preserving the rest of the JSON. */
@@ -174,6 +175,58 @@ export function GuideEditor() {
     setDirty(true);
   };
 
+  /** Download the full CMS bundle (guide + nav + brand) as a JSON file. */
+  const handleExport = async () => {
+    try {
+      const res = await fetch("/api/cms/config-bundle", { credentials: "include" });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `tidum-cms-bundle-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast({ title: "Eksportert", description: "JSON-fil lastet ned." });
+    } catch (e: any) {
+      toast({ title: "Eksport feilet", description: e.message, variant: "destructive" });
+    }
+  };
+
+  /** Upload a previously-exported JSON bundle and apply it to all keys. */
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!confirm("Importere fra fil? Dette overskriver guide-config, nav-config og merkevare-info umiddelbart.")) return;
+    try {
+      const text = await file.text();
+      const bundle = JSON.parse(text);
+      const res = await fetch("/api/cms/config-bundle", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(bundle),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
+      }
+      const result = await res.json();
+      toast({
+        title: "Importert",
+        description: `Oppdatert: ${result.applied?.join(", ") || "ingen felt"}. Last siden på nytt for å se endringene.`,
+      });
+      qc.invalidateQueries({ queryKey: KEY });
+      qc.invalidateQueries({ queryKey: ["/api/cms/nav-config"] });
+      qc.invalidateQueries({ queryKey: ["/api/cms/brand"] });
+    } catch (err: any) {
+      toast({ title: "Import feilet", description: err.message, variant: "destructive" });
+    }
+  };
+
   /** Stash the current draft (with parsed JSON sections) in sessionStorage
    *  and open /guide?preview=cms in a new tab so admins can verify before
    *  saving. JSON parse errors fall back to the form-state values. */
@@ -219,6 +272,21 @@ export function GuideEditor() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={handleExport} title="Last ned guide + nav + merkevare som JSON-fil">
+            <Download className="h-3.5 w-3.5 mr-1" />
+            Eksporter
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => importInputRef.current?.click()} title="Last opp en JSON-bundle og overskriv">
+            <Upload className="h-3.5 w-3.5 mr-1" />
+            Importer
+          </Button>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept="application/json"
+            hidden
+            onChange={handleImport}
+          />
           <Button variant="ghost" size="sm" onClick={handlePreview} title="Åpne /guide med dette utkastet i en ny fane">
             <Eye className="h-3.5 w-3.5 mr-1" />
             Forhåndsvis utkast
@@ -518,26 +586,21 @@ export function GuideEditor() {
               </div>
 
               <div className="space-y-3 pt-3 border-t">
-                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  Meldinger per situasjon
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                    Meldinger per situasjon
+                  </p>
+                  <StuckStatsBadge />
+                </div>
                 {(["idle", "nav", "dialog"] as const).map((reason) => (
-                  <div key={reason} className="rounded-md border p-3 space-y-2 bg-muted/20">
-                    <Badge variant="outline" className="text-[10px]">{reason.toUpperCase()}</Badge>
-                    <Field label="Tittel">
-                      <Input
-                        value={draft.stuck.messages[reason].title}
-                        onChange={(e) => patchStuck({ messages: { ...draft.stuck.messages, [reason]: { ...draft.stuck.messages[reason], title: e.target.value } } })}
-                      />
-                    </Field>
-                    <Field label="Forklaring">
-                      <Textarea
-                        rows={2}
-                        value={draft.stuck.messages[reason].body}
-                        onChange={(e) => patchStuck({ messages: { ...draft.stuck.messages, [reason]: { ...draft.stuck.messages[reason], body: e.target.value } } })}
-                      />
-                    </Field>
-                  </div>
+                  <StuckMessageEditor
+                    key={reason}
+                    reason={reason}
+                    message={draft.stuck.messages[reason]}
+                    onChange={(next) => patchStuck({
+                      messages: { ...draft.stuck.messages, [reason]: next },
+                    })}
+                  />
                 ))}
               </div>
 
@@ -654,6 +717,169 @@ export function GuideEditor() {
           />
         </TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   Stuck message editor with A/B variant support + small stats badge.
+   ───────────────────────────────────────────────────────────────────────── */
+function StuckMessageEditor({
+  reason,
+  message,
+  onChange,
+}: {
+  reason: "idle" | "nav" | "dialog";
+  message: GuideConfig["stuck"]["messages"][keyof GuideConfig["stuck"]["messages"]];
+  onChange: (next: typeof message) => void;
+}) {
+  const variants = message.variants ?? [];
+
+  const updateBase = (patch: Partial<typeof message>) => onChange({ ...message, ...patch });
+
+  const updateVariant = (idx: number, patch: Partial<NonNullable<typeof message.variants>[number]>) => {
+    const next = [...variants];
+    next[idx] = { ...next[idx], ...patch };
+    onChange({ ...message, variants: next });
+  };
+  const addVariant = () =>
+    onChange({
+      ...message,
+      variants: [
+        ...variants,
+        { id: `variant-${Date.now()}`, title: message.title, body: message.body, weight: 1 },
+      ],
+    });
+  const removeVariant = (idx: number) => {
+    const next = variants.filter((_, i) => i !== idx);
+    onChange({ ...message, variants: next.length === 0 ? undefined : next });
+  };
+
+  return (
+    <div className="rounded-md border p-3 space-y-3 bg-muted/20">
+      <div className="flex items-center gap-2">
+        <Badge variant="outline" className="text-[10px]">{reason.toUpperCase()}</Badge>
+        {variants.length > 0 && (
+          <Badge className="text-[10px] bg-emerald-500/15 text-emerald-700 border-emerald-500/30">
+            A/B · {variants.length} varianter
+          </Badge>
+        )}
+      </div>
+      <Field label="Tittel (kontroll)">
+        <Input value={message.title} onChange={(e) => updateBase({ title: e.target.value })} />
+      </Field>
+      <Field label="Forklaring (kontroll)">
+        <Textarea rows={2} value={message.body} onChange={(e) => updateBase({ body: e.target.value })} />
+      </Field>
+
+      <div className="pt-2 border-t space-y-2">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            A/B‑varianter
+          </p>
+          <Button size="sm" variant="outline" onClick={addVariant}>
+            <Plus className="h-3 w-3 mr-1" />Ny variant
+          </Button>
+        </div>
+        {variants.length === 0 ? (
+          <p className="text-[11px] text-muted-foreground italic">
+            Legg til en variant for å starte en A/B‑test. Brukere som havner i variant‑bøtta ser
+            den i stedet for kontrollen, og hver visning + handling rapporteres til /api/cms/stuck‑stats.
+          </p>
+        ) : (
+          variants.map((v, i) => (
+            <div key={v.id || i} className="rounded-md border bg-background p-2 space-y-2">
+              <div className="flex items-center gap-2">
+                <Input
+                  value={v.id}
+                  onChange={(e) => updateVariant(i, { id: e.target.value })}
+                  placeholder="variant-id"
+                  className="h-7 text-xs font-mono w-40"
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={v.weight ?? 1}
+                  onChange={(e) => updateVariant(i, { weight: Number(e.target.value) || 0 })}
+                  className="h-7 text-xs w-20"
+                  title="Vekt — høyere = vises oftere"
+                />
+                <Button size="sm" variant="ghost" className="text-destructive ml-auto" onClick={() => removeVariant(i)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+              <Input
+                value={v.title}
+                onChange={(e) => updateVariant(i, { title: e.target.value })}
+                placeholder="Tittel"
+                className="text-sm"
+              />
+              <Textarea
+                rows={2}
+                value={v.body}
+                onChange={(e) => updateVariant(i, { body: e.target.value })}
+                placeholder="Forklaring"
+                className="text-sm"
+              />
+              <StuckVariantStats reason={reason} variantId={v.id} />
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface StuckStatsRow { reason: string; variantId: string | null; action: string; count: number }
+
+function useStuckStats(days = 30) {
+  return useQuery<{ days: number; rows: StuckStatsRow[] }>({
+    queryKey: ["/api/cms/stuck-stats", days],
+    queryFn: async () => {
+      const res = await fetch(`/api/cms/stuck-stats?days=${days}`, { credentials: "include" });
+      if (!res.ok) return { days, rows: [] };
+      return res.json();
+    },
+    staleTime: 60_000,
+  });
+}
+
+function StuckStatsBadge() {
+  const { data } = useStuckStats(30);
+  const total = (data?.rows ?? []).reduce((sum, r) => sum + (r.action === "shown" ? r.count : 0), 0);
+  if (!total) return null;
+  return (
+    <Badge variant="outline" className="text-[10px]">
+      {total} visninger siste 30 dager
+    </Badge>
+  );
+}
+
+function StuckVariantStats({ reason, variantId }: { reason: string; variantId: string }) {
+  const { data } = useStuckStats(30);
+  const rows = (data?.rows ?? []).filter((r) => r.reason === reason && r.variantId === variantId);
+  if (rows.length === 0) return (
+    <p className="text-[10px] text-muted-foreground italic">Ingen data ennå.</p>
+  );
+  const shown = rows.find((r) => r.action === "shown")?.count ?? 0;
+  const tour = rows.find((r) => r.action === "tour")?.count ?? 0;
+  const guide = rows.find((r) => r.action === "guide")?.count ?? 0;
+  const dismissed = rows.find((r) => r.action === "dismissed")?.count ?? 0;
+  const ctr = shown > 0 ? Math.round(((tour + guide) / shown) * 100) : 0;
+  return (
+    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+      <span>{shown} visninger</span>
+      <span>·</span>
+      <span>{tour} omvisning</span>
+      <span>·</span>
+      <span>{guide} guide</span>
+      <span>·</span>
+      <span>{dismissed} avvist</span>
+      <span>·</span>
+      <span className={cn("font-semibold", ctr >= 30 ? "text-emerald-600" : ctr >= 15 ? "text-amber-600" : "text-slate-500")}>
+        CTR {ctr}%
+      </span>
     </div>
   );
 }
