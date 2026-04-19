@@ -8,7 +8,7 @@
  * For the deeply-nested categories + tour overrides + stuck rules we
  * use a syntax-checked JSON textarea. Everything else is a regular form.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DEFAULT_GUIDE_CONFIG,
@@ -27,10 +27,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
-  AlertCircle, ChevronRight, Layout, Lightbulb, Loader2, Plus, RotateCcw,
-  Save, Settings as SettingsIcon, Sparkles, Trash2, Video,
+  AlertCircle, ChevronRight, Image as ImageIcon, Layout, Lightbulb, Loader2,
+  Plus, RotateCcw, Save, Settings as SettingsIcon, Sparkles, Trash2, Video,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { MediaPicker } from "./media-picker";
 
 const KEY = ["/api/cms/guide-config"];
 
@@ -55,6 +56,28 @@ export function GuideEditor() {
   const [rulesJson, setRulesJson] = useState("");
   const [welcomeJson, setWelcomeJson] = useState("");
   const [jsonErrors, setJsonErrors] = useState<{ categories?: string; rules?: string; welcome?: string }>({});
+  const categoriesTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  /** Insert text at the textarea cursor, preserving the rest of the JSON. */
+  const insertAtCursor = (text: string) => {
+    const ta = categoriesTextareaRef.current;
+    if (!ta) {
+      setCategoriesJson((prev) => prev + text);
+      setDirty(true);
+      return;
+    }
+    const start = ta.selectionStart ?? ta.value.length;
+    const end = ta.selectionEnd ?? ta.value.length;
+    const next = ta.value.slice(0, start) + text + ta.value.slice(end);
+    setCategoriesJson(next);
+    setDirty(true);
+    requestAnimationFrame(() => {
+      ta.focus();
+      const cursor = start + text.length;
+      ta.setSelectionRange(cursor, cursor);
+    });
+  };
 
   useEffect(() => {
     if (!data) return;
@@ -360,8 +383,18 @@ export function GuideEditor() {
                 Se Lucide‑ikon‑navn på <a className="text-primary underline" href="https://lucide.dev/icons/" target="_blank" rel="noreferrer">lucide.dev</a>.
               </CardDescription>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Tips: plasser markøren der du vil ha bilde-URL og klikk «Sett inn bilde».
+                </p>
+                <Button size="sm" variant="outline" onClick={() => setPickerOpen(true)}>
+                  <ImageIcon className="h-3.5 w-3.5 mr-1" />
+                  Sett inn bilde
+                </Button>
+              </div>
               <Textarea
+                ref={categoriesTextareaRef}
                 value={categoriesJson}
                 onChange={(e) => { setCategoriesJson(e.target.value); setDirty(true); }}
                 rows={28}
@@ -373,6 +406,16 @@ export function GuideEditor() {
               )}
             </CardContent>
           </Card>
+
+          <MediaPicker
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            onSelect={(url) => {
+              // Insert the URL as a JSON string literal so the textarea stays valid.
+              insertAtCursor(JSON.stringify(url));
+            }}
+            title="Velg skjermbilde for artikkel"
+          />
         </TabsContent>
 
         {/* ── FAQ ── */}

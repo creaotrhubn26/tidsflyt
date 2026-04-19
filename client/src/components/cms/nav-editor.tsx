@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
+import { cn } from "@/lib/utils";
 import {
   Loader2, Plus, RotateCcw, Save, Trash2, Link as LinkIcon, ExternalLink,
   Menu, GripVertical,
@@ -202,6 +203,23 @@ export function NavEditor() {
                   });
                   setDirty(true);
                 }}
+                onMove={(path, toCategory, newOrderInTarget, newOrderInSource) => {
+                  setDraft((d) => {
+                    const next = { ...d.portalSidebarOverrides };
+                    // Set new category for the moved item
+                    next[path] = { ...next[path], category: toCategory };
+                    // Re-index target category so it stays compact
+                    newOrderInTarget.forEach((p, idx) => {
+                      next[p] = { ...next[p], order: idx };
+                    });
+                    // Re-index source category so it stays compact
+                    newOrderInSource.forEach((p, idx) => {
+                      next[p] = { ...next[p], order: idx };
+                    });
+                    return { ...d, portalSidebarOverrides: next };
+                  });
+                  setDirty(true);
+                }}
               />
             </CardContent>
           </Card>
@@ -265,11 +283,18 @@ function SidebarReorderEditor({
   overrides,
   onUpdate,
   onReorder,
+  onMove,
 }: {
   overrides: Record<string, { label?: string; hidden?: boolean; category?: string; order?: number }>;
   onUpdate: (path: string, patch: { label?: string; hidden?: boolean }) => void;
   onReorder: (category: string, orderedPaths: string[]) => void;
+  onMove: (path: string, toCategory: string, newOrderInTarget: string[], newOrderInSource: string[]) => void;
 }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
   const grouped = CATEGORY_KEYS.map((cat) => {
     const items = SIDEBAR_PATHS.filter(
       (row) => (overrides[row.path]?.category ?? row.defaultCategory) === cat,
@@ -283,67 +308,111 @@ function SidebarReorderEditor({
       return SIDEBAR_PATHS.indexOf(a) - SIDEBAR_PATHS.indexOf(b);
     });
     return { category: cat, items };
-  }).filter((g) => g.items.length > 0);
+  }); // keep all categories visible even when empty so admins can drop into them
+
+  /** Cross-category-aware drag end: figure out source + destination groups
+   *  and call either onReorder (same group) or onMove (different group). */
+  const handleDragEnd = (e: DragEndEvent) => {
+    if (!e.over || e.active.id === e.over.id) return;
+    const activePath = String(e.active.id);
+    const overId = String(e.over.id);
+
+    const findGroup = (id: string) => {
+      const direct = grouped.find((g) => g.items.some((i) => i.path === id));
+      if (direct) return direct;
+      // The over.id may be a synthetic empty-group dropzone like "__cat:saker"
+      const m = id.match(/^__cat:(.+)$/);
+      if (m) return grouped.find((g) => g.category === m[1]);
+      return undefined;
+    };
+    const activeGroup = findGroup(activePath);
+    const overGroup = findGroup(overId);
+    if (!activeGroup || !overGroup) return;
+
+    if (activeGroup.category === overGroup.category) {
+      const ids = activeGroup.items.map((i) => i.path);
+      const oldIndex = ids.indexOf(activePath);
+      const newIndex = ids.indexOf(overId);
+      if (oldIndex === -1 || newIndex === -1) return;
+      onReorder(activeGroup.category, arrayMove(ids, oldIndex, newIndex));
+      return;
+    }
+
+    // Cross-category move
+    const targetIds = overGroup.items.map((i) => i.path);
+    const insertAt = overId.startsWith("__cat:") ? targetIds.length : Math.max(0, targetIds.indexOf(overId));
+    const newOrderInTarget = [
+      ...targetIds.slice(0, insertAt),
+      activePath,
+      ...targetIds.slice(insertAt).filter((p) => p !== activePath),
+    ];
+    const newOrderInSource = activeGroup.items.map((i) => i.path).filter((p) => p !== activePath);
+    onMove(activePath, overGroup.category, newOrderInTarget, newOrderInSource);
+  };
 
   return (
-    <div className="space-y-5">
-      {grouped.map(({ category, items }) => (
-        <CategoryGroup
-          key={category}
-          category={category}
-          items={items}
-          overrides={overrides}
-          onUpdate={onUpdate}
-          onReorder={(ordered) => onReorder(category, ordered)}
-        />
-      ))}
-    </div>
+    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+      <div className="space-y-5">
+        {grouped.map(({ category, items }) => (
+          <CategoryGroup
+            key={category}
+            category={category}
+            items={items}
+            overrides={overrides}
+            onUpdate={onUpdate}
+          />
+        ))}
+      </div>
+    </DndContext>
   );
 }
 
 function CategoryGroup({
-  category, items, overrides, onUpdate, onReorder,
+  category, items, overrides, onUpdate,
 }: {
   category: string;
   items: { path: string; defaultLabel: string }[];
   overrides: Record<string, { label?: string; hidden?: boolean; category?: string; order?: number }>;
   onUpdate: (path: string, patch: { label?: string; hidden?: boolean }) => void;
-  onReorder: (orderedPaths: string[]) => void;
 }) {
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
-
-  const handleDragEnd = (e: DragEndEvent) => {
-    if (!e.over || e.active.id === e.over.id) return;
-    const oldIndex = items.findIndex((i) => i.path === e.active.id);
-    const newIndex = items.findIndex((i) => i.path === e.over!.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-    const reordered = arrayMove(items, oldIndex, newIndex).map((i) => i.path);
-    onReorder(reordered);
-  };
-
+  // Empty groups still need an id so cross-category drops have a target.
+  const sortableIds = items.length > 0 ? items.map((i) => i.path) : [`__cat:${category}`];
   return (
     <div>
       <p className="px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {CATEGORY_DEFAULTS[category]}
       </p>
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={items.map((i) => i.path)} strategy={verticalListSortingStrategy}>
-          <div className="space-y-1.5">
-            {items.map((row) => (
-              <SidebarRow
-                key={row.path}
-                path={row.path}
-                defaultLabel={row.defaultLabel}
-                override={overrides[row.path]}
-                onUpdate={onUpdate}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
+      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+        <div className="space-y-1.5 min-h-[44px] rounded-md p-1 transition-colors data-[over=true]:bg-primary/5">
+          {items.length === 0 && (
+            <EmptyDropzone id={`__cat:${category}`} />
+          )}
+          {items.map((row) => (
+            <SidebarRow
+              key={row.path}
+              path={row.path}
+              defaultLabel={row.defaultLabel}
+              override={overrides[row.path]}
+              onUpdate={onUpdate}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </div>
+  );
+}
+
+function EmptyDropzone({ id }: { id: string }) {
+  const { setNodeRef, isOver } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "h-11 rounded-md border-2 border-dashed text-[11px] text-muted-foreground italic flex items-center justify-center transition-colors",
+        isOver ? "border-primary text-primary bg-primary/5" : "border-muted-foreground/20",
+      )}
+    >
+      Slipp et menyvalg her for å flytte til denne kategorien
     </div>
   );
 }
