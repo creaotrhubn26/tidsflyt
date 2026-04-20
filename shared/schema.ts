@@ -195,6 +195,25 @@ export const vendorInstitutions = pgTable("vendor_institutions", {
   updatedAt:           timestamp("updated_at").defaultNow(),
 });
 
+// Per-tenant credentials for external push integrations (PowerOffice Go,
+// later Tripletex, Visma). PowerOffice v2 uses OAuth 2.0 client_credentials
+// where the ClientKey is the per-tenant secret pasted in by the admin.
+// Access tokens (20-min TTL) are cached in memory, not persisted here.
+export const vendorIntegrations = pgTable("vendor_integrations", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  vendorId:         integer("vendor_id").notNull(),
+  provider:         text("provider").notNull(),       // 'poweroffice' | future
+  clientKey:        text("client_key").notNull(),
+  label:            text("label"),
+  status:           text("status").default("active"), // 'active' | 'disabled' | 'invalid'
+  lastVerifiedAt:   timestamp("last_verified_at"),
+  lastUsedAt:       timestamp("last_used_at"),
+  lastError:        text("last_error"),
+  createdBy:        text("created_by"),
+  createdAt:        timestamp("created_at").defaultNow(),
+  updatedAt:        timestamp("updated_at").defaultNow(),
+});
+
 // User-defined goal categories (replaces localStorage "custom-goal-cats")
 export const userGoalCategories = pgTable("user_goal_categories", {
   id:        uuid("id").defaultRandom().primaryKey(),

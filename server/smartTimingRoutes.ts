@@ -7780,6 +7780,28 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           updated_at TIMESTAMP DEFAULT NOW()
         );
       `);
+
+      // Per-tenant credentials for external push integrations (PowerOffice,
+      // later Tripletex, Visma). See migrations/035_vendor_integrations.sql.
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS vendor_integrations (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          vendor_id INTEGER NOT NULL,
+          provider TEXT NOT NULL,
+          client_key TEXT NOT NULL,
+          label TEXT,
+          status TEXT DEFAULT 'active',
+          last_verified_at TIMESTAMP,
+          last_used_at TIMESTAMP,
+          last_error TEXT,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT NOW(),
+          updated_at TIMESTAMP DEFAULT NOW(),
+          UNIQUE (vendor_id, provider)
+        );
+        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_vendor ON vendor_integrations(vendor_id);
+        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_provider ON vendor_integrations(provider);
+      `);
     } catch (err) {
       // Ignore errors - table might not exist yet
     }

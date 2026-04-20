@@ -20,6 +20,7 @@ import { registerInviteLinkRoutes } from "./routes/invite-link-routes";
 import { registerGdprRoutes } from "./routes/gdpr-routes";
 import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
 import { registerAvvikRoutes } from "./routes/avvik-routes";
+import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
@@ -6330,6 +6331,7 @@ export async function registerRoutes(
   registerGdprRoutes(app);
   registerPayrollExportRoutes(app);
   registerAvvikRoutes(app);
+  registerPowerOfficeRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
