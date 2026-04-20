@@ -37,6 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
+import { PowerOfficeConnectCard } from "@/components/integrations/poweroffice-connect-card";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
@@ -1033,6 +1034,8 @@ export default function ProfilePage() {
         </div>
 
         <IntegrationRequestsPanel showAdminTools={canAccessVendorApiAdmin(normalizedRole)} />
+
+        {canAccessVendorApiAdmin(normalizedRole) && <PowerOfficeConnectCard />}
 
         {/* ── Notifications ── */}
         <Card data-testid="notifications-card">
