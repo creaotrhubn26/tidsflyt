@@ -61,3 +61,15 @@ services:
         value: GTM-55SPZGMD
       - key: DEFAULT_ENABLE_ANALYTICS
         value: "true"
+      - key: POWEROFFICE_ENV
+        value: demo
+      - key: POWEROFFICE_AUTH_URL
+        value: https://goapi.poweroffice.net/Demo/OAuth/Token
+      - key: POWEROFFICE_BASE_URL
+        value: https://goapi.poweroffice.net/demo/v2
+      - key: POWEROFFICE_APPLICATION_KEY
+        sync: false
+      - key: POWEROFFICE_CLIENT_KEY
+        sync: false
+      - key: POWEROFFICE_SUBSCRIPTION_KEY
+        sync: false

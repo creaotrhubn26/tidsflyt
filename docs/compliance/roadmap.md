@@ -229,24 +229,40 @@ Issues-listen (P0 først):
 
 ## PowerOffice Go onboarding
 
-**Status:** demo-API søkt. Venter på credentials.
+**Status:** demo-klient "Creatorhub AS - API Test Client" mottatt 2026-04-20. Applikasjons-/klient-/abonnementsnøkler i Render (`tidum-backend`) env. Implementasjon pågår.
 
-**URL-er å whitelistes (gitt til PowerOffice 15.04.2026):**
+**Auth-flow (v2 — verifisert fra [docs](https://developer.poweroffice.net/documentation/authentication)):**
 
-Produksjon:
-- `https://tidum.no/api/integrations/poweroffice/callback` (CallbackUrl v1)
-- `https://tidum.no/api/integrations/poweroffice/redirect` (RedirectUrl v1/v2)
+OAuth 2.0 **client_credentials** (RFC 6749 §4.4). Ingen bruker-redirect trengs.
 
-Lokal dev (for testing):
-- `http://localhost:5000/api/integrations/poweroffice/callback`
-- `http://localhost:5000/api/integrations/poweroffice/redirect`
+```
+POST {POWEROFFICE_AUTH_URL}
+Authorization: Basic base64(POWEROFFICE_APPLICATION_KEY:POWEROFFICE_CLIENT_KEY)
+Ocp-Apim-Subscription-Key: {POWEROFFICE_SUBSCRIPTION_KEY}
+Content-Type: application/x-www-form-urlencoded
 
-**Neste skritt når credentials kommer:**
+grant_type=client_credentials
+```
 
-1. DB: legg til tabell `vendor_integrations` (provider, access_token, refresh_token, expires_at, scopes)
-2. Server: implementer `/api/integrations/poweroffice/{connect,callback,redirect,push-timer}`
-3. Client: endre "Eksporter lønn"-knappen til å vise "Push til PowerOffice" når vendor er tilkoblet
-4. Refresh-token-håndtering (PowerOffice bruker kort-tid-tokens, må refreshes periodisk)
+Access token: 20 min levetid. Cache per tenant, refresh on demand.
+
+Subsequent API-kall:
+```
+Authorization: Bearer {access_token}
+Ocp-Apim-Subscription-Key: {POWEROFFICE_SUBSCRIPTION_KEY}
+```
+
+**Per-tenant onboarding**: hver Tidum-kunde genererer sin egen `ClientKey` i egen PowerOffice-klient og limer den inn i Tidum (copy-paste, ingen OAuth-popup).
+
+**Whitelistede URL-er (gitt til PowerOffice 2026-04-15, nå ubrukte):**
+- `https://tidum.no/api/integrations/poweroffice/{callback,redirect}` — overflødige for client_credentials-flow, men harmløse å la stå registrert.
+
+**Implementasjonsplan:**
+
+1. DB: tabell `vendor_integrations` (vendor_id, provider, client_key, connected_at) — IKKE access/refresh tokens (caches i minne)
+2. Server: `/api/integrations/poweroffice/{connect,status,disconnect,push-timer}` — dropp callback/redirect
+3. Client: admin-UI for å lime inn ClientKey + "Push til PowerOffice"-knapp
+4. Token-cache: in-memory per tenant, TTL ~19 min, refresh on demand
 
 ---
 
@@ -255,6 +271,7 @@ Lokal dev (for testing):
 | Dato | Hva |
 |---|---|
 | 2026-04-15 | Første versjon. Dekker compliance-push, HMS, blog, payroll CSV, Turnstile-fix. |
+| 2026-04-20 | PowerOffice Go demo-klient mottatt. Auth-flow korrigert til client_credentials (ikke auth_code). Env lagt til i Render. |
 
 ---
 
