@@ -73,3 +73,11 @@ services:
         sync: false
       - key: POWEROFFICE_SUBSCRIPTION_KEY
         sync: false
+      - key: POWEROFFICE_SUBSCRIPTION_KEY_SECONDARY
+        sync: false
+      - key: VEGVESEN_API_KEY
+        sync: false
+      - key: MILEAGE_RATE_PER_KM
+        sync: false
+      - key: MILEAGE_PASSENGER_RATE_PER_KM
+        sync: false
