@@ -24,7 +24,7 @@ import { DashboardGoals } from "@/components/dashboard/dashboard-goals";
 import { DashboardActivity } from "@/components/dashboard/dashboard-activity";
 import { DashboardStatusToday, type StatusSignal } from "@/components/dashboard/dashboard-status-today";
 import { DashboardRiskParticipants } from "@/components/dashboard/dashboard-risk-participants";
-import { DashboardWorkerMobile, type WorkerParticipant, type WorkerTodaySignal } from "@/components/dashboard/dashboard-worker-mobile";
+import { DashboardWorkerMobile, type WorkerSummary, type WorkerTodaySignal } from "@/components/dashboard/dashboard-worker-mobile";
 import { DashboardWeekStrip } from "@/components/dashboard/dashboard-week-strip";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -142,12 +142,24 @@ interface DashboardPrefs {
   showInsights: boolean;
   compactMode: boolean;
   cardStyle: 'default' | 'flat' | 'glass';
+  // Per-user target fallbacks. For miljøarbeider these are overridden by the
+  // sum of per-sak hours budgets (set by tiltaksleder on saker.ekstra_felter).
+  // For default/admin mode these are the live targets. Persisted in
+  // user_settings.dashboardPrefs via /api/user-state/settings.
+  monthlyHoursTarget: number;
+  weeklyHoursTarget: number;
+  dailyHoursTarget: number;
+  weeklyCasesTarget: number;
 }
 
 const PREFS_KEY = "tidum-dashboard-prefs";
 const DEFAULT_PREFS: DashboardPrefs = {
   showTasks: true, showGoals: true, showInsights: true,
   compactMode: false, cardStyle: 'default',
+  monthlyHoursTarget: 160,
+  weeklyHoursTarget: 37.5,
+  dailyHoursTarget: 8,
+  weeklyCasesTarget: 15,
 };
 
 // Load order: server (cross-device) → localStorage cache → defaults.
@@ -917,24 +929,26 @@ export default function DashboardPage() {
       .slice(0, 5);
   }, [activities]);
 
-  // Real rapporter drive the worker's participant list — no mock fallback.
-  // Map each of the user's own rapporter into a light participant-like entry.
-  const workerParticipants = useMemo<WorkerParticipant[]>(() => {
-    const list = Array.isArray(myRapporter) ? myRapporter : [];
-    return list.slice(0, 5).map((r: any, i: number) => ({
-      id: String(r.id ?? i),
-      name: r.klientRef || r.sakNummer || `Rapport ${i + 1}`,
-      tiltak: r.tiltak || "—",
-      lastFollowupLabel: r.updatedAt
-        ? new Date(r.updatedAt).toLocaleDateString("nb-NO")
-        : "—",
-      status: r.status === "returnert"
-        ? "trenger-oppfolging"
-        : r.status === "utkast"
-        ? "snart-frist"
-        : "i-rute",
-    }));
-  }, [myRapporter]);
+  // Miljøarbeider worker-mobile card — real summary from log_row aggregates.
+  // Returns today's clock span, last week's total minutes, and recent days.
+  const { data: workerSummary = null } = useQuery<WorkerSummary>({
+    queryKey: ["/api/worker/summary"],
+    enabled: isMiljoarbeiderView,
+    staleTime: 30_000,
+  });
+
+  // Real per-mode KPIs for the "Kvalitet og kontinuitet" / "Min fremdrift" card.
+  // Skipped for default mode, which still uses stats-derived goals.
+  const kpiMode = isTiltakslederView
+    ? "tiltaksleder"
+    : isMiljoarbeiderView
+    ? "miljoarbeider"
+    : null;
+  const { data: dashboardKpis } = useQuery<{ mode: string; kpis: any[] }>({
+    queryKey: ["/api/dashboard/kpis", { mode: kpiMode ?? "" }],
+    enabled: !!kpiMode,
+    staleTime: 30_000,
+  });
 
   // Contextual task list derived from the user's actual rapport state.
   // Returns an empty list for brand-new users (no mock placeholders).
@@ -1339,6 +1353,7 @@ export default function DashboardPage() {
           <DashboardWeekStrip
             hoursData={hoursData}
             loading={chartLoading}
+            weeklyTarget={prefs.weeklyHoursTarget}
           />
         )}
 
@@ -1407,7 +1422,8 @@ export default function DashboardPage() {
             userId={user?.id || "default"}
             userName={user?.firstName || "Maria"}
             todaySignals={workerTodaySignals}
-            participants={workerParticipants}
+            summary={workerSummary}
+            dailyHoursTarget={prefs.dailyHoursTarget}
             navigate={navigate}
           />
         )}
@@ -1444,7 +1460,17 @@ export default function DashboardPage() {
                   mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
                 />
               )}
-              {prefs.showGoals && <DashboardGoals stats={stats} mode={isTiltakslederView ? "tiltaksleder" : "default"} />}
+              {prefs.showGoals && (
+                <DashboardGoals
+                  stats={stats}
+                  mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
+                  kpis={dashboardKpis?.kpis ?? null}
+                  targets={{
+                    monthlyHoursTarget: prefs.monthlyHoursTarget,
+                    weeklyCasesTarget: prefs.weeklyCasesTarget,
+                  }}
+                />
+              )}
             </div>
           )}
           <DashboardActivity

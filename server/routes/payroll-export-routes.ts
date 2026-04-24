@@ -5,9 +5,10 @@
  *   - Tripletex     (timeregistrering-import format)
  *   - Visma Lønn    (lønnsart-format)
  *   - PowerOffice Go (standard timelinje-format)
+ *   - Fiken         (timeregistrering-import CSV)
  *
  * Endpoint:
- *   GET /api/payroll/export?format=tripletex|visma|poweroffice&period=YYYY-MM[&userId=<id>]
+ *   GET /api/payroll/export?format=tripletex|visma|poweroffice|fiken&period=YYYY-MM[&userId=<id>]
  *
  * Only vendor_admin and tiltaksleder may export. Data is scoped to the
  * caller's vendor_id. Output is a downloadable CSV with UTF-8 BOM to ensure
@@ -20,7 +21,7 @@ import { logRow, users } from "@shared/schema";
 import { and, eq, gte, lte } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 
-type Format = "tripletex" | "visma" | "poweroffice";
+type Format = "tripletex" | "visma" | "poweroffice" | "fiken";
 
 function authedUser(req: Request) {
   return (req as any).authUser ?? (req as any).user ?? null;
@@ -187,6 +188,40 @@ function formatVisma(rows: EnrichedRow[]): string {
 }
 
 /**
+ * Fiken — timeregistrering-CSV. Semicolon-separert, dato yyyy-mm-dd, timer med komma-desimal.
+ * Kolonnene matcher felt Fiken importerer i timeregistrering → prosjekt.
+ */
+function formatFiken(rows: EnrichedRow[]): string {
+  const header = [
+    "Dato",
+    "Ansatt",
+    "E-post",
+    "Prosjekt",
+    "Aktivitet",
+    "Timer",
+    "Fra",
+    "Til",
+    "Sted",
+    "Kommentar",
+  ].join(";");
+  const lines = rows.map((r) =>
+    [
+      csv(r.date),
+      csv(r.employeeName),
+      csv(r.employeeEmail),
+      csv(r.project),
+      csv(r.activity || "Ordinær arbeidstid"),
+      csv(r.hours.toFixed(2).replace(".", ",")),
+      csv(r.start),
+      csv(r.end),
+      csv(r.place),
+      csv(r.notes),
+    ].join(";"),
+  );
+  return [header, ...lines].join("\n");
+}
+
+/**
  * PowerOffice Go — standard timelinje-import.
  */
 function formatPowerOffice(rows: EnrichedRow[]): string {
@@ -225,10 +260,10 @@ export function registerPayrollExportRoutes(app: Express) {
       if (!vendorId) return res.status(400).json({ error: "Mangler vendor_id" });
 
       const format = String(req.query.format ?? "").toLowerCase() as Format;
-      if (!["tripletex", "visma", "poweroffice"].includes(format)) {
+      if (!["tripletex", "visma", "poweroffice", "fiken"].includes(format)) {
         return res.status(400).json({
           error: "Ugyldig format",
-          hint: "Bruk format=tripletex|visma|poweroffice",
+          hint: "Bruk format=tripletex|visma|poweroffice|fiken",
         });
       }
 
@@ -252,6 +287,9 @@ export function registerPayrollExportRoutes(app: Express) {
           break;
         case "poweroffice":
           body = formatPowerOffice(rows);
+          break;
+        case "fiken":
+          body = formatFiken(rows);
           break;
       }
 

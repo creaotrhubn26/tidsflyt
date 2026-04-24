@@ -5,6 +5,7 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { OfflineIndicator } from "@/components/offline-indicator";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeBootstrap } from "@/components/theme-bootstrap";
 import "@/lib/i18n"; // initialise i18next (side-effect import)
@@ -200,6 +201,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <AnalyticsRuntime />
+            <OfflineIndicator />
             <RolePreviewProvider>
               <ComposeProvider>
                 <main id="main-content">

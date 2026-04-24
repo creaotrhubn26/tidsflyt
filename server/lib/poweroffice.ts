@@ -21,13 +21,52 @@
  */
 
 const APPLICATION_KEY = process.env.POWEROFFICE_APPLICATION_KEY || '';
-const SUBSCRIPTION_KEY = process.env.POWEROFFICE_SUBSCRIPTION_KEY || '';
+const SUBSCRIPTION_KEY_PRIMARY = process.env.POWEROFFICE_SUBSCRIPTION_KEY || '';
+const SUBSCRIPTION_KEY_SECONDARY = process.env.POWEROFFICE_SUBSCRIPTION_KEY_SECONDARY || '';
 const AUTH_URL = process.env.POWEROFFICE_AUTH_URL || 'https://goapi.poweroffice.net/Demo/OAuth/Token';
 const BASE_URL = process.env.POWEROFFICE_BASE_URL || 'https://goapi.poweroffice.net/demo/v2';
 
-/** True if the server has the shared app+subscription keys configured. */
+/**
+ * Subscription-key rotation.
+ *   - Primary is used first.
+ *   - On 401/403 responses (subscription key rejected), we transparently
+ *     retry once with the secondary, and remember that secondary succeeded
+ *     until this process restarts — so subsequent calls don't re-hit the bad
+ *     primary. Key rotation in Azure APIM is eventually consistent, so this
+ *     window (minutes) is normal during rotation cycles.
+ *   - `activeSubscriptionKey` is the in-memory preference; it resets on boot.
+ */
+let activeSubscriptionKey: 'primary' | 'secondary' = 'primary';
+
+function currentSubscriptionKey(): string {
+  if (activeSubscriptionKey === 'secondary' && SUBSCRIPTION_KEY_SECONDARY) {
+    return SUBSCRIPTION_KEY_SECONDARY;
+  }
+  return SUBSCRIPTION_KEY_PRIMARY;
+}
+
+function otherSubscriptionKey(): string | null {
+  if (activeSubscriptionKey === 'primary' && SUBSCRIPTION_KEY_SECONDARY) {
+    return SUBSCRIPTION_KEY_SECONDARY;
+  }
+  if (activeSubscriptionKey === 'secondary' && SUBSCRIPTION_KEY_PRIMARY) {
+    return SUBSCRIPTION_KEY_PRIMARY;
+  }
+  return null;
+}
+
+function isSubscriptionRejection(status: number): boolean {
+  return status === 401 || status === 403;
+}
+
+/** True if the server has the shared app + at least one subscription key configured. */
 export function isPowerOfficeConfigured(): boolean {
-  return !!(APPLICATION_KEY && SUBSCRIPTION_KEY);
+  return !!(APPLICATION_KEY && SUBSCRIPTION_KEY_PRIMARY);
+}
+
+/** Debug helper — expose which key is in use (not the key value itself). */
+export function getActiveSubscriptionKeyName(): 'primary' | 'secondary' {
+  return activeSubscriptionKey;
 }
 
 interface CachedToken {
@@ -60,15 +99,30 @@ async function fetchAccessToken(clientKey: string): Promise<string> {
     throw new PowerOfficeAuthError('PowerOffice application/subscription keys not configured on server');
   }
   const basic = Buffer.from(`${APPLICATION_KEY}:${clientKey}`).toString('base64');
-  const res = await fetch(AUTH_URL, {
+
+  const doFetch = async (subKey: string) => fetch(AUTH_URL, {
     method: 'POST',
     headers: {
       'Authorization': `Basic ${basic}`,
-      'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+      'Ocp-Apim-Subscription-Key': subKey,
       'Content-Type': 'application/x-www-form-urlencoded',
     },
     body: 'grant_type=client_credentials',
   });
+
+  let res = await doFetch(currentSubscriptionKey());
+
+  // If the current subscription key is rejected, rotate once to the other.
+  if (isSubscriptionRejection(res.status)) {
+    const other = otherSubscriptionKey();
+    if (other) {
+      console.warn('[poweroffice] subscription-key rejected, rotating to backup');
+      res = await doFetch(other);
+      if (res.ok) {
+        activeSubscriptionKey = activeSubscriptionKey === 'primary' ? 'secondary' : 'primary';
+      }
+    }
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
@@ -139,12 +193,12 @@ export async function call<T = unknown>(clientKey: string, opts: RequestOptions)
     }
   }
 
-  const doRequest = async (token: string): Promise<Response> =>
+  const doRequest = async (token: string, subKey: string): Promise<Response> =>
     fetch(url.toString(), {
       method: opts.method || 'GET',
       headers: {
         'Authorization': `Bearer ${token}`,
-        'Ocp-Apim-Subscription-Key': SUBSCRIPTION_KEY,
+        'Ocp-Apim-Subscription-Key': subKey,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },
@@ -152,13 +206,26 @@ export async function call<T = unknown>(clientKey: string, opts: RequestOptions)
     });
 
   let token = await getAccessToken(clientKey);
-  let res = await doRequest(token);
+  let res = await doRequest(token, currentSubscriptionKey());
 
+  // 401 means Bearer token is stale — refresh once and retry on same key.
   if (res.status === 401) {
-    // Token may have been revoked mid-flight. Refresh once and retry.
     invalidateToken(clientKey);
     token = await getAccessToken(clientKey);
-    res = await doRequest(token);
+    res = await doRequest(token, currentSubscriptionKey());
+  }
+
+  // 403 (or persistent 401) after a token refresh usually means the
+  // subscription key was rotated in Azure APIM — try the other key once.
+  if (isSubscriptionRejection(res.status)) {
+    const other = otherSubscriptionKey();
+    if (other) {
+      console.warn('[poweroffice] API call rejected subscription-key, rotating to backup');
+      res = await doRequest(token, other);
+      if (res.ok) {
+        activeSubscriptionKey = activeSubscriptionKey === 'primary' ? 'secondary' : 'primary';
+      }
+    }
   }
 
   if (!res.ok) {

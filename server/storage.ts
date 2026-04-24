@@ -349,7 +349,13 @@ export interface IStorage {
     approvalsTrend: number;
     casesTrend: number;
   }>;
-  
+
+  getWorkerSummary(userId: string): Promise<{
+    todayClockSpan: { from: string; to: string } | null;
+    lastWeekMinutes: number;
+    recentDays: Array<{ date: string; day: string; from: string; to: string }>;
+  }>;
+
   seedData(): Promise<void>;
 
   // Dashboard tasks
@@ -664,59 +670,202 @@ export class ExternalDbStorage implements IStorage {
   }> {
     const now = new Date();
     let startDate: Date;
-    
+    let prevStartDate: Date;
+    let prevEndDate: Date;
+
     switch (range) {
       case "today":
         startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        prevStartDate = new Date(startDate);
+        prevStartDate.setDate(startDate.getDate() - 1);
+        prevEndDate = new Date(startDate);
+        prevEndDate.setDate(startDate.getDate() - 1);
         break;
       case "month":
         startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+        prevStartDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+        prevEndDate = new Date(now.getFullYear(), now.getMonth(), 0); // last day of prev month
         break;
       case "week":
       default:
         startDate = new Date(now);
         startDate.setDate(now.getDate() - 7);
+        prevStartDate = new Date(startDate);
+        prevStartDate.setDate(startDate.getDate() - 7);
+        prevEndDate = new Date(startDate);
+        prevEndDate.setDate(startDate.getDate() - 1);
     }
-    
-    const startDateStr = startDate.toISOString().split('T')[0];
-    
-    if (this.isExternalDb) {
-      const entries = await db.select().from(logRow).where(gte(logRow.date, startDateStr));
-      const users = await db.select().from(companyUsers);
-      
-      let totalHours = 0;
-      entries.forEach(lr => {
-        const start = lr.startTime ? new Date(`2000-01-01T${lr.startTime}`) : new Date();
-        const end = lr.endTime ? new Date(`2000-01-01T${lr.endTime}`) : new Date();
-        const breakHrs = parseFloat(lr.breakHours?.toString() || '0');
-        totalHours += Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60) - breakHrs);
-      });
-      
-      const activeUsers = users.filter(u => u.approved).length;
-      const uniqueProjects = new Set(entries.map(e => e.project).filter(Boolean)).size;
-      
+
+    const toDateStr = (d: Date) => d.toISOString().split('T')[0];
+    const startDateStr = toDateStr(startDate);
+    const prevStartStr = toDateStr(prevStartDate);
+    const prevEndStr = toDateStr(prevEndDate);
+
+    if (!this.isExternalDb) {
       return {
-        totalHours: Math.round(totalHours * 10) / 10,
-        activeUsers,
-        pendingApprovals: users.filter(u => !u.approved).length,
-        casesThisWeek: uniqueProjects,
+        totalHours: 0,
+        activeUsers: 0,
+        pendingApprovals: 0,
+        casesThisWeek: 0,
         hoursTrend: 0,
         usersTrend: 0,
         approvalsTrend: 0,
         casesTrend: 0,
       };
     }
-    
-    return {
-      totalHours: 0,
-      activeUsers: 0,
-      pendingApprovals: 0,
-      casesThisWeek: 0,
-      hoursTrend: 0,
-      usersTrend: 0,
-      approvalsTrend: 0,
-      casesTrend: 0,
+
+    const sumHours = (rows: LogRow[]) =>
+      rows.reduce((acc, lr) => {
+        const start = lr.startTime ? new Date(`2000-01-01T${lr.startTime}`) : new Date();
+        const end = lr.endTime ? new Date(`2000-01-01T${lr.endTime}`) : new Date();
+        const breakHrs = parseFloat(lr.breakHours?.toString() || '0');
+        return acc + Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60) - breakHrs);
+      }, 0);
+
+    const distinctActiveUsers = (rows: LogRow[]) =>
+      new Set(rows.map(r => r.userId).filter(Boolean)).size;
+
+    const distinctProjects = (rows: LogRow[]) =>
+      new Set(rows.map(e => e.project).filter(Boolean)).size;
+
+    // Period-over-period delta, rounded to 1 decimal.
+    // Returns 0 when previous is 0 to avoid Infinity / noisy jumps on empty baselines.
+    const pctTrend = (current: number, previous: number) => {
+      if (!previous) return 0;
+      return Math.round(((current - previous) / previous) * 1000) / 10;
     };
+
+    const [currentEntries, prevEntries, users] = await Promise.all([
+      db.select().from(logRow).where(gte(logRow.date, startDateStr)),
+      db.select().from(logRow).where(and(gte(logRow.date, prevStartStr), lte(logRow.date, prevEndStr))),
+      db.select().from(companyUsers),
+    ]);
+
+    const currentHours = sumHours(currentEntries);
+    const prevHours = sumHours(prevEntries);
+
+    const currentActiveUserCount = distinctActiveUsers(currentEntries);
+    const prevActiveUserCount = distinctActiveUsers(prevEntries);
+
+    const currentProjectCount = distinctProjects(currentEntries);
+    const prevProjectCount = distinctProjects(prevEntries);
+
+    const approvalsCompletedInPeriod = users.filter(u => {
+      if (!u.approved || !u.updatedAt) return false;
+      const t = new Date(u.updatedAt).getTime();
+      return t >= startDate.getTime() && t <= now.getTime();
+    }).length;
+    const approvalsCompletedPrev = users.filter(u => {
+      if (!u.approved || !u.updatedAt) return false;
+      const t = new Date(u.updatedAt).getTime();
+      return t >= prevStartDate.getTime() && t <= prevEndDate.getTime() + 24 * 60 * 60 * 1000 - 1;
+    }).length;
+
+    const approvedUsersTotal = users.filter(u => u.approved).length;
+
+    return {
+      totalHours: Math.round(currentHours * 10) / 10,
+      activeUsers: approvedUsersTotal,
+      pendingApprovals: users.filter(u => !u.approved).length,
+      casesThisWeek: currentProjectCount,
+      hoursTrend: pctTrend(currentHours, prevHours),
+      // Trend in *distinct active users* (users who logged time) — a meaningful
+      // period-over-period signal; total approved-user count is a snapshot.
+      usersTrend: pctTrend(currentActiveUserCount, prevActiveUserCount),
+      // Trend in *approval throughput* — approvals completed this period vs last.
+      approvalsTrend: pctTrend(approvalsCompletedInPeriod, approvalsCompletedPrev),
+      casesTrend: pctTrend(currentProjectCount, prevProjectCount),
+    };
+  }
+
+  async getWorkerSummary(userId: string): Promise<{
+    todayClockSpan: { from: string; to: string } | null;
+    lastWeekMinutes: number;
+    recentDays: Array<{ date: string; day: string; from: string; to: string }>;
+  }> {
+    const empty = { todayClockSpan: null, lastWeekMinutes: 0, recentDays: [] };
+    if (!this.isExternalDb || !userId) return empty;
+
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+
+    // ISO week (Mon-Sun). Previous week = Monday..Sunday of the prior calendar week.
+    const isoDow = now.getDay() || 7; // Sun=0 → 7
+    const mondayThis = new Date(now);
+    mondayThis.setDate(now.getDate() - (isoDow - 1));
+    const mondayLast = new Date(mondayThis);
+    mondayLast.setDate(mondayThis.getDate() - 7);
+    const sundayLast = new Date(mondayThis);
+    sundayLast.setDate(mondayThis.getDate() - 1);
+    const mondayLastStr = mondayLast.toISOString().split('T')[0];
+    const sundayLastStr = sundayLast.toISOString().split('T')[0];
+
+    // Look back 14 days for "recent days" list (5 most-recent dates with entries).
+    const lookbackStart = new Date(now);
+    lookbackStart.setDate(now.getDate() - 13);
+    const lookbackStartStr = lookbackStart.toISOString().split('T')[0];
+
+    const rows = await db
+      .select()
+      .from(logRow)
+      .where(and(eq(logRow.userId, userId), gte(logRow.date, lookbackStartStr)));
+
+    const hoursBetween = (startTime: string | null, endTime: string | null, breakHours: string | null): number => {
+      if (!startTime || !endTime) return 0;
+      const start = new Date(`2000-01-01T${startTime}`);
+      const end = new Date(`2000-01-01T${endTime}`);
+      const breakHrs = parseFloat(breakHours || '0');
+      return Math.max(0, (end.getTime() - start.getTime()) / (1000 * 60 * 60) - breakHrs);
+    };
+    const hhmm = (t: string | null) => (t ? t.slice(0, 5) : '--:--');
+    const norwegianDay = (isoDate: string) => {
+      const names = ["Søndag", "Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag"];
+      const d = new Date(`${isoDate}T00:00:00`);
+      return names[d.getDay()] ?? "";
+    };
+
+    // Group entries by date; for each date, earliest startTime and latest endTime.
+    const byDate = new Map<string, { earliest: string; latest: string; totalMinutes: number }>();
+    for (const r of rows) {
+      const dateStr = r.date?.toString() ?? '';
+      if (!dateStr) continue;
+      const start = r.startTime ?? '';
+      const end = r.endTime ?? '';
+      const minutes = Math.round(hoursBetween(r.startTime, r.endTime, r.breakHours?.toString() ?? null) * 60);
+      const existing = byDate.get(dateStr);
+      if (!existing) {
+        byDate.set(dateStr, { earliest: start, latest: end, totalMinutes: minutes });
+      } else {
+        if (start && (!existing.earliest || start < existing.earliest)) existing.earliest = start;
+        if (end && (!existing.latest || end > existing.latest)) existing.latest = end;
+        existing.totalMinutes += minutes;
+      }
+    }
+
+    const today = byDate.get(todayStr) ?? null;
+    const todayClockSpan = today
+      ? { from: hhmm(today.earliest), to: hhmm(today.latest) }
+      : null;
+
+    let lastWeekMinutes = 0;
+    byDate.forEach((agg, dateStr) => {
+      if (dateStr >= mondayLastStr && dateStr <= sundayLastStr) {
+        lastWeekMinutes += agg.totalMinutes;
+      }
+    });
+
+    const recentDays = Array.from(byDate.entries())
+      .filter(([dateStr]) => dateStr !== todayStr)
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .slice(0, 5)
+      .map(([dateStr, agg]) => ({
+        date: dateStr,
+        day: norwegianDay(dateStr),
+        from: hhmm(agg.earliest),
+        to: hhmm(agg.latest),
+      }));
+
+    return { todayClockSpan, lastWeekMinutes, recentDays };
   }
 
   async seedData(): Promise<void> {

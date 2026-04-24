@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { enqueueMutation, isQueueableMethod, isQueueableUrl } from "./offline-queue";
 
 function normalizeRequestUrl(url: string): string {
   if (!url) return "/";
@@ -15,20 +16,61 @@ async function throwIfResNotOk(res: Response) {
   }
 }
 
+/**
+ * Build a synthetic 202 response that mirrors what a successful POST would
+ * look like — used when the request has been queued offline so UI code can
+ * treat the queued mutation as "accepted, will sync later".
+ */
+function queuedResponse(body: unknown): Response {
+  const payload = { queued: true, offline: true, data: body ?? null };
+  return new Response(JSON.stringify(payload), {
+    status: 202,
+    headers: { "Content-Type": "application/json", "X-Tidum-Queued": "1" },
+  });
+}
+
 export async function apiRequest(
   method: string,
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
-  const res = await fetch(normalizeRequestUrl(url), {
-    method,
-    headers: data ? { "Content-Type": "application/json" } : {},
-    body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
-  });
+  const normalizedUrl = normalizeRequestUrl(url);
 
-  await throwIfResNotOk(res);
-  return res;
+  // Offline-first: if we're offline AND the mutation is safely queueable,
+  // persist to IDB and return a synthetic 202 so the caller can proceed.
+  const canQueue = isQueueableMethod(method) && isQueueableUrl(normalizedUrl);
+  const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+  if (canQueue && offline) {
+    await enqueueMutation({
+      url: normalizedUrl,
+      method: method.toUpperCase() as any,
+      body: data,
+    });
+    return queuedResponse(data);
+  }
+
+  try {
+    const res = await fetch(normalizedUrl, {
+      method,
+      headers: data ? { "Content-Type": "application/json" } : {},
+      body: data ? JSON.stringify(data) : undefined,
+      credentials: "include",
+    });
+    await throwIfResNotOk(res);
+    return res;
+  } catch (err) {
+    // Network error while online is reported as online=true in some browsers.
+    // Catch genuine fetch failures (TypeError / AbortError) and queue them too.
+    if (canQueue && err instanceof TypeError) {
+      await enqueueMutation({
+        url: normalizedUrl,
+        method: method.toUpperCase() as any,
+        body: data,
+      });
+      return queuedResponse(data);
+    }
+    throw err;
+  }
 }
 
 type UnauthorizedBehavior = "returnNull" | "throw";

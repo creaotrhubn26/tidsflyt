@@ -1,4 +1,4 @@
-import { CheckCircle2, ChevronRight, FileText, Clock3, CalendarClock, Check } from "lucide-react";
+import { CheckCircle2, ChevronRight, FileText, Clock3, CalendarClock, Check, Car } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -6,6 +6,8 @@ import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { MileageDialog } from "./mileage-dialog";
 
 const TIMER_STORAGE_KEY = "tidum-worker-mobile-timer-v1";
 
@@ -24,11 +26,25 @@ export interface WorkerParticipant {
   status: "i-rute" | "snart-frist" | "trenger-oppfolging";
 }
 
+export interface WorkerRecentDay {
+  date: string;
+  day: string;
+  from: string;
+  to: string;
+}
+
+export interface WorkerSummary {
+  todayClockSpan: { from: string; to: string } | null;
+  lastWeekMinutes: number;
+  recentDays: WorkerRecentDay[];
+}
+
 interface DashboardWorkerMobileProps {
   userId?: string;
   userName?: string;
   todaySignals: WorkerTodaySignal[];
-  participants: WorkerParticipant[];
+  summary?: WorkerSummary | null;
+  dailyHoursTarget?: number; // default 8
   navigate: (path: string) => void;
 }
 
@@ -42,10 +58,24 @@ export function DashboardWorkerMobile({
   userId = "default",
   userName = "",
   todaySignals,
-  participants,
+  summary,
+  dailyHoursTarget = 8,
   navigate,
 }: DashboardWorkerMobileProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const [mileageOpen, setMileageOpen] = useState(false);
+
+  const { data: todayLegs = [] } = useQuery<Array<{
+    id: string; fromName: string; toName: string; kilometers: number; totalAmount: number;
+  }>>({
+    queryKey: ["/api/travel-legs", { date: todayIso, userId }],
+    staleTime: 30_000,
+  });
+
+  const mileageToday = todayLegs.reduce((sum, l) => sum + (Number(l.kilometers) || 0), 0);
+  const mileageTotal = todayLegs.reduce((sum, l) => sum + (Number(l.totalAmount) || 0), 0);
   const [elapsedSeconds, setElapsedSeconds] = useState(() => {
     if (typeof window === "undefined") return 0;
 
@@ -328,7 +358,7 @@ export function DashboardWorkerMobile({
     return { hours, minutes, totalMinutes };
   }, [elapsedSeconds]);
 
-  const targetMinutes = 8 * 60;
+  const targetMinutes = dailyHoursTarget * 60;
   const progressPercent = Math.min(100, Math.max(0, (elapsed.totalMinutes / targetMinutes) * 100));
   const circumference = 2 * Math.PI * 88;
   const progressArc = (progressPercent / 100) * circumference;
@@ -336,16 +366,15 @@ export function DashboardWorkerMobile({
 
   const missingNotes = todaySignals[1]?.value ?? 0;
   const nearDeadline = todaySignals[2]?.value ?? 0;
-  const totalWeekHours = 37;
-  const totalWeekMinutes = 20;
 
-  const activityRows = participants.slice(0, 4).map((participant, index) => ({
-    id: participant.id,
-    day: ["Onsdag", "Tirsdag", "Mandag", "Søndag"][index] ?? "I dag",
-    from: index === 3 ? "--:--" : "08:00",
-    to: index === 3 ? "--:--" : index === 0 ? "15:30" : "16:00",
-    saved: participant.status !== "trenger-oppfolging",
-  }));
+  const lastWeekMinutes = summary?.lastWeekMinutes ?? 0;
+  const totalWeekHours = Math.floor(lastWeekMinutes / 60);
+  const totalWeekMinutes = lastWeekMinutes % 60;
+  const hasLastWeek = lastWeekMinutes > 0;
+
+  const todayClockSpan = summary?.todayClockSpan ?? null;
+  const recentDays = summary?.recentDays ?? [];
+  const activityRows = recentDays.slice(0, 4);
 
   return (
     <div data-testid="worker-mobile-root" className="space-y-3 md:hidden">
@@ -468,7 +497,7 @@ export function DashboardWorkerMobile({
         <CardContent className="p-4">
           <div className="flex items-center justify-between text-sm text-muted-foreground">
             <span className="tabular-nums">{elapsed.hours} t {String(elapsed.minutes).padStart(2, "0")} min registrert</span>
-            <span className="tabular-nums">8 t mål</span>
+            <span className="tabular-nums">{dailyHoursTarget} t mål</span>
           </div>
           <Progress value={progressPercent} className="mt-2 h-2 bg-muted" />
         </CardContent>
@@ -481,8 +510,12 @@ export function DashboardWorkerMobile({
               <Clock3 className="h-4 w-4" />
               <p className="font-semibold">I dag</p>
             </div>
-            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">08:00 – 16:00</p>
-            <p className="mt-1 text-xs text-muted-foreground">Registrert i dag</p>
+            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">
+              {todayClockSpan ? `${todayClockSpan.from} – ${todayClockSpan.to}` : "—"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {todayClockSpan ? "Registrert i dag" : "Ingen registrering i dag"}
+            </p>
           </CardContent>
         </Card>
         <Card className={cn("rounded-2xl border p-0", toneStyles.green)}>
@@ -491,8 +524,12 @@ export function DashboardWorkerMobile({
               <CalendarClock className="h-4 w-4" />
               <p className="font-semibold">Sist uke</p>
             </div>
-            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">{totalWeekHours} t {String(totalWeekMinutes).padStart(2, "0")} min</p>
-            <p className="mt-1 text-xs text-muted-foreground">Total arbeidstid</p>
+            <p className="mt-2 text-[20px] leading-none font-medium tabular-nums text-foreground">
+              {hasLastWeek ? `${totalWeekHours} t ${String(totalWeekMinutes).padStart(2, "0")} min` : "—"}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {hasLastWeek ? "Total arbeidstid" : "Ingen data forrige uke"}
+            </p>
           </CardContent>
         </Card>
       </div>
@@ -507,32 +544,36 @@ export function DashboardWorkerMobile({
           </div>
 
           <div className="space-y-1.5">
-            {activityRows.map((row) => (
-              <button
-                key={row.id}
-                type="button"
-                onClick={() => navigate("/case-reports")}
-                className="w-full rounded-xl border border-border px-3 py-2.5"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted">
-                      <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-                    </span>
-                    <span className="text-[15px] leading-none font-medium text-foreground truncate">{row.day}</span>
-                  </div>
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
-                    <span>{row.from} – {row.to}</span>
-                    {row.saved ? (
+            {activityRows.length === 0 ? (
+              <p className="rounded-xl border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
+                Ingen registrert aktivitet siste 14 dager
+              </p>
+            ) : (
+              activityRows.map((row) => (
+                <button
+                  key={row.date}
+                  type="button"
+                  onClick={() => navigate("/case-reports")}
+                  className="w-full rounded-xl border border-border px-3 py-2.5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-muted">
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground" />
+                      </span>
+                      <span className="text-[15px] leading-none font-medium text-foreground truncate">{row.day}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground tabular-nums">
+                      <span>{row.from} – {row.to}</span>
                       <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
                         <Check className="h-3.5 w-3.5" />
                         Lagret
                       </span>
-                    ) : null}
+                    </div>
                   </div>
-                </div>
-              </button>
-            ))}
+                </button>
+              ))
+            )}
           </div>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
@@ -541,6 +582,43 @@ export function DashboardWorkerMobile({
             </Button>
             <Button variant="outline" onClick={() => navigate("/case-reports")} className="w-full rounded-xl">
               Hurtignotat
+            </Button>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-border bg-muted/30 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Car className="h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-foreground">Kjøring i dag</span>
+              </div>
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {mileageToday > 0 ? `${mileageToday.toFixed(1)} km · kr ${mileageTotal.toFixed(2)}` : "—"}
+              </span>
+            </div>
+            {todayLegs.length > 0 ? (
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                {todayLegs.slice(0, 3).map((leg) => (
+                  <li key={leg.id} className="flex items-center justify-between gap-2">
+                    <span className="truncate">{leg.fromName} → {leg.toName}</span>
+                    <span className="tabular-nums">{Number(leg.kilometers).toFixed(1)} km</span>
+                  </li>
+                ))}
+                {todayLegs.length > 3 && (
+                  <li className="text-xs italic">…og {todayLegs.length - 3} til</li>
+                )}
+              </ul>
+            ) : (
+              <p className="text-xs text-muted-foreground">Ingen kjøring registrert i dag.</p>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-2 w-full rounded-lg"
+              onClick={() => setMileageOpen(true)}
+              data-testid="worker-mileage-add"
+            >
+              <Car className="h-3.5 w-3.5 mr-1.5" />
+              Legg til kjøring
             </Button>
           </div>
 
@@ -555,6 +633,16 @@ export function DashboardWorkerMobile({
           </Button>
         </CardContent>
       </Card>
+
+      <MileageDialog
+        open={mileageOpen}
+        onClose={() => setMileageOpen(false)}
+        userId={userId}
+        date={todayIso}
+        onSaved={() => {
+          queryClient.invalidateQueries({ queryKey: ["/api/travel-legs"] });
+        }}
+      />
     </div>
   );
 }

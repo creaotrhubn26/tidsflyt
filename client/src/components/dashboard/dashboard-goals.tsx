@@ -23,9 +23,31 @@ interface StatsData {
   casesThisWeek: number;
 }
 
+export interface DashboardKpi {
+  id: string | number;
+  title: string;
+  current: number;
+  target: number;
+  unit: string;
+  icon: "clock" | "check" | "briefcase" | "target";
+  color: "blue" | "green" | "purple";
+  tooltip: string;
+  extraLabel: string | null;
+  insufficient: boolean;
+  lowerIsBetter?: boolean;
+}
+
 interface DashboardGoalsProps {
   stats: StatsData | undefined;
-  mode?: "default" | "tiltaksleder";
+  mode?: "default" | "tiltaksleder" | "miljoarbeider";
+  // When provided, overrides the stats-derived goals with real KPIs computed
+  // server-side (see /api/dashboard/kpis). Used for tiltaksleder + miljøarbeider.
+  kpis?: DashboardKpi[] | null;
+  // Per-user targets (user-level fallback); used for default-mode goals.
+  targets?: {
+    monthlyHoursTarget?: number;
+    weeklyCasesTarget?: number;
+  };
 }
 
 const COLOR_CLASSES = {
@@ -34,16 +56,28 @@ const COLOR_CLASSES = {
   purple: "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950/40",
 } as const;
 
-export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps) {
+const ICON_MAP = {
+  clock: Clock,
+  check: CheckCircle,
+  briefcase: Briefcase,
+  target: Target,
+} as const;
+
+export function DashboardGoals({ stats, mode = "default", kpis, targets }: DashboardGoalsProps) {
   const [open, setOpen] = useState(true);
   const isTiltaksleder = mode === "tiltaksleder";
+  const isMiljoarbeider = mode === "miljoarbeider";
 
-  const goals = useMemo(() => {
+  const goals = useMemo<DashboardKpi[]>(() => {
+    // Prefer real server-computed KPIs when provided (tiltaksleder + miljøarbeider).
+    if (Array.isArray(kpis) && kpis.length > 0) {
+      return kpis;
+    }
+
     const totalHours = stats?.totalHours ?? 0;
     const pending = stats?.pendingApprovals ?? 0;
     const workDays = totalHours / 8;
 
-    // Compute approval rate safely – clamp 0–100, show "insufficient data" when basis is weak
     let approvalRate: number | null = null;
     let approvalInsufficient = false;
     if (workDays < 1) {
@@ -52,75 +86,26 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
       approvalRate = Math.max(0, Math.min(100, 100 - (pending / workDays) * 100));
     }
 
-    if (isTiltaksleder) {
-      const continuity = Math.max(0, Math.min(100, 100 - pending * 4));
-      const reportOnTime = approvalInsufficient ? null : approvalRate;
-      const participantPlanCoverage = Math.max(0, Math.min(100, 75 - pending * 2));
-      const avgDaysBetweenFollowup = Math.max(1, 7 + pending);
-
-      return [
-        {
-          id: 1,
-          title: "Jevn oppfølging",
-          current: continuity,
-          target: 90,
-          unit: "%",
-          icon: Clock,
-          color: "blue" as const,
-          tooltip: "Andel tiltak med aktivitet uten lange hull i perioden.",
-          extraLabel: null as string | null,
-          insufficient: false,
-        },
-        {
-          id: 2,
-          title: "Rapporter innen frist",
-          current: reportOnTime ?? 0,
-          target: 95,
-          unit: "%",
-          icon: CheckCircle,
-          color: "green" as const,
-          tooltip: "Andel rapporter levert innen planlagt frist.",
-          extraLabel: pending > 0 ? `${pending} mangler gjennomgang` : null,
-          insufficient: reportOnTime === null,
-        },
-        {
-          id: 3,
-          title: "Klientsaker med plan",
-          current: participantPlanCoverage,
-          target: 100,
-          unit: "%",
-          icon: Briefcase,
-          color: "purple" as const,
-          tooltip: "Andel klientsaker med oppdatert plan og siste kontakt registrert.",
-          extraLabel: null,
-          insufficient: false,
-        },
-        {
-          id: 4,
-          title: "Snitt dager mellom oppfølging",
-          current: avgDaysBetweenFollowup,
-          target: 7,
-          unit: "d",
-          icon: Target,
-          color: "blue" as const,
-          tooltip: "Lavere tall betyr tettere oppfølging i teamet.",
-          extraLabel: null,
-          insufficient: false,
-        },
-      ];
+    if (isTiltaksleder || isMiljoarbeider) {
+      // Real KPIs for these modes come from the server via the `kpis` prop.
+      // Return empty until they arrive — avoids rendering synthetic placeholders.
+      return [];
     }
+
+    const monthlyHoursTarget = targets?.monthlyHoursTarget ?? 160;
+    const weeklyCasesTarget = targets?.weeklyCasesTarget ?? 15;
 
     return [
       {
         id: 1,
         title: "Månedlige timer",
         current: totalHours,
-        target: 160,
+        target: monthlyHoursTarget,
         unit: "timer",
-        icon: Clock,
-        color: "blue" as const,
-        tooltip: "Totalt registrerte timer denne måneden vs. 160 t mål",
-        extraLabel: null as string | null,
+        icon: "clock",
+        color: "blue",
+        tooltip: `Totalt registrerte timer denne måneden vs. ${monthlyHoursTarget} t mål`,
+        extraLabel: null,
         insufficient: false,
       },
       {
@@ -129,8 +114,8 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
         current: approvalRate ?? 0,
         target: 100,
         unit: "%",
-        icon: CheckCircle,
-        color: "green" as const,
+        icon: "check",
+        color: "green",
         tooltip:
           "100% \u2212 (ventende godkjenninger \u00f7 arbeidsdager) \u00d7 100. Krever minst 1 arbeidsdag med data.",
         extraLabel: pending > 0 ? `${pending} ventende` : null,
@@ -140,16 +125,16 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
         id: 3,
         title: "Aktive saker",
         current: stats?.casesThisWeek ?? 0,
-        target: 15,
+        target: weeklyCasesTarget,
         unit: "saker",
-        icon: Briefcase,
-        color: "purple" as const,
-        tooltip: "Antall saker opprettet denne uken vs. ukentlig mål",
+        icon: "briefcase",
+        color: "purple",
+        tooltip: `Antall saker opprettet denne uken vs. ukentlig mål (${weeklyCasesTarget})`,
         extraLabel: null,
         insufficient: false,
       },
     ];
-  }, [stats, isTiltaksleder]);
+  }, [stats, isTiltaksleder, isMiljoarbeider, kpis, targets]);
 
   return (
     <Card className="rounded-2xl border-border bg-card shadow-sm">
@@ -162,7 +147,11 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
             >
               <CardTitle className="flex items-center gap-2 text-lg">
                 <Target className="h-5 w-5 text-primary" />
-                {isTiltaksleder ? "Kvalitet og kontinuitet" : "Mål og fremdrift"}
+                {isTiltaksleder
+                  ? "Kvalitet og kontinuitet"
+                  : isMiljoarbeider
+                  ? "Min fremdrift"
+                  : "Mål og fremdrift"}
               </CardTitle>
               <ChevronDown
                 className={cn(
@@ -173,17 +162,37 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
             </button>
           </CollapsibleTrigger>
           <CardDescription>
-            {isTiltaksleder ? "Faglig kvalitet i oppfølging og dokumentasjon" : "Spor fremdrift mot månedlige mål"}
+            {isTiltaksleder
+              ? "Faglig kvalitet i oppfølging og dokumentasjon"
+              : isMiljoarbeider
+              ? "Timer, rapporter og saker jeg følger opp"
+              : "Spor fremdrift mot månedlige mål"}
           </CardDescription>
         </CardHeader>
         <CollapsibleContent>
           <CardContent className="pt-0">
             <div className="space-y-4">
+              {goals.length === 0 && (isTiltaksleder || isMiljoarbeider) && (
+                <p className="text-sm text-muted-foreground">Laster KPI-er…</p>
+              )}
               {goals.map((goal) => {
-                const Icon = goal.icon;
-                const percentage = goal.insufficient
-                  ? 0
-                  : Math.min(Math.max((goal.current / goal.target) * 100, 0), 100);
+                const Icon = typeof goal.icon === "string" ? ICON_MAP[goal.icon] : goal.icon;
+                let percentage: number;
+                if (goal.insufficient) {
+                  percentage = 0;
+                } else if (goal.lowerIsBetter) {
+                  // For targets where lower is better (e.g. pending backlog, days between follow-ups),
+                  // map current=target → 100%, current=0 → 100% when target=0, linear decay beyond target.
+                  if (goal.target <= 0) {
+                    percentage = goal.current === 0 ? 100 : 0;
+                  } else if (goal.current <= goal.target) {
+                    percentage = 100;
+                  } else {
+                    percentage = Math.max(0, 100 - ((goal.current - goal.target) / goal.target) * 100);
+                  }
+                } else {
+                  percentage = Math.min(Math.max((goal.current / Math.max(goal.target, 0.001)) * 100, 0), 100);
+                }
 
                 return (
                   <div key={goal.id} className="space-y-2">
@@ -212,8 +221,9 @@ export function DashboardGoals({ stats, mode = "default" }: DashboardGoalsProps)
                           </span>
                         ) : (
                           <span className="text-sm text-muted-foreground tabular-nums">
-                            {goal.current.toFixed(goal.unit === "%" ? 0 : 1)} / {goal.target}{" "}
-                            {goal.unit}
+                            {goal.lowerIsBetter && goal.target === 0
+                              ? `${goal.current.toFixed(0)} ${goal.unit}`.trim()
+                              : `${goal.current.toFixed(goal.unit === "%" ? 0 : 1)} / ${goal.target} ${goal.unit}`.trim()}
                           </span>
                         )}
                       </div>

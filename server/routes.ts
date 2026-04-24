@@ -13,9 +13,16 @@ import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/rec
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
+import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
+import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
+import { registerHolidaysRoutes } from "./routes/holidays-routes";
+import { registerTravelLegsRoutes } from "./routes/travel-legs-routes";
+import { registerLeaveAttachmentsRoutes } from "./routes/leave-attachments-routes";
 import { registerRapportTemplateRoutes } from "./routes/rapport-template-routes";
 import { seedSystemRapportTemplates } from "./seed/rapport-templates";
 import { registerTiltakslederDashboardRoutes } from "./routes/tiltaksleder-dashboard-routes";
+import { registerDashboardKpisRoutes } from "./routes/dashboard-kpis-routes";
+import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
 import { registerInviteLinkRoutes } from "./routes/invite-link-routes";
 import { registerGdprRoutes } from "./routes/gdpr-routes";
 import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
@@ -4474,6 +4481,18 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/worker/summary", isAuthenticated, async (req, res) => {
+    try {
+      const authUserId = String((req.user as any)?.id || "").trim();
+      if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
+      const summary = await storage.getWorkerSummary(authUserId);
+      res.setHeader("Cache-Control", "private, max-age=30");
+      res.json(summary);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   app.get("/api/company/me/assigned-cases", isAuthenticated, async (req, res) => {
     try {
       const authEmail = String((req.user as any)?.email || "").trim().toLowerCase();
@@ -4997,6 +5016,8 @@ export async function registerRoutes(
     try {
       const { caseNumber, description, hours, expenseCoverage, date, status, createdAt } = req.body;
       const userId = (req.user as any)?.id as string;
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      await assertMonthNotLocked({ userId, date, callerRole });
       const entry = await storage.createTimeEntry({
         userId,
         caseNumber,
@@ -5018,26 +5039,40 @@ export async function registerRoutes(
       cache.del("chart-data");
       res.status(201).json(entry);
     } catch (error: any) {
+      if (handleLockError(error, res)) return;
       res.status(400).json({ error: error.message });
     }
   });
 
   app.patch("/api/time-entries/:id", isAuthenticated, async (req, res) => {
     try {
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      const existing = await storage.getTimeEntry(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Entry not found" });
+      await assertMonthNotLocked({ userId: existing.userId, date: existing.date, callerRole });
+      if (req.body?.date) {
+        await assertMonthNotLocked({ userId: existing.userId, date: req.body.date, callerRole });
+      }
       const entry = await storage.updateTimeEntry(req.params.id, req.body);
       if (!entry) return res.status(404).json({ error: "Entry not found" });
       res.json(entry);
     } catch (error: any) {
+      if (handleLockError(error, res)) return;
       res.status(500).json({ error: error.message });
     }
   });
 
   app.delete("/api/time-entries/:id", isAuthenticated, async (req, res) => {
     try {
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      const existing = await storage.getTimeEntry(req.params.id);
+      if (!existing) return res.status(204).send();
+      await assertMonthNotLocked({ userId: existing.userId, date: existing.date, callerRole });
       const deleted = await storage.deleteTimeEntry(req.params.id);
       if (!deleted) return res.status(404).json({ error: "Entry not found" });
       res.status(204).send();
     } catch (error: any) {
+      if (handleLockError(error, res)) return;
       res.status(500).json({ error: error.message });
     }
   });
@@ -5105,6 +5140,12 @@ export async function registerRoutes(
 
       const { entries, overwrite } = parseResult.data;
       const userId = (req.user as any)?.id as string;
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+
+      // Fail fast on any locked month before any insert
+      for (const entry of entries) {
+        await assertMonthNotLocked({ userId, date: entry.date, callerRole });
+      }
 
       const results = {
         created: 0,
@@ -5181,6 +5222,7 @@ export async function registerRoutes(
 
       res.status(201).json(results);
     } catch (error: any) {
+      if (handleLockError(error, res)) return;
       res.status(500).json({ error: error.message });
     }
   });
@@ -6325,8 +6367,14 @@ export async function registerRoutes(
   registerTesterFeedbackRoutes(app);
   registerInstitutionsRoutes(app);
   registerRapportReminderRoutes(app);
+  registerLeaveRolloverRoutes(app);
+  registerTimesheetReminderRoutes(app);
+  registerHolidaysRoutes(app);
+  registerTravelLegsRoutes(app);
+  registerLeaveAttachmentsRoutes(app);
   registerRapportTemplateRoutes(app);
   registerTiltakslederDashboardRoutes(app);
+  registerDashboardKpisRoutes(app);
   registerInviteLinkRoutes(app);
   registerGdprRoutes(app);
   registerPayrollExportRoutes(app);
@@ -6336,6 +6384,8 @@ export async function registerRoutes(
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
     setupRapportReminderCron();
+    setupLeaveRolloverCron();
+    setupTimesheetReminderCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)
   seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));

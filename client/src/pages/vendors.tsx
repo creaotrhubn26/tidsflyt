@@ -24,12 +24,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { 
-  Building2, 
-  Plus, 
-  Edit, 
-  Trash2, 
-  Users, 
-  UserPlus, 
+  Building2,
+  Plus,
+  Edit,
+  Trash2,
+  Users,
+  UserPlus,
   UserCheck,
   Loader2,
   Save,
@@ -38,6 +38,8 @@ import {
   BarChart3,
   TrendingUp,
   AlertCircle,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
 interface VendorData {
@@ -225,6 +227,27 @@ export default function VendorsPage() {
     },
     onSuccess: () => {
       toast({ title: 'Slettet', description: 'Leverandør er slettet' });
+      queryClient.invalidateQueries({ queryKey: ['/api/vendors'] });
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const poVisibilityMutation = useMutation({
+    mutationFn: async (args: { vendorId: number; hidden: boolean; reason?: string | null }) => {
+      return authenticatedApiRequest(
+        `/api/admin/vendors/${args.vendorId}/poweroffice/visibility`,
+        { method: 'PATCH', body: JSON.stringify({ hidden: args.hidden, reason: args.reason ?? null }) },
+      );
+    },
+    onSuccess: (_data, args) => {
+      toast({
+        title: args.hidden ? 'PowerOffice skjult' : 'PowerOffice gjenaktivert',
+        description: args.hidden
+          ? 'Tiltaksleder ser ikke lenger integrasjonen. Auto-push er pauset.'
+          : 'Integrasjonen er synlig igjen.',
+      });
       queryClient.invalidateQueries({ queryKey: ['/api/vendors'] });
     },
     onError: (error: any) => {
@@ -502,8 +525,55 @@ export default function VendorsPage() {
                           <span className="text-muted-foreground">Maks brukere:</span>
                           <span className="font-medium">{vendor.max_users}</span>
                         </div>
+                        {(() => {
+                          const s = (vendor.settings ?? {}) as Record<string, any>;
+                          const poHidden = s.powerOfficeHidden === true;
+                          const poBusy = poVisibilityMutation.isPending
+                            && poVisibilityMutation.variables?.vendorId === vendor.id;
+                          return (
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">PowerOffice:</span>
+                              <div className="flex items-center gap-1.5">
+                                {poHidden ? (
+                                  <Badge variant="secondary" className="text-xs gap-1 bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">
+                                    <EyeOff className="h-3 w-3" /> Skjult
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-xs gap-1">
+                                    <Eye className="h-3 w-3" /> Synlig
+                                  </Badge>
+                                )}
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-6 px-2 text-xs"
+                                  disabled={poBusy}
+                                  onClick={() => {
+                                    if (poHidden) {
+                                      poVisibilityMutation.mutate({ vendorId: vendor.id, hidden: false });
+                                    } else {
+                                      const reason = window.prompt(
+                                        `Skjul PowerOffice for ${vendor.name}?\n\nÅrsak (valgfritt):`,
+                                        s.powerOfficeHiddenReason ?? '',
+                                      );
+                                      if (reason === null) return;
+                                      poVisibilityMutation.mutate({
+                                        vendorId: vendor.id,
+                                        hidden: true,
+                                        reason: reason.trim() || null,
+                                      });
+                                    }
+                                  }}
+                                  data-testid={`button-po-visibility-${vendor.id}`}
+                                >
+                                  {poBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : poHidden ? 'Vis' : 'Skjul'}
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </div>
-                      
+
                       <div className="flex gap-2 flex-wrap">
                         <Button
                           variant="outline"

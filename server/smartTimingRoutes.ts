@@ -13,6 +13,14 @@ import crypto from "crypto";
 import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
 import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
+import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
+import { enforceAtl, handleAtlError } from "./lib/arbeidstidsloven";
+import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/log-row-audit";
+import { ADMIN_ROLES } from "./middleware/auth";
+import { pushTimesheetToPowerOffice } from "./lib/poweroffice-push";
+import { getPowerOfficeVisibility } from "./lib/poweroffice-visibility";
+import { vendorIntegrations } from "@shared/schema";
+import { and } from "drizzle-orm";
 import { db } from "./db";
 import {
   getBlogCoverOgUrl,
@@ -608,15 +616,53 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/logs", requireAuth, async (req, res) => {
     try {
-      const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id } = req.body;
-      const result = await pool.query(
-        `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-         RETURNING *`,
-        [date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, user_id || 'default', project_id]
-      );
-      res.status(201).json(result.rows[0]);
+      const { id: clientId, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, bypass_atl } = req.body;
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      const ownerId = user_id || 'default';
+      await assertMonthNotLocked({ userId: ownerId, date, callerRole });
+      const atl = await enforceAtl({
+        userId: ownerId, date, startTime: start_time, endTime: end_time, breakHours: break_hours ?? 0,
+        callerRole, bypass: !!bypass_atl,
+      });
+
+      // Offline-first idempotency: if the client supplies its own UUID (generated
+      // when the mutation was queued offline), replaying the same payload must
+      // not create a duplicate. ON CONFLICT DO NOTHING + a follow-up SELECT
+      // covers both fresh inserts and idempotent replays.
+      const hasClientId = typeof clientId === 'string' && /^[0-9a-f-]{36}$/i.test(clientId);
+      let created: any;
+      if (hasClientId) {
+        const insertResult = await pool.query(
+          `INSERT INTO log_row
+             (id, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+           ON CONFLICT (id) DO NOTHING
+           RETURNING *`,
+          [clientId, date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id],
+        );
+        if (insertResult.rows.length > 0) {
+          created = insertResult.rows[0];
+        } else {
+          // Row already exists from a prior replay — return it unchanged (idempotent).
+          const existing = await pool.query('SELECT * FROM log_row WHERE id = $1', [clientId]);
+          created = existing.rows[0];
+          res.setHeader('X-Tidum-Idempotent', '1');
+        }
+      } else {
+        const result = await pool.query(
+          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+           RETURNING *`,
+          [date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id],
+        );
+        created = result.rows[0];
+      }
+
+      await auditLogRow({ action: 'create', logRowId: created.id, after: created, req });
+      res.status(201).json({ ...created, atl });
     } catch (err: any) {
+      if (handleLockError(err, res)) return;
+      if (handleAtlError(err, res)) return;
       res.status(400).json({ error: err.message });
     }
   });
@@ -624,24 +670,60 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/logs/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage } = req.body;
+      const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, bypass_atl } = req.body;
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      // Check lock against both the existing entry's month (to prevent editing a locked past entry)
+      // and the new target month (to prevent moving an entry into a locked month).
+      const existing = await pool.query('SELECT user_id, date FROM log_row WHERE id = $1', [id]);
+      if (existing.rows.length === 0) return res.status(404).json({ error: 'Log not found' });
+      const { user_id: ownerId, date: existingDate } = existing.rows[0];
+      await assertMonthNotLocked({ userId: ownerId, date: existingDate, callerRole });
+      if (date) {
+        await assertMonthNotLocked({ userId: ownerId, date, callerRole });
+      }
+      const atl = await enforceAtl({
+        userId: ownerId,
+        date: date ?? existingDate,
+        startTime: start_time, endTime: end_time,
+        breakHours: break_hours ?? 0,
+        excludeEntryId: id,
+        callerRole, bypass: !!bypass_atl,
+      });
+      // Snapshot full before-data for the audit diff
+      const fullBefore = await pool.query('SELECT * FROM log_row WHERE id = $1', [id]);
       const result = await pool.query(
         `UPDATE log_row SET date=$1, start_time=$2, end_time=$3, break_hours=$4, activity=$5, title=$6, project=$7, place=$8, notes=$9, expense_coverage=$10, updated_at=NOW()
          WHERE id=$11 RETURNING *`,
         [date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, id]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Log not found' });
-      res.json(result.rows[0]);
+      const updated = result.rows[0];
+      await auditLogRow({
+        action: 'update',
+        logRowId: id,
+        before: fullBefore.rows[0] ?? null,
+        after: updated,
+        req,
+      });
+      res.json({ ...updated, atl });
     } catch (err: any) {
+      if (handleLockError(err, res)) return;
+      if (handleAtlError(err, res)) return;
       res.status(500).json({ error: err.message });
     }
   });
 
   app.delete("/api/logs/:id", requireAuth, async (req, res) => {
     try {
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      const existing = await pool.query('SELECT * FROM log_row WHERE id = $1', [req.params.id]);
+      if (existing.rows.length === 0) return res.status(204).send(); // already gone
+      const { user_id: ownerId, date: existingDate } = existing.rows[0];
+      await assertMonthNotLocked({ userId: ownerId, date: existingDate, callerRole });
       await pool.query('DELETE FROM log_row WHERE id = $1', [req.params.id]);
+      await auditLogRow({ action: 'delete', logRowId: req.params.id, before: existing.rows[0], req });
       res.status(204).send();
     } catch (err: any) {
+      if (handleLockError(err, res)) return;
       res.status(500).json({ error: err.message });
     }
   });
@@ -650,19 +732,41 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { rows, user_id, project_id } = req.body;
       const userId = user_id || 'default';
-      let inserted = 0;
-      
+      const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
+      // Validate every row's month before inserting any — fail fast on locked periods.
       for (const row of rows) {
-        await pool.query(
+        await assertMonthNotLocked({ userId, date: row.date, callerRole });
+      }
+      let inserted = 0;
+
+      for (const row of rows) {
+        const r = await pool.query(
           `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
           [row.date, row.start_time, row.end_time, row.break_hours || 0, row.activity || 'Work', row.title, row.project, row.place, row.notes, row.expense_coverage || 0, userId, project_id]
         );
+        const created = r.rows[0];
+        await auditLogRow({ action: 'create', logRowId: created.id, after: created, req });
         inserted++;
       }
       res.json({ inserted });
     } catch (err: any) {
+      if (handleLockError(err, res)) return;
       res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Audit trail read-back — admin+tiltaksleder only.
+  app.get("/api/logs/:id/audit", requireAuth, async (req: any, res) => {
+    try {
+      const role = String((req.authUser ?? req.user)?.role || '').toLowerCase().replace(/[\s-]/g, '_');
+      if (!ADMIN_ROLES.includes(role) && role !== 'tiltaksleder') {
+        return res.status(403).json({ error: 'Krever tiltaksleder eller admin' });
+      }
+      const entries = await listAuditForLogRow(req.params.id);
+      res.json(entries);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
@@ -7987,6 +8091,64 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         link: '/timesheets',
         metadata: { submissionId: ts.id, month: ts.month },
       });
+
+      // ── Auto-push to PowerOffice Go ──────────────────────────────────────
+      // If the vendor has an active PowerOffice integration, fire off the
+      // HourRegistrations push in the background. The approving admin is
+      // notified if the push fails (e.g. missing mapping, PO auth rejected).
+      // Miljøarbeideren trenger ikke røre integrasjonen — den bare funker.
+      if (ts.vendor_id) {
+        (async () => {
+          try {
+            // Super_admin may have hidden the integration for this vendor.
+            // Skip auto-push silently in that case.
+            const visibility = await getPowerOfficeVisibility(ts.vendor_id);
+            if (visibility.hidden) {
+              console.log(`[poweroffice:auto-push] skipped — hidden by Tidum for vendor=${ts.vendor_id}`);
+              return;
+            }
+
+            const [integration] = await db
+              .select({ id: vendorIntegrations.id })
+              .from(vendorIntegrations)
+              .where(and(
+                eq(vendorIntegrations.vendorId, ts.vendor_id as number),
+                eq(vendorIntegrations.provider, 'poweroffice'),
+                eq(vendorIntegrations.status, 'active'),
+              ))
+              .limit(1);
+            if (!integration) return; // PO not configured for this vendor
+
+            const pushResult = await pushTimesheetToPowerOffice({
+              vendorId: ts.vendor_id,
+              month: ts.month,
+              userIdFilter: ts.user_id,
+            });
+            console.log(
+              `[poweroffice:auto-push] vendor=${ts.vendor_id} month=${ts.month} user=${ts.user_id} → pushed=${pushResult.pushed} failed=${pushResult.failed} skipped=${pushResult.skipped}`,
+            );
+
+            // Notify the approving admin only when something went wrong so we
+            // don't spam them on successful pushes.
+            if (pushResult.failed > 0 || pushResult.skipped > 0) {
+              const adminId = req.admin?.id;
+              const reason = pushResult.errors[0]?.reason ?? 'Se PowerOffice-integrasjonen for detaljer.';
+              if (adminId) {
+                await createNotification({
+                  userId: String(adminId),
+                  type: 'poweroffice_push_issue',
+                  title: `PowerOffice: ${pushResult.failed} feilet, ${pushResult.skipped} hoppet over`,
+                  message: `Godkjent timeliste for ${ts.month} ble ikke fullstendig pushet. ${reason}`,
+                  link: '/settings',
+                  metadata: { submissionId: ts.id, month: ts.month, userId: ts.user_id, result: pushResult },
+                });
+              }
+            }
+          } catch (err: any) {
+            console.error('[poweroffice:auto-push] failed:', err);
+          }
+        })();
+      }
 
       res.json({ success: true, submission: result.rows[0] });
     } catch (err: any) {

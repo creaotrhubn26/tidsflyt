@@ -8,3 +8,7 @@ vite.config.ts.*
 .env*
 .vercel
 .vercel
+
+# Runtime-generated directories
+uploads/
+.claude/
