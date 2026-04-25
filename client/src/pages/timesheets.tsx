@@ -10,7 +10,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
-import { Send, CheckCircle, XCircle, Clock, FileText } from "lucide-react";
+import { Send, CheckCircle, XCircle, Clock, FileText, History } from "lucide-react";
+import { TimesheetAuditDialog } from "@/components/timesheets/timesheet-audit-dialog";
 
 interface TimesheetSubmission {
   id: number;
@@ -62,6 +63,7 @@ export default function TimesheetsPage() {
   const [selectedMonth, setSelectedMonth] = useState(format(new Date(), "yyyy-MM"));
   const [notes, setNotes] = useState("");
   const [reviewNotes, setReviewNotes] = useState("");
+  const [auditTarget, setAuditTarget] = useState<{ userId: string; month: string } | null>(null);
   const monthOptions = getMonthOptions();
 
   // Worker: own submissions
@@ -315,7 +317,7 @@ export default function TimesheetsPage() {
                             onChange={(e) => setReviewNotes(e.target.value)}
                             rows={2}
                           />
-                          <div className="flex gap-2">
+                          <div className="flex gap-2 flex-wrap">
                             <Button
                               size="sm"
                               onClick={() => approveMutation.mutate(s.id)}
@@ -333,6 +335,15 @@ export default function TimesheetsPage() {
                               <XCircle className="mr-1 h-4 w-4" />
                               Avvis
                             </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setAuditTarget({ userId: s.user_id, month: s.month })}
+                              data-testid={`button-show-audit-${s.id}`}
+                            >
+                              <History className="mr-1 h-4 w-4" />
+                              Vis historikk
+                            </Button>
                           </div>
                         </div>
                       </div>
@@ -343,6 +354,15 @@ export default function TimesheetsPage() {
           </Card>
         )}
       </div>
+
+      {auditTarget && (
+        <TimesheetAuditDialog
+          open={!!auditTarget}
+          onClose={() => setAuditTarget(null)}
+          userId={auditTarget.userId}
+          month={auditTarget.month}
+        />
+      )}
     </PortalLayout>
   );
 }

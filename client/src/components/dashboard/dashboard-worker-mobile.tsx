@@ -1,13 +1,38 @@
-import { CheckCircle2, ChevronRight, FileText, Clock3, CalendarClock, Check, Car } from "lucide-react";
+import { CheckCircle2, ChevronRight, FileText, Clock3, CalendarClock, Check, Car, MapPin } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MileageDialog } from "./mileage-dialog";
+
+/** Haversine distance between two lat/lng points in km. */
+function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
+  const R = 6371;
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLng = toRad(b.lng - a.lng);
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const h = Math.sin(dLat / 2) ** 2 + Math.sin(dLng / 2) ** 2 * Math.cos(lat1) * Math.cos(lat2);
+  const c = 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+  return Math.round(R * c * 100) / 100;
+}
+
+interface AssignedSak {
+  id: string;
+  saksnummer?: string;
+  tittel?: string;
+  status?: string;
+  tildelteUserId?: any;
+  ekstraFelter?: Record<string, any> | null;
+}
 
 const TIMER_STORAGE_KEY = "tidum-worker-mobile-timer-v1";
 
@@ -66,6 +91,9 @@ export function DashboardWorkerMobile({
   const queryClient = useQueryClient();
   const todayIso = new Date().toISOString().slice(0, 10);
   const [mileageOpen, setMileageOpen] = useState(false);
+  const [selectedSakId, setSelectedSakId] = useState<string | null>(null);
+  const [startCoords, setStartCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [autoLegBusy, setAutoLegBusy] = useState(false);
 
   const { data: todayLegs = [] } = useQuery<Array<{
     id: string; fromName: string; toName: string; kilometers: number; totalAmount: number;
@@ -73,6 +101,26 @@ export function DashboardWorkerMobile({
     queryKey: ["/api/travel-legs", { date: todayIso, userId }],
     staleTime: 30_000,
   });
+
+  // Active saker assigned to this miljøarbeider — required for auto-kjøregodt.
+  const { data: allSaker = [] } = useQuery<AssignedSak[]>({
+    queryKey: ["/api/saker"],
+    staleTime: 60_000,
+  });
+  const myActiveSaker = useMemo(() => {
+    return allSaker.filter((s) => {
+      if ((s.status || "").toLowerCase() !== "aktiv") return false;
+      const tildelte = Array.isArray(s.tildelteUserId) ? s.tildelteUserId : [];
+      // userId from auth may be string; tildelteUserId stores integers/strings — compare as strings
+      return tildelte.some((v: any) => String(v) === String(userId));
+    });
+  }, [allSaker, userId]);
+  const selectedSak = useMemo(() => myActiveSaker.find((s) => s.id === selectedSakId) ?? null, [myActiveSaker, selectedSakId]);
+  const sakDefaultLocation = useMemo(() => {
+    const loc = (selectedSak?.ekstraFelter as any)?.defaultLocation;
+    if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") return null;
+    return { address: String(loc.address || ""), lat: loc.lat, lng: loc.lng };
+  }, [selectedSak]);
 
   const mileageToday = todayLegs.reduce((sum, l) => sum + (Number(l.kilometers) || 0), 0);
   const mileageTotal = todayLegs.reduce((sum, l) => sum + (Number(l.totalAmount) || 0), 0);
@@ -296,6 +344,20 @@ export function DashboardWorkerMobile({
     }
     setPauseStartedAt(null);
     setIsRunning(true);
+
+    // Capture GPS at clock-in for auto-kjøregodt. Best-effort — silent failure
+    // if user denies permission or GPS is unavailable.
+    if (!startCoords && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (Number.isFinite(pos.coords.latitude) && Number.isFinite(pos.coords.longitude)) {
+            setStartCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        },
+        () => { /* permission denied or GPS error — proceed without */ },
+        { timeout: 8000, maximumAge: 60_000, enableHighAccuracy: false },
+      );
+    }
   };
 
   const handleFinish = async () => {
@@ -322,17 +384,56 @@ export function DashboardWorkerMobile({
     try {
       await apiRequest("POST", "/api/time-entries", {
         userId,
-        caseNumber: "general",
-        description: "Registrert fra Min arbeidsdag",
+        caseNumber: selectedSak?.saksnummer || "general",
+        description: selectedSak?.tittel
+          ? `Registrert fra Min arbeidsdag — ${selectedSak.tittel}`
+          : "Registrert fra Min arbeidsdag",
         hours: loggedHours,
         date: new Date().toISOString().slice(0, 10),
         status: "pending",
       });
 
+      // Auto-kjøregodt: if a sak with defaultLocation was selected and we
+      // captured GPS at clock-in, create a travel_leg from the captured
+      // position to the sak's location. Skipped silently if any piece is
+      // missing or the distance is below the noise threshold.
+      if (selectedSak && sakDefaultLocation && startCoords) {
+        const km = haversineKm(startCoords, { lat: sakDefaultLocation.lat, lng: sakDefaultLocation.lng });
+        if (km >= 0.3) {
+          setAutoLegBusy(true);
+          try {
+            await apiRequest("POST", "/api/travel-legs", {
+              userId,
+              sakId: selectedSak.id,
+              date: todayIso,
+              fromName: "Stempling-posisjon",
+              toName: sakDefaultLocation.address || `Sak ${selectedSak.saksnummer ?? selectedSak.id}`,
+              fromLat: startCoords.lat,
+              fromLng: startCoords.lng,
+              toLat: sakDefaultLocation.lat,
+              toLng: sakDefaultLocation.lng,
+              kilometers: km,
+              source: "primary",
+              calculatedBy: "haversine",
+            });
+            queryClient.invalidateQueries({ queryKey: ["/api/travel-legs"] });
+            toast({
+              title: "Kjøring auto-registrert",
+              description: `${km.toFixed(1)} km til ${sakDefaultLocation.address || "saken"}`,
+            });
+          } catch {
+            // Don't block the time-entry save flow on a mileage failure.
+          } finally {
+            setAutoLegBusy(false);
+          }
+        }
+      }
+
       setIsRunning(false);
       setElapsedSeconds(0);
       setPausedSeconds(0);
       setPauseStartedAt(null);
+      setStartCoords(null);
       try {
         await apiRequest("DELETE", `/api/timer-session/${encodeURIComponent(userId)}`);
       } catch {
@@ -399,6 +500,49 @@ export function DashboardWorkerMobile({
           Hei, {userName}!
         </h2>
       </div>
+
+      {/* Sak-velger — vises kun hvis miljøarbeider har minst én aktiv sak.
+          Driver auto-kjøregodt: GPS fanges ved start, kjøring til saksens
+          arbeidssted opprettes automatisk ved klokk-ut. */}
+      {myActiveSaker.length > 0 && (
+        <Card className="rounded-[20px] border border-border bg-card">
+          <CardContent className="p-3 space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                Aktiv sak
+              </span>
+              {sakDefaultLocation ? (
+                <span className="inline-flex items-center gap-1 text-[10px] text-emerald-700 dark:text-emerald-400">
+                  <MapPin className="h-3 w-3" />
+                  Auto-kjøring aktiv
+                </span>
+              ) : selectedSak ? (
+                <span className="text-[10px] text-muted-foreground">Mangler arbeidssted</span>
+              ) : null}
+            </div>
+            <Select value={selectedSakId ?? undefined} onValueChange={setSelectedSakId}>
+              <SelectTrigger
+                className="h-10 rounded-[10px]"
+                data-testid="worker-sak-picker"
+              >
+                <SelectValue placeholder="Velg sak før du starter timeren" />
+              </SelectTrigger>
+              <SelectContent>
+                {myActiveSaker.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    <div className="flex flex-col">
+                      <span className="font-medium">{s.tittel || s.saksnummer || s.id}</span>
+                      {s.saksnummer && s.tittel && (
+                        <span className="text-[11px] text-muted-foreground">{s.saksnummer}</span>
+                      )}
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </CardContent>
+        </Card>
+      )}
 
       <Card
         data-testid="worker-top-card"

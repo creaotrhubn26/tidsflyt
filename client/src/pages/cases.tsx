@@ -14,8 +14,10 @@ import {
   Search,
   Loader2,
   CheckCircle2,
+  MapPin,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
+import { SakLocationDialog } from "@/components/saker/sak-location-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -99,6 +101,7 @@ export default function CasesPage() {
 
   const [activeTab, setActiveTab] = useState<"overview" | "reports" | "saker">("overview");
   const [tildelSak, setTildelSak] = useState<any | null>(null);
+  const [locationSak, setLocationSak] = useState<any | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showCaseDialog, setShowCaseDialog] = useState(false);
@@ -813,10 +816,26 @@ export default function CasesPage() {
                               )}
                             </div>
                           </div>
-                          <Button size="sm" variant="outline" onClick={() => openTildel(sak)}>
-                            <Pencil className="h-3.5 w-3.5 mr-1.5" />
-                            Tildel
-                          </Button>
+                          <div className="flex gap-1.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setLocationSak(sak)}
+                              title="Standard arbeidssted (for kjøregodt)"
+                              data-testid={`button-sak-location-${sak.id}`}
+                            >
+                              <MapPin className="h-3.5 w-3.5" />
+                              {(() => {
+                                const loc = (sak.ekstraFelter as any)?.defaultLocation;
+                                if (!loc?.address && loc?.lat == null) return null;
+                                return <span className="ml-1.5 text-[10px] text-emerald-600">●</span>;
+                              })()}
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => openTildel(sak)}>
+                              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                              Tildel
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -925,6 +944,13 @@ export default function CasesPage() {
             </Card>
           </TabsContent>
         </Tabs>
+
+        {/* Standard arbeidssted-dialog for saker (auto-kjøregodt) */}
+        <SakLocationDialog
+          sak={locationSak}
+          open={!!locationSak}
+          onClose={() => setLocationSak(null)}
+        />
 
         {/* Tildelings-dialog for saker */}
         <Dialog open={!!tildelSak} onOpenChange={(o) => { if (!o) setTildelSak(null); }}>
