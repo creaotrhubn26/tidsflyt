@@ -103,7 +103,7 @@ export function registerTravelLegsRoutes(app: Express) {
 
       // Auto-calc km if not supplied but both coords are present
       let kilometers = num(b.kilometers);
-      let calculatedBy: 'haversine' | 'vegvesen' | 'manual' | null = b.calculatedBy ?? null;
+      let calculatedBy: 'haversine' | 'vegvesen' | 'osrm' | 'manual' | null = b.calculatedBy ?? null;
       if (kilometers == null) {
         const fLat = num(b.fromLat); const fLng = num(b.fromLng);
         const tLat = num(b.toLat); const tLng = num(b.toLng);

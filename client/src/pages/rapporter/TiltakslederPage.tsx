@@ -23,8 +23,9 @@ import { useToast as useToastHook } from "@/hooks/use-toast";
 import {
   CheckCircle, XCircle, MessageSquare, Clock,
   FileText, User, Calendar, Activity, Target,
-  ChevronRight, Download, CheckCheck, ReplyAll,
+  ChevronRight, Download, CheckCheck, ReplyAll, History,
 } from "lucide-react";
+import { RapportAuditDialog } from "@/components/rapport/rapport-audit-dialog";
 
 interface Rapport {
   id: string;
@@ -63,6 +64,7 @@ export default function TiltakslederPage() {
   const qc = useQueryClient();
 
   const [selectedRapport, setSelectedRapport] = useState<Rapport | null>(null);
+  const [auditTarget, setAuditTarget] = useState<Rapport | null>(null);
   const [reviewOpen, setReviewOpen]       = useState(false);
   const [overordnetMsg, setOverordnetMsg] = useState("");
   const [seksjonKommentarer, setSeksjonKommentarer] = useState<SeksjonKommentar[]>([]);
@@ -320,9 +322,17 @@ export default function TiltakslederPage() {
                         )}
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap">
                       <Button variant="outline" size="sm" onClick={() => openReview(r)}>
                         <FileText className="h-3.5 w-3.5 mr-1.5" /> Se rapport
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setAuditTarget(r)}
+                        data-testid={`button-rapport-history-${r.id}`}
+                      >
+                        <History className="h-3.5 w-3.5 mr-1.5" /> Vis historikk
                       </Button>
                       <Button variant="outline" size="sm"
                         className="text-destructive border-destructive/30 hover:bg-destructive/5"
@@ -633,6 +643,16 @@ export default function TiltakslederPage() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Historikk-dialog — åpnes fra «Vis historikk»-knappen per rapport */}
+      {auditTarget && (
+        <RapportAuditDialog
+          open={!!auditTarget}
+          onClose={() => setAuditTarget(null)}
+          rapportId={auditTarget.id}
+          rapportTitle={auditTarget.konsulent || auditTarget.id}
+        />
+      )}
     </div>
   );
 }
