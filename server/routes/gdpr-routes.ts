@@ -1,23 +1,37 @@
 /**
  * server/routes/gdpr-routes.ts
  *
- * GDPR Article 15 (right of access) and Article 17 (right to erasure) endpoints.
+ * GDPR + Personopplysningsloven (2018) endpoints. Tilpasset Datatilsynets
+ * veiledning og norske særregler:
  *
- * Public endpoints (for authenticated user acting on their own data):
- *   GET    /api/me/export   — returns all user data as JSON attachment
- *   DELETE /api/me           — anonymises user (preserves audit IDs)
+ *   - Personopplysningsloven (2018) §1 implementerer GDPR + nasjonale tillegg
+ *   - Datatilsynet er tilsynsmyndighet (datatilsynet.no)
+ *   - GPS-sporing av ansatte regnes som "kontrolltiltak" etter Arbeidsmiljøloven
+ *     §9-1 — krever saklig grunn, drøfting med ansatte, skriftlig informasjon,
+ *     og forholdsmessighet. Samtykke alene er IKKE gyldig rettsgrunnlag i
+ *     arbeidsforhold (Datatilsynet).
+ *   - Bokføringsloven §13 krever 5 års oppbevaring av timebilag → vi sletter
+ *     ikke log_row, vi anonymiserer brukeren rundt dem.
+ *   - Barnevernsloven §10 har egne journal- og oppbevarings-regler for
+ *     barnevernsdata; følges via per-vendor retensjons-overrides.
  *
- * Anonymisation strategy:
- *   - users.email → 'deleted-<id>@anonymized.local'
- *   - users.firstName, lastName → 'Slettet bruker'
- *   - users.phone, addressLines, etc. → NULL
- *   - rapporter, saker.tildelteUserId: user-id preserved, but name references
- *     now resolve to the anonymised row (correctness preserved for audit trail)
- *   - Log the deletion in rapport_audit_log as a system event if the user
- *     had any rapporter, so compliance proof survives.
+ * Endpoints:
+ *
+ *   Bruker-selv (Art. 15 + 17):
+ *     GET    /api/me/export                 — last ned all data om meg
+ *     DELETE /api/me                        — anonymiser min konto
+ *
+ *   Admin/super_admin (på vegne av bruker):
+ *     POST   /api/admin/users/:id/erase     — full pseudonymisering + filsletting
+ *     GET    /api/admin/users/:id/data-export — Art. 20 portabilitet
+ *     POST   /api/gdpr/purge/run            — manuell trigger av retensjons-cron
+ *
+ *   Cron: daglig 02:00 → coords-blurring + sletting av aldrede travel_legs,
+ *   audit-rader og leave_attachments.
  */
 
 import type { Express, Request, Response } from "express";
+import cron from "node-cron";
 import { db } from "../db";
 import {
   users,
@@ -36,10 +50,23 @@ import {
   rapportAuditLog,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { requireAuth } from "../middleware/auth";
+import { requireAuth, ADMIN_ROLES } from "../middleware/auth";
+import { runGdprPurge, eraseUser, exportUserData, RETENTION_POLICY_POLICY, GDPR_DEFAULTS } from "../lib/gdpr";
 
 function authedUser(req: Request) {
   return (req as any).authUser ?? (req as any).user ?? null;
+}
+
+function isSuperAdmin(req: Request): boolean {
+  const role = String(authedUser(req)?.role || '')
+    .toLowerCase().replace(/[\s-]/g, '_');
+  return role === 'super_admin';
+}
+
+function isAdminPlus(req: Request): boolean {
+  const role = String(authedUser(req)?.role || '')
+    .toLowerCase().replace(/[\s-]/g, '_');
+  return ADMIN_ROLES.includes(role);
 }
 
 function coerceId(raw: unknown): string | number | null {
@@ -225,4 +252,128 @@ export function registerGdprRoutes(app: Express) {
       res.status(500).json({ error: e.message });
     }
   });
+
+  // ── Admin / super_admin: act on behalf of a user ───────────────────────────
+
+  /**
+   * POST /api/admin/users/:id/erase
+   *
+   * Pseudonymisering på tvers av tabeller (log_row, travel_legs, audit,
+   * leave_requests, leave_attachments, timer_sessions, user_settings,
+   * poweroffice_employee_mappings). Sletter også vedleggsfiler fra disk.
+   *
+   * Kun super_admin — handlingen er irreversibel og skal være initiert av
+   * dokumentert brukerforespørsel etter Art. 17.
+   *
+   * Body: { confirm: true, reason?: string }
+   */
+  app.post('/api/admin/users/:id/erase', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isSuperAdmin(req)) {
+        return res.status(403).json({ error: 'Kun Tidum super_admin kan slette personopplysninger på vegne av andre' });
+      }
+      if (req.body?.confirm !== true) {
+        return res.status(400).json({
+          error: 'Manglende bekreftelse',
+          hint: 'Send { "confirm": true, "reason": "…" } for å gjennomføre.',
+        });
+      }
+      const userId = String(req.params.id || '').trim();
+      if (!userId) return res.status(400).json({ error: 'Manglende user-id' });
+      const result = await eraseUser(userId, authedUser(req)?.email ?? null);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      console.error('GDPR admin erase failed:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/admin/users/:id/data-export
+   *
+   * Art. 20 — admin/tiltaksleder eksporterer på vegne av en bruker.
+   * Returnerer JSON som vedlegg.
+   */
+  app.get('/api/admin/users/:id/data-export', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isAdminPlus(req)) {
+        return res.status(403).json({ error: 'Kun admin+ kan eksportere på vegne av brukere' });
+      }
+      const userId = String(req.params.id || '').trim();
+      const bundle = await exportUserData(userId);
+      const filename = `tidum-data-${userId}-${new Date().toISOString().slice(0, 10)}.json`;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(JSON.stringify(bundle, null, 2));
+    } catch (e: any) {
+      console.error('GDPR admin export failed:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * POST /api/gdpr/purge/run
+   *
+   * Manuell kjøring av oppbevarings-cron'en. Super_admin only.
+   * Brukes til testing eller før ekstern revisjon.
+   */
+  app.post('/api/gdpr/purge/run', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Kun Tidum super_admin' });
+      const result = await runGdprPurge();
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      console.error('GDPR purge failed:', e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * GET /api/gdpr/retention-policy
+   *
+   * Offentlig endepunkt — returnerer Tidums retensjons-policy som strukturert
+   * JSON. Brukes til å auto-generere DPA-bilag og holde personvernerklæring
+   * synkronisert. Ingen autentisering nødvendig.
+   */
+  app.get('/api/gdpr/retention-policy', (_req: Request, res: Response) => {
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.json({
+      policy: RETENTION_POLICY_POLICY,
+      defaults: GDPR_DEFAULTS,
+      authority: {
+        name: 'Datatilsynet',
+        url: 'https://www.datatilsynet.no',
+      },
+      sources: [
+        { name: 'Personopplysningsloven (2018)', url: 'https://lovdata.no/lov/2018-06-15-38' },
+        { name: 'Arbeidsmiljøloven §9-1 (kontrolltiltak)', url: 'https://lovdata.no/lov/2005-06-17-62/§9-1' },
+        { name: 'Bokføringsloven §13', url: 'https://lovdata.no/lov/2004-11-19-73/§13' },
+        { name: 'Barnevernsloven §10-1', url: 'https://lovdata.no/lov/2021-06-18-97/§10-1' },
+      ],
+    });
+  });
+}
+
+// ── Retention cron ───────────────────────────────────────────────────────────
+
+let cronStarted = false;
+export function setupGdprCron() {
+  if (cronStarted) return;
+  // Daily at 02:00 — low-traffic window after midnight rollover
+  cron.schedule('0 2 * * *', async () => {
+    console.log('🔐 Running GDPR retention purge…');
+    try {
+      const result = await runGdprPurge();
+      console.log(
+        `[gdpr] coords-blurred=${result.travelLegsCoordsBlurred} `
+        + `travel-deleted=${result.travelLegsDeleted} audit-deleted=${result.auditEntriesDeleted} `
+        + `attachments-deleted=${result.leaveAttachmentsDeleted} errors=${result.errors.length}`,
+      );
+      if (result.errors.length > 0) console.warn('[gdpr] purge errors:', result.errors);
+    } catch (e: any) {
+      console.error('[gdpr] purge cron failed:', e);
+    }
+  });
+  cronStarted = true;
+  console.log('✅ GDPR retention cron scheduled (daily 02:00)');
 }

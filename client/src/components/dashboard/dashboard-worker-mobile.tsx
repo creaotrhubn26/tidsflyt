@@ -11,6 +11,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { MileageDialog } from "./mileage-dialog";
+import { GpsConsentDialog } from "./gps-consent-dialog";
 
 /** Haversine distance between two lat/lng points in km. */
 function haversineKm(a: { lat: number; lng: number }, b: { lat: number; lng: number }): number {
@@ -94,6 +95,24 @@ export function DashboardWorkerMobile({
   const [selectedSakId, setSelectedSakId] = useState<string | null>(null);
   const [startCoords, setStartCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [autoLegBusy, setAutoLegBusy] = useState(false);
+  const [gpsConsent, setGpsConsent] = useState<"unknown" | "accepted" | "declined">("unknown");
+  const [gpsConsentOpen, setGpsConsentOpen] = useState(false);
+
+  // Hydrate GPS-consent fra user_settings on mount.
+  useEffect(() => {
+    let cancelled = false;
+    fetch("/api/user-state/settings", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (cancelled) return;
+        const prefs = (data?.dashboardPrefs ?? {}) as Record<string, any>;
+        if (prefs.gpsCaptureEnabled === true) setGpsConsent("accepted");
+        else if (prefs.gpsCaptureEnabled === false) setGpsConsent("declined");
+        else setGpsConsent("unknown");
+      })
+      .catch(() => { /* keep "unknown" */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const { data: todayLegs = [] } = useQuery<Array<{
     id: string; fromName: string; toName: string; kilometers: number; totalAmount: number;
@@ -345,16 +364,39 @@ export function DashboardWorkerMobile({
     setPauseStartedAt(null);
     setIsRunning(true);
 
-    // Capture GPS at clock-in for auto-kjøregodt. Best-effort — silent failure
-    // if user denies permission or GPS is unavailable.
-    if (!startCoords && typeof navigator !== "undefined" && navigator.geolocation) {
+    // Auto-kjøregodt informert valg (Arbeidsmiljøloven §9-1):
+    //   - "unknown": vis samtykke-dialog, GPS fanges først hvis bruker takker ja
+    //   - "accepted": fang GPS én gang
+    //   - "declined": ingen GPS, ingen auto-leg — bruker registrerer manuelt
+    if (gpsConsent === "unknown" && selectedSak && sakDefaultLocation) {
+      setGpsConsentOpen(true);
+      return;
+    }
+    if (gpsConsent === "accepted" && !startCoords && typeof navigator !== "undefined" && navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
           if (Number.isFinite(pos.coords.latitude) && Number.isFinite(pos.coords.longitude)) {
             setStartCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
           }
         },
-        () => { /* permission denied or GPS error — proceed without */ },
+        () => { /* permission denied at OS-level — proceed without */ },
+        { timeout: 8000, maximumAge: 60_000, enableHighAccuracy: false },
+      );
+    }
+  };
+
+  const handleGpsConsentClose = (accepted: boolean) => {
+    setGpsConsent(accepted ? "accepted" : "declined");
+    setGpsConsentOpen(false);
+    // Now actually capture GPS if accepted
+    if (accepted && !startCoords && typeof navigator !== "undefined" && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          if (Number.isFinite(pos.coords.latitude) && Number.isFinite(pos.coords.longitude)) {
+            setStartCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          }
+        },
+        () => { /* OS-level denial — proceed without */ },
         { timeout: 8000, maximumAge: 60_000, enableHighAccuracy: false },
       );
     }
@@ -786,6 +828,11 @@ export function DashboardWorkerMobile({
         onSaved={() => {
           queryClient.invalidateQueries({ queryKey: ["/api/travel-legs"] });
         }}
+      />
+
+      <GpsConsentDialog
+        open={gpsConsentOpen}
+        onClose={handleGpsConsentClose}
       />
     </div>
   );

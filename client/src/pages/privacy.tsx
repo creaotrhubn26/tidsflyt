@@ -45,6 +45,9 @@ Vi kan behandle følgende kategorier opplysninger:
 - **Kontakt- og virksomhetsopplysninger**: navn, e-post, telefon, virksomhetsnavn, rolle og informasjon du sender i skjemaer eller dialog med oss.
 - **Konto- og tilgangsopplysninger**: innloggingsinformasjon, organisasjonstilknytning, invitasjoner, roller og godkjenninger.
 - **Bruks- og arbeidsdata**: tidsregistreringer, rapporter, notater, saksreferanser og annet innhold som registreres i løsningen av autoriserte brukere.
+- **Posisjonsdata (GPS)**: Når miljøarbeider stempler inn på en sak, kan vi fange brukerens geografiske posisjon én gang for å beregne kjøregodtgjørelse. Dette regnes som **kontrolltiltak** etter Arbeidsmiljøloven §9-1 og krever saklig grunn, drøfting og skriftlig informasjon. Posisjonsdata avrundes etter 90 dager og slettes etter 5 år.
+- **Helsedata (sykmeldinger)**: Hvis en bruker laster opp en sykmelding, regnes dette som særlig kategori av personopplysninger (GDPR art. 9). Slik dokumentasjon slettes så snart fraværet er avregnet, normalt innen 1 år.
+- **Endringshistorikk (audit-logg)**: Hvem har endret hva og når på timeoppføringer. Lagres for sporbarhet og revisjon. IP-adresse og nettleser-streng inngår.
 - **Tekniske opplysninger**: IP-adresse, nettleser, enhet, tidspunkt, feillogger og sikkerhetshendelser.
 - **Analyse på offentlige sider**: sidevisninger, knappetrykk og anonymiserte innsiktssignaler når du godtar analyse.
 
@@ -72,17 +75,32 @@ Dersom vi eller våre underleverandører behandler opplysninger utenfor EU/EØS,
 ## 8. Lagring og sletting
 Vi lagrer opplysninger så lenge det er nødvendig for formålet de ble samlet inn for, eller så lenge lovpålagte krav krever det. Kundedata slettes eller anonymiseres når kundeforholdet avsluttes, med mindre annet følger av avtale eller lov.
 
+**Konkrete oppbevaringstider** (kan justeres per kunde i databehandleravtalen):
+
+| Datatype | Oppbevaring | Hjemmel |
+| --- | --- | --- |
+| Timeregistreringer (log_row) | 5 år, deretter pseudonymisert | Bokføringsloven §13 |
+| Endringshistorikk (audit) | 5 år (25 år for barnevern) | Bokføringsloven §13 / Barnevernsloven §10-1 |
+| GPS-koordinater på kjøreloggen | Avrundes til ~110m presisjon etter 90 dager, slettes etter 5 år | Datatilsynet — minimering for GPS i arbeidsforhold |
+| Sykmeldinger (helsedata) | 1 år | Datatilsynet — kort oppbevaring av Art. 9 |
+| Saksrapporter | 5–25 år avhengig av sektor | Barnevernsloven §10 / NAV-loven / kommunale lovhjemler |
+| Påloggingssesjoner | 30 dager | Berettiget interesse — driftsstabilitet |
+
+Automatiske slette-rutiner kjører daglig for å håndheve disse fristene.
+
 ## 9. Informasjonskapsler og analyse
 Tidum bruker **nødvendige** mekanismer for sikkerhet, sesjonshåndtering og for å huske samtykkevalget ditt. Dersom du godtar analyse på offentlige sider, kan vi i tillegg registrere sidevisninger, CTA-klikk og generell bruk av offentlige innholdssider for å forbedre nettstedet. Analyse brukes ikke for å låse opp funksjoner i selve arbeidsflaten.
 
 ## 10. Dine rettigheter
 Du kan be om:
-- innsyn i hvilke personopplysninger vi behandler om deg,
-- retting av uriktige eller ufullstendige opplysninger,
-- sletting når det ikke lenger finnes lovlig grunnlag for videre behandling,
-- begrensning eller innsigelse mot behandling,
-- dataportabilitet der dette er aktuelt,
-- å trekke tilbake samtykke for behandling som bygger på samtykke.
+- **Innsyn (art. 15)** — du kan laste ned all data Tidum har om deg via «Min profil → Last ned dataene mine».
+- **Retting (art. 16)** av uriktige eller ufullstendige opplysninger.
+- **Sletting (art. 17)** — sletteknappen i kontoinnstillingene pseudonymiserer profilen din. Bokføringsloven §13 hindrer oss fra å hard-slette timebilag i 5 år, men oppføringene kobles ikke lenger til deg som person.
+- **Begrensning eller innsigelse** mot behandling (art. 18 og 21).
+- **Dataportabilitet (art. 20)** — eksport leveres som strukturert JSON-fil.
+- **Trekke tilbake samtykke** for behandling som bygger på samtykke. Slå av GPS-fangst i kontoinnstillingene; auto-kjøregodt deaktiveres da umiddelbart.
+
+Henvendelser besvares innen 30 dager (art. 12 nr. 3).
 
 ## 11. Sikkerhet
 Vi arbeider med tilgangskontroll, logging, sikre overføringer og tekniske og organisatoriske tiltak for å beskytte data mot uautorisert tilgang, endring, tap eller misbruk. Ingen løsning er helt risikofri, men vi arbeider fortløpende med sikkerhetsforbedringer.

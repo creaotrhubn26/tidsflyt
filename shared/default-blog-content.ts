@@ -1159,6 +1159,193 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     ],
     publishedAt: "2026-03-25T08:00:00.000Z",
   },
+  // ── Auto-kjøregodt — produkt-showcase ───────────────────────────────────────
+  {
+    title: "Auto-kjøregodt for miljøarbeidere — slik skriver kjøreloggen seg selv",
+    slug: "auto-kjoregodt-for-miljoarbeidere",
+    excerpt:
+      "Når miljøarbeider stempler inn på en sak, regner Tidum automatisk ut kjøregodtgjørelse fra der du står til klientens adresse. Slik bygde vi det uten å ofre personvernet.",
+    categorySlug: "yrkesguider",
+    featuredImage: "/screenshots/tidum-time-mobile.png",
+    ogImage: assetOg("/screenshots/tidum-time-mobile.png"),
+    metaTitle: "Auto-kjøregodt for miljøarbeidere — slik fungerer det | Tidum",
+    metaDescription:
+      "Tidum auto-registrerer kjøregodtgjørelse når miljøarbeider stempler inn på sak. Sak-adressen er kjent, telefonen henter posisjonen, kjøreloggen blir riktig — uten manuelt arbeid.",
+    tags: ["kjøregodt", "miljøarbeider", "stempling", "auto-registrering", "personvern"],
+    intro: [
+      "Miljøarbeidere kjører mellom oppdrag hele dagen. Klient hjemme, klient på avlastning, klient på aktivitetssenter, kontor, hjem. Hver tur skal i kjøreloggen — og hver linje er kr 3,50 per kilometer som glipper hvis den ikke føres.",
+      "I praksis fører få arbeidere kjøregodt nøyaktig. Det er ikke fordi de er slurvete, men fordi det er tungvint: huske km, slå opp adresser, regne ut, fylle inn skjema. Konsekvensen er at miljøarbeideren betaler regningen for jobb-kjøringen sin selv.",
+      "Vi bygde derfor auto-kjøregodt: en stempling-først-flyt der kjøringen registreres som en bivirkning av at du gjør jobben.",
+    ],
+    leadFigure: {
+      src: "/screenshots/tidum-time-mobile.png",
+      alt: "Tidum stemplings-flate på mobil med sak-velger og kjøre-felt",
+      caption: "Sak-velger over timer-kortet. Når sak har «standard arbeidssted» registrert, dukker auto-kjøring opp som en grønn indikator.",
+    },
+    whatIs: {
+      paragraphs: [
+        "Auto-kjøregodt er en kobling mellom tre ting Tidum allerede har: sakens registrerte adresse, miljøarbeiderens GPS ved stempling, og kjøreloggen som regnskaps-bilag.",
+        "Når disse tre møtes på samme tidspunkt, kan systemet skrive en hel kjøre-linje selv: fra punkt A (der du er) til punkt B (saksens adresse), beregnet i kilometer, multiplisert med statens skattefri sats, og lagret som primær-kjøretur for dagen.",
+      ],
+      bullets: [
+        "Tiltakslederen registrerer saksens standard arbeidssted én gang — adresse via Kartverket-søk, lat/lng faller på plass automatisk.",
+        "Miljøarbeideren får en sak-velger over timer-kortet. Velger sak før «Fortsett».",
+        "Ved stempling fanges posisjonen én gang. Hvis avstanden til sak er mer enn 300 meter, opprettes en kjøre-leg automatisk.",
+        "Mellomstopp i løpet av dagen kan legges til manuelt — Auto-flyten er bare for primærruten.",
+      ],
+    },
+    whyImportant: {
+      paragraphs: [
+        "Riktig kjøregodt handler ikke bare om penger. Det er en del av arbeidskontrakten din, og når føringen blir tungvint blir den i praksis underrapportert.",
+        "Tidum gir fra første dag en korrekt logg over reisene som faktisk skjedde, knyttet til den faktiske saken. Når regnskap eller skattemyndigheter spør, har du dokumentasjon med tidsstempel og posisjon — ikke en Excel-fil med tilnærmede tall.",
+      ],
+      bullets: [
+        "Miljøarbeider får riktig betalt for kjøring uten å fylle ut skjema",
+        "Tiltaksleder slipper å minne om manglende kjøreloggføring",
+        "Vendor får revisjonsklar dokumentasjon på 3,50 kr/km-utlegg",
+        "Klient-adresser ligger ett sted (saksen) i stedet for spredd i hver miljøarbeiders egen liste",
+      ],
+    },
+    steps: {
+      paragraphs: [
+        "Sett det opp én gang per sak, så går det av seg selv. Slik:",
+      ],
+      bullets: [
+        "Tiltaksleder åpner saken under «Mine saker» og trykker stedmarkør-knappen.",
+        "Skriver inn klient-adressen i Kartverket-søket — koordinatene fylles inn automatisk.",
+        "Tildeler saken til miljøarbeider(e) som vanlig.",
+        "Miljøarbeider åpner Tidum, velger saken i sak-velgeren, trykker «Fortsett».",
+        "Første gang vises et informert valg om GPS — etter Arbeidsmiljøloven §9-1. Aksepter eller avvis.",
+        "Når «Ferdig» trykkes, opprettes timeoppføringen og kjøre-linjen samtidig.",
+      ],
+      ordered: true,
+    },
+    supportFigure: {
+      src: "/screenshots/case-management.png",
+      alt: "Saksredigering med adresse-felt for standard arbeidssted",
+      caption: "Standard arbeidssted lagres på saken. Én gang, ikke per miljøarbeider.",
+    },
+    commonMistakes: {
+      paragraphs: [
+        "Auto-kjøregodt erstatter ikke godt skjønn — det forutsetter at miljøarbeider og tiltaksleder bruker det riktig.",
+      ],
+      bullets: [
+        "Glemmer å sette saksens arbeidssted: da skjer ingen auto-leg, miljøarbeider må føre manuelt",
+        "Trykker «Fortsett» hjemme i stedet for ved klienten: GPS fanger hjem-koordinaten, ikke kjøreturen",
+        "Avvist GPS én gang for alltid: kan reverseres i innstillinger, men er enkelt å glemme",
+        "Mellomstopp uten standard arbeidssted: må legges inn manuelt fra «Legg til kjøring»-knappen",
+      ],
+    },
+    tools: {
+      paragraphs: [
+        "Auto-kjøregodt er bygd inn i Tidums miljøarbeider-app — du trenger ingen ekstra funksjoner. GPS-lagringen er privat: koordinater avrundes til ~110m presisjon etter 90 dager og slettes helt etter 5 år. Datatilsynet og Arbeidsmiljøloven §9-1 er hovedrammeverket.",
+        "Vi sender ikke koordinater til Vegvesenet, Google eller andre tredjeparter. Avstanden beregnes lokalt på serveren med Haversine-formelen (luftlinje). For kunder som krever eksakt kjørestrekning kobler vi senere på Statens vegvesens NVDB.",
+      ],
+    },
+    sources: [
+      officialSources.aml91,
+      officialSources.datatilsynetWorkplace,
+      officialSources.datatilsynetControl,
+      officialSources.bokforing13,
+    ],
+    publishedAt: "2026-04-22T08:00:00.000Z",
+  },
+  // ── GDPR-eksplainer ────────────────────────────────────────────────────────
+  {
+    title: "GDPR for arbeidstid og oppfølging — slik håndterer du personopplysninger trygt",
+    slug: "gdpr-for-arbeidstid-og-oppfolging",
+    excerpt:
+      "Personopplysningsloven, Arbeidsmiljøloven §9-1, Bokføringsloven §13. Slik fungerer regelverket for timelister, GPS-sporing og dokumentasjon i sosial- og helse-sektor.",
+    categorySlug: "regelverk-og-krav",
+    featuredImage: "/illustrations/data-analytics.svg",
+    ogImage: assetOg("/illustrations/data-analytics.svg"),
+    metaTitle: "GDPR for arbeidstid og oppfølging | Tidum",
+    metaDescription:
+      "Forstå GDPR, Personopplysningsloven og norske særregler for behandling av timelister, posisjonsdata og helsedokumentasjon i arbeidsforhold.",
+    tags: ["gdpr", "personvern", "datatilsynet", "personopplysningsloven", "arbeidsmiljoloven"],
+    intro: [
+      "Personvern handler om hvilke regler som gjelder når noen behandler opplysninger om deg. I arbeidssammenheng — særlig i barnevern, NAV-tiltak og kommunalt miljøarbeid — er det ekstra strengt fordi dataen ofte berører tredjepartshjelpetrengende.",
+      "GDPR er EU-rammeverket. Personopplysningsloven (2018) gjør GDPR til norsk rett og legger på nasjonale særregler. Datatilsynet er tilsynsmyndighet og publiserer veiledning på <strong>datatilsynet.no</strong> som er praktisk forpliktende.",
+      "Denne guiden tar for seg det Tidum-kunder møter daglig: timelister, kontrolltiltak (som GPS), dokumentasjon av sykmeldinger, og oppbevaring vs. sletting.",
+    ],
+    leadFigure: {
+      src: "/illustrations/data-analytics.svg",
+      alt: "Illustrasjon av personopplysninger og databehandling",
+      caption: "GDPR + Personopplysningsloven + sektor-lovgivning. Lagene må stemme samtidig.",
+    },
+    whatIs: {
+      paragraphs: [
+        "GDPR krever at all behandling av personopplysninger har et klart formål, et lovlig rettsgrunnlag, og en kort nok oppbevaringstid. I et arbeidsforhold er rettsgrunnlaget vanligvis arbeidskontrakten (art. 6 b) eller berettiget interesse (art. 6 f) — sjelden samtykke, fordi maktforholdet mellom arbeidsgiver og ansatt er asymmetrisk.",
+        "Norsk særrett: Arbeidsmiljøloven §9-1 sier at kontrolltiltak overfor ansatte krever saklig grunn, drøfting med ansatte/tillitsvalgte, skriftlig informasjon og at tiltaket ikke er uforholdsmessig. GPS-sporing av miljøarbeidere er et typisk kontrolltiltak.",
+        "Bokføringsloven §13 setter en motgrense: timebilag skal oppbevares i 5 år. Det betyr at «slett alt nå» ikke alltid er lov — vi må anonymisere brukeren, men beholde regnskapssporet.",
+      ],
+      bullets: [
+        "Formål — hva skal data brukes til? Skriv det ned.",
+        "Rettsgrunnlag — hvilken artikkel i GDPR / Personopplysningsloven hjemler behandlingen?",
+        "Minimering — bare det som er nødvendig.",
+        "Oppbevaring — så kort som lovlig mulig, lengre kun hvis loven krever.",
+        "Sikkerhet — tilgangskontroll, kryptering, logging.",
+      ],
+    },
+    whyImportant: {
+      paragraphs: [
+        "I sosial- og helse-sektor håndterer dere data om sårbare mennesker — barn under barnevernet, brukere på NAV, klienter med diagnose. Et brudd er både juridisk og etisk dyrere her enn i andre bransjer.",
+        "Datatilsynet kan ilegge bøter på inntil 4 % av global omsetning eller 20 millioner euro — det høyeste. Mer praktisk: vendor-kunder krever skriftlig databehandleravtale (DPA) før kontrakt skrives. Uten orden i personvernet får dere ikke signere.",
+      ],
+      bullets: [
+        "DPA er inngangsbilletten for offentlige kunder",
+        "Avvik må meldes til Datatilsynet innen 72 timer (art. 33)",
+        "DPIA (vurdering av personvernkonsekvenser) kreves for systematisk overvåking eller behandling av Art. 9-data",
+        "De ansatte har rett til innsyn, retting og «sletting» (med begrensninger for regnskap)",
+      ],
+    },
+    steps: {
+      paragraphs: [
+        "En praktisk 7-stegs sjekkliste for arbeidsgivere som håndterer timelister og dokumentasjon:",
+      ],
+      bullets: [
+        "Kartlegg hvilke data dere samler inn — lag en behandlingsoversikt (art. 30).",
+        "Skriv en personvernerklæring som dekker alle datatypene. Oppdater når dere endrer rutiner.",
+        "Inngå databehandleravtale med hver leverandør (regnskap, lønn, timeliste-system).",
+        "Drøft kontrolltiltak (timeliste, GPS, kameraovervåking) med ansatte før innføring — Arbeidsmiljøloven §9-1.",
+        "Sett oppbevaringsfrister per datatype og automatiser sletting der det er mulig.",
+        "Tren ledere og HR i å besvare innsynsforespørsler innen 30 dager.",
+        "Lag en avviks-rutine: hva gjør dere hvis en bærbar PC mistes med klient-data på?",
+      ],
+      ordered: true,
+    },
+    supportFigure: {
+      src: "/illustrations/collaboration.png",
+      alt: "Samarbeid om dokumentasjon og personvern",
+    },
+    commonMistakes: {
+      paragraphs: [
+        "Det er sjelden de store, åpenbare bruddene som tar dere — det er de små rutinegrepene som glipper.",
+      ],
+      bullets: [
+        "Spør om samtykke der rettsgrunnlaget egentlig er kontrakt eller lov — gjør det vanskeligere å trekke tilbake senere",
+        "Lagrer sykmeldinger i 5+ år «for sikkerhets skyld» — Datatilsynet anbefaler 1 år for helsedata",
+        "Lar GPS-koordinater stå med full presisjon på arkiverte kjøreturer",
+        "Eksporterer hele klient-databasen til en ekstern konsulent uten DPA",
+        "Bruker «alle ledere»-tilgang i stedet for rolle-basert tilgangskontroll",
+        "Glemmer å oppdatere personvernerklæringen når en ny integrasjon legges til",
+      ],
+    },
+    tools: {
+      paragraphs: [
+        "Tidum er bygget med GDPR-prinsippene som grunnpilarer — ikke som ettertanke. Auditspor på alle endringer, automatisk sletting etter konfigurerbare retensjonstider, krypterte filer for sykmeldinger, dataportabilitet via «Last ned dataene mine»-knapp og rett til pseudonymisering for hver bruker.",
+        "Vendoradminer kan se vår offentlige retensjons-policy på <code>/api/gdpr/retention-policy</code>, og hver databehandleravtale knytter de konkrete fristene til kunden. Det gjør det mulig å svare ja på «Hvor lenge oppbevarer dere min data?» med en lenke i stedet for et estimat.",
+        "Ingen verktøy gjør GDPR for dere — men et godt verktøy reduserer hvor mange beslutninger dere må ta hver dag for å holde regelverket. Det er forskjellen mellom etterlevelse og etterskuddvis opprydning.",
+      ],
+    },
+    sources: [
+      officialSources.datatilsynetWorkplace,
+      officialSources.datatilsynetControl,
+      officialSources.aml91,
+      officialSources.bokforing13,
+    ],
+    publishedAt: "2026-04-24T08:00:00.000Z",
+  },
 ];
 
 export const DEFAULT_BLOG_POSTS: DefaultBlogPostSeed[] = DEFAULT_BLOG_ARTICLES.map((article) => ({
