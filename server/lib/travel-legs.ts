@@ -74,7 +74,7 @@ export interface TravelLegInput {
   passengerCount?: number;
   passengerRatePerKm?: number;
   source?: 'primary' | 'stop' | 'manual';
-  calculatedBy?: 'haversine' | 'vegvesen' | 'osrm' | 'manual' | null;
+  calculatedBy?: 'haversine' | 'vegvesen' | 'osrm' | 'ors' | 'manual' | null;
   notes?: string | null;
 }
 
@@ -97,7 +97,7 @@ export interface TravelLeg {
   passengerRatePerKm: number;
   totalAmount: number;
   source: 'primary' | 'stop' | 'manual';
-  calculatedBy: 'haversine' | 'vegvesen' | 'osrm' | 'manual' | null;
+  calculatedBy: 'haversine' | 'vegvesen' | 'osrm' | 'ors' | 'manual' | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;

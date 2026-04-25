@@ -4,23 +4,22 @@
  * Pluggable distance-between-coordinates provider for kjøregodt-beregning.
  *
  * Tilgjengelige providers (i prioritert rekkefølge):
- *   1. OSRM    — open-source routing (driving distance over real road network)
- *   2. Haversine — luftlinje, fallback hvis OSRM ikke svarer
+ *   1. Vegvesen        — stub (ingen offentlig routing-API per d.d.)
+ *   2. OpenRouteService — managed, EU-hosted, GDPR-trygg. Gratis 2000/dag.
+ *      Sett ORS_API_KEY for å aktivere.
+ *   3. OSRM            — open-source. Self-hosted (anbefalt) eller
+ *      offentlig demo (router.project-osrm.org, rate-limited).
+ *   4. Haversine       — luftlinje, alltid tilgjengelig som siste fallback.
  *
- * OSRM-konfig:
- *   - Standard: `https://router.project-osrm.org` (offentlig demo, rate-limit
- *     ≈1 req/s — kun til prod hvis volumet er lavt)
- *   - For prod: kjør egen OSRM-instans (Docker-image `osrm/osrm-backend`) på
- *     norsk OpenStreetMap-extract og pek `OSRM_BASE_URL` på den.
+ * Anbefalt prod-oppsett:
+ *   - Liten skala (<2000 kall/dag): Sett `ORS_API_KEY`. Ingen self-hosting.
+ *   - Større skala: Kjør egen OSRM Docker-instans på norsk OSM-extract.
+ *     Sett `OSRM_BASE_URL=http://din-osrm:5000`.
  *
- * VEGVESEN_API_KEY:
- *   - Reservert for fremtidig integrasjon mot Statens vegvesen sitt
- *     premium-API (hvis/når en routing-endepunkt-spec foreligger).
- *   - NVDB (Nasjonal vegdatabank) gjør ikke routing — kun nettverksdata.
- *   - Inntil dette er avklart har VEGVESEN_API_KEY ingen kode-effekt.
+ * Se docs/runbooks/routing-setup.md for steg-for-steg.
  */
 
-export type DistanceSource = 'haversine' | 'vegvesen' | 'osrm' | 'manual';
+export type DistanceSource = 'haversine' | 'vegvesen' | 'osrm' | 'ors' | 'manual';
 
 export interface Coords { lat: number; lng: number }
 export interface DistanceResult {
@@ -66,9 +65,68 @@ class HaversineProvider implements DistanceProvider {
   }
 }
 
+const ORS_API_KEY = process.env.ORS_API_KEY || '';
+const ORS_BASE_URL = process.env.ORS_BASE_URL || 'https://api.openrouteservice.org';
+let orsDownUntil = 0;
+
 const OSRM_BASE_URL = process.env.OSRM_BASE_URL || 'https://router.project-osrm.org';
 /** Cache OSRM-availability for short windows so we don't hammer the demo if it's down. */
 let osrmDownUntil = 0;
+
+class OpenRouteServiceProvider implements DistanceProvider {
+  readonly name = 'ors';
+  isAvailable() {
+    if (Date.now() < orsDownUntil) return false;
+    return !!ORS_API_KEY;
+  }
+  async distanceKm(from: Coords, to: Coords): Promise<DistanceResult> {
+    // ORS Directions v2 — accepts lon,lat coordinates. Free tier: 2000/day.
+    // EU-hosted by Heidelberg University → GDPR-trygt.
+    const url = `${ORS_BASE_URL.replace(/\/$/, '')}/v2/directions/driving-car`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 6000);
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Authorization': ORS_API_KEY,
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+        body: JSON.stringify({
+          coordinates: [
+            [from.lng, from.lat],
+            [to.lng, to.lat],
+          ],
+          // We only need the summary — skip geometry to save bandwidth + latency.
+          instructions: false,
+          geometry: false,
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        // 429 = quota exhausted; back off for 5 min. Other errors: 60s.
+        orsDownUntil = Date.now() + (res.status === 429 ? 300_000 : 60_000);
+        throw new Error(`ORS ${res.status}`);
+      }
+      const json = await res.json() as {
+        routes?: Array<{ summary?: { distance?: number; duration?: number } }>;
+      };
+      const summary = json.routes?.[0]?.summary;
+      if (!summary?.distance) {
+        orsDownUntil = Date.now() + 60_000;
+        throw new Error('ORS: missing route summary');
+      }
+      return {
+        km: Math.round((summary.distance / 1000) * 100) / 100,
+        source: 'ors',
+        durationSeconds: typeof summary.duration === 'number' ? Math.round(summary.duration) : undefined,
+      };
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+}
 
 class OsrmProvider implements DistanceProvider {
   readonly name = 'osrm';
@@ -125,14 +183,19 @@ class VegvesenProviderStub implements DistanceProvider {
 
 const haversine = new HaversineProvider();
 const osrm = new OsrmProvider();
+const ors = new OpenRouteServiceProvider();
 const vegvesen = new VegvesenProviderStub();
 
 /**
  * Forsøk providere i rekkefølge. Første som lykkes vinner.
- * Vegvesen → OSRM → Haversine (alltid tilgjengelig).
+ * Vegvesen → ORS → OSRM → Haversine (alltid tilgjengelig).
+ *
+ * Når ORS_API_KEY er satt, brukes den som primær. Det er den anbefalte
+ * prod-konfigurasjonen for små kunder (gratis 2000/dag, EU-hosted).
+ * For større volum eller offline-krav: sett OSRM_BASE_URL til egen instans.
  */
 export async function calculateDistance(from: Coords, to: Coords): Promise<DistanceResult> {
-  for (const provider of [vegvesen, osrm]) {
+  for (const provider of [vegvesen, ors, osrm]) {
     if (!provider.isAvailable()) continue;
     try {
       return await provider.distanceKm(from, to);
