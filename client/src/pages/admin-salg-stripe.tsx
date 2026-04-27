@@ -125,12 +125,22 @@ export default function AdminSalgStripe() {
             <CardContent className="flex items-start gap-3 pt-6">
               <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-orange-600" />
               <div className="flex-1">
-                <strong>Stripe-nøkkel mangler.</strong>
+                <strong>Stripe-nøkkel mangler i Render env.</strong>
                 <p className="mt-1 text-sm">
-                  Sett <code>stripe_secret_key</code> i{" "}
-                  <Link href="/admin/salg/innstillinger" className="underline">Innstillinger → Stripe</Link>
-                  {" "}før du kan synke produkter. Hent nøkkelen fra Stripe Dashboard → Developers → API keys.
+                  Secret-nøkler ligger i Render Dashboard, ikke i admin-UI.
+                  Sett disse env-vars og redeploy:
                 </p>
+                <ul className="mt-2 ml-4 list-disc space-y-1 font-mono text-xs">
+                  <li><code>STRIPE_SECRET_KEY</code> — sk_test_… eller sk_live_…</li>
+                  <li><code>STRIPE_WEBHOOK_SECRET</code> — whsec_… (per webhook-endpoint)</li>
+                  <li><code>STRIPE_PUBLISHABLE_KEY</code> — pk_test_… (frontend)</li>
+                </ul>
+                <a
+                  href="https://dashboard.render.com/web/srv-d79heff5r7bs73frlj7g/env"
+                  target="_blank" rel="noreferrer"
+                  className="mt-2 inline-block text-sm underline">
+                  Åpne Render → tidum-backend → Environment →
+                </a>
               </div>
             </CardContent>
           </Card>

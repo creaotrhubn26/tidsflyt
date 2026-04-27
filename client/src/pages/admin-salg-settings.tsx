@@ -105,10 +105,17 @@ export default function AdminSalgSettings() {
               <Card key={cat}>
                 <CardHeader>
                   <CardTitle>{CATEGORY_LABELS[cat] ?? cat}</CardTitle>
-                  <CardDescription>{rows.length} verdier</CardDescription>
+                  <CardDescription>
+                    {rows.filter((r) => !r.isSecret).length} verdier
+                    {cat === "stripe" && (
+                      <span className="ml-2 text-orange-600">
+                        — Secret-nøkler (sk_/whsec_) ligger nå i Render env, ikke her.
+                      </span>
+                    )}
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {rows.map((s) => (
+                  {rows.filter((s) => !s.isSecret).map((s) => (
                     <div key={s.key} className="grid gap-2 sm:grid-cols-[280px_1fr_auto] sm:items-start">
                       <div>
                         <Label className="font-medium">{s.label ?? s.key}</Label>

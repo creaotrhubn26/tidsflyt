@@ -746,6 +746,41 @@ export function registerPricingRoutes(app: Express): void {
                WHERE id = $1`,
               [id, parsed.data.pipelineStageId],
             );
+
+            // GA4 server-side purchase når selger manuelt setter Won
+            const { rows: stageRows } = await pool.query(
+              `SELECT is_won FROM lead_pipeline_stages WHERE id = $1`,
+              [parsed.data.pipelineStageId],
+            );
+            if (stageRows[0]?.is_won) {
+              const { rows: leadRows } = await pool.query(
+                `SELECT ar.id, ar.email, ar.user_count_estimate,
+                        ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign,
+                        ar.stripe_subscription_id,
+                        pt.slug AS tier_slug, pt.label AS tier_label,
+                        pt.price_per_user_ore
+                   FROM access_requests ar
+                   LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+                  WHERE ar.id = $1`,
+                [id],
+              );
+              const r = leadRows[0];
+              if (r && r.tier_slug && r.user_count_estimate) {
+                const { trackPurchase } = await import("../lib/ga4-tracker");
+                await trackPurchase({
+                  customerEmail: r.email,
+                  transactionId: r.stripe_subscription_id || `lead_${r.id}`,
+                  valueKr: Math.round((Number(r.price_per_user_ore) * r.user_count_estimate * 12) / 100),
+                  tierSlug: r.tier_slug,
+                  tierLabel: r.tier_label,
+                  userCount: r.user_count_estimate,
+                  source: r.source,
+                  utmSource: r.utm_source,
+                  utmMedium: r.utm_medium,
+                  utmCampaign: r.utm_campaign,
+                });
+              }
+            }
           }
         } catch (err) {
           console.error("revenue_event log failed (non-fatal):", err);

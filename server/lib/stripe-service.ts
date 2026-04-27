@@ -17,14 +17,37 @@ interface StripeContext {
 
 let cached: { ctx: StripeContext; key: string } | null = null;
 
-// Stripe-keys live in app_settings (NOT env) so admin can rotate without
-// re-deploying. We cache the SDK client per-secret-key to avoid recreating
-// it on every call, but invalidate when the key changes.
+// Secrets (sk_*, whsec_*) leses fra Render env — IKKE fra DB. Public IDs
+// (publishable key) og runtime-konfig (currency, success-URL) hentes fra
+// salg_settings så admin kan justere dem uten redeploy.
+//
+// DB-fallback for sk_* / whsec_* beholdes som backwards-compat for tidlig
+// oppsett der nøklene ble inserted via SQL — gir warning i logg.
 async function getStripeContext(): Promise<StripeContext | null> {
-  const settings = await loadSalgSettings();
-  const secretKey = (settings.stripe_secret_key as string | undefined)?.trim();
-  if (!secretKey) return null;
+  let secretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
+  let webhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+  let publishableKey = (process.env.STRIPE_PUBLISHABLE_KEY || "").trim();
 
+  // Backwards-compat: les fra DB hvis env mangler
+  let settings: Record<string, unknown> | null = null;
+  if (!secretKey || !webhookSecret || !publishableKey) {
+    settings = await loadSalgSettings();
+    if (!secretKey && settings.stripe_secret_key) {
+      secretKey = String(settings.stripe_secret_key).trim();
+      console.warn("[stripe] STRIPE_SECRET_KEY ikke satt i env — leser fra DB. Sett i Render Dashboard og fjern fra DB.");
+    }
+    if (!webhookSecret && settings.stripe_webhook_secret) {
+      webhookSecret = String(settings.stripe_webhook_secret).trim();
+      console.warn("[stripe] STRIPE_WEBHOOK_SECRET ikke satt i env — leser fra DB.");
+    }
+    if (!publishableKey && settings.stripe_publishable_key) {
+      publishableKey = String(settings.stripe_publishable_key).trim();
+    }
+  } else {
+    settings = await loadSalgSettings();
+  }
+
+  if (!secretKey) return null;
   if (cached && cached.key === secretKey) return cached.ctx;
 
   const ctx: StripeContext = {
@@ -32,13 +55,13 @@ async function getStripeContext(): Promise<StripeContext | null> {
       apiVersion: "2026-04-22.dahlia",
       typescript: true,
     }),
-    publishableKey: ((settings.stripe_publishable_key as string | undefined) ?? "") || null,
-    webhookSecret: ((settings.stripe_webhook_secret as string | undefined) ?? "") || null,
-    currency: ((settings.stripe_currency as string | undefined) || "nok").toLowerCase(),
-    taxBehavior: ((settings.stripe_tax_behavior as string | undefined) === "exclusive" ? "exclusive" : "inclusive") as "inclusive" | "exclusive",
-    successUrl: (settings.stripe_checkout_success_url as string | undefined) || "/kontakt?stripe=success",
-    cancelUrl: (settings.stripe_checkout_cancel_url as string | undefined) || "/priser?stripe=cancelled",
-    mode: (secretKey.startsWith("sk_live_") ? "live" : "test"),
+    publishableKey: publishableKey || null,
+    webhookSecret: webhookSecret || null,
+    currency: ((settings?.stripe_currency as string | undefined) || "nok").toLowerCase(),
+    taxBehavior: ((settings?.stripe_tax_behavior as string | undefined) === "exclusive" ? "exclusive" : "inclusive") as "inclusive" | "exclusive",
+    successUrl: (settings?.stripe_checkout_success_url as string | undefined) || "/kontakt?stripe=success",
+    cancelUrl: (settings?.stripe_checkout_cancel_url as string | undefined) || "/priser?stripe=cancelled",
+    mode: secretKey.startsWith("sk_live_") ? "live" : "test",
   };
   cached = { ctx, key: secretKey };
   return ctx;

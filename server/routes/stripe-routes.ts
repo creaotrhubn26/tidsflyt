@@ -12,6 +12,7 @@ import {
   getPublicStripeConfig,
   StripeNotConfiguredError,
 } from "../lib/stripe-service";
+import { trackPurchase, trackRefund } from "../lib/ga4-tracker";
 
 export function registerStripeRoutes(app: Express): void {
   // ============================================================
@@ -214,6 +215,37 @@ export function registerStripeRoutes(app: Express): void {
                WHERE id = $1`,
               [leadId, subscriptionId, customerId, mrrOre, mrrOre * 12],
             );
+
+            // Server-side GA4 purchase event — så GA4 ser konverteringen
+            // selv om den ble registrert via Stripe-webhook (ikke nettleser)
+            try {
+              const { rows: leadRows } = await pool.query(
+                `SELECT ar.email, ar.company, ar.user_count_estimate,
+                        ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign,
+                        pt.slug AS tier_slug, pt.label AS tier_label
+                   FROM access_requests ar
+                   LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+                  WHERE ar.id = $1`,
+                [leadId],
+              );
+              const r = leadRows[0];
+              if (r && r.tier_slug) {
+                await trackPurchase({
+                  customerEmail: r.email,
+                  transactionId: subscriptionId || `lead_${leadId}`,
+                  valueKr: Math.round((mrrOre * 12) / 100),
+                  tierSlug: r.tier_slug,
+                  tierLabel: r.tier_label,
+                  userCount: r.user_count_estimate || 0,
+                  source: r.source,
+                  utmSource: r.utm_source,
+                  utmMedium: r.utm_medium,
+                  utmCampaign: r.utm_campaign,
+                });
+              }
+            } catch (e) {
+              console.warn("GA4 purchase event failed (non-fatal):", e);
+            }
           }
         } else if (event.type === "customer.subscription.deleted") {
           // churn
@@ -230,6 +262,25 @@ export function registerStripeRoutes(app: Express): void {
               [leadId],
             );
             revenueEventId = ins.rows[0]?.id ?? null;
+
+            // GA4 refund — netto-konvertering matcher faktisk MRR
+            try {
+              const { rows: leadRows } = await pool.query(
+                `SELECT email, mrr_ore_snapshot, stripe_subscription_id
+                   FROM access_requests WHERE id = $1`,
+                [leadId],
+              );
+              const r = leadRows[0];
+              if (r) {
+                await trackRefund({
+                  customerEmail: r.email,
+                  transactionId: r.stripe_subscription_id || `lead_${leadId}`,
+                  valueKr: Math.round(((r.mrr_ore_snapshot || 0) * 12) / 100),
+                });
+              }
+            } catch (e) {
+              console.warn("GA4 refund event failed (non-fatal):", e);
+            }
           }
         } else if (event.type === "customer.subscription.updated") {
           // upgrade/downgrade — calculate delta from previous_attributes if available
