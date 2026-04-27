@@ -1,5 +1,4 @@
 import type { Express, Request, Response } from "express";
-import express from "express";
 import { eq } from "drizzle-orm";
 import { db, pool } from "../db";
 import { pricingTiers, accessRequests } from "@shared/schema";
@@ -114,21 +113,27 @@ export function registerStripeRoutes(app: Express): void {
 
   // ============================================================
   // Webhook — Stripe → our system
-  // Raw-body required for signature verification, hence express.raw()
-  // mounted only on this route.
+  // Raw body comes from express.json's `verify`-hook in server/index.ts
+  // (req.rawBody as Buffer). express.raw() ville vært riktig hvis json-
+  // middlewaren ikke alt hadde parsed kroppen først.
   // ============================================================
   app.post(
     "/api/stripe/webhook",
-    express.raw({ type: "application/json" }),
     async (req: Request, res: Response) => {
       const sig = req.headers["stripe-signature"];
       if (!sig || typeof sig !== "string") {
         return res.status(400).send("Missing stripe-signature header");
       }
 
+      const rawBody = (req as any).rawBody as Buffer | undefined;
+      if (!rawBody) {
+        console.error("Stripe webhook: req.rawBody not available");
+        return res.status(500).send("Internal: raw body capture failed");
+      }
+
       let event;
       try {
-        event = await verifyAndConstructWebhookEvent(req.body, sig);
+        event = await verifyAndConstructWebhookEvent(rawBody, sig);
       } catch (err: any) {
         console.error("Stripe webhook signature verification failed:", err.message);
         return res.status(400).send(`Webhook signature error: ${err.message}`);
