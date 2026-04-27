@@ -586,6 +586,14 @@ export default function LandingPage() {
                 Funksjoner
               </button>
               <Link
+                href="/priser"
+                className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
+                data-testid="link-pricing"
+              >
+                <TrendingUp className="h-4 w-4" />
+                Priser
+              </Link>
+              <Link
                 href="/blog"
                 className="hidden items-center gap-2 text-base text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)] sm:inline-flex"
               >

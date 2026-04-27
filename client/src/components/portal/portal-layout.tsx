@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   HelpCircle,
   X,
+  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -180,6 +181,8 @@ const baseNavItems: NavItemBase[] = [
   { category: "administrasjon", path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
   { category: "administrasjon", path: "/cms", icon: Palette, label: "CMS", roles: ["super_admin"] },
   { category: "administrasjon", path: "/admin/tester-feedback", icon: Lightbulb, label: "Tester-feedback", roles: ["super_admin"] },
+  { category: "administrasjon", path: "/admin/salg", icon: TrendingUp, label: "Salg & Priser", roles: ["super_admin"] },
+  { category: "administrasjon", path: "/admin/leads", icon: Users, label: "Leads", roles: ["super_admin"] },
 
   // System
   { category: "system", path: "/settings", icon: Settings, label: "Innstillinger" },

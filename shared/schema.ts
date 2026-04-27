@@ -66,6 +66,32 @@ export const accessRequests = pgTable("access_requests", {
   reviewedBy: text("reviewed_by"),
   reviewedAt: timestamp("reviewed_at"),
   vendorId: integer("vendor_id"), // assigned when approved
+  // Pricing/sales-pipeline fields (added in migration 036)
+  userCountEstimate: integer("user_count_estimate"),
+  tierSnapshotId: integer("tier_snapshot_id"),
+  pipelineStageId: integer("pipeline_stage_id"),
+  assignedToEmail: text("assigned_to_email"),
+  assignedToLabel: text("assigned_to_label"),
+  expectedCloseDate: date("expected_close_date"),
+  internalNotes: text("internal_notes"),
+  // Lead-source attribution (added in migration 037)
+  source: text("source"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  utmContent: text("utm_content"),
+  utmTerm: text("utm_term"),
+  referrer: text("referrer"),
+  landingPath: text("landing_path"),
+  signedAt: timestamp("signed_at"),
+  firstPaymentAt: timestamp("first_payment_at"),
+  mrrOreSnapshot: integer("mrr_ore_snapshot"),
+  arrOreSnapshot: integer("arr_ore_snapshot"),
+  // Stripe (migration 038)
+  stripeCustomerId: text("stripe_customer_id"),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  stripeCheckoutUrl: text("stripe_checkout_url"),
+  stripeCheckoutExpiresAt: timestamp("stripe_checkout_expires_at"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -76,6 +102,16 @@ export const insertAccessRequestSchema = createInsertSchema(accessRequests).omit
   reviewedBy: true,
   reviewedAt: true,
   vendorId: true,
+  tierSnapshotId: true,
+  pipelineStageId: true,
+  assignedToEmail: true,
+  assignedToLabel: true,
+  expectedCloseDate: true,
+  internalNotes: true,
+  signedAt: true,
+  firstPaymentAt: true,
+  mrrOreSnapshot: true,
+  arrOreSnapshot: true,
   createdAt: true,
   updatedAt: true,
 });
@@ -2104,3 +2140,149 @@ export const DEFAULT_RAPPORT_FIELDS: TemplateField[] = [
   { id: "periodeFrom",   type: "date",     label: "Periode fra",               required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 7 },
   { id: "periodeTo",     type: "date",     label: "Periode til",               required: true,  visible: true,  isSystem: true,  gdprSjekk: false, seksjon: "prosjektinfo", sortOrder: 8 },
 ];
+
+// ============================================================
+// Pricing & Sales (migration 036) — alt admin-editerbart fra DB
+// ============================================================
+
+export const pricingTiers = pgTable("pricing_tiers", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  label: text("label").notNull(),
+  minUsers: integer("min_users").notNull(),
+  maxUsers: integer("max_users"),
+  pricePerUserOre: integer("price_per_user_ore").notNull(),
+  onboardingOre: integer("onboarding_ore").notNull().default(0),
+  bindingMonths: integer("binding_months").notNull().default(12),
+  isEnterprise: boolean("is_enterprise").default(false),
+  isActive: boolean("is_active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  description: text("description"),
+  // Stripe references (added in migration 038)
+  stripeProductId: text("stripe_product_id"),
+  stripePriceIdMonthly: text("stripe_price_id_monthly"),
+  stripePriceIdAnnual: text("stripe_price_id_annual"),
+  stripeOnboardingPriceId: text("stripe_onboarding_price_id"),
+  stripeSyncedAt: timestamp("stripe_synced_at"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const pricingInclusions = pgTable("pricing_inclusions", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  label: text("label").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const pricingTierInclusions = pgTable("pricing_tier_inclusions", {
+  tierId: integer("tier_id").notNull(),
+  inclusionId: integer("inclusion_id").notNull(),
+});
+
+export const salgSettings = pgTable("salg_settings", {
+  key: text("key").primaryKey(),
+  value: text("value"),
+  dataType: text("data_type").notNull().default("string"),
+  category: text("category").notNull().default("general"),
+  label: text("label"),
+  description: text("description"),
+  sortOrder: integer("sort_order").default(0),
+  isSecret: boolean("is_secret").default(false),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  updatedBy: text("updated_by"),
+});
+
+export const salesRoutingRules = pgTable("sales_routing_rules", {
+  id: serial("id").primaryKey(),
+  minUsers: integer("min_users").notNull(),
+  maxUsers: integer("max_users"),
+  assigneeLabel: text("assignee_label").notNull(),
+  assigneeEmail: text("assignee_email"),
+  responseTimeHours: integer("response_time_hours").default(24),
+  notes: text("notes"),
+  isActive: boolean("is_active").default(true),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const salesScriptBlocks = pgTable("sales_script_blocks", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  category: text("category").notNull(),
+  title: text("title").notNull(),
+  bodyMd: text("body_md").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const salgSalgContractTemplates = pgTable("salg_contract_templates", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  version: integer("version").notNull().default(1),
+  bodyMd: text("body_md").notNull(),
+  isDefault: boolean("is_default").default(false),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const leadPipelineStages = pgTable("lead_pipeline_stages", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  label: text("label").notNull(),
+  probabilityPct: integer("probability_pct").notNull().default(0),
+  isTerminal: boolean("is_terminal").default(false),
+  isWon: boolean("is_won").default(false),
+  sortOrder: integer("sort_order").notNull(),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type PricingTier = typeof pricingTiers.$inferSelect;
+export type InsertPricingTier = typeof pricingTiers.$inferInsert;
+export type PricingInclusion = typeof pricingInclusions.$inferSelect;
+export type InsertPricingInclusion = typeof pricingInclusions.$inferInsert;
+export type SalgSetting = typeof salgSettings.$inferSelect;
+export type SalesRoutingRule = typeof salesRoutingRules.$inferSelect;
+export type InsertSalesRoutingRule = typeof salesRoutingRules.$inferInsert;
+export type SalesScriptBlock = typeof salesScriptBlocks.$inferSelect;
+export type InsertSalesScriptBlock = typeof salesScriptBlocks.$inferInsert;
+export type SalgContractTemplate = typeof salgSalgContractTemplates.$inferSelect;
+export type InsertSalgContractTemplate = typeof salgSalgContractTemplates.$inferInsert;
+export type LeadPipelineStage = typeof leadPipelineStages.$inferSelect;
+export type InsertLeadPipelineStage = typeof leadPipelineStages.$inferInsert;
+
+// ============================================================
+// Revenue analytics (migration 037)
+// ============================================================
+
+export const revenueEvents = pgTable("revenue_events", {
+  id: serial("id").primaryKey(),
+  leadId: integer("lead_id"),
+  customerEmail: text("customer_email").notNull(),
+  customerCompany: text("customer_company"),
+  eventType: text("event_type").notNull(), // signup|upgrade|downgrade|churn|expansion|reactivation
+  deltaMrrOre: integer("delta_mrr_ore").notNull(),
+  mrrAfterOre: integer("mrr_after_ore").notNull(),
+  tierId: integer("tier_id"),
+  source: text("source"),
+  utmSource: text("utm_source"),
+  utmMedium: text("utm_medium"),
+  utmCampaign: text("utm_campaign"),
+  occurredAt: timestamp("occurred_at").defaultNow(),
+  notes: text("notes"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export type RevenueEvent = typeof revenueEvents.$inferSelect;
+export type InsertRevenueEvent = typeof revenueEvents.$inferInsert;

@@ -32,14 +32,17 @@ import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
 import { registerNotificationRoutes, createNotification, notifyByRole } from "./routes/notification-routes";
+import { registerPricingRoutes } from "./routes/pricing-routes";
+import { registerAnalyticsRoutes } from "./routes/analytics-routes";
+import { registerStripeRoutes } from "./routes/stripe-routes";
 import { sakerRouter, rapportRouter } from "./sakerRapportRoutes";
 import { userStateRouter } from "./userStateRoutes";
 import { emailService } from "./lib/email-service";
 import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
-import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users } from "@shared/schema";
-import { eq, and, isNull, desc, sql } from "drizzle-orm";
+import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users, pricingTiers, salesRoutingRules, leadPipelineStages } from "@shared/schema";
+import { eq, and, isNull, desc, sql, asc, lte, gte, or } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -287,6 +290,47 @@ async function notifyTidumSupportAboutAccessRequest(
       `Melding: ${request.message || "Ingen melding sendt."}`,
     ].join("\n"),
   });
+}
+
+// Find the active pricing tier whose user-count band contains `count`.
+// Both `min_users` and `max_users` are admin-editable; max_users IS NULL
+// means "no upper bound" (Custom/Enterprise).
+async function findTierForCount(count: number) {
+  const rows = await db
+    .select()
+    .from(pricingTiers)
+    .where(eq(pricingTiers.isActive, true))
+    .orderBy(asc(pricingTiers.sortOrder), asc(pricingTiers.minUsers));
+  for (const t of rows) {
+    const inMin = count >= t.minUsers;
+    const inMax = t.maxUsers == null || count <= t.maxUsers;
+    if (inMin && inMax) return t;
+  }
+  return null;
+}
+
+async function findRoutingForCount(count: number) {
+  const rows = await db
+    .select()
+    .from(salesRoutingRules)
+    .where(eq(salesRoutingRules.isActive, true))
+    .orderBy(asc(salesRoutingRules.sortOrder), asc(salesRoutingRules.minUsers));
+  for (const r of rows) {
+    const inMin = count >= r.minUsers;
+    const inMax = r.maxUsers == null || count <= r.maxUsers;
+    if (inMin && inMax) return r;
+  }
+  return null;
+}
+
+async function findInitialPipelineStage() {
+  const [stage] = await db
+    .select()
+    .from(leadPipelineStages)
+    .where(eq(leadPipelineStages.isActive, true))
+    .orderBy(asc(leadPipelineStages.sortOrder))
+    .limit(1);
+  return stage ?? null;
 }
 
 async function applyAccessRequestDecision({
@@ -3605,6 +3649,17 @@ export async function registerRoutes(
         });
       }
 
+      const rawUserCount = Number(
+        req.body.user_count_estimate ?? req.body.userCountEstimate ?? 0,
+      );
+      const userCountEstimate =
+        Number.isFinite(rawUserCount) && rawUserCount > 0
+          ? Math.min(10000, Math.floor(rawUserCount))
+          : null;
+
+      const sliceStr = (v: unknown, max: number) =>
+        typeof v === "string" && v.length > 0 ? v.slice(0, max) : null;
+
       const parsed = insertAccessRequestSchema.safeParse({
         fullName: req.body.full_name,
         email: req.body.email,
@@ -3614,12 +3669,22 @@ export async function registerRoutes(
         message: req.body.message,
         brregVerified: req.body.brreg_verified,
         institutionType: req.body.institution_type,
+        userCountEstimate,
+        // Lead-source attribution — captured client-side from URL+document.referrer
+        source:        sliceStr(req.body.source, 80),
+        utmSource:     sliceStr(req.body.utm_source ?? req.body.utmSource, 120),
+        utmMedium:     sliceStr(req.body.utm_medium ?? req.body.utmMedium, 120),
+        utmCampaign:   sliceStr(req.body.utm_campaign ?? req.body.utmCampaign, 200),
+        utmContent:    sliceStr(req.body.utm_content ?? req.body.utmContent, 200),
+        utmTerm:       sliceStr(req.body.utm_term ?? req.body.utmTerm, 200),
+        referrer:      sliceStr(req.body.referrer, 500),
+        landingPath:   sliceStr(req.body.landing_path ?? req.body.landingPath, 200),
       });
 
       if (!parsed.success) {
-        return res.status(400).json({ 
-          error: "Validation failed", 
-          details: parsed.error.flatten().fieldErrors 
+        return res.status(400).json({
+          error: "Validation failed",
+          details: parsed.error.flatten().fieldErrors
         });
       }
 
@@ -3633,14 +3698,31 @@ export async function registerRoutes(
         .limit(1);
 
       if (existing) {
-        return res.status(400).json({ 
-          error: "Du har allerede en aktiv foresporsel. Vent pa godkjenning." 
+        return res.status(400).json({
+          error: "Du har allerede en aktiv foresporsel. Vent pa godkjenning."
         });
       }
 
+      // Snapshot tier + apply routing rules + assign initial pipeline stage.
+      // All driven by DB so admin can change tiers/routing/stages without
+      // touching code (see /admin/salg).
+      const [tierSnapshot, routingRule, initialStage] = await Promise.all([
+        userCountEstimate ? findTierForCount(userCountEstimate) : Promise.resolve(null),
+        userCountEstimate ? findRoutingForCount(userCountEstimate) : Promise.resolve(null),
+        findInitialPipelineStage(),
+      ]);
+
+      const insertValues: any = {
+        ...parsed.data,
+        tierSnapshotId: tierSnapshot?.id ?? null,
+        pipelineStageId: initialStage?.id ?? null,
+        assignedToEmail: routingRule?.assigneeEmail ?? null,
+        assignedToLabel: routingRule?.assigneeLabel ?? null,
+      };
+
       const [request] = await db
         .insert(accessRequests)
-        .values(parsed.data)
+        .values(insertValues)
         .returning();
 
       await notifyTidumSupportAboutAccessRequest(request);
@@ -3652,6 +3734,23 @@ export async function registerRoutes(
       await syncTidumAccessRequestToCreatorhub(
         buildTidumAccessRequestSyncPayload(request),
       );
+
+      // Notify the assigned segment owner (SDR/AE/Founder) if routing
+      // matched a rule with an email. Failure is non-fatal.
+      if (routingRule?.assigneeEmail) {
+        try {
+          await emailService.sendLeadAssignmentEmail({
+            to: routingRule.assigneeEmail,
+            assigneeLabel: routingRule.assigneeLabel,
+            lead: request,
+            tierLabel: tierSnapshot?.label ?? null,
+            userCount: userCountEstimate,
+            responseTimeHours: routingRule.responseTimeHours ?? 24,
+          });
+        } catch (err) {
+          console.error("Lead assignment email failed (non-fatal):", err);
+        }
+      }
 
       res.status(201).json({ success: true, id: request.id });
     } catch (error: any) {
@@ -6394,6 +6493,9 @@ export async function registerRoutes(
   registerForwardRoutes(app);
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
+  registerPricingRoutes(app);
+  registerAnalyticsRoutes(app);
+  registerStripeRoutes(app);
 
   // Rapport-system routes
   app.use("/api/saker", sakerRouter);

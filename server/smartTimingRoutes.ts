@@ -2962,6 +2962,16 @@ export function registerSmartTimingRoutes(app: Express) {
         subtitle: 'Vilkår for bruk av Tidum',
         content: '## 1. Aksept av vilkår\nVed å bruke Tidum, levert av Creatorhub AS, aksepterer du disse brukervilkårene.',
         last_updated: new Date().toLocaleDateString('nb-NO', { day: 'numeric', month: 'long', year: 'numeric' })
+      },
+      pricing: {
+        title: 'Priser',
+        subtitle: 'Per bruker per måned, fakturert årlig forskuddsvis. Større team får lavere pris per bruker. Velg antall ansatte under for å se hva det vil koste dere.',
+        calculator_title: 'Hva koster Tidum for dere?',
+        calculator_user_label: 'Antall brukere',
+        cta_request_access: 'Be om tilgang',
+        cta_enterprise: 'Be om Enterprise-tilbud',
+        cta_contact_sales: 'Kontakt salg',
+        footer_note: 'Faktureres årlig forskuddsvis. Bindingstid fra første dag. Avtalen fornyes automatisk; oppsigelse må sendes skriftlig før utløp. Vikarer og sesongarbeidere kan dekkes som Flex-brukere uten å belaste tier-båndet.',
       }
     };
     return defaults[pageType];
@@ -2970,7 +2980,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/pages/:pageType", async (req, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms'];
+      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }
@@ -3000,7 +3010,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/pages/:pageType", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms'];
+      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }

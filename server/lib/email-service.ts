@@ -1110,6 +1110,65 @@ export class EmailService {
   }
 
   /**
+   * Notify the assigned segment owner (SDR/AE/Founder) about a new lead.
+   * Routing rule + assignee email come from sales_routing_rules (DB).
+   */
+  async sendLeadAssignmentEmail({
+    to, assigneeLabel, lead, tierLabel, userCount, responseTimeHours,
+  }: {
+    to: string;
+    assigneeLabel: string;
+    lead: { id: number; fullName: string; email: string; company?: string | null; phone?: string | null; orgNumber?: string | null; institutionType?: string | null; message?: string | null };
+    tierLabel: string | null;
+    userCount: number | null;
+    responseTimeHours: number;
+  }): Promise<boolean> {
+    const appUrl = getAppBaseUrl();
+    const summaryRows: Array<[string, string]> = [
+      ["Bedrift", lead.company || "Ikke oppgitt"],
+      ["Org.nr", lead.orgNumber || "Ikke oppgitt"],
+      ["Kontaktperson", lead.fullName],
+      ["E-post", lead.email],
+      ["Telefon", lead.phone || "Ikke oppgitt"],
+      ["Type virksomhet", lead.institutionType || "Ikke oppgitt"],
+      ["Brukerantall", userCount ? String(userCount) : "Ikke oppgitt"],
+      ["Tier", tierLabel || "Ikke matchet"],
+      ["Responstid (mål)", `${responseTimeHours} timer`],
+    ];
+    const tableHtml = summaryRows
+      .map(([k, v]) => `<tr><td style="padding:6px 12px;color:#6a7f84;">${k}</td><td style="padding:6px 12px;color:#16343d;font-weight:600;">${v}</td></tr>`)
+      .join("");
+
+    return this.sendEmail({
+      to,
+      replyTo: lead.email,
+      subject: `[${assigneeLabel}] Nytt lead: ${lead.company || lead.fullName} (${userCount ?? "?"} brukere)`,
+      html: renderTidumEmail({
+        badge: `Tidum Salg — ${assigneeLabel}`,
+        title: "Nytt lead tildelt deg",
+        intro: `Et nytt lead matcher tier-båndet du eier. Mål-responstid: ${responseTimeHours} timer.`,
+        bodyHtml: `
+          <table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.7;background:#f6fbf8;border:1px solid #d9e8e1;border-radius:14px;overflow:hidden;">
+            ${tableHtml}
+          </table>
+          ${lead.message ? `<div style="margin-top:18px;padding:14px;background:#fffaf1;border:1px solid #f0dfb8;border-radius:12px;color:#5f5441;font-size:14px;line-height:1.7;"><strong>Melding fra kunden:</strong><br>${lead.message}</div>` : ""}
+        `,
+        ctaLabel: "Åpne lead i admin",
+        ctaUrl: `${appUrl}/admin/leads/${lead.id}`,
+      }),
+      text: [
+        `Nytt lead tildelt ${assigneeLabel}`,
+        `Mål-responstid: ${responseTimeHours} timer`,
+        "",
+        ...summaryRows.map(([k, v]) => `${k}: ${v}`),
+        lead.message ? `\nMelding: ${lead.message}` : "",
+        "",
+        `Åpne i admin: ${appUrl}/admin/leads/${lead.id}`,
+      ].filter(Boolean).join("\n"),
+    });
+  }
+
+  /**
    * Test email configuration
    */
   async testConnection(): Promise<boolean> {

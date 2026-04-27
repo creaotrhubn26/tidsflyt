@@ -61,6 +61,19 @@ const AdminTesterFeedback = lazy(() => import("@/pages/admin-tester-feedback"));
 const InstitutionsPage = lazy(() => import("@/pages/institutions"));
 const AdminRapportTemplatesPage = lazy(() => import("@/pages/admin-rapport-templates"));
 const AdminRapportTemplateEditPage = lazy(() => import("@/pages/admin-rapport-template-edit"));
+const Pricing = lazy(() => import("@/pages/pricing"));
+const AdminSalg = lazy(() => import("@/pages/admin-salg"));
+const AdminSalgTiers = lazy(() => import("@/pages/admin-salg-tiers"));
+const AdminSalgSettings = lazy(() => import("@/pages/admin-salg-settings"));
+const AdminSalgRouting = lazy(() => import("@/pages/admin-salg-routing"));
+const AdminSalgScripts = lazy(() => import("@/pages/admin-salg-scripts"));
+const AdminSalgContracts = lazy(() => import("@/pages/admin-salg-contracts"));
+const AdminSalgPipeline = lazy(() => import("@/pages/admin-salg-pipeline"));
+const AdminSalgInclusions = lazy(() => import("@/pages/admin-salg-inclusions"));
+const AdminSalgAnalytics = lazy(() => import("@/pages/admin-salg-analytics"));
+const AdminSalgSidetekster = lazy(() => import("@/pages/admin-salg-sidetekster"));
+const AdminSalgStripe = lazy(() => import("@/pages/admin-salg-stripe"));
+const AdminLeads = lazy(() => import("@/pages/admin-leads"));
 const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashboard"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 
@@ -109,6 +122,8 @@ function Router() {
         {/* Public routes */}
         <Route path="/" component={Landing} />
         <Route path="/kontakt" component={Contact} />
+        <Route path="/priser" component={Pricing} />
+        <Route path="/pricing" component={Pricing} />
         <Route path="/privacy" component={Privacy} />
         <Route path="/personvern" component={Privacy} />
         <Route path="/privacy-policy" component={Privacy} />
@@ -169,6 +184,20 @@ function Router() {
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
         <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
         <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+
+        {/* Salg & Priser (super-admin only) */}
+        <Route path="/admin/salg">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalg /></AuthGuard>}</Route>
+        <Route path="/admin/salg/tiers">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgTiers /></AuthGuard>}</Route>
+        <Route path="/admin/salg/innstillinger">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgSettings /></AuthGuard>}</Route>
+        <Route path="/admin/salg/inclusions">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgInclusions /></AuthGuard>}</Route>
+        <Route path="/admin/salg/routing">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgRouting /></AuthGuard>}</Route>
+        <Route path="/admin/salg/scripts">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgScripts /></AuthGuard>}</Route>
+        <Route path="/admin/salg/kontrakter">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgContracts /></AuthGuard>}</Route>
+        <Route path="/admin/salg/pipeline">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgPipeline /></AuthGuard>}</Route>
+        <Route path="/admin/salg/analytics">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgAnalytics /></AuthGuard>}</Route>
+        <Route path="/admin/salg/sidetekster">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgSidetekster /></AuthGuard>}</Route>
+        <Route path="/admin/salg/stripe">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgStripe /></AuthGuard>}</Route>
+        <Route path="/admin/leads">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminLeads /></AuthGuard>}</Route>
 
         <Route component={NotFound} />
       </Switch>

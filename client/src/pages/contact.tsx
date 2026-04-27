@@ -3,10 +3,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Mail, Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2, Newspaper } from "lucide-react";
+import { Slider } from "@/components/ui/slider";
+import { Badge } from "@/components/ui/badge";
+import { Mail, Phone, MapPin, ArrowLeft, Send, Building2, CheckCircle2, Loader2, Newspaper, Sparkles } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useToast } from "@/hooks/use-toast";
 import { tidumPageStyles } from "@/lib/tidum-page-styles";
 import { useSEO } from "@/hooks/use-seo";
@@ -40,6 +42,33 @@ interface BrregCompany {
     postnummer?: string;
     poststed?: string;
   };
+}
+
+interface PricingTierMin {
+  id: number;
+  slug: string;
+  label: string;
+  minUsers: number;
+  maxUsers: number | null;
+  pricePerUserOre: number;
+  onboardingOre: number;
+  bindingMonths: number;
+  isEnterprise: boolean;
+}
+
+interface PricingResp {
+  tiers: PricingTierMin[];
+  settings: {
+    currency: string;
+    sweetSpotUsers: number;
+    sweetSpotLabel: string;
+    minUsersFloor: number;
+    maxUsersSlider: number;
+  };
+}
+
+function fmtKr(n: number): string {
+  return new Intl.NumberFormat("no-NO").format(Math.round(n));
 }
 
 export default function Contact() {
@@ -79,6 +108,64 @@ export default function Contact() {
     message: "",
     institutionType: "" as "" | "privat" | "offentlig" | "nav",
   });
+
+  // Read ?users= prefill from /priser → /kontakt
+  const initialUsers = (() => {
+    if (typeof window === "undefined") return 30;
+    const params = new URLSearchParams(window.location.search);
+    const u = parseInt(params.get("users") || "");
+    return Number.isFinite(u) && u > 0 ? u : 30;
+  })();
+  const [userCount, setUserCount] = useState<number>(initialUsers);
+
+  // Capture lead-source attribution once on mount.
+  // UTM tags from URL + document.referrer for Power-BI-style source tracking.
+  const [leadAttribution] = useState(() => {
+    if (typeof window === "undefined") return {};
+    const params = new URLSearchParams(window.location.search);
+    return {
+      utm_source: params.get("utm_source") || null,
+      utm_medium: params.get("utm_medium") || null,
+      utm_campaign: params.get("utm_campaign") || null,
+      utm_content: params.get("utm_content") || null,
+      utm_term: params.get("utm_term") || null,
+      referrer: document.referrer || null,
+      landing_path: window.location.pathname || null,
+      source: params.get("source") || params.get("utm_source") || (document.referrer ? "referral" : "direct"),
+    };
+  });
+
+  const { data: pricingData } = useQuery<PricingResp>({
+    queryKey: ["/api/pricing/tiers"],
+  });
+  const pricingSettings = pricingData?.settings;
+  const sliderMin = pricingSettings?.minUsersFloor ?? 5;
+  const sliderMax = pricingSettings?.maxUsersSlider ?? 200;
+  const sweetSpotUsers = pricingSettings?.sweetSpotUsers ?? 30;
+  const tiers = pricingData?.tiers ?? [];
+
+  const liveQuote = useMemo(() => {
+    if (!tiers.length) return null;
+    const tier = tiers.find((t) => {
+      const inMin = userCount >= t.minUsers;
+      const inMax = t.maxUsers == null || userCount <= t.maxUsers;
+      return inMin && inMax;
+    }) ?? null;
+    if (!tier) return null;
+    if (tier.isEnterprise) {
+      return { tier, isEnterprise: true, annualKr: 0, totalY1Kr: 0, isSweetSpot: false };
+    }
+    const pricePerUserKr = Math.round(tier.pricePerUserOre / 100);
+    const annualKr = pricePerUserKr * userCount * 12;
+    const onboardingKr = Math.round(tier.onboardingOre / 100);
+    return {
+      tier,
+      isEnterprise: false,
+      annualKr,
+      totalY1Kr: annualKr + onboardingKr,
+      isSweetSpot: userCount === sweetSpotUsers,
+    };
+  }, [tiers, userCount, sweetSpotUsers]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [formLoadTime] = useState(() => Date.now());
@@ -196,6 +283,21 @@ export default function Contact() {
       has_org_number: Boolean(formData.orgNumber),
       has_website: Boolean(formData.website),
       has_phone: Boolean(formData.phone),
+      // Pricing-context — lets GA/GTM connect lead to estimated value
+      user_count: userCount,
+      tier_slug: liveQuote?.tier?.slug ?? null,
+      tier_label: liveQuote?.tier?.label ?? null,
+      annual_total_kr: liveQuote?.isEnterprise ? null : liveQuote?.annualKr ?? null,
+      total_year_one_kr: liveQuote?.isEnterprise ? null : liveQuote?.totalY1Kr ?? null,
+      is_enterprise: liveQuote?.isEnterprise ?? false,
+      // Source attribution — same fields we send server-side
+      utm_source:   leadAttribution.utm_source,
+      utm_medium:   leadAttribution.utm_medium,
+      utm_campaign: leadAttribution.utm_campaign,
+      utm_content:  leadAttribution.utm_content,
+      utm_term:     leadAttribution.utm_term,
+      referrer:     leadAttribution.referrer,
+      source:       leadAttribution.source,
     };
 
     if (turnstileSiteKey && !turnstileToken) {
@@ -221,6 +323,8 @@ export default function Contact() {
           message: formData.message || formData.subject,
           brreg_verified: brregVerified,
           institution_type: formData.institutionType || null,
+          user_count_estimate: userCount,
+          ...leadAttribution,
           turnstile_token: turnstileToken,
           _honeypot: honeypot,
           _timestamp: formLoadTime,
@@ -555,6 +659,59 @@ export default function Contact() {
                       <option value="offentlig">Offentlig institusjon</option>
                       <option value="nav">NAV / BUFetat</option>
                     </select>
+                  </div>
+
+                  {/* User-count slider with live price quote.
+                      Tiers + sweet spot komes fra DB (admin-editable) */}
+                  <div className="space-y-3 rounded-2xl border border-[#BFD7CC] bg-[#F2F8F5]/60 p-4">
+                    <div className="flex items-baseline justify-between">
+                      <Label className="text-[#223238]">
+                        Antall brukere dere ser for dere *
+                      </Label>
+                      <span className="text-2xl font-semibold tabular-nums text-[#0E4852]" data-testid="text-user-count">
+                        {userCount}
+                      </span>
+                    </div>
+                    <Slider
+                      value={[userCount]}
+                      min={sliderMin}
+                      max={sliderMax}
+                      step={1}
+                      onValueChange={(v) => setUserCount(v[0])}
+                      data-testid="slider-user-count"
+                    />
+                    <div className="flex justify-between text-xs text-[#5B686B]">
+                      <span>{sliderMin} brukere</span>
+                      <span>{sliderMax}+ (Enterprise)</span>
+                    </div>
+
+                    {liveQuote && (
+                      <div className="mt-2 border-t border-[#BFD7CC]/60 pt-3 text-sm leading-relaxed text-[#20434A]">
+                        {liveQuote.isEnterprise ? (
+                          <div className="flex items-start gap-2">
+                            <Sparkles className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#1F6B73]" />
+                            <span>
+                              <strong>Enterprise.</strong> Tilpasset tilbud — vi kontakter deg innen kort tid.
+                            </span>
+                          </div>
+                        ) : (
+                          <div>
+                            For <strong>{userCount} brukere</strong> ligger Tidum på rundt{" "}
+                            <strong>{fmtKr(liveQuote.annualKr)} kr/år</strong>
+                            {liveQuote.isSweetSpot && (
+                              <Badge className="ml-2 bg-[#1F6B73]/15 text-[#1F6B73]">
+                                {pricingSettings?.sweetSpotLabel ?? "sweet spot"}
+                              </Badge>
+                            )}
+                            . Inkludert onboarding første år: <strong>{fmtKr(liveQuote.totalY1Kr)} kr</strong>.
+                            <span className="mt-1 block text-xs text-[#5B686B]">
+                              Endelig pris bekreftes etter behovssamtale. Se{" "}
+                              <Link href="/priser" className="underline">prisoversikt</Link>.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
