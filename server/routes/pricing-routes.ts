@@ -9,7 +9,7 @@ import {
   salgSettings,
   salesRoutingRules,
   salesScriptBlocks,
-  salgSalgContractTemplates,
+  salgContractTemplates,
   leadPipelineStages,
   accessRequests,
 } from "@shared/schema";
@@ -22,6 +22,7 @@ import {
   loadSalgSettings,
 } from "../lib/pricing-service";
 import { renderContract } from "../lib/contract-renderer";
+import { renderContractPdf } from "../lib/contract-pdf";
 
 const upsertTierSchema = z.object({
   slug: z.string().min(1).max(64),
@@ -405,8 +406,8 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const rows = await db
         .select()
-        .from(salgSalgContractTemplates)
-        .orderBy(desc(salgSalgContractTemplates.isDefault), desc(salgSalgContractTemplates.updatedAt));
+        .from(salgContractTemplates)
+        .orderBy(desc(salgContractTemplates.isDefault), desc(salgContractTemplates.updatedAt));
       res.json(rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -419,9 +420,9 @@ export function registerPricingRoutes(app: Express): void {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
       // Only one default at a time
       if (parsed.data.isDefault) {
-        await db.update(salgSalgContractTemplates).set({ isDefault: false });
+        await db.update(salgContractTemplates).set({ isDefault: false });
       }
-      const [created] = await db.insert(salgSalgContractTemplates).values(parsed.data).returning();
+      const [created] = await db.insert(salgContractTemplates).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -435,14 +436,14 @@ export function registerPricingRoutes(app: Express): void {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
       if (parsed.data.isDefault === true) {
         await db
-          .update(salgSalgContractTemplates)
+          .update(salgContractTemplates)
           .set({ isDefault: false })
-          .where(ne(salgSalgContractTemplates.id, id));
+          .where(ne(salgContractTemplates.id, id));
       }
       const [updated] = await db
-        .update(salgSalgContractTemplates)
+        .update(salgContractTemplates)
         .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(salgSalgContractTemplates.id, id))
+        .where(eq(salgContractTemplates.id, id))
         .returning();
       res.json(updated);
     } catch (err: any) {
@@ -452,7 +453,7 @@ export function registerPricingRoutes(app: Express): void {
 
   app.delete("/api/admin/contracts/templates/:id", requireSuperAdmin, async (req, res) => {
     try {
-      await db.delete(salgSalgContractTemplates).where(eq(salgSalgContractTemplates.id, Number(req.params.id)));
+      await db.delete(salgContractTemplates).where(eq(salgContractTemplates.id, Number(req.params.id)));
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -466,8 +467,8 @@ export function registerPricingRoutes(app: Express): void {
       const id = Number(req.params.id);
       const [template] = await db
         .select()
-        .from(salgSalgContractTemplates)
-        .where(eq(salgSalgContractTemplates.id, id))
+        .from(salgContractTemplates)
+        .where(eq(salgContractTemplates.id, id))
         .limit(1);
       if (!template) return res.status(404).json({ error: "Template not found" });
       const userCount = Number(req.body?.userCount ?? 30);
@@ -709,15 +710,15 @@ export function registerPricingRoutes(app: Express): void {
       if (templateId) {
         const [t] = await db
           .select()
-          .from(salgSalgContractTemplates)
-          .where(eq(salgSalgContractTemplates.id, templateId))
+          .from(salgContractTemplates)
+          .where(eq(salgContractTemplates.id, templateId))
           .limit(1);
         template = t;
       } else {
         const [t] = await db
           .select()
-          .from(salgSalgContractTemplates)
-          .where(and(eq(salgSalgContractTemplates.isDefault, true), eq(salgSalgContractTemplates.isActive, true)))
+          .from(salgContractTemplates)
+          .where(and(eq(salgContractTemplates.isDefault, true), eq(salgContractTemplates.isActive, true)))
           .limit(1);
         template = t;
       }
@@ -736,6 +737,46 @@ export function registerPricingRoutes(app: Express): void {
       res.json({ rendered, templateId: template.id, templateName: template.name });
     } catch (err: any) {
       console.error("generate-contract error:", err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // PDF-versjon av samme kontrakt — for nedlasting / signering
+  app.get("/api/admin/leads/:id/contract.pdf", requireSuperAdmin, async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const [lead] = await db
+        .select()
+        .from(accessRequests)
+        .where(eq(accessRequests.id, id))
+        .limit(1);
+      if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+      const templateId = req.query.templateId ? Number(req.query.templateId) : null;
+      const [template] = templateId
+        ? await db.select().from(salgContractTemplates)
+            .where(eq(salgContractTemplates.id, templateId)).limit(1)
+        : await db.select().from(salgContractTemplates)
+            .where(and(eq(salgContractTemplates.isDefault, true), eq(salgContractTemplates.isActive, true)))
+            .limit(1);
+      if (!template) return res.status(404).json({ error: "No contract template available" });
+
+      const userCount = lead.userCountEstimate || Number(req.query.userCount) || 30;
+      const customerName = lead.company || lead.fullName;
+      const pdf = await renderContractPdf({
+        template,
+        userCount,
+        customer: { name: customerName, orgNumber: lead.orgNumber || "" },
+      });
+
+      const safeName = customerName.replace(/[^\w\d_-]+/g, "-").slice(0, 50) || "kontrakt";
+      const filename = `Tidum-avtale-${safeName}-${id}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", String(pdf.length));
+      res.send(pdf);
+    } catch (err: any) {
+      console.error("contract-pdf error:", err);
       res.status(500).json({ error: err.message });
     }
   });

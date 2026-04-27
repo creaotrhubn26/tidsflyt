@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { ArrowLeft, FileText, Filter, Mail, Phone, Building2, CreditCard, Copy } from "lucide-react";
+import { ArrowLeft, FileText, Filter, Mail, Phone, Building2, CreditCard, Copy, FileDown } from "lucide-react";
 
 interface Lead {
   id: number;
@@ -355,8 +355,17 @@ export default function AdminLeads() {
             <Button variant="outline" onClick={() => selected && generateContract.mutate(selected.id)}
               disabled={generateContract.isPending}>
               <FileText className="mr-2 h-4 w-4" />
-              {generateContract.isPending ? "Genererer…" : "Generer kontrakt"}
+              {generateContract.isPending ? "Genererer…" : "Forhåndsvis kontrakt"}
             </Button>
+            <a
+              href={selected ? `/api/admin/leads/${selected.id}/contract.pdf` : "#"}
+              download
+              onClick={(e) => { if (!selected) e.preventDefault(); }}
+            >
+              <Button variant="outline">
+                <FileDown className="mr-2 h-4 w-4" />Last ned PDF
+              </Button>
+            </a>
             <Button variant="outline"
               onClick={() => selected && checkoutLink.mutate({ leadId: selected.id, priceMode: "annual" })}
               disabled={checkoutLink.isPending}>

@@ -2223,7 +2223,7 @@ export const salesScriptBlocks = pgTable("sales_script_blocks", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const salgSalgContractTemplates = pgTable("salg_contract_templates", {
+export const salgContractTemplates = pgTable("salg_contract_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   version: integer("version").notNull().default(1),
@@ -2256,8 +2256,8 @@ export type SalesRoutingRule = typeof salesRoutingRules.$inferSelect;
 export type InsertSalesRoutingRule = typeof salesRoutingRules.$inferInsert;
 export type SalesScriptBlock = typeof salesScriptBlocks.$inferSelect;
 export type InsertSalesScriptBlock = typeof salesScriptBlocks.$inferInsert;
-export type SalgContractTemplate = typeof salgSalgContractTemplates.$inferSelect;
-export type InsertSalgContractTemplate = typeof salgSalgContractTemplates.$inferInsert;
+export type SalgContractTemplate = typeof salgContractTemplates.$inferSelect;
+export type InsertSalgContractTemplate = typeof salgContractTemplates.$inferInsert;
 export type LeadPipelineStage = typeof leadPipelineStages.$inferSelect;
 export type InsertLeadPipelineStage = typeof leadPipelineStages.$inferInsert;
 
