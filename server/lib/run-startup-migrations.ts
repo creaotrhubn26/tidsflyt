@@ -9,6 +9,8 @@ const STARTUP_MIGRATIONS: string[] = [
   "036_pricing_sales.sql",
   "037_revenue_analytics.sql",
   "038_stripe_and_brand.sql",
+  "039_dpa_template.sql",
+  "040_email_templates.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { useQuery } from "@tanstack/react-query";
 import {
   TrendingUp, Tag, Settings as SettingsIcon, Route as RouteIcon,
-  MessageSquare, FileText, Workflow, ListChecks, Users, BarChart3, Type, CreditCard,
+  MessageSquare, FileText, Workflow, ListChecks, Users, BarChart3, Type, CreditCard, Mail,
 } from "lucide-react";
 
 interface PipelineSummary {
@@ -28,6 +28,7 @@ const SECTIONS = [
   { href: "/admin/salg/pipeline",      icon: Workflow,      label: "Pipeline-stages",  desc: "Stages + sannsynlighet for ARR-prognose" },
   { href: "/admin/salg/sidetekster",   icon: Type,          label: "Sidetekster",      desc: "Tittel, undertittel og CTA-tekst på /priser (CMS)" },
   { href: "/admin/salg/stripe",        icon: CreditCard,    label: "Stripe-integrasjon", desc: "Sync tiers til Stripe Products + checkout-link generator" },
+  { href: "/admin/salg/emails",        icon: Mail,          label: "E-postmaler",      desc: "Brevtekst for lead-tildeling, kvitteringer, godkjenning/avslag" },
 ];
 
 export default function AdminSalg() {

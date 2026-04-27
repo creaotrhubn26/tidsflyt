@@ -73,6 +73,7 @@ const AdminSalgInclusions = lazy(() => import("@/pages/admin-salg-inclusions"));
 const AdminSalgAnalytics = lazy(() => import("@/pages/admin-salg-analytics"));
 const AdminSalgSidetekster = lazy(() => import("@/pages/admin-salg-sidetekster"));
 const AdminSalgStripe = lazy(() => import("@/pages/admin-salg-stripe"));
+const AdminSalgEmails = lazy(() => import("@/pages/admin-salg-emails"));
 const AdminLeads = lazy(() => import("@/pages/admin-leads"));
 const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashboard"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
@@ -197,6 +198,7 @@ function Router() {
         <Route path="/admin/salg/analytics">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgAnalytics /></AuthGuard>}</Route>
         <Route path="/admin/salg/sidetekster">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgSidetekster /></AuthGuard>}</Route>
         <Route path="/admin/salg/stripe">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgStripe /></AuthGuard>}</Route>
+        <Route path="/admin/salg/emails">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalgEmails /></AuthGuard>}</Route>
         <Route path="/admin/leads">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminLeads /></AuthGuard>}</Route>
 
         <Route component={NotFound} />

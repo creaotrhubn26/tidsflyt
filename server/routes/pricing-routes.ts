@@ -12,6 +12,7 @@ import {
   salgContractTemplates,
   leadPipelineStages,
   accessRequests,
+  salgEmailTemplates,
 } from "@shared/schema";
 import { requireSuperAdmin } from "../custom-auth";
 import { publicReadRateLimit } from "../rate-limit";
@@ -82,6 +83,20 @@ const upsertStageSchema = z.object({
   isTerminal: z.boolean().default(false),
   isWon: z.boolean().default(false),
   sortOrder: z.number().int(),
+  isActive: z.boolean().default(true),
+});
+
+const upsertEmailTemplateSchema = z.object({
+  slug: z.string().min(1).max(64),
+  name: z.string().min(1).max(200),
+  description: z.string().nullable().optional(),
+  subject: z.string().min(1).max(500),
+  badge: z.string().min(1).max(80).default("Tidum"),
+  title: z.string().min(1).max(200),
+  intro: z.string().min(1),
+  bodyMd: z.string().min(1),
+  ctaLabel: z.string().nullable().optional(),
+  ctaUrl: z.string().nullable().optional(),
   isActive: z.boolean().default(true),
 });
 
@@ -482,6 +497,57 @@ export function registerPricingRoutes(app: Express): void {
         customer,
       });
       res.json({ rendered });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ============================================================
+  // ADMIN API — e-postmaler
+  // ============================================================
+
+  app.get("/api/admin/email-templates", requireSuperAdmin, async (_req, res) => {
+    try {
+      const rows = await db
+        .select()
+        .from(salgEmailTemplates)
+        .orderBy(asc(salgEmailTemplates.slug));
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/email-templates", requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = upsertEmailTemplateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const [created] = await db.insert(salgEmailTemplates).values(parsed.data).returning();
+      res.status(201).json(created);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/admin/email-templates/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = upsertEmailTemplateSchema.partial().safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const [updated] = await db
+        .update(salgEmailTemplates)
+        .set({ ...parsed.data, updatedAt: new Date() })
+        .where(eq(salgEmailTemplates.id, Number(req.params.id)))
+        .returning();
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/admin/email-templates/:id", requireSuperAdmin, async (req, res) => {
+    try {
+      await db.delete(salgEmailTemplates).where(eq(salgEmailTemplates.id, Number(req.params.id)));
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

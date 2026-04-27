@@ -39,6 +39,15 @@ interface Lead {
   expected_close_date: string | null;
   status: string;
   created_at: string;
+  // Lead-source attribution
+  source: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+  referrer: string | null;
+  landing_path: string | null;
 }
 
 interface Stage {
@@ -304,6 +313,48 @@ export default function AdminLeads() {
                 <div className="rounded border bg-yellow-50 p-3 text-sm">
                   <div className="text-xs font-medium text-muted-foreground">Melding fra kunde</div>
                   <div className="mt-1 whitespace-pre-wrap">{selected.message}</div>
+                </div>
+              )}
+
+              {(selected.source || selected.utm_source || selected.referrer) && (
+                <div className="space-y-2 rounded border bg-muted/30 p-3 text-sm">
+                  <div className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                    Kilde / attribusjon
+                  </div>
+                  <dl className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-1 text-sm">
+                    {selected.source && (<>
+                      <dt className="text-muted-foreground">Source:</dt>
+                      <dd className="font-mono text-xs">{selected.source}</dd>
+                    </>)}
+                    {selected.utm_source && (<>
+                      <dt className="text-muted-foreground">UTM source:</dt>
+                      <dd className="font-mono text-xs">{selected.utm_source}</dd>
+                    </>)}
+                    {selected.utm_medium && (<>
+                      <dt className="text-muted-foreground">UTM medium:</dt>
+                      <dd className="font-mono text-xs">{selected.utm_medium}</dd>
+                    </>)}
+                    {selected.utm_campaign && (<>
+                      <dt className="text-muted-foreground">UTM campaign:</dt>
+                      <dd className="font-mono text-xs">{selected.utm_campaign}</dd>
+                    </>)}
+                    {selected.utm_content && (<>
+                      <dt className="text-muted-foreground">UTM content:</dt>
+                      <dd className="font-mono text-xs">{selected.utm_content}</dd>
+                    </>)}
+                    {selected.utm_term && (<>
+                      <dt className="text-muted-foreground">UTM term:</dt>
+                      <dd className="font-mono text-xs">{selected.utm_term}</dd>
+                    </>)}
+                    {selected.referrer && (<>
+                      <dt className="text-muted-foreground">Referrer:</dt>
+                      <dd className="break-all font-mono text-xs">{selected.referrer}</dd>
+                    </>)}
+                    {selected.landing_path && (<>
+                      <dt className="text-muted-foreground">Landing:</dt>
+                      <dd className="font-mono text-xs">{selected.landing_path}</dd>
+                    </>)}
+                  </dl>
                 </div>
               )}
 

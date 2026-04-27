@@ -2,6 +2,7 @@ import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { getAppBaseUrl } from './app-base-url';
 import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
+import { renderEmailTemplate } from './email-template-renderer';
 
 interface EmailTemplate {
   subject: string;
@@ -113,6 +114,22 @@ function renderWarningBox(title: string, text: string): string {
       <p style="margin:10px 0 0;font-size:14px;line-height:1.7;color:#5f5441;">${text}</p>
     </div>
   `;
+}
+
+// Plain-text fallback for templated emails
+function stripHtml(html: string): string {
+  return html
+    .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+    .replace(/<li[^>]*>/gi, "  • ")
+    .replace(/<\/li>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function renderRoleBox(role: string, description: string): string {
@@ -597,32 +614,31 @@ export class EmailService {
     fullName: string,
     company?: string | null
   ): Promise<boolean> {
-    const companyLabel = company?.trim() || "virksomheten din";
+    const rendered = await renderEmailTemplate("access-request-received", {
+      kunde_navn: fullName,
+      kunde_company: company?.trim() || "virksomheten din",
+    });
+
+    if (!rendered) {
+      // Fallback hvis admin har deaktivert malen
+      return this.sendEmail({
+        to, replyTo: TIDUM_SUPPORT_EMAIL,
+        subject: "Vi har mottatt tilgangsforespørselen din",
+        text: `Hei ${fullName},\n\nVi har mottatt tilgangsforespørselen din. Vi sender neste steg så snart den er behandlet.`,
+      });
+    }
 
     return this.sendEmail({
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
-      subject: "Vi har mottatt tilgangsforespørselen din",
+      subject: rendered.subject,
       html: this.renderPanelEmail({
-        badge: "Tidum Access",
-        title: "Tilgangsforespørselen er mottatt",
-        intro: `Vi har registrert forespørselen din for ${companyLabel}.`,
-        bodyHtml: `
-          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${fullName},</p>
-          <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
-            Forespørselen din er sendt til vurdering. Når virksomheten er godkjent, sender vi deg neste steg for innlogging og oppsett.
-          </p>
-          <div style="padding:18px;border-radius:18px;background:#f6fbf8;border:1px solid #d9e8e1;">
-            <div style="font-size:13px;font-weight:700;color:#2a6b62;">Hva skjer nå</div>
-            <ul style="margin:12px 0 0;padding-left:18px;color:#587077;font-size:14px;line-height:1.8;">
-              <li>Vi går gjennom virksomhetsopplysningene</li>
-              <li>En super admin godkjenner eller følger opp forespørselen</li>
-              <li>Du får e-post så snart tilgangen er klar</li>
-            </ul>
-          </div>
-        `,
+        badge: rendered.badge,
+        title: rendered.title,
+        intro: rendered.intro,
+        bodyHtml: rendered.bodyHtml,
       }),
-      text: `Hei ${fullName},\n\nVi har mottatt tilgangsforespørselen din for ${companyLabel}.\n\nVi sender deg neste steg så snart den er behandlet.\n\nKontakt: ${TIDUM_SUPPORT_EMAIL}`,
+      text: `${rendered.title}\n\n${rendered.intro}\n\n${stripHtml(rendered.bodyHtml)}`,
     });
   }
 
@@ -1123,48 +1139,48 @@ export class EmailService {
     userCount: number | null;
     responseTimeHours: number;
   }): Promise<boolean> {
-    const appUrl = getAppBaseUrl();
-    const summaryRows: Array<[string, string]> = [
-      ["Bedrift", lead.company || "Ikke oppgitt"],
-      ["Org.nr", lead.orgNumber || "Ikke oppgitt"],
-      ["Kontaktperson", lead.fullName],
-      ["E-post", lead.email],
-      ["Telefon", lead.phone || "Ikke oppgitt"],
-      ["Type virksomhet", lead.institutionType || "Ikke oppgitt"],
-      ["Brukerantall", userCount ? String(userCount) : "Ikke oppgitt"],
-      ["Tier", tierLabel || "Ikke matchet"],
-      ["Responstid (mål)", `${responseTimeHours} timer`],
-    ];
-    const tableHtml = summaryRows
-      .map(([k, v]) => `<tr><td style="padding:6px 12px;color:#6a7f84;">${k}</td><td style="padding:6px 12px;color:#16343d;font-weight:600;">${v}</td></tr>`)
-      .join("");
+    const messageSection = lead.message
+      ? `> ${lead.message.replace(/\n/g, " ")}`
+      : "";
+
+    const rendered = await renderEmailTemplate("lead-assigned", {
+      assignee_label: assigneeLabel,
+      response_time_hours: String(responseTimeHours),
+      kunde_company: lead.company || lead.fullName,
+      kunde_navn: lead.fullName,
+      kunde_email: lead.email,
+      kunde_phone: lead.phone || "Ikke oppgitt",
+      kunde_org_nr: lead.orgNumber || "Ikke oppgitt",
+      kunde_institution: lead.institutionType || "Ikke oppgitt",
+      bruker_antall: userCount ? String(userCount) : "Ikke oppgitt",
+      tier_label: tierLabel || "Ikke matchet",
+      lead_source: "—",
+      lead_message_section: messageSection,
+      lead_id: String(lead.id),
+    });
+
+    if (!rendered) {
+      console.warn("lead-assigned template missing/inactive — using fallback");
+      return this.sendEmail({
+        to, replyTo: lead.email,
+        subject: `[${assigneeLabel}] Nytt lead: ${lead.company || lead.fullName}`,
+        text: `Nytt lead #${lead.id} tildelt ${assigneeLabel}. Åpne: ${getAppBaseUrl()}/admin/leads/${lead.id}`,
+      });
+    }
 
     return this.sendEmail({
       to,
       replyTo: lead.email,
-      subject: `[${assigneeLabel}] Nytt lead: ${lead.company || lead.fullName} (${userCount ?? "?"} brukere)`,
+      subject: rendered.subject,
       html: renderTidumEmail({
-        badge: `Tidum Salg — ${assigneeLabel}`,
-        title: "Nytt lead tildelt deg",
-        intro: `Et nytt lead matcher tier-båndet du eier. Mål-responstid: ${responseTimeHours} timer.`,
-        bodyHtml: `
-          <table style="width:100%;border-collapse:collapse;font-size:14px;line-height:1.7;background:#f6fbf8;border:1px solid #d9e8e1;border-radius:14px;overflow:hidden;">
-            ${tableHtml}
-          </table>
-          ${lead.message ? `<div style="margin-top:18px;padding:14px;background:#fffaf1;border:1px solid #f0dfb8;border-radius:12px;color:#5f5441;font-size:14px;line-height:1.7;"><strong>Melding fra kunden:</strong><br>${lead.message}</div>` : ""}
-        `,
-        ctaLabel: "Åpne lead i admin",
-        ctaUrl: `${appUrl}/admin/leads/${lead.id}`,
+        badge: rendered.badge,
+        title: rendered.title,
+        intro: rendered.intro,
+        bodyHtml: rendered.bodyHtml,
+        ctaLabel: rendered.ctaLabel ?? undefined,
+        ctaUrl: rendered.ctaUrl ?? undefined,
       }),
-      text: [
-        `Nytt lead tildelt ${assigneeLabel}`,
-        `Mål-responstid: ${responseTimeHours} timer`,
-        "",
-        ...summaryRows.map(([k, v]) => `${k}: ${v}`),
-        lead.message ? `\nMelding: ${lead.message}` : "",
-        "",
-        `Åpne i admin: ${appUrl}/admin/leads/${lead.id}`,
-      ].filter(Boolean).join("\n"),
+      text: `${rendered.title}\n\n${rendered.intro}\n\n${stripHtml(rendered.bodyHtml)}\n\n${rendered.ctaLabel && rendered.ctaUrl ? `${rendered.ctaLabel}: ${rendered.ctaUrl}` : ""}`,
     });
   }
 

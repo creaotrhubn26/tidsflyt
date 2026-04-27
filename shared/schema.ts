@@ -2286,3 +2286,27 @@ export const revenueEvents = pgTable("revenue_events", {
 
 export type RevenueEvent = typeof revenueEvents.$inferSelect;
 export type InsertRevenueEvent = typeof revenueEvents.$inferInsert;
+
+// ============================================================
+// E-postmaler (migration 040) — flytter brevtekst ut av kode
+// ============================================================
+
+export const salgEmailTemplates = pgTable("salg_email_templates", {
+  id: serial("id").primaryKey(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  subject: text("subject").notNull(),
+  badge: text("badge").notNull().default("Tidum"),
+  title: text("title").notNull(),
+  intro: text("intro").notNull(),
+  bodyMd: text("body_md").notNull(),
+  ctaLabel: text("cta_label"),
+  ctaUrl: text("cta_url"),
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export type SalgEmailTemplate = typeof salgEmailTemplates.$inferSelect;
+export type InsertSalgEmailTemplate = typeof salgEmailTemplates.$inferInsert;
