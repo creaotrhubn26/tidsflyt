@@ -1,10 +1,6 @@
-import { readFile, readdir } from "fs/promises";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+import { readFile } from "fs/promises";
+import { join } from "path";
 import { pool } from "../db";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Migrations to apply on every startup. All SQL must be idempotent
 // (CREATE TABLE IF NOT EXISTS, ON CONFLICT DO NOTHING, etc.) so they
@@ -16,7 +12,10 @@ const STARTUP_MIGRATIONS: string[] = [
 ];
 
 export async function runStartupMigrations(): Promise<void> {
-  const migrationsDir = join(__dirname, "..", "..", "migrations");
+  // Migrations live at <repo-root>/migrations/ in both dev (tsx from repo
+  // root) and prod (node dist/index.cjs from repo root). Don't use
+  // import.meta.url — esbuild bundles to CJS where it's undefined.
+  const migrationsDir = join(process.cwd(), "migrations");
 
   for (const filename of STARTUP_MIGRATIONS) {
     try {
