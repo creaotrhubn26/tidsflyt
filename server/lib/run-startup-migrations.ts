@@ -11,6 +11,9 @@ const STARTUP_MIGRATIONS: string[] = [
   "038_stripe_and_brand.sql",
   "039_dpa_template.sql",
   "040_email_templates.sql",
+  "041_access_request_hovedadmin.sql",
+  "042_employee_imports.sql",
+  "043_company_users_email_unique.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
