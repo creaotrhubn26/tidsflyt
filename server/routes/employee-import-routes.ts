@@ -33,6 +33,8 @@ import { emailService } from '../lib/email-service';
 import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 import { applyTierBump, type TierBumpResult } from '../lib/tier-bump';
 import { oreToKr } from '../lib/pricing-service';
+import { bumpStripeSubscriptionToNewTier, isStripeAutobumpEnabled, type StripeBumpResult } from '../lib/stripe-service';
+import { accessRequests } from '@shared/schema';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;     // 10 MB
 const MAX_ROWS = 10_000;
@@ -392,9 +394,10 @@ export function registerEmployeeImportRoutes(app: Express) {
         let imported = 0;
         let skipped = 0;
 
-        // Tier-bump-resultat blir tilgjengelig utenfor transaksjons-try-en for
-        // bruk i e-post-varslingene etterpå.
+        // Tier-bump + Stripe-bump-resultater blir tilgjengelig utenfor
+        // transaksjons-try-en for bruk i e-post-varslingene etterpå.
         let tierBump: TierBumpResult | null = null;
+        let stripeBump: StripeBumpResult | null = null;
 
         await client.query('BEGIN');
         try {
@@ -460,8 +463,8 @@ export function registerEmployeeImportRoutes(app: Express) {
             };
           }
 
-          // T14: tier-bump i DB. Stripe-prorering venter på T15.
-          // Best-effort — feil her skal ikke rolle tilbake importen.
+          // T14: tier-bump i DB. T15: Stripe-prorering hvis feature-flag PÅ.
+          // Best-effort på begge — feil her skal ikke rolle tilbake importen.
           if (seatWarning && imp.vendorId) {
             try {
               tierBump = await applyTierBump(imp.vendorId, seatWarning.will_have);
@@ -474,8 +477,37 @@ export function registerEmployeeImportRoutes(app: Express) {
                   to_tier_id:     tierBump.toTier.id,
                   to_tier_label:  tierBump.toTier.label,
                   applied_at:     new Date().toISOString(),
-                  stripe_pending: true,  // T15 fjerner dette flagget
+                  stripe_pending: true,  // settes false hvis Stripe-bump under lykkes
                 };
+
+                // T15: prøv å oppdatere Stripe-subscription med proration.
+                // Bare hvis TIDUM_STRIPE_AUTOBUMP=1 og kunden har en aktiv
+                // subscription. Default-OFF-flagget bygger inn sikkerhet
+                // mot at en ufullstendig pris-konfigurasjon påvirker fakturering.
+                try {
+                  const [activeSub] = await db
+                    .select({ subId: accessRequests.stripeSubscriptionId })
+                    .from(accessRequests)
+                    .where(and(
+                      eq(accessRequests.vendorId, imp.vendorId),
+                      eq(accessRequests.status, 'approved'),
+                    ))
+                    .orderBy(desc(accessRequests.createdAt))
+                    .limit(1);
+
+                  stripeBump = await bumpStripeSubscriptionToNewTier(
+                    activeSub?.subId ?? null,
+                    tierBump.toTier,
+                    seatWarning.will_have,
+                  );
+                  finalSummary.tier_bump.stripe_result = stripeBump;
+                  if (stripeBump.ok) {
+                    finalSummary.tier_bump.stripe_pending = false;
+                  }
+                } catch (stripeErr) {
+                  console.error('[imports] Stripe-bump feilet (ikke fatalt):', stripeErr);
+                  stripeBump = null;
+                }
               }
             } catch (bumpErr) {
               console.error('[imports] tier-bump feilet (ikke fatalt):', bumpErr);
@@ -528,9 +560,43 @@ export function registerEmployeeImportRoutes(app: Express) {
             }
 
             // 2) Daniel-varsel — beriket med tier-info og Stripe-status
-            const tierLine = tierBump?.changed
-              ? `Tier auto-oppgradert i DB: ${tierBump.fromTier?.label || '—'} → ${tierBump.toTier.label} (max_users: ${tierBump.vendorBefore.maxUsers ?? '—'} → ${tierBump.vendorAfter.maxUsers ?? '—'}). Stripe-subscription er IKKE auto-oppdatert ennå (T15).`
-              : 'Tier ikke endret — vendor allerede på riktig tier eller ingen tier matchet.';
+            let tierLine: string;
+            let stripeActionHtml: string;
+            let stripeActionText: string;
+            if (!tierBump?.changed) {
+              tierLine = 'Tier ikke endret — vendor allerede på riktig tier eller ingen tier matchet.';
+              stripeActionHtml = '';
+              stripeActionText = '';
+            } else if (stripeBump?.ok) {
+              tierLine = `Tier auto-oppgradert i DB: ${tierBump.fromTier?.label || '—'} → ${tierBump.toTier.label} (max_users: ${tierBump.vendorBefore.maxUsers ?? '—'} → ${tierBump.vendorAfter.maxUsers ?? '—'}). Stripe-subscription auto-oppdatert med proration.`;
+              stripeActionHtml = `
+                <div style="margin-top: 12px; padding: 12px; background: #f0fdf4; border-left: 3px solid #16a34a;">
+                  <strong>Stripe:</strong> Subscription ${stripeBump.subscription_id} oppdatert til pris ${stripeBump.new_price_id} (qty=${stripeBump.new_quantity}, ${stripeBump.interval}). ${stripeBump.invoice_id ? `Prorerings-invoice: ${stripeBump.invoice_id}.` : ''} Auto-prorering OK.
+                </div>`;
+              stripeActionText = `STRIPE: Subscription ${stripeBump.subscription_id} auto-oppdatert (pris=${stripeBump.new_price_id}, qty=${stripeBump.new_quantity}, ${stripeBump.interval}). ${stripeBump.invoice_id ? `Invoice ${stripeBump.invoice_id}.` : ''}`;
+            } else {
+              const reasonLabel = stripeBump?.reason === 'flag_off'
+                ? 'TIDUM_STRIPE_AUTOBUMP er av — manuell oppdatering kreves'
+                : stripeBump?.reason === 'no_subscription'
+                ? 'Vendor har ingen Stripe-subscription registrert'
+                : stripeBump?.reason === 'subscription_not_found'
+                ? 'Subscription ikke funnet i Stripe'
+                : stripeBump?.reason === 'no_seat_item'
+                ? 'Subscription mangler seat-item (recurring price)'
+                : stripeBump?.reason === 'no_price_id'
+                ? 'Tier mangler Stripe-pris-id — kjør syncAllTiersToStripe()'
+                : stripeBump?.reason === 'enterprise'
+                ? 'Enterprise-tier — manuell behandling'
+                : stripeBump?.reason === 'stripe_error'
+                ? `Stripe-feil: ${stripeBump?.error_message ?? 'ukjent'}`
+                : 'Stripe-bump ikke forsøkt';
+              tierLine = `Tier auto-oppgradert i DB: ${tierBump.fromTier?.label || '—'} → ${tierBump.toTier.label} (max_users: ${tierBump.vendorBefore.maxUsers ?? '—'} → ${tierBump.vendorAfter.maxUsers ?? '—'}). Stripe-bump status: ${reasonLabel}.`;
+              stripeActionHtml = `
+                <div style="margin-top: 12px; padding: 12px; background: #fff7e6; border-left: 3px solid #f0c674;">
+                  <strong>Stripe-action kreves manuelt:</strong> Oppdater subscription i Stripe-dashbordet til ny pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) med qty=${seatWarning.will_have}. Reason: ${reasonLabel}.
+                </div>`;
+              stripeActionText = `STRIPE-ACTION KREVET (manuelt): Oppdater subscription til pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) qty=${seatWarning.will_have}. Reason: ${reasonLabel}.`;
+            }
 
             await emailService.sendEmail({
               to: TIDUM_SUPPORT_EMAIL,
@@ -547,10 +613,7 @@ export function registerEmployeeImportRoutes(app: Express) {
                   <div style="margin-top: 16px; padding: 12px; background: #fff7e6; border-left: 3px solid #f0c674;">
                     <strong>Tier-status:</strong><br>${tierLine}
                   </div>
-                  ${tierBump?.changed ? `
-                  <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 3px solid #0284c7;">
-                    <strong>Stripe-action:</strong> Oppdater subscription i Stripe-dashbordet til ny pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) med qty=${seatWarning.will_have}. Auto-prorering kommer i T15.
-                  </div>` : ''}
+                  ${stripeActionHtml}
                 </div>
               `,
               text: [
@@ -561,9 +624,7 @@ export function registerEmployeeImportRoutes(app: Express) {
                 '',
                 tierLine,
                 '',
-                tierBump?.changed
-                  ? `STRIPE-ACTION: Oppdater subscription manuelt til ny pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) qty=${seatWarning.will_have}.`
-                  : '',
+                stripeActionText,
               ].filter(Boolean).join('\n'),
             });
           } catch (mailErr) {

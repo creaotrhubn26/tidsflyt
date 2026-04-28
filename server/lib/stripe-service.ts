@@ -346,6 +346,151 @@ export async function createCheckoutSessionForLead(opts: CheckoutOpts): Promise<
   return { url: session.url, sessionId: session.id, expiresAt };
 }
 
+// ─── Tier-bump prorering ────────────────────────────────────────────────
+//
+// Når en kunde overstiger avtalt brukerantall via import (T13/T14), skal
+// Stripe-subscription oppdateres til ny tier-pris med ny kvantitet og
+// proration. Default OFF via TIDUM_STRIPE_AUTOBUMP-env-var inntil verifisert
+// mot Stripe-test-mode-customer.
+
+export interface StripeBumpResult {
+  ok: boolean;
+  reason?:
+    | 'flag_off'
+    | 'no_subscription'
+    | 'subscription_not_found'
+    | 'no_seat_item'
+    | 'no_price_id'
+    | 'enterprise'
+    | 'stripe_error';
+  attempted_at: string;
+  invoice_id?: string | null;
+  subscription_id?: string;
+  new_price_id?: string;
+  new_quantity?: number;
+  interval?: 'month' | 'year';
+  error_message?: string;
+}
+
+export function isStripeAutobumpEnabled(): boolean {
+  return process.env.TIDUM_STRIPE_AUTOBUMP === '1';
+}
+
+/**
+ * Oppdater Stripe-subscription til ny tier-pris + ny kvantitet.
+ * Beholder eksisterende billing-interval (month vs year) — bytter kun til
+ * den varianten av nye tier som matcher.
+ *
+ * Best-effort: ingen exceptions kastes. Caller leser StripeBumpResult.ok.
+ */
+export async function bumpStripeSubscriptionToNewTier(
+  subscriptionId: string | null | undefined,
+  newTier: PricingTier,
+  newQuantity: number,
+): Promise<StripeBumpResult> {
+  const attempted_at = new Date().toISOString();
+
+  if (!isStripeAutobumpEnabled()) {
+    return { ok: false, reason: 'flag_off', attempted_at };
+  }
+  if (!subscriptionId) {
+    return { ok: false, reason: 'no_subscription', attempted_at };
+  }
+  if (newTier.isEnterprise) {
+    return { ok: false, reason: 'enterprise', attempted_at, subscription_id: subscriptionId };
+  }
+
+  const ctx = await getStripeContext();
+  if (!ctx) {
+    return {
+      ok: false,
+      reason: 'stripe_error',
+      attempted_at,
+      subscription_id: subscriptionId,
+      error_message: 'Stripe not configured',
+    };
+  }
+
+  let subscription: Stripe.Subscription;
+  try {
+    subscription = await ctx.client.subscriptions.retrieve(subscriptionId);
+  } catch (err: any) {
+    return {
+      ok: false,
+      reason: 'subscription_not_found',
+      attempted_at,
+      subscription_id: subscriptionId,
+      error_message: err?.message || 'subscriptions.retrieve failed',
+    };
+  }
+
+  // Identifiser seat-item: et recurring-item som ikke er onboardings-prisen
+  // (onboarding er one-time og inngår normalt ikke i subscription items).
+  const seatItem = subscription.items.data.find((item) => item.price.recurring != null);
+  if (!seatItem) {
+    return {
+      ok: false,
+      reason: 'no_seat_item',
+      attempted_at,
+      subscription_id: subscriptionId,
+      error_message: 'Ingen recurring subscription_item funnet',
+    };
+  }
+
+  const interval: 'month' | 'year' = seatItem.price.recurring?.interval === 'year' ? 'year' : 'month';
+  const newPriceId = interval === 'year' ? newTier.stripePriceIdAnnual : newTier.stripePriceIdMonthly;
+  if (!newPriceId) {
+    return {
+      ok: false,
+      reason: 'no_price_id',
+      attempted_at,
+      subscription_id: subscriptionId,
+      interval,
+      error_message: `Tier ${newTier.slug} mangler Stripe ${interval}-pris. Kjør syncAllTiersToStripe() først.`,
+    };
+  }
+
+  try {
+    const updated = await ctx.client.subscriptions.update(subscriptionId, {
+      items: [
+        {
+          id: seatItem.id,
+          price: newPriceId,
+          quantity: newQuantity,
+        },
+      ],
+      proration_behavior: 'create_prorations',
+      metadata: {
+        ...(subscription.metadata || {}),
+        tidum_tier_slug: newTier.slug,
+        tidum_tier_id: String(newTier.id),
+        tidum_last_bump_at: attempted_at,
+      },
+    });
+
+    return {
+      ok: true,
+      attempted_at,
+      subscription_id: subscriptionId,
+      new_price_id: newPriceId,
+      new_quantity: newQuantity,
+      interval,
+      invoice_id: typeof updated.latest_invoice === 'string' ? updated.latest_invoice : updated.latest_invoice?.id ?? null,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      reason: 'stripe_error',
+      attempted_at,
+      subscription_id: subscriptionId,
+      new_price_id: newPriceId,
+      new_quantity: newQuantity,
+      interval,
+      error_message: err?.message || 'subscriptions.update failed',
+    };
+  }
+}
+
 // Verify webhook signature against stripe_webhook_secret app setting
 export async function verifyAndConstructWebhookEvent(
   rawBody: Buffer | string,
