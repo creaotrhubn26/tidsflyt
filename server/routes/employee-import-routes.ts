@@ -31,6 +31,8 @@ import { getParser } from '../lib/import-parsers';
 import type { ImportSource, ParsedRow } from '../lib/import-parsers/types';
 import { emailService } from '../lib/email-service';
 import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
+import { applyTierBump, type TierBumpResult } from '../lib/tier-bump';
+import { oreToKr } from '../lib/pricing-service';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;     // 10 MB
 const MAX_ROWS = 10_000;
@@ -390,6 +392,10 @@ export function registerEmployeeImportRoutes(app: Express) {
         let imported = 0;
         let skipped = 0;
 
+        // Tier-bump-resultat blir tilgjengelig utenfor transaksjons-try-en for
+        // bruk i e-post-varslingene etterpå.
+        let tierBump: TierBumpResult | null = null;
+
         await client.query('BEGIN');
         try {
           for (const r of rows) {
@@ -454,6 +460,28 @@ export function registerEmployeeImportRoutes(app: Express) {
             };
           }
 
+          // T14: tier-bump i DB. Stripe-prorering venter på T15.
+          // Best-effort — feil her skal ikke rolle tilbake importen.
+          if (seatWarning && imp.vendorId) {
+            try {
+              tierBump = await applyTierBump(imp.vendorId, seatWarning.will_have);
+              if (tierBump?.changed) {
+                finalSummary.tier_bump = {
+                  from_max_users: tierBump.vendorBefore.maxUsers,
+                  from_plan:      tierBump.vendorBefore.subscriptionPlan,
+                  to_max_users:   tierBump.vendorAfter.maxUsers,
+                  to_plan:        tierBump.vendorAfter.subscriptionPlan,
+                  to_tier_id:     tierBump.toTier.id,
+                  to_tier_label:  tierBump.toTier.label,
+                  applied_at:     new Date().toISOString(),
+                  stripe_pending: true,  // T15 fjerner dette flagget
+                };
+              }
+            } catch (bumpErr) {
+              console.error('[imports] tier-bump feilet (ikke fatalt):', bumpErr);
+            }
+          }
+
           await client.query(
             `UPDATE imports
                 SET status='confirmed', confirmed_at=NOW(), summary_jsonb=$1
@@ -467,9 +495,12 @@ export function registerEmployeeImportRoutes(app: Express) {
           throw txErr;
         }
 
-        // Varsle super_admin (Daniel) ved bekreftet seat-overrun, slik at han
-        // kan trigge tier-oppgradering manuelt (T14 vil automatisere dette).
+        // Varsler ved bekreftet seat-overrun:
+        //  1) E-post til hovedadmin med formell tier-oppgraderings-varsling (§2.4)
+        //  2) E-post til Daniel (super_admin) med Stripe-action-needed
         if (seatWarning && imp.vendorId) {
+          const ackerEmail = userEmail(req) || 'ukjent';
+          const ackedAtNb = new Date().toLocaleString('nb');
           try {
             const [vendorRow] = await db
               .select({ name: vendors.name })
@@ -477,6 +508,30 @@ export function registerEmployeeImportRoutes(app: Express) {
               .where(eq(vendors.id, imp.vendorId))
               .limit(1);
             const vendorName = vendorRow?.name || `vendor #${imp.vendorId}`;
+
+            // 1) Hovedadmin-varsel — formell §2.4-notice
+            if (tierBump?.changed) {
+              try {
+                await emailService.sendTierUpgradeNoticeEmail({
+                  to: ackerEmail,
+                  hovedadminName: null,
+                  vendorName,
+                  fromUserCount: seatWarning.current_users,
+                  toUserCount: seatWarning.will_have,
+                  fromTierLabel: tierBump.fromTier?.label ?? null,
+                  toTierLabel: tierBump.toTier.label,
+                  pricePerUserKr: oreToKr(tierBump.toTier.pricePerUserOre),
+                });
+              } catch (notifyErr) {
+                console.error('[imports] Hovedadmin tier-notice e-post feilet:', notifyErr);
+              }
+            }
+
+            // 2) Daniel-varsel — beriket med tier-info og Stripe-status
+            const tierLine = tierBump?.changed
+              ? `Tier auto-oppgradert i DB: ${tierBump.fromTier?.label || '—'} → ${tierBump.toTier.label} (max_users: ${tierBump.vendorBefore.maxUsers ?? '—'} → ${tierBump.vendorAfter.maxUsers ?? '—'}). Stripe-subscription er IKKE auto-oppdatert ennå (T15).`
+              : 'Tier ikke endret — vendor allerede på riktig tier eller ingen tier matchet.';
+
             await emailService.sendEmail({
               to: TIDUM_SUPPORT_EMAIL,
               subject: `Seat-overrun: ${vendorName} har overskredet avtalt brukerantall`,
@@ -486,21 +541,30 @@ export function registerEmployeeImportRoutes(app: Express) {
                   <p><strong>Vendor:</strong> ${vendorName} (id ${imp.vendorId})</p>
                   <p><strong>Før import:</strong> ${seatWarning.current_users} brukere</p>
                   <p><strong>Etter import:</strong> ${seatWarning.will_have} brukere</p>
-                  <p><strong>Avtalt grense (max_users):</strong> ${seatWarning.max_users}</p>
+                  <p><strong>Tidligere grense (max_users):</strong> ${seatWarning.max_users}</p>
                   <p><strong>Overrun:</strong> ${seatWarning.overrun_by} over</p>
-                  <p><strong>Akseptert av:</strong> ${userEmail(req) || 'ukjent'} kl. ${new Date().toLocaleString('nb')}</p>
-                  <p style="margin-top: 16px; padding: 12px; background: #fff7e6; border-left: 3px solid #f0c674;">
-                    Tier-oppgradering må gjøres manuelt iht. avtale §2.4. Auto-bump kommer i T14.
-                  </p>
+                  <p><strong>Akseptert av:</strong> ${ackerEmail} kl. ${ackedAtNb}</p>
+                  <div style="margin-top: 16px; padding: 12px; background: #fff7e6; border-left: 3px solid #f0c674;">
+                    <strong>Tier-status:</strong><br>${tierLine}
+                  </div>
+                  ${tierBump?.changed ? `
+                  <div style="margin-top: 12px; padding: 12px; background: #f0f9ff; border-left: 3px solid #0284c7;">
+                    <strong>Stripe-action:</strong> Oppdater subscription i Stripe-dashbordet til ny pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) med qty=${seatWarning.will_have}. Auto-prorering kommer i T15.
+                  </div>` : ''}
                 </div>
               `,
               text: [
                 'Seat-overrun bekreftet',
                 `Vendor: ${vendorName} (id ${imp.vendorId})`,
                 `Før: ${seatWarning.current_users}, Etter: ${seatWarning.will_have}, Grense: ${seatWarning.max_users}, Overrun: ${seatWarning.overrun_by}`,
-                `Akseptert av: ${userEmail(req) || 'ukjent'} kl. ${new Date().toLocaleString('nb')}`,
-                'Tier-oppgradering må gjøres manuelt iht. avtale §2.4.',
-              ].join('\n'),
+                `Akseptert av: ${ackerEmail} kl. ${ackedAtNb}`,
+                '',
+                tierLine,
+                '',
+                tierBump?.changed
+                  ? `STRIPE-ACTION: Oppdater subscription manuelt til ny pris (${tierBump.toTier.stripePriceIdAnnual || tierBump.toTier.stripePriceIdMonthly || 'pris-id mangler'}) qty=${seatWarning.will_have}.`
+                  : '',
+              ].filter(Boolean).join('\n'),
             });
           } catch (mailErr) {
             console.error('[imports] Failed to email seat-overrun notice:', mailErr);

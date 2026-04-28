@@ -806,6 +806,82 @@ export class EmailService {
   }
 
   /**
+   * Sendt til hovedadmin når en import bumper kunden over avtalt brukerantall
+   * og de har akseptert tier-oppgraderingen iht. avtale §2.4. Innholdet er
+   * formell varsel om at neste fakturasyklus reflekterer ny tier — det er
+   * 30-dagers varsel-kravet i §2.4 vi dekker her.
+   */
+  async sendTierUpgradeNoticeEmail({
+    to,
+    hovedadminName,
+    vendorName,
+    fromUserCount,
+    toUserCount,
+    fromTierLabel,
+    toTierLabel,
+    pricePerUserKr,
+  }: {
+    to: string;
+    hovedadminName: string | null;
+    vendorName: string;
+    fromUserCount: number;
+    toUserCount: number;
+    fromTierLabel: string | null;
+    toTierLabel: string;
+    pricePerUserKr: number;
+  }): Promise<boolean> {
+    return this.sendEmail({
+      to,
+      replyTo: TIDUM_SUPPORT_EMAIL,
+      subject: `Brukerantallet i ${vendorName} har økt — ny tier ved neste fakturasyklus`,
+      html: renderTidumEmail({
+        badge: "Tidum Tier-oppgradering",
+        title: "Tier-oppgradering varslet",
+        intro: `Importen dere nettopp gjorde tar dere over avtalt brukerantall. Iht. avtalens §2.4 oppgraderes dere automatisk til ny tier ved neste fakturasyklus.`,
+        bodyHtml: `
+          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${hovedadminName || 'der'},</p>
+          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;color:#486168;">
+            Etter den nylige importen i Tidum har dere nå <strong style="color:#16343d;">${toUserCount}</strong> aktive brukere
+            (opp fra <strong style="color:#16343d;">${fromUserCount}</strong>).
+          </p>
+          <table style="width:100%;border-collapse:collapse;margin:16px 0;font-size:14px;">
+            <tr>
+              <td style="padding:8px 0;color:#6a7f84;">Tidligere tier:</td>
+              <td style="padding:8px 0;text-align:right;font-weight:600;color:#16343d;">${fromTierLabel || '—'}</td>
+            </tr>
+            <tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:8px 0;color:#6a7f84;">Ny tier:</td>
+              <td style="padding:8px 0;text-align:right;font-weight:600;color:#1a6b73;">${toTierLabel}</td>
+            </tr>
+            <tr style="border-top:1px solid #e2e8f0;">
+              <td style="padding:8px 0;color:#6a7f84;">Pris per bruker:</td>
+              <td style="padding:8px 0;text-align:right;font-weight:600;color:#16343d;">${pricePerUserKr} kr/mnd</td>
+            </tr>
+          </table>
+          <p style="margin:16px 0 0;font-size:13px;line-height:1.7;color:#486168;background:#f8fafc;padding:12px;border-left:3px solid #1a6b73;">
+            Endringen reflekteres i neste fakturasyklus. Spørsmål eller feilantakelser? Svar på denne e-posten så ser vi på det sammen.
+          </p>
+        `,
+        ctaLabel: "Åpne Tidum",
+        ctaUrl: "https://tidum.no/login",
+      }),
+      text: [
+        `Hei ${hovedadminName || 'der'},`,
+        '',
+        `Etter den nylige importen i Tidum har dere nå ${toUserCount} aktive brukere (opp fra ${fromUserCount}).`,
+        '',
+        `Tidligere tier: ${fromTierLabel || '—'}`,
+        `Ny tier: ${toTierLabel}`,
+        `Pris per bruker: ${pricePerUserKr} kr/mnd`,
+        '',
+        'Endringen reflekteres i neste fakturasyklus iht. avtalens §2.4.',
+        '',
+        `Spørsmål? Svar på denne e-posten eller kontakt ${TIDUM_SUPPORT_EMAIL}.`,
+      ].join('\n'),
+    });
+  }
+
+  /**
    * Admin-only: invite someone as a prototype tester (not a real vendor).
    * Testers get a magic link and clear expectations about what we want
    * feedback on. Different copy from the regular vendor admin invite.
