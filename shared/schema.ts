@@ -254,6 +254,44 @@ export const vendorIntegrations = pgTable("vendor_integrations", {
   updatedAt:        timestamp("updated_at").defaultNow(),
 });
 
+// Ansatt-importer (Planday/Visma/CSV → Tidum, migrasjon 042). To-fase:
+// upload+parse → 'staged'-rad i imports + én rad per ansatt i import_rows;
+// hovedadmin går gjennom preview, bekrefter → 'confirmed' og rader flyttes
+// til company_users innenfor en transaksjon.
+export const imports = pgTable("imports", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  vendorId:       integer("vendor_id").notNull(),
+  source:         text("source").notNull(),           // 'planday' | 'visma' | 'quinyx' | 'csv'
+  status:         text("status").notNull().default("staged"), // 'staged' | 'confirmed' | 'rolled_back' | 'failed'
+  fileName:       text("file_name"),
+  fileHash:       text("file_hash"),
+  rowCount:       integer("row_count").default(0),
+  createdBy:      text("created_by").notNull(),
+  createdAt:      timestamp("created_at").defaultNow(),
+  confirmedAt:    timestamp("confirmed_at"),
+  rolledBackAt:   timestamp("rolled_back_at"),
+  summaryJsonb:   jsonb("summary_jsonb"),             // {valid, errors, duplicates, admin_grants[]}
+});
+
+export const importRows = pgTable("import_rows", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  importId:       uuid("import_id").notNull(),
+  rowIndex:       integer("row_index").notNull(),
+  externalId:     text("external_id"),                // Planday employeeId el.l.
+  rawJsonb:       jsonb("raw_jsonb"),                 // alt vi mottok fra kilden
+  parsedJsonb:    jsonb("parsed_jsonb"),              // normalisert til Tidum-felter
+  status:         text("status").notNull().default("valid"), // 'valid' | 'error' | 'imported' | 'skipped' | 'duplicate'
+  errorMsg:       text("error_msg"),
+  roleAssigned:   text("role_assigned"),              // Tidum-rolle valgt av hovedadmin i preview
+  targetUserId:   integer("target_user_id"),          // satt etter commit
+  createdAt:      timestamp("created_at").defaultNow(),
+});
+
+export type Import = typeof imports.$inferSelect;
+export type InsertImport = typeof imports.$inferInsert;
+export type ImportRow = typeof importRows.$inferSelect;
+export type InsertImportRow = typeof importRows.$inferInsert;
+
 // User-defined goal categories (replaces localStorage "custom-goal-cats")
 export const userGoalCategories = pgTable("user_goal_categories", {
   id:        uuid("id").defaultRandom().primaryKey(),
