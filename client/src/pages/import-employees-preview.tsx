@@ -124,6 +124,7 @@ export default function ImportEmployeesPreviewPage() {
 
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
+  const [gdprAck, setGdprAck] = useState(false);
 
   const { data, isLoading, error } = useQuery<ImportResponse>({
     queryKey: ['/api/imports', importId],
@@ -141,7 +142,7 @@ export default function ImportEmployeesPreviewPage() {
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', `/api/imports/${importId}/confirm`, {});
+      const res = await apiRequest('POST', `/api/imports/${importId}/confirm`, { gdpr_ack: true });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Bekreftelse feilet');
       return json;
@@ -152,6 +153,7 @@ export default function ImportEmployeesPreviewPage() {
         description: `${json.imported} ansatte opprettet, ${json.skipped} hoppet over.`,
       });
       setConfirmOpen(false);
+      setGdprAck(false);
       qc.invalidateQueries({ queryKey: ['/api/imports', importId] });
     },
     onError: (err: any) => toast({ title: 'Feil', description: err?.message, variant: 'destructive' }),
@@ -416,11 +418,25 @@ export default function ImportEmployeesPreviewPage() {
               </div>
             </div>
           )}
+          <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs">
+            <label className="flex cursor-pointer items-start gap-2">
+              <input
+                type="checkbox"
+                checked={gdprAck}
+                onChange={(e) => setGdprAck(e.target.checked)}
+                className="mt-0.5"
+                data-testid="checkbox-gdpr-ack"
+              />
+              <span className="text-[#37474d]">
+                Jeg bekrefter at vår virksomhet har rettsgrunnlag (typisk arbeidskontrakt eller berettiget interesse iht. GDPR art. 6) for å overføre disse personopplysningene til Tidum, og at vi har informert de ansatte iht. art. 13. Tidum behandler dataene som databehandler iht. signert databehandleravtale (DPA).
+              </span>
+            </label>
+          </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmOpen(false)}>Avbryt</Button>
+            <Button variant="outline" onClick={() => { setConfirmOpen(false); setGdprAck(false); }}>Avbryt</Button>
             <Button
               onClick={() => confirmMutation.mutate()}
-              disabled={confirmMutation.isPending}
+              disabled={confirmMutation.isPending || !gdprAck}
               data-testid="button-confirm-import"
             >
               {confirmMutation.isPending ? 'Importerer...' : `Bekreft og opprett ${validRows.length} brukere`}

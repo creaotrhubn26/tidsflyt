@@ -15,7 +15,7 @@ import { useLocation } from 'wouter';
 import { useToast } from '@/hooks/use-toast';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, ExternalLink, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Upload, FileSpreadsheet, ExternalLink, AlertTriangle, CheckCircle2, ShieldCheck } from 'lucide-react';
 import {
   IMPORT_SOURCES,
   guideForSource,
@@ -131,6 +131,17 @@ export default function ImportEmployeesPage() {
 
       {step === 'source' && (
         <section data-testid="step-source">
+          <Card className="mb-5 border-slate-200 bg-slate-50 p-3" data-testid="gdpr-banner">
+            <div className="flex items-start gap-2 text-xs leading-relaxed text-[#37474d]">
+              <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <div>
+                <p className="font-semibold text-[#16343d]">Personvern og ansvarsdeling</p>
+                <p className="mt-1">
+                  Når dere importerer ansatte, er <strong>din virksomhet behandlingsansvarlig</strong> og Tidum er databehandler iht. signert DPA. Importer kun ansatt-data dere har rettsgrunnlag for (typisk arbeidskontrakt), og informer de ansatte iht. GDPR art. 13. Vi ber om eksplisitt bekreftelse før importen lagres.
+                </p>
+              </div>
+            </div>
+          </Card>
           <h2 className="mb-4 text-lg font-semibold">Hvor kommer dataene fra?</h2>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {IMPORT_SOURCES.map((s) => (

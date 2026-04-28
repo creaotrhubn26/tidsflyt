@@ -296,6 +296,19 @@ export function registerEmployeeImportRoutes(app: Express) {
       try {
         if (!isAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
 
+        // GDPR-bekreftelse: hovedadmin må eksplisitt dokumentere at de
+        // har rettsgrunnlag og har informert de ansatte. Denne ack-en er
+        // den "dokumenterte instruksen" DPA §1.2 krever — uten den har vi
+        // ingen lovlig basis for å committe importen.
+        const gdprAckRaw = req.body?.gdpr_ack;
+        if (gdprAckRaw !== true && gdprAckRaw !== 'true') {
+          return res.status(400).json({
+            error: 'GDPR-bekreftelse mangler',
+            code: 'gdpr_ack_required',
+            hint: 'Hovedadmin må bekrefte rettsgrunnlag og informasjons-plikt før import kan fullføres.',
+          });
+        }
+
         const [imp] = await db.select().from(imports).where(eq(imports.id, id)).limit(1);
         if (!imp) return res.status(404).json({ error: 'Import ikke funnet' });
         if (!isSuperAdmin(req) && imp.vendorId !== userVendorId(req)) {
@@ -359,6 +372,15 @@ export function registerEmployeeImportRoutes(app: Express) {
             imported,
             skipped,
             admin_grants: adminGrants,
+            gdpr_ack: {
+              at: new Date().toISOString(),
+              by_email: userEmail(req) || 'unknown',
+              by_role: normalizeRole(String(currentUser(req)?.role || '')),
+              ip: (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim()
+                || req.socket?.remoteAddress
+                || null,
+              user_agent: req.headers['user-agent'] || null,
+            },
           };
 
           await client.query(

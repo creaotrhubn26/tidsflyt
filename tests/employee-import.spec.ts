@@ -130,7 +130,8 @@ test.describe("Ansatt-import — wizard og preview", () => {
 
     await page.goto("/import-employees");
 
-    // Steg 1: kilde-velger synlig
+    // Steg 1: GDPR-banner + kilde-velger synlig
+    await expect(page.getByTestId("gdpr-banner")).toBeVisible();
     await expect(page.getByText("Hvor kommer dataene fra?")).toBeVisible();
     await page.getByTestId("source-planday").click();
 
@@ -231,6 +232,11 @@ test.describe("Ansatt-import — wizard og preview", () => {
     await expect(page.getByText("Bekreft import")).toBeVisible();
     await expect(page.getByText(/Du gir leverandøradmin-tilgang til 1 person/)).toBeVisible();
     await expect(page.getByText("tom@firma.no")).toBeVisible();
+
+    // GDPR-sjekkboks: Bekreft-knappen skal være disabled før vi haker av
+    await expect(page.getByTestId("button-confirm-import")).toBeDisabled();
+    await page.getByTestId("checkbox-gdpr-ack").check();
+    await expect(page.getByTestId("button-confirm-import")).toBeEnabled();
 
     // Bekreft
     await page.getByTestId("button-confirm-import").click();
