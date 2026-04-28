@@ -2317,7 +2317,7 @@ export async function registerRoutes(
 
   function canManageIntegrationRoadmap(role: string | null | undefined): boolean {
     const normalized = normalizeRole(role);
-    return normalized === "super_admin" || normalized === "hovedadmin" || normalized === "admin";
+    return normalized === "super_admin" || normalized === "hovedadmin";
   }
 
   function canCreatePrimaryIntegrationRequest(role: string | null | undefined): boolean {

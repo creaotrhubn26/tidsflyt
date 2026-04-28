@@ -1,7 +1,6 @@
 export const TIDUM_ROLES = [
   "super_admin",
   "hovedadmin",
-  "admin",
   "vendor_admin",
   "tiltaksleder",
   "teamleder",
@@ -15,9 +14,9 @@ export const TIDUM_ROLES = [
 export type TidumRole = (typeof TIDUM_ROLES)[number];
 
 export const ROLE_LABELS: Record<string, string> = {
-  super_admin: "Hovedadmin",
+  super_admin: "Systemadmin",
   hovedadmin: "Hovedadmin",
-  admin: "Administrator",
+  admin: "Hovedadmin",
   vendor_admin: "Leverandøradmin",
   tiltaksleder: "Tiltaksleder",
   teamleder: "Teamleder",
@@ -31,7 +30,7 @@ export const ROLE_LABELS: Record<string, string> = {
 const ROLE_ALIASES: Record<string, TidumRole> = {
   super_admin: "super_admin",
   hovedadmin: "hovedadmin",
-  admin: "admin",
+  admin: "hovedadmin",
   vendor_admin: "vendor_admin",
   tiltaksleder: "tiltaksleder",
   teamleder: "teamleder",
@@ -53,7 +52,6 @@ export function normalizeRole(role?: string | null): TidumRole {
 const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   super_admin: [
     "hovedadmin",
-    "admin",
     "vendor_admin",
     "tiltaksleder",
     "teamleder",
@@ -63,8 +61,7 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
     "member",
     "user",
   ],
-  hovedadmin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
-  admin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
+  hovedadmin: ["vendor_admin", "tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
   vendor_admin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
   tiltaksleder: ["miljoarbeider", "member", "user"],
   teamleder: ["miljoarbeider", "member", "user"],
@@ -92,7 +89,7 @@ export function getRoleLabel(role: string | null | undefined): string {
 
 export function isTopAdminRole(role: string | null | undefined): boolean {
   const normalizedRole = normalizeRole(role);
-  return ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
+  return ["super_admin", "hovedadmin", "vendor_admin"].includes(normalizedRole);
 }
 
 export function isSuperAdminLikeRole(role: string | null | undefined): boolean {
@@ -102,5 +99,5 @@ export function isSuperAdminLikeRole(role: string | null | undefined): boolean {
 
 export function canAccessVendorApiAdmin(role: string | null | undefined): boolean {
   const normalizedRole = normalizeRole(role);
-  return ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
+  return ["super_admin", "hovedadmin", "vendor_admin"].includes(normalizedRole);
 }

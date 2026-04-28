@@ -25,7 +25,7 @@ interface RolePreviewContextValue {
 }
 
 const ROLE_PREVIEW_STORAGE_PREFIX = "tidum-role-preview:";
-const ADMIN_PREVIEW_ROLES: TidumRole[] = ["super_admin", "hovedadmin", "admin", "vendor_admin"];
+const ADMIN_PREVIEW_ROLES: TidumRole[] = ["super_admin", "hovedadmin", "vendor_admin"];
 const RolePreviewContext = createContext<RolePreviewContextValue | null>(null);
 
 function isPreviewEligibleRole(role: TidumRole): boolean {

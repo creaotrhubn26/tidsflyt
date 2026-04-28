@@ -257,7 +257,6 @@ export default function ReportsPage() {
     return effectiveRole === "tiltaksleder"
       || effectiveRole === "super_admin"
       || effectiveRole === "hovedadmin"
-      || effectiveRole === "admin"
       || effectiveRole === "vendor_admin";
   }, [effectiveRole]);
 
