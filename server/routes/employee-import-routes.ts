@@ -25,10 +25,12 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, pool } from '../db';
-import { imports, importRows, companyUsers } from '@shared/schema';
+import { imports, importRows, companyUsers, vendors } from '@shared/schema';
 import { requireAuth } from '../middleware/auth';
 import { getParser } from '../lib/import-parsers';
 import type { ImportSource, ParsedRow } from '../lib/import-parsers/types';
+import { emailService } from '../lib/email-service';
+import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;     // 10 MB
 const MAX_ROWS = 10_000;
@@ -86,6 +88,42 @@ function summarizeRows(rows: ParsedRow[]): {
     else errors++;
   }
   return { total: rows.length, valid, errors };
+}
+
+interface SeatWarning {
+  current_users: number;
+  will_have: number;
+  max_users: number;
+  overrun_by: number;
+}
+
+/**
+ * Sammenligner kommende brukerantall (current + valid_rows som ikke er
+ * duplikater) mot vendor.max_users. Hvis overrun, returnerer vi info som
+ * UI kan vise i preview og confirm-modal. Tier-oppgraderingen selv
+ * (auto-bump + Stripe-prorering) ligger i T14 — her bare advarer vi.
+ */
+async function computeSeatWarning(
+  vendorId: number,
+  validNewRows: number,
+): Promise<SeatWarning | null> {
+  const [v] = await db.select({ maxUsers: vendors.maxUsers }).from(vendors).where(eq(vendors.id, vendorId)).limit(1);
+  if (!v || v.maxUsers == null) return null;
+
+  const [cnt] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(companyUsers)
+    .where(eq(companyUsers.vendorId, vendorId));
+  const currentUsers = Number(cnt?.count ?? 0);
+  const willHave = currentUsers + validNewRows;
+  if (willHave <= v.maxUsers) return null;
+
+  return {
+    current_users: currentUsers,
+    will_have: willHave,
+    max_users: v.maxUsers,
+    overrun_by: willHave - v.maxUsers,
+  };
 }
 
 export function registerEmployeeImportRoutes(app: Express) {
@@ -157,6 +195,13 @@ export function registerEmployeeImportRoutes(app: Express) {
         // Lagre imports + import_rows i en transaksjon
         const importedById = userEmail(req) || 'unknown';
 
+        // Seat-warning: regn ut om vendor går over max_users etter denne importen.
+        // Inkluderer ikke duplikat-rader siden de ikke skaper nye brukere.
+        const validNonDup = parsedRows.filter(
+          (r) => r.errors.length === 0 && !(r.parsed?.email && existingEmails.has(r.parsed.email.toLowerCase())),
+        ).length;
+        const seatWarning = vendorId ? await computeSeatWarning(vendorId, validNonDup) : null;
+
         const [importRec] = await db
           .insert(imports)
           .values({
@@ -167,7 +212,7 @@ export function registerEmployeeImportRoutes(app: Express) {
             fileHash,
             rowCount: parsedRows.length,
             createdBy: importedById,
-            summaryJsonb: summary,
+            summaryJsonb: { ...summary, seat_warning: seatWarning },
           })
           .returning();
 
@@ -203,6 +248,7 @@ export function registerEmployeeImportRoutes(app: Express) {
             valid: rowsToInsert.filter((r) => r.status === 'valid').length,
             errors: rowsToInsert.filter((r) => r.status === 'error').length,
             duplicates: rowsToInsert.filter((r) => r.status === 'duplicate').length,
+            seat_warning: seatWarning,
           },
         });
       } catch (err: any) {
@@ -318,10 +364,27 @@ export function registerEmployeeImportRoutes(app: Express) {
           return res.status(400).json({ error: `Allerede ${imp.status}` });
         }
 
+        // Seat-overrun-sjekk: re-beregn på nytt slik at vi ikke stoler blindt på
+        // det som ble lagret ved upload (current_users kan ha endret seg mellom
+        // upload og confirm). Hvis overrun fortsatt finnes, krev eksplisitt ack.
         const rows = await db
           .select()
           .from(importRows)
           .where(eq(importRows.importId, id));
+
+        const validNonDup = rows.filter((r) => r.status === 'valid').length;
+        const seatWarning = imp.vendorId ? await computeSeatWarning(imp.vendorId, validNonDup) : null;
+
+        if (seatWarning) {
+          const seatAckRaw = req.body?.seat_overrun_ack;
+          if (seatAckRaw !== true && seatAckRaw !== 'true') {
+            return res.status(400).json({
+              error: `Importen vil ta dere fra ${seatWarning.current_users} til ${seatWarning.will_have} brukere — ${seatWarning.overrun_by} over avtalt grense på ${seatWarning.max_users}. Bekreftelse mangler.`,
+              code: 'seat_overrun_ack_required',
+              seat_warning: seatWarning,
+            });
+          }
+        }
 
         const adminGrants: string[] = [];
         let imported = 0;
@@ -367,7 +430,7 @@ export function registerEmployeeImportRoutes(app: Express) {
             }
           }
 
-          const finalSummary = {
+          const finalSummary: any = {
             ...(imp.summaryJsonb as object || {}),
             imported,
             skipped,
@@ -383,6 +446,14 @@ export function registerEmployeeImportRoutes(app: Express) {
             },
           };
 
+          if (seatWarning) {
+            finalSummary.seat_overrun = {
+              ...seatWarning,
+              acked_by: userEmail(req) || 'unknown',
+              acked_at: new Date().toISOString(),
+            };
+          }
+
           await client.query(
             `UPDATE imports
                 SET status='confirmed', confirmed_at=NOW(), summary_jsonb=$1
@@ -396,7 +467,47 @@ export function registerEmployeeImportRoutes(app: Express) {
           throw txErr;
         }
 
-        return res.json({ ok: true, imported, skipped, admin_grants: adminGrants });
+        // Varsle super_admin (Daniel) ved bekreftet seat-overrun, slik at han
+        // kan trigge tier-oppgradering manuelt (T14 vil automatisere dette).
+        if (seatWarning && imp.vendorId) {
+          try {
+            const [vendorRow] = await db
+              .select({ name: vendors.name })
+              .from(vendors)
+              .where(eq(vendors.id, imp.vendorId))
+              .limit(1);
+            const vendorName = vendorRow?.name || `vendor #${imp.vendorId}`;
+            await emailService.sendEmail({
+              to: TIDUM_SUPPORT_EMAIL,
+              subject: `Seat-overrun: ${vendorName} har overskredet avtalt brukerantall`,
+              html: `
+                <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+                  <h2 style="color: #0f172a;">Seat-overrun bekreftet</h2>
+                  <p><strong>Vendor:</strong> ${vendorName} (id ${imp.vendorId})</p>
+                  <p><strong>Før import:</strong> ${seatWarning.current_users} brukere</p>
+                  <p><strong>Etter import:</strong> ${seatWarning.will_have} brukere</p>
+                  <p><strong>Avtalt grense (max_users):</strong> ${seatWarning.max_users}</p>
+                  <p><strong>Overrun:</strong> ${seatWarning.overrun_by} over</p>
+                  <p><strong>Akseptert av:</strong> ${userEmail(req) || 'ukjent'} kl. ${new Date().toLocaleString('nb')}</p>
+                  <p style="margin-top: 16px; padding: 12px; background: #fff7e6; border-left: 3px solid #f0c674;">
+                    Tier-oppgradering må gjøres manuelt iht. avtale §2.4. Auto-bump kommer i T14.
+                  </p>
+                </div>
+              `,
+              text: [
+                'Seat-overrun bekreftet',
+                `Vendor: ${vendorName} (id ${imp.vendorId})`,
+                `Før: ${seatWarning.current_users}, Etter: ${seatWarning.will_have}, Grense: ${seatWarning.max_users}, Overrun: ${seatWarning.overrun_by}`,
+                `Akseptert av: ${userEmail(req) || 'ukjent'} kl. ${new Date().toLocaleString('nb')}`,
+                'Tier-oppgradering må gjøres manuelt iht. avtale §2.4.',
+              ].join('\n'),
+            });
+          } catch (mailErr) {
+            console.error('[imports] Failed to email seat-overrun notice:', mailErr);
+          }
+        }
+
+        return res.json({ ok: true, imported, skipped, admin_grants: adminGrants, seat_warning: seatWarning });
       } catch (err: any) {
         console.error('[imports] confirm failed', err);
         return res.status(500).json({ error: err?.message || 'Confirm feilet' });

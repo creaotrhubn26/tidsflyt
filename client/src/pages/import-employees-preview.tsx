@@ -49,6 +49,13 @@ import { apiRequest } from '@/lib/queryClient';
 
 type RowStatus = 'valid' | 'error' | 'duplicate' | 'imported' | 'skipped';
 
+interface SeatWarning {
+  current_users: number;
+  will_have: number;
+  max_users: number;
+  overrun_by: number;
+}
+
 interface ImportRecord {
   id: string;
   vendorId: number;
@@ -60,7 +67,16 @@ interface ImportRecord {
   createdAt: string;
   confirmedAt: string | null;
   rolledBackAt: string | null;
-  summaryJsonb: { valid?: number; errors?: number; duplicates?: number; imported?: number; skipped?: number; admin_grants?: string[] } | null;
+  summaryJsonb: {
+    valid?: number;
+    errors?: number;
+    duplicates?: number;
+    imported?: number;
+    skipped?: number;
+    admin_grants?: string[];
+    seat_warning?: SeatWarning | null;
+    seat_overrun?: SeatWarning & { acked_by: string; acked_at: string };
+  } | null;
 }
 
 interface ImportRow {
@@ -125,6 +141,7 @@ export default function ImportEmployeesPreviewPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [rollbackOpen, setRollbackOpen] = useState(false);
   const [gdprAck, setGdprAck] = useState(false);
+  const [seatAck, setSeatAck] = useState(false);
 
   const { data, isLoading, error } = useQuery<ImportResponse>({
     queryKey: ['/api/imports', importId],
@@ -142,7 +159,9 @@ export default function ImportEmployeesPreviewPage() {
 
   const confirmMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest('POST', `/api/imports/${importId}/confirm`, { gdpr_ack: true });
+      const body: { gdpr_ack: boolean; seat_overrun_ack?: boolean } = { gdpr_ack: true };
+      if (seatAck) body.seat_overrun_ack = true;
+      const res = await apiRequest('POST', `/api/imports/${importId}/confirm`, body);
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error || 'Bekreftelse feilet');
       return json;
@@ -154,6 +173,7 @@ export default function ImportEmployeesPreviewPage() {
       });
       setConfirmOpen(false);
       setGdprAck(false);
+      setSeatAck(false);
       qc.invalidateQueries({ queryKey: ['/api/imports', importId] });
     },
     onError: (err: any) => toast({ title: 'Feil', description: err?.message, variant: 'destructive' }),
@@ -188,6 +208,8 @@ export default function ImportEmployeesPreviewPage() {
   );
 
   const validRows = useMemo(() => rows.filter((r) => r.status === 'valid'), [rows]);
+  const seatWarning = importRec?.summaryJsonb?.seat_warning ?? null;
+  const confirmDisabled = !gdprAck || (seatWarning != null && !seatAck) || confirmMutation.isPending;
 
   function setRoleForRow(rowId: string, role: string) {
     updateRoleMutation.mutate({ rowId, role });
@@ -270,6 +292,29 @@ export default function ImportEmployeesPreviewPage() {
               {importRec.summaryJsonb?.imported ?? 0} ansatte opprettet,{' '}
               {importRec.summaryJsonb?.skipped ?? 0} hoppet over. Rollback-vinduet er 7 dager fra{' '}
               {importRec.confirmedAt && new Date(importRec.confirmedAt).toLocaleString('nb')}.
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* Seat-overrun banner: vises både ved staged (advarsel) og confirmed (bekreftet overrun) */}
+      {(seatWarning || importRec.summaryJsonb?.seat_overrun) && (
+        <Card className="mb-4 border-amber-400 bg-amber-50 p-4" data-testid="seat-warning-banner">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div className="text-sm text-amber-900">
+              <p className="font-semibold">Importen overstiger avtalt brukerantall</p>
+              {(() => {
+                const sw = seatWarning ?? importRec.summaryJsonb?.seat_overrun!;
+                return (
+                  <p className="mt-1">
+                    Dere har <strong>{sw.current_users}</strong> brukere i Tidum i dag. Etter denne importen vil dere ha <strong>{sw.will_have}</strong>, som er <strong>{sw.overrun_by}</strong> over avtalt grense på <strong>{sw.max_users}</strong>.
+                  </p>
+                );
+              })()}
+              <p className="mt-2 text-xs">
+                Iht. avtalens §2.4 oppgraderes dere til riktig prising-tier ved neste fakturasyklus. Daniel (Tidum-support) blir automatisk varslet ved bekreftelse, slik at tier-justering kan trigges.
+              </p>
             </div>
           </div>
         </Card>
@@ -432,11 +477,27 @@ export default function ImportEmployeesPreviewPage() {
               </span>
             </label>
           </div>
+          {seatWarning && (
+            <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-xs">
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  checked={seatAck}
+                  onChange={(e) => setSeatAck(e.target.checked)}
+                  className="mt-0.5"
+                  data-testid="checkbox-seat-ack"
+                />
+                <span className="text-amber-900">
+                  Jeg aksepterer at vi går fra <strong>{seatWarning.current_users}</strong> til <strong>{seatWarning.will_have}</strong> brukere — <strong>{seatWarning.overrun_by}</strong> over avtalt grense på <strong>{seatWarning.max_users}</strong> — og at dette utløser en tier-oppgradering ved neste fakturasyklus iht. avtalens §2.4.
+                </span>
+              </label>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => { setConfirmOpen(false); setGdprAck(false); }}>Avbryt</Button>
+            <Button variant="outline" onClick={() => { setConfirmOpen(false); setGdprAck(false); setSeatAck(false); }}>Avbryt</Button>
             <Button
               onClick={() => confirmMutation.mutate()}
-              disabled={confirmMutation.isPending || !gdprAck}
+              disabled={confirmDisabled}
               data-testid="button-confirm-import"
             >
               {confirmMutation.isPending ? 'Importerer...' : `Bekreft og opprett ${validRows.length} brukere`}

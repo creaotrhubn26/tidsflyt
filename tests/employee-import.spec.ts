@@ -246,6 +246,46 @@ test.describe("Ansatt-import — wizard og preview", () => {
     await expect(page.getByTestId("button-open-rollback")).toBeVisible();
   });
 
+  test("seat-overrun: viser banner og krever ack-checkbox", async ({ page }) => {
+    await mockAuth(page);
+
+    // Mock import-data med seat_warning
+    const overrunImport = {
+      ...buildMockImport("staged"),
+      summaryJsonb: {
+        valid: 3, errors: 0, duplicates: 1,
+        seat_warning: { current_users: 28, will_have: 31, max_users: 30, overrun_by: 1 },
+      },
+    };
+
+    await page.route(`**/api/imports/${MOCK_IMPORT_ID}`, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ import: overrunImport, rows: buildMockRows() }),
+      }),
+    );
+
+    await page.goto(`/import-employees/${MOCK_IMPORT_ID}/preview`);
+
+    // Banner synlig
+    await expect(page.getByTestId("seat-warning-banner")).toBeVisible();
+    await expect(page.getByText(/28/)).toBeVisible();
+    await expect(page.getByText(/31/)).toBeVisible();
+    await expect(page.getByText(/§2\.4/)).toBeVisible();
+
+    // Åpne confirm-modal
+    await page.getByTestId("button-open-confirm").click();
+
+    // Begge sjekkbokser må hakes — Bekreft skal fortsatt være disabled etter bare GDPR
+    await expect(page.getByTestId("button-confirm-import")).toBeDisabled();
+    await page.getByTestId("checkbox-gdpr-ack").check();
+    await expect(page.getByTestId("button-confirm-import")).toBeDisabled();
+    await expect(page.getByTestId("checkbox-seat-ack")).toBeVisible();
+    await page.getByTestId("checkbox-seat-ack").check();
+    await expect(page.getByTestId("button-confirm-import")).toBeEnabled();
+  });
+
   test("bulk-aksjon ekskluderer vendor_admin", async ({ page }) => {
     await mockAuth(page);
 
