@@ -3660,6 +3660,11 @@ export async function registerRoutes(
       const sliceStr = (v: unknown, max: number) =>
         typeof v === "string" && v.length > 0 ? v.slice(0, max) : null;
 
+      const isHovedadminRaw = req.body.is_hovedadmin ?? req.body.isHovedadmin;
+      const isHovedadmin = isHovedadminRaw === false || isHovedadminRaw === "false" ? false : true;
+      const altHovedadminName = isHovedadmin ? null : sliceStr(req.body.alt_hovedadmin_name ?? req.body.altHovedadminName, 200);
+      const altHovedadminEmail = isHovedadmin ? null : sliceStr(req.body.alt_hovedadmin_email ?? req.body.altHovedadminEmail, 320);
+
       const parsed = insertAccessRequestSchema.safeParse({
         fullName: req.body.full_name,
         email: req.body.email,
@@ -3670,6 +3675,9 @@ export async function registerRoutes(
         brregVerified: req.body.brreg_verified,
         institutionType: req.body.institution_type,
         userCountEstimate,
+        isHovedadmin,
+        altHovedadminName,
+        altHovedadminEmail,
         // Lead-source attribution — captured client-side from URL+document.referrer
         source:        sliceStr(req.body.source, 80),
         utmSource:     sliceStr(req.body.utm_source ?? req.body.utmSource, 120),

@@ -92,6 +92,10 @@ export const accessRequests = pgTable("access_requests", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   stripeCheckoutUrl: text("stripe_checkout_url"),
   stripeCheckoutExpiresAt: timestamp("stripe_checkout_expires_at"),
+  // Hovedadmin-info (migration 041) — hvem blir hovedadmin når super_admin godkjenner?
+  isHovedadmin: boolean("is_hovedadmin").default(true),
+  altHovedadminName: text("alt_hovedadmin_name"),
+  altHovedadminEmail: text("alt_hovedadmin_email"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

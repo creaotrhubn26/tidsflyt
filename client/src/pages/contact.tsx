@@ -107,6 +107,9 @@ export default function Contact() {
     subject: "",
     message: "",
     institutionType: "" as "" | "privat" | "offentlig" | "nav",
+    isHovedadmin: true,
+    altHovedadminName: "",
+    altHovedadminEmail: "",
   });
 
   // Read ?users= prefill from /priser → /kontakt
@@ -324,6 +327,9 @@ export default function Contact() {
           brreg_verified: brregVerified,
           institution_type: formData.institutionType || null,
           user_count_estimate: userCount,
+          is_hovedadmin: formData.isHovedadmin,
+          alt_hovedadmin_name: formData.isHovedadmin ? null : formData.altHovedadminName,
+          alt_hovedadmin_email: formData.isHovedadmin ? null : formData.altHovedadminEmail,
           ...leadAttribution,
           turnstile_token: turnstileToken,
           _honeypot: honeypot,
@@ -340,7 +346,7 @@ export default function Contact() {
           title: "Forespørsel sendt",
           description: "Vi har mottatt din tilgangsforespørsel og vil behandle den så snart som mulig."
         });
-        setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "", institutionType: "" });
+        setFormData({ name: "", email: "", company: "", orgNumber: "", website: "", phone: "", subject: "", message: "", institutionType: "", isHovedadmin: true, altHovedadminName: "", altHovedadminEmail: "" });
         setBrregVerified(false);
         setTurnstileToken(null);
         setTurnstileWidgetKey((value) => value + 1);
@@ -739,6 +745,60 @@ export default function Contact() {
                         data-testid="input-contact-phone"
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-3 rounded-md border border-[#E2E8F0] bg-[#F8FAFC] p-4">
+                    <Label className="text-[#223238] font-medium">Hvem skal være hovedadmin for denne Tidum-kontoen?</Label>
+                    <p className="text-sm text-[#516A73]">Hovedadmin styrer brukere, roller og ansatte-importen i Tidum.</p>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="hovedadmin_choice"
+                        checked={formData.isHovedadmin}
+                        onChange={() => setFormData({ ...formData, isHovedadmin: true })}
+                        className="mt-1"
+                        data-testid="radio-hovedadmin-self"
+                      />
+                      <span className="text-[#223238]">Jeg er hovedadmin</span>
+                    </label>
+                    <label className="flex items-start gap-3 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="hovedadmin_choice"
+                        checked={!formData.isHovedadmin}
+                        onChange={() => setFormData({ ...formData, isHovedadmin: false })}
+                        className="mt-1"
+                        data-testid="radio-hovedadmin-other"
+                      />
+                      <span className="text-[#223238]">Noen andre i bedriften skal være hovedadmin</span>
+                    </label>
+                    {!formData.isHovedadmin && (
+                      <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="altHovedadminName" className="text-[#223238]">Navn på hovedadmin *</Label>
+                          <Input
+                            id="altHovedadminName"
+                            value={formData.altHovedadminName}
+                            onChange={(e) => setFormData({ ...formData, altHovedadminName: e.target.value })}
+                            required={!formData.isHovedadmin}
+                            className="tidum-input"
+                            data-testid="input-alt-hovedadmin-name"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="altHovedadminEmail" className="text-[#223238]">E-post til hovedadmin *</Label>
+                          <Input
+                            id="altHovedadminEmail"
+                            type="email"
+                            value={formData.altHovedadminEmail}
+                            onChange={(e) => setFormData({ ...formData, altHovedadminEmail: e.target.value })}
+                            required={!formData.isHovedadmin}
+                            className="tidum-input"
+                            data-testid="input-alt-hovedadmin-email"
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <div className="space-y-2">
