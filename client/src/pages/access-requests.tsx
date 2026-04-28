@@ -34,6 +34,9 @@ interface AccessRequest {
   reviewedBy: string | null;
   reviewedAt: string | null;
   vendorId: number | null;
+  isHovedadmin: boolean | null;
+  altHovedadminName: string | null;
+  altHovedadminEmail: string | null;
   createdAt: string;
 }
 
@@ -382,6 +385,18 @@ export default function AccessRequestsPage() {
                     Målgruppe: {institutionTypeLabels[request.institutionType] || request.institutionType}
                   </div>
                 )}
+                <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm">
+                  <strong>Hovedadmin:</strong>{" "}
+                  {request.isHovedadmin === false && request.altHovedadminEmail ? (
+                    <span>
+                      {request.altHovedadminName || "(navn mangler)"} —{" "}
+                      <span className="font-mono">{request.altHovedadminEmail}</span>
+                      <span className="ml-2 text-xs text-amber-800">(forespørsleren oppga annen person)</span>
+                    </span>
+                  ) : (
+                    <span>{request.fullName} — <span className="font-mono">{request.email}</span></span>
+                  )}
+                </div>
                 {request.message && (
                   <div className="flex items-start gap-2 text-sm">
                     <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5" />
@@ -430,13 +445,28 @@ export default function AccessRequestsPage() {
           <DialogHeader>
             <DialogTitle>Godkjenn tilgang</DialogTitle>
             <DialogDescription>
-              Velg hvilken virksomhet brukeren skal tilhøre og hvilken lederrolle som skal opprettes for Google-login.
+              Velg hvilken virksomhet kunden skal tilhøre. Magic-link-invitasjon sendes automatisk til hovedadminen som er angitt under.
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-4">
             <div className="space-y-2">
-              <Label>Bruker</Label>
+              <Label>Forespørsler</Label>
               <p className="text-sm text-muted-foreground">{selectedRequest?.fullName} ({selectedRequest?.email})</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Hovedadmin (mottar invitasjonen)</Label>
+              {selectedRequest?.isHovedadmin === false && selectedRequest?.altHovedadminEmail ? (
+                <p className="text-sm rounded-md border border-amber-300 bg-amber-50 p-2">
+                  <strong>{selectedRequest.altHovedadminName || "(navn mangler)"}</strong>{" "}
+                  — <span className="font-mono">{selectedRequest.altHovedadminEmail}</span>
+                  <br />
+                  <span className="text-xs text-amber-800">Forespørsleren oppga at en annen person er hovedadmin.</span>
+                </p>
+              ) : (
+                <p className="text-sm rounded-md border border-emerald-200 bg-emerald-50 p-2">
+                  Forespørsleren ({selectedRequest?.fullName}) blir hovedadmin.
+                </p>
+              )}
             </div>
             <div className="space-y-2">
               <Label htmlFor="vendor-select">Virksomhet</Label>

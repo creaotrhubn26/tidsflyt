@@ -153,28 +153,26 @@ async function ensureVendorForAccessRequest(
   return createdVendor.id;
 }
 
-async function ensureVendorAdminForAccessRequest(
+async function ensureHovedadminForAccessRequest(
   request: typeof accessRequests.$inferSelect,
   vendorId: number,
+  hovedadminEmail: string,
+  hovedadminName: string | null,
 ): Promise<void> {
-  if (!request.email) {
-    return;
-  }
-
-  const email = request.email.trim().toLowerCase();
+  const email = hovedadminEmail.trim().toLowerCase();
   const usernameBase =
-    slugifyVendorName(request.fullName || request.company || email.split("@")[0] || "vendor-admin") ||
-    "vendor-admin";
+    slugifyVendorName(hovedadminName || request.company || email.split("@")[0] || "hovedadmin") ||
+    "hovedadmin";
   const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
 
   await pool.query(
     `INSERT INTO admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
-     VALUES ($1, $2, $3, 'vendor_admin', $4, true, NOW())
+     VALUES ($1, $2, $3, 'hovedadmin', $4, true, NOW())
      ON CONFLICT (email)
      DO UPDATE SET
        username = EXCLUDED.username,
        password_hash = EXCLUDED.password_hash,
-       role = 'vendor_admin',
+       role = 'hovedadmin',
        vendor_id = EXCLUDED.vendor_id,
        is_active = true,
        updated_at = NOW()`,
@@ -258,6 +256,10 @@ async function notifyTidumSupportAboutAccessRequest(
     return;
   }
 
+  const hovedadminLine = request.isHovedadmin
+    ? `${request.fullName} (forespørsleren selv)`
+    : `${request.altHovedadminName || "(navn mangler)"} — ${request.altHovedadminEmail || "(e-post mangler)"}`;
+
   await emailService.sendEmail({
     to: TIDUM_SUPPORT_EMAIL,
     replyTo: request.email,
@@ -272,6 +274,9 @@ async function notifyTidumSupportAboutAccessRequest(
         <p><strong>Telefon:</strong> ${request.phone || "Ikke oppgitt"}</p>
         <p><strong>Type virksomhet:</strong> ${request.institutionType || "Ikke oppgitt"}</p>
         <p><strong>BRREG-verifisert:</strong> ${request.brregVerified ? "Ja" : "Nei"}</p>
+        <div style="margin-top: 16px; padding: 12px 16px; background: #fff7e6; border: 1px solid #f0c674; border-radius: 8px;">
+          <strong>Hovedadmin ved godkjenning:</strong> ${hovedadminLine}
+        </div>
         <div style="margin-top: 20px; padding: 16px; background: #f8fafc; border-radius: 12px;">
           <strong>Melding</strong>
           <p style="margin: 8px 0 0;">${request.message || "Ingen melding sendt."}</p>
@@ -287,6 +292,8 @@ async function notifyTidumSupportAboutAccessRequest(
       `Telefon: ${request.phone || "Ikke oppgitt"}`,
       `Type virksomhet: ${request.institutionType || "Ikke oppgitt"}`,
       `BRREG-verifisert: ${request.brregVerified ? "Ja" : "Nei"}`,
+      "",
+      `Hovedadmin ved godkjenning: ${hovedadminLine}`,
       "",
       `Melding: ${request.message || "Ingen melding sendt."}`,
     ].join("\n"),
@@ -381,27 +388,43 @@ async function applyAccessRequestDecision({
     .where(eq(accessRequests.id, requestId))
     .returning();
 
-  if (status === "approved" && request.email) {
-    await ensureVendorAdminForAccessRequest(request, effectiveVendorId as number);
+  // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
+  // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
+  const hovedadminEmail = request.isHovedadmin
+    ? request.email
+    : (request.altHovedadminEmail || request.email);
+  const hovedadminName = request.isHovedadmin
+    ? request.fullName
+    : (request.altHovedadminName || request.fullName);
+
+  if (status === "approved" && hovedadminEmail) {
+    await ensureHovedadminForAccessRequest(
+      request,
+      effectiveVendorId as number,
+      hovedadminEmail,
+      hovedadminName,
+    );
     await syncApprovedPortalUser(
-      request.email,
-      "vendor_admin",
+      hovedadminEmail,
+      "hovedadmin",
       effectiveVendorId,
     );
   }
 
-  if (request.email) {
+  if (hovedadminEmail) {
     try {
       if (status === "approved") {
-        const loginUrl = buildEmailLoginUrl(request.email);
-        await emailService.sendVendorAdminMagicLinkInviteEmail({
-          to: request.email,
-          fullName: request.fullName,
+        const loginUrl = buildEmailLoginUrl(hovedadminEmail);
+        await emailService.sendHovedadminMagicLinkInviteEmail({
+          to: hovedadminEmail,
+          fullName: hovedadminName ?? "",
           company: request.company ?? null,
           institutionType: request.institutionType ?? null,
           loginUrl,
         });
-      } else {
+      } else if (request.email) {
+        // Avslag går alltid til den som faktisk fyllte ut skjemaet, ikke til
+        // alt_hovedadmin (vi vil ikke spamme uvitende tredjeparter).
         await emailService.sendAccessRejectedEmail(
           request.email,
           request.fullName,
@@ -415,7 +438,7 @@ async function applyAccessRequestDecision({
   await syncTidumAccessRequestToCreatorhub(
     buildTidumAccessRequestSyncPayload(
       updated,
-      status === "approved" ? "vendor_admin" : null,
+      status === "approved" ? "hovedadmin" : null,
     ),
   );
 

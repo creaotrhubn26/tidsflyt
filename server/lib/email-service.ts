@@ -736,6 +736,76 @@ export class EmailService {
   }
 
   /**
+   * Sendt til hovedadmin når super_admin godkjenner en access-request.
+   * Forskjell fra sendVendorAdminMagicLinkInviteEmail: denne er for primær-
+   * adminen (én per kunde), ikke backup/co-admin. Tekst snakker om "hovedadmin"
+   * og hvilke ansvarsområder som følger med (inkl. å invitere vendor_admin
+   * som backup).
+   */
+  async sendHovedadminMagicLinkInviteEmail({
+    to,
+    fullName,
+    company,
+    institutionType,
+    loginUrl,
+  }: {
+    to: string;
+    fullName: string;
+    company?: string | null;
+    institutionType?: string | null;
+    loginUrl: string;
+  }): Promise<boolean> {
+    const companyLabel = company?.trim() || "virksomheten din";
+    const institutionLabel = institutionType?.trim() || "institusjon";
+
+    return this.sendEmail({
+      to,
+      replyTo: TIDUM_SUPPORT_EMAIL,
+      subject: `Tidum er klart for ${companyLabel}`,
+      html: renderTidumEmail({
+        badge: "Tidum Hovedadmin Invite",
+        title: "Dere er godkjent i Tidum",
+        intro: `${companyLabel} er nå opprettet som ${institutionLabel} i Tidum. Denne invitasjonen gir deg hovedadmin-tilgang for virksomheten.`,
+        bodyHtml: `
+          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${fullName || "der"},</p>
+          <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
+            Du er satt opp som <strong style="color:#16343d;">hovedadmin</strong> for <strong style="color:#16343d;">${companyLabel}</strong>.
+            Når du åpner lenken under, kommer du rett inn i Tidum og kan begynne å konfigurere virksomheten.
+          </p>
+          ${renderRoleBox("Hovedadmin", "Du har full tilgang til virksomhetens Tidum-konto. Du kan invitere ansatte, importere fra Planday, sette opp tiltaksledere — og opprette en eller flere leverandøradminer som backup.")}
+          ${renderInfoBox("Neste steg", [
+            "Bekreft virksomhetsopplysninger og tilgangsnivåer",
+            "Importer ansatte fra Planday eller annet system",
+            "Inviter tiltaksledere og miljøarbeidere",
+            "Oppnevn én eller flere leverandøradminer som backup",
+          ], "#fffaf1", "#f0dfb8", "#8a5b12")}
+        `,
+        ctaLabel: "Åpne Tidum med magic link",
+        ctaUrl: loginUrl,
+        footerHtml: `
+          <p style="margin:24px 0 0;font-size:13px;line-height:1.7;color:#6a7f84;">
+            Magic-linken er gyldig i 15 minutter. Hvis du ikke forventet denne invitasjonen, kan du ignorere e-posten eller kontakte oss på
+            <a href="mailto:${TIDUM_SUPPORT_EMAIL}" style="color:#1a6b73;text-decoration:none;">${TIDUM_SUPPORT_EMAIL}</a>.
+          </p>
+        `,
+      }),
+      text: [
+        `Hei ${fullName || "der"},`,
+        "",
+        `${companyLabel} er nå godkjent i Tidum.`,
+        "Du er satt opp som hovedadmin for virksomheten.",
+        "",
+        "Åpne Tidum med magic link:",
+        loginUrl,
+        "",
+        "Som hovedadmin har du full tilgang. Du kan importere ansatte, opprette tiltaksledere, og oppnevne leverandøradmin som backup.",
+        "",
+        "Lenken er gyldig i 15 minutter.",
+      ].join("\n"),
+    });
+  }
+
+  /**
    * Admin-only: invite someone as a prototype tester (not a real vendor).
    * Testers get a magic link and clear expectations about what we want
    * feedback on. Different copy from the regular vendor admin invite.
