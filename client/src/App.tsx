@@ -41,6 +41,7 @@ const AdminCaseReviews = lazy(() => import("@/pages/admin-case-reviews"));
 const ApiDocs = lazy(() => import("@/pages/api-docs"));
 const VendorApiAdmin = lazy(() => import("@/pages/vendor-api-admin"));
 const AccessRequests = lazy(() => import("@/pages/access-requests"));
+const ImportEmployees = lazy(() => import("@/pages/import-employees"));
 const LeavePage = lazy(() => import("@/pages/leave"));
 const InvoicesPage = lazy(() => import("@/pages/invoices"));
 const OvertimePage = lazy(() => import("@/pages/overtime"));
@@ -185,6 +186,7 @@ function Router() {
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
         <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
         <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+        <Route path="/import-employees">{() => <AuthGuard requiredRoles={["hovedadmin", "vendor_admin", "admin", "super_admin"]}><ImportEmployees /></AuthGuard>}</Route>
 
         {/* Salg & Priser (super-admin only) */}
         <Route path="/admin/salg">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminSalg /></AuthGuard>}</Route>
