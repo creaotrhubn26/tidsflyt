@@ -292,6 +292,28 @@ export type InsertImport = typeof imports.$inferInsert;
 export type ImportRow = typeof importRows.$inferSelect;
 export type InsertImportRow = typeof importRows.$inferInsert;
 
+// Audit-spor for seat-overrun-hendelser (migrasjon 044). Brukes av
+// daglig cron + insert-time-hooks når en vendor passerer max_users
+// uavhengig av kilde (cron-sweep, manuell invite, API, etc.).
+export const vendorSeatLog = pgTable("vendor_seat_log", {
+  id:            uuid("id").defaultRandom().primaryKey(),
+  vendorId:      integer("vendor_id").notNull(),
+  occurredAt:    timestamp("occurred_at").defaultNow(),
+  source:        text("source").notNull(),         // 'cron' | 'import' | 'manual_invite' | 'api' | 'approval'
+  prevUsers:     integer("prev_users").notNull(),
+  prevMaxUsers:  integer("prev_max_users"),
+  prevTierSlug:  text("prev_tier_slug"),
+  newUsers:      integer("new_users").notNull(),
+  newMaxUsers:   integer("new_max_users"),
+  newTierSlug:   text("new_tier_slug"),
+  newTierId:     integer("new_tier_id"),
+  stripeResult:  jsonb("stripe_result"),
+  triggeredBy:   text("triggered_by"),
+});
+
+export type VendorSeatLog = typeof vendorSeatLog.$inferSelect;
+export type InsertVendorSeatLog = typeof vendorSeatLog.$inferInsert;
+
 // User-defined goal categories (replaces localStorage "custom-goal-cats")
 export const userGoalCategories = pgTable("user_goal_categories", {
   id:        uuid("id").defaultRandom().primaryKey(),

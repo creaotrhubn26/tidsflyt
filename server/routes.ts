@@ -29,6 +29,7 @@ import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
 import { registerAvvikRoutes } from "./routes/avvik-routes";
 import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
 import { registerEmployeeImportRoutes } from "./routes/employee-import-routes";
+import { registerSeatOverrunRoutes, setupSeatOverrunCron } from "./routes/seat-overrun-cron";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
@@ -6512,6 +6513,7 @@ export async function registerRoutes(
   registerAvvikRoutes(app);
   registerPowerOfficeRoutes(app);
   registerEmployeeImportRoutes(app);
+  registerSeatOverrunRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
@@ -6519,6 +6521,7 @@ export async function registerRoutes(
     setupLeaveRolloverCron();
     setupTimesheetReminderCron();
     setupGdprCron();
+    setupSeatOverrunCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)
   seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));

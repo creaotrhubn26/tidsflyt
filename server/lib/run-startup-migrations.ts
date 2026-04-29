@@ -14,6 +14,7 @@ const STARTUP_MIGRATIONS: string[] = [
   "041_access_request_hovedadmin.sql",
   "042_employee_imports.sql",
   "043_company_users_email_unique.sql",
+  "044_vendor_seat_log.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
