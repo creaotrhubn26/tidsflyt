@@ -25,7 +25,7 @@ import multer from 'multer';
 import crypto from 'crypto';
 import { eq, and, desc, sql } from 'drizzle-orm';
 import { db, pool } from '../db';
-import { imports, importRows, companyUsers, vendors } from '@shared/schema';
+import { imports, importRows, companyUsers, vendors, testerFeedback } from '@shared/schema';
 import { requireAuth } from '../middleware/auth';
 import { getParser } from '../lib/import-parsers';
 import type { ImportSource, ParsedRow } from '../lib/import-parsers/types';
@@ -733,6 +733,116 @@ export function registerEmployeeImportRoutes(app: Express) {
       return res.json({ imports: rows });
     } catch (err: any) {
       console.error('[imports] list failed', err);
+      return res.status(500).json({ error: err?.message || 'Feilet' });
+    }
+  });
+
+  /**
+   * POST /api/imports/:id/feedback
+   *
+   * Tideman-feedback etter en bekreftet import. Skriver til den eksisterende
+   * tester_feedback-tabellen (kontekst lagres i extra_context) og sender
+   * e-post til TIDUM_SUPPORT_EMAIL med Tideman-branding.
+   *
+   * Idempotens: vi tillater flere feedback-rader fra samme bruker per import
+   * (samme person kan ha flere innspill), men UI bare viser den siste.
+   */
+  app.post('/api/imports/:id/feedback', requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!isAdmin(req)) return res.status(403).json({ error: 'Forbidden' });
+      const importId = req.params.id;
+      const user = currentUser(req);
+      const email = userEmail(req);
+      if (!user || !email) return res.status(401).json({ error: 'Auth uten bruker' });
+
+      const rating = Number(req.body?.rating);
+      if (!Number.isInteger(rating) || rating < 1 || rating > 5) {
+        return res.status(400).json({ error: 'rating må være heltall 1–5' });
+      }
+      const comment = typeof req.body?.comment === 'string'
+        ? req.body.comment.trim().slice(0, 4000)
+        : '';
+
+      const [imp] = await db.select().from(imports).where(eq(imports.id, importId)).limit(1);
+      if (!imp) return res.status(404).json({ error: 'Import finnes ikke' });
+      const callerVendor = userVendorId(req);
+      if (!isSuperAdmin(req) && imp.vendorId !== callerVendor) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne importen' });
+      }
+      if (imp.status !== 'confirmed') {
+        return res.status(409).json({ error: 'Kan kun gi feedback på en bekreftet import' });
+      }
+
+      const [vendor] = await db.select({ name: vendors.name }).from(vendors)
+        .where(eq(vendors.id, imp.vendorId)).limit(1);
+      const vendorName = vendor?.name || `vendor #${imp.vendorId}`;
+
+      // Map rating → category (kobler eksisterende tester_feedback-pipeline)
+      const category = rating >= 4 ? 'praise' : rating <= 2 ? 'bug' : 'other';
+      const summary = imp.summaryJsonb as { imported?: number } | null;
+      const messageText = comment || `Rating ${rating}/5 uten kommentar.`;
+
+      await db.insert(testerFeedback).values({
+        userId: String((user as any).id ?? email),
+        email,
+        fullName: (user as any).fullName ?? null,
+        message: messageText,
+        category,
+        severity: rating <= 2 ? 'high' : 'medium',
+        pagePath: `/import-employees/${importId}/preview`,
+        pageTitle: 'Import-feedback (Tideman)',
+        userAgent: req.headers['user-agent'] || null,
+        extraContext: {
+          kind: 'import_feedback',
+          source: 'tideman',
+          importId,
+          importSource: imp.source,
+          importedCount: summary?.imported ?? null,
+          vendorId: imp.vendorId,
+          vendorName,
+          rating,
+        },
+        status: 'new',
+      });
+
+      // Tideman-e-post til Daniel (best-effort)
+      try {
+        const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
+        const lowRatingPrefix = rating <= 2 ? '★ ' : '';
+        await emailService.sendEmail({
+          to: TIDUM_SUPPORT_EMAIL,
+          subject: `${lowRatingPrefix}[Tideman] Import-feedback (${stars}): ${vendorName}`,
+          html: `
+            <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
+              <p style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 0;">Tideman · feedback-mottaker</p>
+              <h2 style="color: #0f172a; margin-top: 4px;">Import-feedback mottatt</h2>
+              <p><strong>Vendor:</strong> ${vendorName} (id ${imp.vendorId})</p>
+              <p><strong>Import:</strong> ${importId} (${imp.source}, ${summary?.imported ?? '?'} ansatte importert)</p>
+              <p><strong>Rating:</strong> ${stars} (${rating}/5)</p>
+              <p><strong>Fra:</strong> ${email}</p>
+              ${comment
+                ? `<div style="margin-top: 12px; padding: 12px; background: #f8fafc; border-left: 3px solid #94a3b8;"><strong>Kommentar:</strong><br/>${comment.replace(/\n/g, '<br/>')}</div>`
+                : '<p><em>Ingen kommentar — bare rating.</em></p>'}
+              <p style="margin-top: 16px; color: #64748b; font-size: 12px;">Du kan svare bruker via /admin/tester-feedback. Tideman har lagret feedback-en med category=${category}.</p>
+            </div>
+          `,
+          text: [
+            `[Tideman] Import-feedback (${rating}/5): ${vendorName}`,
+            `Import: ${importId} (${imp.source})`,
+            `Fra: ${email}`,
+            '',
+            comment || '(ingen kommentar)',
+            '',
+            `Se og svar via /admin/tester-feedback.`,
+          ].join('\n'),
+        });
+      } catch (mailErr) {
+        console.error('[Tideman] e-post feilet:', mailErr);
+      }
+
+      return res.json({ ok: true });
+    } catch (err: any) {
+      console.error('[Tideman] POST failed', err);
       return res.status(500).json({ error: err?.message || 'Feilet' });
     }
   });
