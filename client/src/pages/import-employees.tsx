@@ -191,6 +191,14 @@ export default function ImportEmployeesPage() {
                   <div className="flex-1">
                     <div className="font-semibold text-[#16343d]">{s.title}</div>
                     <p className="mt-1 text-sm text-[#486168]">{s.body}</p>
+                    {s.imageUrl && (
+                      <img
+                        src={s.imageUrl}
+                        alt={s.imageAlt ?? s.title}
+                        loading="lazy"
+                        className="mt-3 max-w-full rounded-md border border-slate-200 shadow-sm"
+                      />
+                    )}
                     {s.tip && (
                       <div className="mt-2 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs text-blue-900">
                         💡 {s.tip}

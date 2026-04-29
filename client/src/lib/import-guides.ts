@@ -18,6 +18,12 @@ export interface GuideStep {
   title: string;
   body: string;
   tip?: string;
+  /**
+   * Optional illustration. Hot-linked from kildens CDN — kan brytes hvis kilden
+   * flytter bildet. Vis aldri som primær informasjon; teksten er sannheten.
+   */
+  imageUrl?: string;
+  imageAlt?: string;
 }
 
 export interface SourceGuide {
@@ -71,15 +77,21 @@ export const PLANDAY_GUIDE: SourceGuide = {
     {
       title: 'Åpne Verktøy → Eksporter data',
       body: 'Klikk Verktøy (Tools) øverst til høyre. Velg Eksporter data (Export data) fra dropdown-menyen.',
+      imageUrl: 'https://downloads.intercomcdn.eu/i/o/2452538/ac90fdaa91c2e67f6eff6e74/0abf7035-d05c-4aa4-8bbd-ea6d0ecf94e3',
+      imageAlt: 'Planday-meny: People → Employees → Tools → Export data',
     },
     {
       title: 'Velg malen "Employee details"',
       body: 'I høyre kolonne under "Integration templates" — klikk Employee details. Dette gir oss alle feltene Tidum trenger.',
+      imageUrl: 'https://downloads.intercomcdn.eu/i/o/2452539/f24061ad82d108b170f45013/395584c5-536e-4e12-8752-1b7ce5ca63f1',
+      imageAlt: 'Eksport-side med Integration templates og Employee details i høyre kolonne',
     },
     {
       title: 'Hak av "Include deactivated employees"',
       body: 'VIKTIG: hak av denne avkrysningsboksen, ellers utelates ansatte som har vært midlertidig deaktivert i Planday.',
       tip: 'Uten denne haken risikerer dere at ansatte som var aktive forrige måned mangler i Tidum.',
+      imageUrl: 'https://downloads.intercomcdn.eu/i/o/20722838/52c5705ec2136ab84d57760d/export+empl+data_001.jpeg',
+      imageAlt: 'Konfigurasjons-skjerm med filter-opsjoner inkludert Include deactivated employees',
     },
     {
       title: 'Velg filformat',
