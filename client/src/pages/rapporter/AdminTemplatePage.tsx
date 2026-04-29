@@ -242,16 +242,19 @@ export default function AdminTemplatePage() {
   // Template from server
   const { data: templates = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter/templates/mine"],
-    queryFn: () => apiRequest("/api/rapporter/templates/mine"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/rapporter/templates/mine");
+      return r.json();
+    },
   });
 
   const saveTemplate = useMutation({
     mutationFn: (body: object) => {
       const existing = (templates as any[])[0];
       if (existing) {
-        return apiRequest(`/api/rapporter/templates/${existing.id}`, { method: "PATCH", body: JSON.stringify(body) });
+        return apiRequest("PATCH", `/api/rapporter/templates/${existing.id}`, body);
       }
-      return apiRequest("/api/rapporter/templates", { method: "POST", body: JSON.stringify(body) });
+      return apiRequest("POST", "/api/rapporter/templates", body);
     },
     onSuccess: () => { toast({ title: "Mal lagret" }); qc.invalidateQueries({ queryKey: ["/api/rapporter/templates/mine"] }); },
     onError: () => toast({ title: "Feil ved lagring", variant: "destructive" }),

@@ -81,33 +81,43 @@ export default function TiltakslederPage() {
 
   const { data: rapporter = [], isLoading } = useQuery<Rapport[]>({
     queryKey: ["/api/rapporter"],
-    queryFn: () => apiRequest("/api/rapporter"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/rapporter");
+      return r.json();
+    },
   });
 
   // Mål og aktiviteter for valgt rapport
-  const { data: maal = [] } = useQuery({
+  const { data: maal = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", selectedRapport?.id, "maal"],
-    queryFn: () => apiRequest(`/api/rapporter/${selectedRapport!.id}/maal`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${selectedRapport!.id}/maal`);
+      return r.json();
+    },
     enabled: !!selectedRapport,
   });
-  const { data: aktiviteter = [] } = useQuery({
+  const { data: aktiviteter = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", selectedRapport?.id, "aktiviteter"],
-    queryFn: () => apiRequest(`/api/rapporter/${selectedRapport!.id}/aktiviteter`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${selectedRapport!.id}/aktiviteter`);
+      return r.json();
+    },
     enabled: !!selectedRapport,
   });
-  const { data: kommentarer = [] } = useQuery({
+  const { data: kommentarer = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", selectedRapport?.id, "kommentarer"],
-    queryFn: () => apiRequest(`/api/rapporter/${selectedRapport!.id}/kommentarer`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${selectedRapport!.id}/kommentarer`);
+      return r.json();
+    },
     enabled: !!selectedRapport,
   });
 
   // ── MUTATIONS ─────────────────────────────────────────────────────────────
 
   const godkjenn = useMutation({
-    mutationFn: (rapportId: string) => apiRequest(`/api/rapporter/${rapportId}/godkjenn`, {
-      method: "POST",
-      body: JSON.stringify({ kommentar: overordnetMsg || undefined }),
-    }),
+    mutationFn: (rapportId: string) =>
+      apiRequest("POST", `/api/rapporter/${rapportId}/godkjenn`, { kommentar: overordnetMsg || undefined }),
     onSuccess: () => {
       toast({ title: "Rapport godkjent ✅" });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
@@ -117,16 +127,14 @@ export default function TiltakslederPage() {
   });
 
   const returner = useMutation({
-    mutationFn: (rapportId: string) => apiRequest(`/api/rapporter/${rapportId}/returner`, {
-      method: "POST",
-      body: JSON.stringify({
+    mutationFn: (rapportId: string) =>
+      apiRequest("POST", `/api/rapporter/${rapportId}/returner`, {
         kommentar: [
           ...Array.from(returnReasons).map(r => `• ${r}`),
           overordnetMsg,
         ].filter(Boolean).join("\n"),
         seksjonsKommentarer: seksjonKommentarer,
       }),
-    }),
     onSuccess: () => {
       toast({ title: "Rapport returnert med tilbakemelding ↩️" });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
@@ -137,20 +145,17 @@ export default function TiltakslederPage() {
 
   const addKommentar = useMutation({
     mutationFn: ({ rapportId, seksjon, tekst }: { rapportId: string; seksjon: string; tekst: string }) =>
-      apiRequest(`/api/rapporter/${rapportId}/kommentarer`, {
-        method: "POST",
-        body: JSON.stringify({ seksjon, tekst }),
-      }),
+      apiRequest("POST", `/api/rapporter/${rapportId}/kommentarer`, { seksjon, tekst }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", selectedRapport?.id, "kommentarer"] }),
   });
 
   // ── BULK MUTATIONS ────────────────────────────────────────────────────────
 
   const bulkGodkjenn = useMutation({
-    mutationFn: (ids: string[]) => apiRequest(`/api/rapporter/bulk/godkjenn`, {
-      method: "POST",
-      body: JSON.stringify({ ids, kommentar: bulkMessage || undefined }),
-    }),
+    mutationFn: async (ids: string[]) => {
+      const r = await apiRequest("POST", `/api/rapporter/bulk/godkjenn`, { ids, kommentar: bulkMessage || undefined });
+      return r.json();
+    },
     onSuccess: (res: any) => {
       toast({ title: `${res?.approved ?? 0} rapporter godkjent` });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
@@ -162,10 +167,10 @@ export default function TiltakslederPage() {
   });
 
   const bulkReturner = useMutation({
-    mutationFn: (ids: string[]) => apiRequest(`/api/rapporter/bulk/returner`, {
-      method: "POST",
-      body: JSON.stringify({ ids, kommentar: bulkMessage }),
-    }),
+    mutationFn: async (ids: string[]) => {
+      const r = await apiRequest("POST", `/api/rapporter/bulk/returner`, { ids, kommentar: bulkMessage });
+      return r.json();
+    },
     onSuccess: (res: any) => {
       toast({ title: `${res?.returned ?? 0} rapporter returnert` });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });

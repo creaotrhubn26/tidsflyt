@@ -22,9 +22,10 @@ export function SectionChecklist({
   helpText?: string;
 }) {
   const setItem = (item: string, patch: Partial<ChecklistItemState>) => {
+    const base: ChecklistItemState = value[item] ?? { checked: false };
     onChange({
       ...value,
-      [item]: { checked: false, ...(value[item] ?? {}), ...patch },
+      [item]: { ...base, ...patch },
     });
   };
 

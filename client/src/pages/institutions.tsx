@@ -173,9 +173,10 @@ export default function InstitutionsPage() {
   }
   const qc = useQueryClient();
   const bulkImport = useMutation({
-    mutationFn: (rows: any[]) => apiRequest("/api/institutions/bulk", {
-      method: "POST", body: JSON.stringify({ rows }),
-    }),
+    mutationFn: async (rows: any[]) => {
+      const r = await apiRequest("POST", "/api/institutions/bulk", { rows });
+      return r.json();
+    },
     onSuccess: (res: any) => {
       setBulkResult(res);
       qc.invalidateQueries({ queryKey: ["/api/institutions"] });
@@ -277,10 +278,8 @@ export default function InstitutionsPage() {
     enabled: isAdmin,
   });
   const acceptSuggestion = useMutation({
-    mutationFn: (name: string) => apiRequest("/api/institutions", {
-      method: "POST",
-      body: JSON.stringify({ name, institutionType: "annet" }),
-    }),
+    mutationFn: (name: string) =>
+      apiRequest("POST", "/api/institutions", { name, institutionType: "annet" }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/institutions"] });
       refetchSuggestions();

@@ -58,7 +58,10 @@ export default function RapportListePage() {
 
   const { data: rapporter = [], isLoading } = useQuery<Rapport[]>({
     queryKey: ["/api/rapporter"],
-    queryFn: () => apiRequest("/api/rapporter"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/rapporter");
+      return r.json();
+    },
   });
 
   const drafts    = rapporter.filter(r => r.status === "utkast");

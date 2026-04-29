@@ -23,7 +23,7 @@ import { DashboardTasks, type TaskCounts } from "@/components/dashboard/dashboar
 import { DashboardGoals } from "@/components/dashboard/dashboard-goals";
 import { DashboardActivity } from "@/components/dashboard/dashboard-activity";
 import { DashboardStatusToday, type StatusSignal } from "@/components/dashboard/dashboard-status-today";
-import { DashboardRiskParticipants } from "@/components/dashboard/dashboard-risk-participants";
+import { DashboardRiskParticipants, type RiskParticipant } from "@/components/dashboard/dashboard-risk-participants";
 import { DashboardWorkerMobile, type WorkerSummary, type WorkerTodaySignal } from "@/components/dashboard/dashboard-worker-mobile";
 import { DashboardWeekStrip } from "@/components/dashboard/dashboard-week-strip";
 import { useLocation } from "wouter";
@@ -917,15 +917,16 @@ export default function DashboardPage() {
     return Array.from(latestByUser.entries())
       .map(([name, timestamp], index) => {
         const daysSince = Math.floor((nowMs - new Date(timestamp).getTime()) / (1000 * 60 * 60 * 24));
+        const severity: "hoy" | "moderat" | "lav" =
+          daysSince >= 7 ? "hoy" : daysSince >= 3 ? "moderat" : "lav";
         return {
           id: `${name}-${index}`,
           name,
           reason: `Siste aktivitet for ${daysSince} dag${daysSince === 1 ? "" : "er"} siden`,
-          daysSince,
-          severity: (daysSince >= 7 ? "hoy" : daysSince >= 3 ? "moderat" : "lav") as "hoy" | "moderat" | "lav",
+          severity,
         };
       })
-      .filter((entry) => entry.severity !== "lav")
+      .filter((entry): entry is RiskParticipant => entry.severity !== "lav")
       .slice(0, 5);
   }, [activities]);
 

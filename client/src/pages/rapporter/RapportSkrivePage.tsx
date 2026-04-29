@@ -459,7 +459,10 @@ export default function RapportSkrivePage() {
     email?: string; phone?: string; address?: string;
   } | null>({
     queryKey: ["/api/vendor/org-info"],
-    queryFn: () => apiRequest("/api/vendor/org-info"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/vendor/org-info");
+      return r.json();
+    },
   });
 
   // Auto-fyll bedrift fra vendor ved ny rapport
@@ -476,51 +479,76 @@ export default function RapportSkrivePage() {
 
   const { data: saker = [] } = useQuery<Sak[]>({
     queryKey: ["/api/saker"],
-    queryFn: () => apiRequest("/api/saker"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/saker");
+      return r.json();
+    },
   });
 
   // Last eksisterende rapport
-  const { data: existingRapport } = useQuery({
+  const { data: existingRapport } = useQuery<any>({
     queryKey: ["/api/rapporter", rapportId],
-    queryFn: () => rapportId ? apiRequest(`/api/rapporter/${rapportId}`) : null,
+    queryFn: async () => {
+      if (!rapportId) return null;
+      const r = await apiRequest("GET", `/api/rapporter/${rapportId}`);
+      return r.json();
+    },
     enabled: !!rapportId,
   });
 
   // Forrige rapporter for kopiering
-  const { data: prevRapporter = [] } = useQuery({
+  const { data: prevRapporter = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter"],
-    queryFn: () => apiRequest("/api/rapporter"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/rapporter");
+      return r.json();
+    },
   });
 
   // Hent mål og aktiviteter for eksisterende rapport
-  const { data: existingMaal = [] } = useQuery({
+  const { data: existingMaal = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", rapportId, "maal"],
-    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/maal`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${rapportId}/maal`);
+      return r.json();
+    },
     enabled: !!rapportId,
   });
-  const { data: existingAkt = [] } = useQuery({
+  const { data: existingAkt = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", rapportId, "aktiviteter"],
-    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/aktiviteter`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${rapportId}/aktiviteter`);
+      return r.json();
+    },
     enabled: !!rapportId,
   });
 
   // Hent aktivitetsmaler
   const { data: aktivitetMaler = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter/aktivitet-maler"],
-    queryFn: () => apiRequest("/api/rapporter/aktivitet-maler"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/rapporter/aktivitet-maler");
+      return r.json();
+    },
   });
 
   // Hent kommentarer fra tiltaksleder
   const { data: kommentarer = [] } = useQuery<any[]>({
     queryKey: ["/api/rapporter", rapportId, "kommentarer"],
-    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/kommentarer`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${rapportId}/kommentarer`);
+      return r.json();
+    },
     enabled: !!rapportId,
   });
 
   // Hent avvik meldt av innlogget bruker — filtreres til gjeldende rapport
   const { data: mineAvvik = [] } = useQuery<any[]>({
     queryKey: ["/api/avvik/mine"],
-    queryFn: () => apiRequest("/api/avvik/mine"),
+    queryFn: async () => {
+      const r = await apiRequest("GET", "/api/avvik/mine");
+      return r.json();
+    },
     enabled: !!rapportId,
   });
   const rapportAvvikList = useMemo(
@@ -535,7 +563,10 @@ export default function RapportSkrivePage() {
   // Hent godkjente fravær for innlogget bruker — brukes til overlap-varsel
   const { data: leaveRequests = [] } = useQuery<any[]>({
     queryKey: ["/api/leave/requests", "me", "approved"],
-    queryFn: () => apiRequest(`/api/leave/requests?userId=${authUser?.id}&status=approved`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/leave/requests?userId=${authUser?.id}&status=approved`);
+      return r.json();
+    },
     enabled: !!authUser?.id,
   });
   const overlappingLeave = useMemo(() => {
@@ -565,16 +596,19 @@ export default function RapportSkrivePage() {
   // ── MUTATIONS ─────────────────────────────────────────────────────────────
 
   const createRapport = useMutation({
-    mutationFn: (data: object) => apiRequest("/api/rapporter", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: async (data: object) => {
+      const r = await apiRequest("POST", "/api/rapporter", data);
+      return r.json();
+    },
     onSuccess: (data: any) => navigate(`/rapporter/${data.id}`),
   });
 
   const updateRapport = useMutation({
-    mutationFn: (data: object) => apiRequest(`/api/rapporter/${rapportId}`, { method: "PATCH", body: JSON.stringify(data) }),
+    mutationFn: (data: object) => apiRequest("PATCH", `/api/rapporter/${rapportId}`, data),
   });
 
   const sendTilGodkjenning = useMutation({
-    mutationFn: () => apiRequest(`/api/rapporter/${rapportId}/send`, { method: "POST", body: "{}" }),
+    mutationFn: () => apiRequest("POST", `/api/rapporter/${rapportId}/send`),
     onSuccess: () => {
       toast({ title: "Rapport sendt til godkjenning", description: "Tiltaksleder varsles nå." });
       qc.invalidateQueries({ queryKey: ["/api/rapporter"] });
@@ -588,9 +622,8 @@ export default function RapportSkrivePage() {
 
   // Miljøarbeider bekrefter at tilbakemelding er lest
   const acknowledgeFeedback = useMutation({
-    mutationFn: (tekst: string | undefined) => apiRequest(`/api/rapporter/${rapportId}/acknowledge-feedback`, {
-      method: "POST", body: JSON.stringify({ tekst }),
-    }),
+    mutationFn: (tekst: string | undefined) =>
+      apiRequest("POST", `/api/rapporter/${rapportId}/acknowledge-feedback`, { tekst }),
     onSuccess: () => {
       toast({ title: "Tilbakemelding bekreftet", description: "Du kan nå sende inn rapporten på nytt." });
       qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId] });
@@ -600,9 +633,10 @@ export default function RapportSkrivePage() {
 
   // Hent aktiviteter fra timeføring
   const importTimeEntries = useMutation({
-    mutationFn: (overwrite: boolean) => apiRequest(`/api/rapporter/${rapportId}/import-time-entries`, {
-      method: "POST", body: JSON.stringify({ overwrite }),
-    }),
+    mutationFn: async (overwrite: boolean) => {
+      const r = await apiRequest("POST", `/api/rapporter/${rapportId}/import-time-entries`, { overwrite });
+      return r.json();
+    },
     onSuccess: (res: any) => {
       toast({
         title: `Hentet ${res?.imported ?? 0} aktiviteter fra timeføring`,
@@ -614,28 +648,28 @@ export default function RapportSkrivePage() {
   });
 
   const createMaal = useMutation({
-    mutationFn: (data: object) => apiRequest(`/api/rapporter/${rapportId}/maal`, { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: object) => apiRequest("POST", `/api/rapporter/${rapportId}/maal`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "maal"] }),
   });
 
   const createAktivitet = useMutation({
-    mutationFn: (data: object) => apiRequest(`/api/rapporter/${rapportId}/aktiviteter`, { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: object) => apiRequest("POST", `/api/rapporter/${rapportId}/aktiviteter`, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "aktiviteter"] }),
   });
 
   const deleteAktivitet = useMutation({
-    mutationFn: (aktId: string) => apiRequest(`/api/rapporter/${rapportId}/aktiviteter/${aktId}`, { method: "DELETE" }),
+    mutationFn: (aktId: string) => apiRequest("DELETE", `/api/rapporter/${rapportId}/aktiviteter/${aktId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "aktiviteter"] }),
   });
 
   const deleteMaal = useMutation({
-    mutationFn: (maalId: string) => apiRequest(`/api/rapporter/${rapportId}/maal/${maalId}`, { method: "DELETE" }),
+    mutationFn: (maalId: string) => apiRequest("DELETE", `/api/rapporter/${rapportId}/maal/${maalId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "maal"] }),
   });
 
   // Aktivitetsmaler CRUD
   const saveMal = useMutation({
-    mutationFn: (data: any) => apiRequest("/api/rapporter/aktivitet-maler", { method: "POST", body: JSON.stringify(data) }),
+    mutationFn: (data: any) => apiRequest("POST", "/api/rapporter/aktivitet-maler", data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] });
       toast({ title: "Mal lagret" });
@@ -643,12 +677,12 @@ export default function RapportSkrivePage() {
   });
 
   const deleteMal = useMutation({
-    mutationFn: (malId: string) => apiRequest(`/api/rapporter/aktivitet-maler/${malId}`, { method: "DELETE" }),
+    mutationFn: (malId: string) => apiRequest("DELETE", `/api/rapporter/aktivitet-maler/${malId}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] }),
   });
 
   const brukMal = useMutation({
-    mutationFn: (malId: string) => apiRequest(`/api/rapporter/aktivitet-maler/${malId}/bruk`, { method: "POST", body: "{}" }),
+    mutationFn: (malId: string) => apiRequest("POST", `/api/rapporter/aktivitet-maler/${malId}/bruk`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/rapporter/aktivitet-maler"] }),
   });
 
@@ -663,7 +697,7 @@ export default function RapportSkrivePage() {
 
   // Mark comments as read when viewing a returned rapport
   const markAsRead = useMutation({
-    mutationFn: () => apiRequest(`/api/rapporter/${rapportId}/kommentarer/les`, { method: "POST", body: "{}" }),
+    mutationFn: () => apiRequest("POST", `/api/rapporter/${rapportId}/kommentarer/les`),
   });
   useEffect(() => {
     if (rapportId && isReturnert && kommentarer.length > 0) {
@@ -674,7 +708,7 @@ export default function RapportSkrivePage() {
   // Reply to a comment
   const replyToComment = useMutation({
     mutationFn: (data: { seksjon?: string; tekst: string }) =>
-      apiRequest(`/api/rapporter/${rapportId}/kommentarer`, { method: "POST", body: JSON.stringify(data) }),
+      apiRequest("POST", `/api/rapporter/${rapportId}/kommentarer`, data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/rapporter", rapportId, "kommentarer"] });
       toast({ title: "Svar sendt" });
@@ -2186,7 +2220,10 @@ const EVENT_META: Record<string, { color: string; label: string; icon: typeof Cl
 function RapportAuditTimeline({ rapportId }: { rapportId: string }) {
   const { data: events = [] } = useQuery<AuditEvent[]>({
     queryKey: [`/api/rapporter/${rapportId}/audit`],
-    queryFn: () => apiRequest(`/api/rapporter/${rapportId}/audit`),
+    queryFn: async () => {
+      const r = await apiRequest("GET", `/api/rapporter/${rapportId}/audit`);
+      return r.json();
+    },
     enabled: !!rapportId,
     staleTime: 30_000,
   });
