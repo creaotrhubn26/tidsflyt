@@ -22,6 +22,7 @@ import { getPowerOfficeVisibility } from "./lib/poweroffice-visibility";
 import { vendorIntegrations } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { db } from "./db";
+import { processVendorSeatOverrun } from "./lib/seat-overrun";
 import {
   getBlogCoverOgUrl,
   getBlogCoverPath,
@@ -1217,11 +1218,18 @@ export function registerSmartTimingRoutes(app: Express) {
 
       // 3. company_users entry so the user appears in the vendor's user list
       await pool.query(
-        `INSERT INTO company_users (company_id, user_email, role, approved)
-         VALUES ($1, $2, 'vendor_admin', true)
+        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES ($1, $1, $2, 'vendor_admin', true)
          ON CONFLICT DO NOTHING`,
         [vendorId, normalizedEmail]
       );
+
+      // Insert-time seat-overrun-check (T17). Vendor-admins teller mot seat-cap.
+      try {
+        await processVendorSeatOverrun(vendorId, 'manual_invite', getRequestUserEmail(req));
+      } catch (overrunErr) {
+        console.error('[seat-overrun] vendor_admin invite hook feilet:', overrunErr);
+      }
 
       // 4. Send magic-link invite
       let emailSent = false;
@@ -1346,11 +1354,20 @@ export function registerSmartTimingRoutes(app: Express) {
         [vendorId, userId]
       );
       await pool.query(
-        `INSERT INTO company_users (company_id, user_email, role, approved)
-         VALUES ($1, $2, 'vendor_admin', true)
+        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES ($1, $1, $2, 'vendor_admin', true)
          ON CONFLICT DO NOTHING`,
         [vendorId, existing.email]
       );
+
+      // Insert-time seat-overrun-check (T17). Konvertering legger til en
+      // betalt seat — må gå gjennom samme tier-bump-flyt som andre invites.
+      try {
+        await processVendorSeatOverrun(Number(vendorId), 'api', getRequestUserEmail(req));
+      } catch (overrunErr) {
+        console.error('[seat-overrun] prototype-convert hook feilet:', overrunErr);
+      }
+
       res.json({ ok: true });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -1573,13 +1590,21 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `INSERT INTO company_users (company_id, user_email, role, approved)
-         VALUES ($1, $2, $3, true) RETURNING *`,
+        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES ($1, $1, $2, $3, true) RETURNING *`,
         [companyId, user_email, targetRole]
       );
 
       if (user_email) {
         await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+      }
+
+      // Insert-time seat-overrun-check (T17). Best-effort — skal aldri
+      // blokkere invite-flyten.
+      try {
+        await processVendorSeatOverrun(companyId, 'manual_invite', getRequestUserEmail(req));
+      } catch (overrunErr) {
+        console.error('[seat-overrun] manual_invite hook feilet:', overrunErr);
       }
 
       // Auto-assign case if provided
@@ -1678,8 +1703,8 @@ export function registerSmartTimingRoutes(app: Express) {
           }
 
           const result = await pool.query(
-            `INSERT INTO company_users (company_id, user_email, role, approved)
-             VALUES ($1, $2, $3, true) RETURNING *`,
+            `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+             VALUES ($1, $1, $2, $3, true) RETURNING *`,
             [companyId, email, targetRole],
           );
           if (result.rows[0]) {
@@ -1691,6 +1716,16 @@ export function registerSmartTimingRoutes(app: Express) {
           }
         } catch (err: any) {
           failed.push({ email, error: err?.message || "Ukjent feil" });
+        }
+      }
+
+      // Insert-time seat-overrun-check (T17). Kjøres én gang etter loop —
+      // ikke per bruker, slik at vi ikke spammer e-post ved tier-bump.
+      if (created.length > 0) {
+        try {
+          await processVendorSeatOverrun(companyId, 'manual_invite', getRequestUserEmail(req));
+        } catch (overrunErr) {
+          console.error('[seat-overrun] bulk_invite hook feilet:', overrunErr);
         }
       }
 

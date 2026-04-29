@@ -30,6 +30,7 @@ import { registerAvvikRoutes } from "./routes/avvik-routes";
 import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
 import { registerEmployeeImportRoutes } from "./routes/employee-import-routes";
 import { registerSeatOverrunRoutes, setupSeatOverrunCron } from "./routes/seat-overrun-cron";
+import { processVendorSeatOverrun } from "./lib/seat-overrun";
 import { registerExportRoutes } from "./routes/export-routes";
 import { registerForwardRoutes } from "./routes/forward-routes";
 import { registerEmailComposerRoutes } from "./routes/email-composer-routes";
@@ -218,8 +219,8 @@ async function syncApprovedPortalUser(email: string, role: string, vendorId: num
       );
     } else {
       await pool.query(
-        `INSERT INTO company_users (company_id, user_email, role, approved)
-         VALUES ($1, $2, $3, true)`,
+        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES ($1, $1, $2, $3, true)`,
         [vendorId, email, normalizedRole]
       );
     }
@@ -410,6 +411,16 @@ async function applyAccessRequestDecision({
       "hovedadmin",
       effectiveVendorId,
     );
+
+    // Insert-time seat-overrun-check (T17). Approval skaper en hovedadmin
+    // som teller mot seat-cap. Best-effort — skal ikke blokkere approval.
+    if (effectiveVendorId != null) {
+      try {
+        await processVendorSeatOverrun(effectiveVendorId, 'approval', reviewedBy ?? null);
+      } catch (overrunErr) {
+        console.error('[seat-overrun] approval hook feilet:', overrunErr);
+      }
+    }
   }
 
   if (hovedadminEmail) {
