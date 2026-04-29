@@ -45,6 +45,7 @@ import {
   Undo2,
   Sparkles,
   Star,
+  HelpCircle,
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
 
@@ -321,61 +322,86 @@ export default function ImportEmployeesPreviewPage() {
       )}
 
       {isConfirmed && !tidemanSent && (
-        <Card className="mb-4 border-slate-200 p-4" data-testid="tideman-feedback-card">
-          <p className="text-[10px] uppercase tracking-widest text-slate-500">Tideman · feedback-mottaker</p>
-          <h3 className="mt-1 text-base font-semibold text-[#16343d]">Hvordan gikk importen?</h3>
-          <p className="mt-1 text-sm text-[#486168]">
-            Si fra hvis noe var rart eller fungerte bra — Tideman tar imot tilbakemeldingen og sender den videre til Tidum-teamet.
-          </p>
-          <div className="mt-3 flex items-center gap-1" role="radiogroup" aria-label="Rating 1 til 5 stjerner">
-            {[1, 2, 3, 4, 5].map((n) => (
-              <button
-                key={n}
-                type="button"
-                role="radio"
-                aria-checked={tidemanRating === n}
-                aria-label={`${n} av 5 stjerner`}
-                onClick={() => setTidemanRating(n)}
-                className="rounded p-1 transition hover:bg-slate-100"
-                data-testid={`tideman-star-${n}`}
+        <Card className="mb-4 overflow-hidden border-slate-200 p-0" data-testid="tideman-feedback-card">
+          <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-white">
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
+                aria-hidden="true"
               >
-                <Star
-                  className={`h-6 w-6 ${tidemanRating >= n ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
-                />
-              </button>
-            ))}
+                <HelpCircle className="h-4 w-4" />
+              </div>
+              <div className="leading-tight">
+                <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
+                <p className="text-sm font-semibold">Hvordan gikk importen?</p>
+              </div>
+            </div>
           </div>
-          <textarea
-            value={tidemanComment}
-            onChange={(e) => setTidemanComment(e.target.value)}
-            placeholder="Hva fungerte? Hva kan bli bedre? (valgfritt)"
-            maxLength={4000}
-            rows={3}
-            className="mt-3 w-full rounded-md border border-slate-300 p-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            data-testid="tideman-comment"
-          />
-          <div className="mt-3 flex items-center justify-between">
-            <p className="text-xs text-slate-500">
-              {tidemanRating === 0 ? 'Velg minst én stjerne for å sende.' : `Du har valgt ${tidemanRating} av 5.`}
+          <div className="p-4">
+            <p className="text-sm text-[#486168]">
+              Si fra hvis noe var rart eller fungerte bra — jeg tar imot tilbakemeldingen og sender den videre til Tidum-teamet.
             </p>
-            <Button
-              onClick={() => tidemanMutation.mutate()}
-              disabled={tidemanRating === 0 || tidemanMutation.isPending}
-              data-testid="tideman-submit"
-            >
-              {tidemanMutation.isPending ? 'Sender til Tideman…' : 'Send til Tideman'}
-            </Button>
+            <div className="mt-3 flex items-center gap-1" role="radiogroup" aria-label="Rating 1 til 5 stjerner">
+              {[1, 2, 3, 4, 5].map((n) => (
+                <button
+                  key={n}
+                  type="button"
+                  role="radio"
+                  aria-checked={tidemanRating === n}
+                  aria-label={`${n} av 5 stjerner`}
+                  onClick={() => setTidemanRating(n)}
+                  className="rounded p-1 transition hover:bg-slate-100"
+                  data-testid={`tideman-star-${n}`}
+                >
+                  <Star
+                    className={`h-6 w-6 ${tidemanRating >= n ? 'fill-amber-400 text-amber-400' : 'text-slate-300'}`}
+                  />
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={tidemanComment}
+              onChange={(e) => setTidemanComment(e.target.value)}
+              placeholder="Hva fungerte? Hva kan bli bedre? (valgfritt)"
+              maxLength={4000}
+              rows={3}
+              className="mt-3 w-full rounded-md border border-slate-300 p-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              data-testid="tideman-comment"
+            />
+            <div className="mt-3 flex items-center justify-between">
+              <p className="text-xs text-slate-500">
+                {tidemanRating === 0 ? 'Velg minst én stjerne for å sende.' : `Du har valgt ${tidemanRating} av 5.`}
+              </p>
+              <Button
+                onClick={() => tidemanMutation.mutate()}
+                disabled={tidemanRating === 0 || tidemanMutation.isPending}
+                data-testid="tideman-submit"
+              >
+                {tidemanMutation.isPending ? 'Sender…' : 'Send til Tideman'}
+              </Button>
+            </div>
           </div>
         </Card>
       )}
 
       {isConfirmed && tidemanSent && (
-        <Card className="mb-4 border-emerald-200 bg-emerald-50 p-3" data-testid="tideman-thanks">
-          <div className="flex items-start gap-2 text-sm text-emerald-900">
-            <Star className="mt-0.5 h-4 w-4 shrink-0 fill-amber-400 text-amber-400" />
-            <div>
-              <strong>Takk!</strong> Tideman har sendt tilbakemeldingen videre til Tidum-teamet. Vi setter pris på det.
+        <Card className="mb-4 overflow-hidden border-slate-200 p-0" data-testid="tideman-thanks">
+          <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-white">
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
+                aria-hidden="true"
+              >
+                <Star className="h-4 w-4 fill-white" />
+              </div>
+              <div className="leading-tight">
+                <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
+                <p className="text-sm font-semibold">Takk for tilbakemeldingen!</p>
+              </div>
             </div>
+          </div>
+          <div className="p-4 text-sm text-[#486168]">
+            Jeg har sendt det videre til Tidum-teamet. Vi setter pris på det og bruker det for å gjøre løsningen bedre.
           </div>
         </Card>
       )}

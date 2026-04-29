@@ -1252,17 +1252,27 @@ function StuckHelperPrompt({
       role="status"
       data-testid="stuck-helper-prompt"
     >
-      <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white flex items-center gap-2">
-        <HelpCircle className="h-4 w-4" />
-        <span className="text-sm font-semibold flex-1">{picked.title}</span>
-        <button
-          type="button"
-          onClick={() => handleAction("dismissed", onDismiss)}
-          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-white/15"
-          aria-label="Lukk"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+      <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white">
+        <div className="flex items-center gap-2">
+          <div
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
+            aria-hidden="true"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </div>
+          <div className="flex-1 leading-tight">
+            <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
+            <p className="text-sm font-semibold">{picked.title}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleAction("dismissed", onDismiss)}
+            className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-white/15"
+            aria-label="Lukk"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <div className="px-4 py-3 text-sm text-slate-600">{picked.body}</div>
       <div className="px-4 pb-3 flex flex-wrap gap-2">

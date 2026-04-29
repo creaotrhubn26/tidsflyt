@@ -573,16 +573,16 @@ export const DEFAULT_GUIDE_CONFIG: GuideConfig = {
     },
     messages: {
       idle: {
-        title: "Trenger du hjelp?",
-        body: "Du har vært inaktiv en stund. Skal vi vise deg rundt eller åpne guiden?",
+        title: "Tideman her — trenger du hjelp?",
+        body: "Du har sittet stille en stund. Skal jeg vise deg rundt eller åpne guiden?",
       },
       nav: {
-        title: "Litt vrient å finne fram?",
-        body: "Det ser ut som du leter — vi kan vise deg rundt på 30 sekunder.",
+        title: "Tideman ser at du leter",
+        body: "Vil du ha en kort omvisning? Det tar 30 sekunder.",
       },
       dialog: {
-        title: "Står du fast i denne dialogen?",
-        body: "Det er ikke åpenbart — vi kan vise deg rundt eller åpne en kort forklaring.",
+        title: "Tideman: står du fast her?",
+        body: "Denne dialogen er ikke åpenbar — la meg vise deg veien videre.",
       },
     },
     actions: {
