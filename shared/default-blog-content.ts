@@ -275,7 +275,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       ],
       bullets: [
         "timer blir ført flere steder samtidig",
-        "sluttid blir fylt inn senere på husken",
+        "sluttid blir fylt inn senere fra hukommelsen",
         "pauser håndteres ulikt fra person til person",
         "leder ser ikke avvik før flere uker etterpå",
         "man blander aktivitet, notater og arbeidstid i samme felt",
@@ -411,7 +411,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       ],
       bullets: [
         "Kartlegg hvilke felter dere faktisk bruker i dagens timeliste.",
-        "Skilj mellom det dere trenger daglig og det dere bare bruker i rapportering.",
+        "Skill mellom det dere trenger daglig og det dere bare bruker i rapportering.",
         "Flytt først den daglige registreringen over i én løsning.",
         "Behold eksport til Excel kun for de tilfellene der noen fortsatt trenger filformatet.",
         "Gi leder en egen godkjenningsrutine, ikke bare tilgang til en fil.",
@@ -1185,10 +1185,10 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     whatIs: {
       paragraphs: [
         "Auto-kjøregodt er en kobling mellom tre ting Tidum allerede har: sakens registrerte adresse, miljøarbeiderens GPS ved stempling, og kjøreloggen som regnskaps-bilag.",
-        "Når disse tre møtes på samme tidspunkt, kan systemet skrive en hel kjøre-linje selv: fra punkt A (der du er) til punkt B (saksens adresse), beregnet i kilometer, multiplisert med statens skattefri sats, og lagret som primær-kjøretur for dagen.",
+        "Når disse tre møtes på samme tidspunkt, kan systemet skrive en hel kjøre-linje selv: fra punkt A (der du er) til punkt B (sakens adresse), beregnet i kilometer, multiplisert med statens skattefrie sats, og lagret som primær-kjøretur for dagen.",
       ],
       bullets: [
-        "Tiltakslederen registrerer saksens standard arbeidssted én gang — adresse via Kartverket-søk, lat/lng faller på plass automatisk.",
+        "Tiltakslederen registrerer sakens standard arbeidssted én gang — adresse via Kartverket-søk, lat/lng faller på plass automatisk.",
         "Miljøarbeideren får en sak-velger over timer-kortet. Velger sak før «Fortsett».",
         "Ved stempling fanges posisjonen én gang. Hvis avstanden til sak er mer enn 300 meter, opprettes en kjøre-leg automatisk.",
         "Mellomstopp i løpet av dagen kan legges til manuelt — Auto-flyten er bare for primærruten.",
@@ -1203,7 +1203,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Miljøarbeider får riktig betalt for kjøring uten å fylle ut skjema",
         "Tiltaksleder slipper å minne om manglende kjøreloggføring",
         "Vendor får revisjonsklar dokumentasjon på 3,50 kr/km-utlegg",
-        "Klient-adresser ligger ett sted (saksen) i stedet for spredd i hver miljøarbeiders egen liste",
+        "Klient-adresser ligger ett sted (saken) i stedet for spredt i hver miljøarbeiders egen liste",
       ],
     },
     steps: {
@@ -1221,16 +1221,16 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       ordered: true,
     },
     supportFigure: {
-      src: "/screenshots/case-management.png",
-      alt: "Saksredigering med adresse-felt for standard arbeidssted",
-      caption: "Standard arbeidssted lagres på saken. Én gang, ikke per miljøarbeider.",
+      src: screenshotDesktop,
+      alt: "Tidum desktop med dagens timeregistrering og saksoversikt",
+      caption: "Tidum desktop med dagens registreringer. Når sakens arbeidssted er satt, blir kjøreloggen ført automatisk uten ekstra steg for miljøarbeideren.",
     },
     commonMistakes: {
       paragraphs: [
         "Auto-kjøregodt erstatter ikke godt skjønn — det forutsetter at miljøarbeider og tiltaksleder bruker det riktig.",
       ],
       bullets: [
-        "Glemmer å sette saksens arbeidssted: da skjer ingen auto-leg, miljøarbeider må føre manuelt",
+        "Glemmer å sette sakens arbeidssted: da skjer ingen auto-leg, miljøarbeider må føre manuelt",
         "Trykker «Fortsett» hjemme i stedet for ved klienten: GPS fanger hjem-koordinaten, ikke kjøreturen",
         "Avvist GPS én gang for alltid: kan reverseres i innstillinger, men er enkelt å glemme",
         "Mellomstopp uten standard arbeidssted: må legges inn manuelt fra «Legg til kjøring»-knappen",
@@ -1262,9 +1262,9 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     metaTitle: "GDPR for arbeidstid og oppfølging | Tidum",
     metaDescription:
       "Forstå GDPR, Personopplysningsloven og norske særregler for behandling av timelister, posisjonsdata og helsedokumentasjon i arbeidsforhold.",
-    tags: ["gdpr", "personvern", "datatilsynet", "personopplysningsloven", "arbeidsmiljoloven"],
+    tags: ["gdpr", "personvern", "datatilsynet", "personopplysningsloven", "arbeidsmiljøloven"],
     intro: [
-      "Personvern handler om hvilke regler som gjelder når noen behandler opplysninger om deg. I arbeidssammenheng — særlig i barnevern, NAV-tiltak og kommunalt miljøarbeid — er det ekstra strengt fordi dataen ofte berører tredjepartshjelpetrengende.",
+      "Personvern handler om hvilke regler som gjelder når noen behandler opplysninger om deg. I arbeidssammenheng — særlig i barnevern, NAV-tiltak og kommunalt miljøarbeid — er det ekstra strengt fordi dataene ofte berører hjelpetrengende tredjeparter.",
       "GDPR er EU-rammeverket. Personopplysningsloven (2018) gjør GDPR til norsk rett og legger på nasjonale særregler. Datatilsynet er tilsynsmyndighet og publiserer veiledning på <strong>datatilsynet.no</strong> som er praktisk forpliktende.",
       "Denne guiden tar for seg det Tidum-kunder møter daglig: timelister, kontrolltiltak (som GPS), dokumentasjon av sykmeldinger, og oppbevaring vs. sletting.",
     ],
@@ -1335,7 +1335,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       paragraphs: [
         "Tidum er bygget med GDPR-prinsippene som grunnpilarer — ikke som ettertanke. Auditspor på alle endringer, automatisk sletting etter konfigurerbare retensjonstider, krypterte filer for sykmeldinger, dataportabilitet via «Last ned dataene mine»-knapp og rett til pseudonymisering for hver bruker.",
         "Vendoradminer kan se vår offentlige retensjons-policy på <code>/api/gdpr/retention-policy</code>, og hver databehandleravtale knytter de konkrete fristene til kunden. Det gjør det mulig å svare ja på «Hvor lenge oppbevarer dere min data?» med en lenke i stedet for et estimat.",
-        "Ingen verktøy gjør GDPR for dere — men et godt verktøy reduserer hvor mange beslutninger dere må ta hver dag for å holde regelverket. Det er forskjellen mellom etterlevelse og etterskuddvis opprydning.",
+        "Ingen verktøy gjør GDPR for dere — men et godt verktøy reduserer hvor mange beslutninger dere må ta hver dag for å holde regelverket. Det er forskjellen mellom etterlevelse og etterskuddsvis opprydning.",
       ],
     },
     sources: [

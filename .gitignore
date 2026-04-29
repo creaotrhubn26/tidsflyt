@@ -16,3 +16,7 @@ uploads/
 # Playwright artifacts
 test-results/
 playwright-report/
+
+# Local-only secrets-setup scripts (inneholder Render API-tokens)
+scripts/setup-tidum-secrets.mjs
+scripts/playwright-setup-secrets.mjs
