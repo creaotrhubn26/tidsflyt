@@ -291,6 +291,102 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     publishedAt: "2026-04-05T08:00:00.000Z",
   },
   {
+    title: "Slik migrerer du ansatte fra Planday, Visma eller Excel til Tidum",
+    slug: "slik-migrerer-du-ansatte-fra-planday-visma-til-tidum",
+    excerpt:
+      "Bytter dere fra Planday, Visma Lønn eller en hjemmesnekret Excel-liste? Her er fremgangsmåten som tar deg fra eksport til ferdig oppsett på under en time — med dataintegritet, GDPR-bekreftelse og 7 dagers rollback i hvert steg.",
+    categorySlug: "problem-og-oversikt",
+    featuredImage: screenshotDesktop,
+    ogImage: assetOg(screenshotDesktop),
+    metaTitle: "Migrere ansatte til Tidum fra Planday, Visma eller Excel | Tidum",
+    metaDescription:
+      "Praktisk guide til å migrere ansattlister fra Planday, Visma eller Excel til Tidum. Dataminimering, GDPR-bekreftelse og 7 dagers rollback gjør byttet trygt.",
+    tags: [
+      "migrering",
+      "planday",
+      "visma",
+      "onboarding",
+      "csv-import",
+      "ansattregistrering",
+    ],
+    intro: [
+      "Det å bytte vakt- eller timeløsning er ikke et tastetrykk. Ansattlisten er ryggraden i alle påfølgende prosesser — turnus, lønn, godkjenning og rapportering — og en uryddig migrering forplanter seg som duplikater, manglende kontaktinfo og feil rolletildeling i månedsvis.",
+      "Tidum er bygget for å redusere smerten det innebærer i praksis. Importen tar utgangspunkt i kildens egen eksport-format (Planday, Visma, Quinyx, eller en generisk CSV/Excel), og kjører hele filen gjennom en forhåndsvisning før noen rad lagres. Hver bekreftelse er eksplisitt, hvert avvik er synlig, og hvis noe likevel går skjevt har dere 7 dager på å rulle tilbake hele importen.",
+      "Denne guiden tar deg gjennom hele veien — fra eksport i kilde-systemet, via Tidum-wizarden, til ferdig oppsett. Vi dekker også de tre vanligste feilene som koster bedrifter mest tid i etterkant.",
+    ],
+    leadFigure: {
+      src: screenshotDesktop,
+      alt: "Tidum import-wizard med forhåndsvisning av ansattliste",
+      caption:
+        "Forhåndsvisning før commit — hver rad er synlig, rolle kan justeres per ansatt, og ingenting lagres før hovedadmin har bekreftet GDPR-grunnlag.",
+    },
+    whatIs: {
+      paragraphs: [
+        "Migrering i denne sammenhengen betyr å overføre ansatt-stamdata — navn, e-post, mobilnummer, avdeling, eventuelt stilling — fra et eksisterende system til Tidum. Det handler ikke om å flytte historiske vakter eller lønnskjøringer; de hører hjemme der de har vært ført.",
+        "Tidum trenger bevisst lite for å virke: e-post (obligatorisk, brukes som identitet), fornavn, etternavn, og helst mobilnummer for SMS-varsling. Personnummer, bankkonto og hjemmeadresse importeres aldri — Tidum trenger dem ikke, og GDPR-prinsippet om dataminimering tilsier at de ikke skal samles inn uten formål.",
+      ],
+    },
+    whyImportant: {
+      paragraphs: [
+        "En ryddig migrering skiller seg fra en uryddig på tre punkter: hvor mye dere kan rulle tilbake, hvor godt avvik fanges på vei inn, og hvor mye GDPR-grunnlag som faktisk dokumenteres.",
+      ],
+      bullets: [
+        "Idempotens betyr at samme rad ikke importeres dobbelt — Tidum identifiserer dubletter på e-post-nivå og merker dem tydelig før commit.",
+        "Forhåndsvisning gir hovedadmin sjansen til å justere rolle per ansatt, ikke bare i bulk. Vendor_admin-tildelinger må bekreftes individuelt.",
+        "GDPR-bekreftelsen er obligatorisk: hovedadmin må aktivt krysse av at virksomheten har rettsgrunnlag (typisk arbeidskontrakt) før raden går til DB.",
+        "7 dagers rollback gir en reell mulighet til å angre hele importen hvis noe likevel viste seg feil — alle opprettede brukere fjernes i én operasjon.",
+      ],
+    },
+    steps: {
+      paragraphs: [
+        "Hele flyten tar typisk under en time for et lag på 30–100 ansatte. Tidum håndterer opp til 10 000 rader per import, og logikken er den samme uansett størrelse — bare lengre forhåndsvisning når listen vokser.",
+      ],
+      bullets: [
+        "Eksporter ansatte fra kilde-systemet. I Planday: Personer → Ansatte → Verktøy → Eksporter data → Employee details (Integration template). Hak av «Include deactivated employees» — uten den haken risikerer dere å miste ansatte som var midlertidig deaktivert i forrige system.",
+        "Velg Excel-format hvis kilden tilbyr det. CSV fungerer også, men Excel håndterer norske tegn (æøå) mer robust uten at dere må tenke på UTF-8 vs Windows-1252.",
+        "Logg inn i Tidum som hovedadmin, gå til /import-employees og velg riktig kilde. Wizard-en åpner en interaktiv guide hvis dere er usikre på eksport-stien i kilde-systemet.",
+        "Last opp filen. Tidum parser den i minnet, lager en staged import (ingenting er lagret i ansattlisten ennå), og åpner forhåndsvisningen.",
+        "Gå gjennom radene. Tildel rolle per ansatt — Miljøarbeider er default, men Tiltaksleder, Teamleder, Saksbehandler eller Leverandøradmin kan velges fra en dropdown. Smart hint foreslår tiltaksleder hvis kildens «Job title» inneholder ord som leder, manager eller koordinator.",
+        "Hvis noen rader skal være vendor_admin (backup-administrator), ser hovedadmin en eksplisitt liste med navnene før commit. Tidum oppmuntrer til å holde antallet under tre.",
+        "Bekreft GDPR-grunnlaget. Avhuking lagres i import-summary med tidsstempel, e-post, IP og user-agent — så dere kan dokumentere overfor Datatilsynet hvilken person som godkjente på vegne av virksomheten.",
+        "Hvis importen overstiger avtalt brukerantall, dukker en seat-overrun-bekreftelse opp. Hovedadmin må aktivt akseptere tier-oppgraderingen før importen kjører — ingen overraskelser på neste faktura.",
+        "Trykk «Bekreft og opprett N brukere». Tidum kjører hele importen som én transaksjon, oppretter brukerne, sender invite-e-post med magic-link, og logger hendelsen i audit-sporet.",
+        "Verifiser i ansattlisten. Hvis noe ser feil ut, har dere 7 dager på å trykke «Rull tilbake importen» — alle opprettede brukere fjernes i én operasjon.",
+      ],
+      ordered: true,
+    },
+    supportFigure: {
+      src: screenshotDesktop,
+      alt: "Tidum desktop med dagens timeregistrering og saksoversikt",
+      caption:
+        "Etter migrering: hver ansatt får magic-link på e-post og kan logge inn uten å sette passord. Tidum-teamet får automatisk varsel hvis noe brytes underveis.",
+    },
+    commonMistakes: {
+      paragraphs: [
+        "Tre feil går igjen, og alle tre er enkle å unngå hvis dere kjenner til dem på forhånd.",
+      ],
+      bullets: [
+        "Glemmer «Include deactivated employees» i Planday-eksporten. Resultat: ansatte som var midlertidig deaktivert i kilde-systemet havner ikke i Tidum, og må senere legges til manuelt med tap av historikk.",
+        "Setter alle som vendor_admin for å «være på den sikre siden». Vendor_admin har tilnærmet samme rettigheter som hovedadmin — det er en sikkerhetsrisiko og et brudd på prinsippet om minste privilegium. Hold antall vendor_admin-er under tre, og bruk Tiltaksleder eller Teamleder for andre med leder-ansvar.",
+        "Bytter format midt i flyten. Hvis dere starter med CSV og ombestemmer dere underveis, kanseller importen og start på nytt med Excel — ikke prøv å «fikse» kolonnemappingen for å få begge til å passe.",
+      ],
+    },
+    tools: {
+      paragraphs: [
+        "Tidum-importen støtter Planday direkte med kilde-spesifikk parsing av Integration template-eksporten. For Visma og Quinyx brukes generisk CSV/Excel-mapping mens vi jobber med dedikert oppsett — kolonnegjenkjenningen er fleksibel og takler de fleste vanlige eksport-formater.",
+        "Underveis i flyten dukker Tideman opp som hjelpe-agent hvis dere blir sittende fast. Tideman er den samme assistenten som ber om tilbakemelding etter at importen er bekreftet — han ønsker å høre hva som fungerte og hva som var rart, slik at vi kan gjøre løsningen bedre for neste kunde.",
+      ],
+    },
+    sources: [
+      {
+        label: "Planday Help Center: How to export employee data from Planday",
+        url: "https://help.planday.com/en/articles/30356-how-to-export-employee-data-from-planday",
+      },
+      officialSources.datatilsynetWorkplace,
+    ],
+    publishedAt: "2026-04-30T08:00:00.000Z",
+  },
+  {
     title: "De 5 vanligste feilene i tidsregistrering",
     slug: "de-5-vanligste-feilene-i-tidsregistrering",
     excerpt:
