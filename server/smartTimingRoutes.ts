@@ -617,7 +617,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/logs", requireAuth, async (req, res) => {
     try {
-      const { id: clientId, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, bypass_atl } = req.body;
+      const { id: clientId, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id, bypass_atl } = req.body;
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       const ownerId = user_id || 'default';
       await assertMonthNotLocked({ userId: ownerId, date, callerRole });
@@ -625,6 +625,9 @@ export function registerSmartTimingRoutes(app: Express) {
         userId: ownerId, date, startTime: start_time, endTime: end_time, breakHours: break_hours ?? 0,
         callerRole, bypass: !!bypass_atl,
       });
+
+      const sakIdValue = typeof sak_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_id) ? sak_id : null;
+      const sakLocationIdValue = typeof sak_location_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_location_id) ? sak_location_id : null;
 
       // Offline-first idempotency: if the client supplies its own UUID (generated
       // when the mutation was queued offline), replaying the same payload must
@@ -635,11 +638,11 @@ export function registerSmartTimingRoutes(app: Express) {
       if (hasClientId) {
         const insertResult = await pool.query(
           `INSERT INTO log_row
-             (id, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+             (id, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (id) DO NOTHING
            RETURNING *`,
-          [clientId, date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id],
+          [clientId, date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id, sakIdValue, sakLocationIdValue],
         );
         if (insertResult.rows.length > 0) {
           created = insertResult.rows[0];
@@ -651,10 +654,10 @@ export function registerSmartTimingRoutes(app: Express) {
         }
       } else {
         const result = await pool.query(
-          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            RETURNING *`,
-          [date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id],
+          [date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id, sakIdValue, sakLocationIdValue],
         );
         created = result.rows[0];
       }
@@ -671,7 +674,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/logs/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, bypass_atl } = req.body;
+      const { date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, sak_id, sak_location_id, bypass_atl } = req.body;
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       // Check lock against both the existing entry's month (to prevent editing a locked past entry)
       // and the new target month (to prevent moving an entry into a locked month).
@@ -692,10 +695,17 @@ export function registerSmartTimingRoutes(app: Express) {
       });
       // Snapshot full before-data for the audit diff
       const fullBefore = await pool.query('SELECT * FROM log_row WHERE id = $1', [id]);
+      const sakIdValue = typeof sak_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_id) ? sak_id : null;
+      const sakLocationIdValue = typeof sak_location_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_location_id) ? sak_location_id : null;
       const result = await pool.query(
-        `UPDATE log_row SET date=$1, start_time=$2, end_time=$3, break_hours=$4, activity=$5, title=$6, project=$7, place=$8, notes=$9, expense_coverage=$10, updated_at=NOW()
-         WHERE id=$11 RETURNING *`,
-        [date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, id]
+        `UPDATE log_row SET
+            date=$1, start_time=$2, end_time=$3, break_hours=$4, activity=$5,
+            title=$6, project=$7, place=$8, notes=$9, expense_coverage=$10,
+            sak_id = COALESCE($11::uuid, sak_id),
+            sak_location_id = COALESCE($12::uuid, sak_location_id),
+            updated_at=NOW()
+         WHERE id=$13 RETURNING *`,
+        [date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, sakIdValue, sakLocationIdValue, id]
       );
       const updated = result.rows[0];
       await auditLogRow({
@@ -741,10 +751,12 @@ export function registerSmartTimingRoutes(app: Express) {
       let inserted = 0;
 
       for (const row of rows) {
+        const sakIdValue = typeof row.sak_id === 'string' && /^[0-9a-f-]{36}$/i.test(row.sak_id) ? row.sak_id : null;
+        const sakLocationIdValue = typeof row.sak_location_id === 'string' && /^[0-9a-f-]{36}$/i.test(row.sak_location_id) ? row.sak_location_id : null;
         const r = await pool.query(
-          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING *`,
-          [row.date, row.start_time, row.end_time, row.break_hours || 0, row.activity || 'Work', row.title, row.project, row.place, row.notes, row.expense_coverage || 0, userId, project_id]
+          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
+          [row.date, row.start_time, row.end_time, row.break_hours || 0, row.activity || 'Work', row.title, row.project, row.place, row.notes, row.expense_coverage || 0, userId, project_id, sakIdValue, sakLocationIdValue]
         );
         const created = r.rows[0];
         await auditLogRow({ action: 'create', logRowId: created.id, after: created, req });

@@ -540,6 +540,8 @@ export class ExternalDbStorage implements IStorage {
       title: entry.description,
       project: entry.caseNumber || undefined,
       activity: 'Work',
+      sakId: entry.sakId ?? undefined,
+      sakLocationId: entry.sakLocationId ?? undefined,
     }).returning();
     return this.mapLogRowToTimeEntry(result[0]);
   }

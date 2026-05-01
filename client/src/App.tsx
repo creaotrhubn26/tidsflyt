@@ -78,6 +78,7 @@ const AdminSalgStripe = lazy(() => import("@/pages/admin-salg-stripe"));
 const AdminSalgEmails = lazy(() => import("@/pages/admin-salg-emails"));
 const AdminLeads = lazy(() => import("@/pages/admin-leads"));
 const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashboard"));
+const TiltakslederSatserPage = lazy(() => import("@/pages/tiltaksleder-satser"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 
 function RouteLoadingFallback() {
@@ -168,6 +169,7 @@ function Router() {
 
         {/* Tiltaksleder dashboard */}
         <Route path="/tiltaksleder">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "vendor_admin", "hovedadmin", "admin", "super_admin"]}><TiltakslederDashboardPage /></AuthGuard>}</Route>
+        <Route path="/tiltaksleder/satser">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "case_manager", "vendor_admin", "hovedadmin", "admin", "super_admin"]}><TiltakslederSatserPage /></AuthGuard>}</Route>
 
         {/* Rapport routes */}
         <Route path="/rapporter">{() => <AuthGuard><RapportListePage /></AuthGuard>}</Route>

@@ -71,11 +71,23 @@ interface TimeEntrySuggestionsResponse {
   };
 }
 
+interface SakLocation {
+  id: string;
+  name: string;
+  address: string | null;
+  rate_mode: 'hour' | 'day';
+  hourly_rate: string | null;
+  day_rate: string | null;
+}
+
 interface CompanyUserAssignedCase {
   id: number;
   case_id: string | null;
   case_title: string | null;
   status: string | null;
+  sak_id?: string | null;
+  sak_title?: string | null;
+  locations?: SakLocation[];
 }
 
 interface AssignedCaseOption {
@@ -105,6 +117,8 @@ export default function TimeTrackingPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [selectedProject, setSelectedProject] = useState<string>("");
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("");
+  const [manualLocationId, setManualLocationId] = useState<string>("");
   const [selectedWorkType, setSelectedWorkType] = useState<string>("");
   const [taskDescription, setTaskDescription] = useState("");
   const [showManualDialog, setShowManualDialog] = useState(false);
@@ -249,6 +263,33 @@ export default function TimeTrackingPage() {
     return assignedCaseOptions.some((option) => option.id === value);
   }, [assignedCaseOptions]);
 
+  /** Slå opp sak_id (UUID) og lokasjoner for et valgt case_id (saksnummer-tekst). */
+  const resolveSakAndLocations = useCallback((caseNumber: string | null) => {
+    if (!caseNumber) return { sakId: null as string | null, locations: [] as SakLocation[] };
+    const match = safeAssignedCasesData.find(
+      (a) => (a.case_id || "").trim() === caseNumber || `case-${a.id}` === caseNumber,
+    );
+    if (!match) return { sakId: null, locations: [] };
+    return {
+      sakId: match.sak_id ?? null,
+      locations: Array.isArray(match.locations) ? match.locations : [],
+    };
+  }, [safeAssignedCasesData]);
+
+  // Reset valgt lokasjon hvis brukeren bytter sak (eller velger sak uten lokasjoner)
+  useEffect(() => {
+    const { locations } = resolveSakAndLocations(selectedProject);
+    if (selectedLocationId && !locations.some((l) => l.id === selectedLocationId)) {
+      setSelectedLocationId("");
+    }
+  }, [selectedProject, resolveSakAndLocations, selectedLocationId]);
+  useEffect(() => {
+    const { locations } = resolveSakAndLocations(manualProject);
+    if (manualLocationId && !locations.some((l) => l.id === manualLocationId)) {
+      setManualLocationId("");
+    }
+  }, [manualProject, resolveSakAndLocations, manualLocationId]);
+
   const selectedWorkTypeName = useMemo(
     () => workTypeById.get(selectedWorkType)?.name || "Arbeid",
     [selectedWorkType, workTypeById],
@@ -294,7 +335,13 @@ export default function TimeTrackingPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: { description: string; hours: number; caseNumber: string | null }) => {
+    mutationFn: async (data: {
+      description: string;
+      hours: number;
+      caseNumber: string | null;
+      sakLocationId?: string | null;
+    }) => {
+      const { sakId } = resolveSakAndLocations(data.caseNumber);
       return apiRequest("POST", "/api/time-entries", {
         userId: currentUserId,
         caseNumber: data.caseNumber,
@@ -302,6 +349,8 @@ export default function TimeTrackingPage() {
         hours: data.hours,
         date: today,
         status: "pending",
+        sakId,
+        sakLocationId: data.sakLocationId ?? null,
       });
     },
     onSuccess: () => {
@@ -626,11 +675,13 @@ export default function TimeTrackingPage() {
       description,
       hours,
       caseNumber: selectedProject || null,
+      sakLocationId: selectedLocationId || null,
     });
 
     setIsRunning(false);
     setElapsedSeconds(0);
     setTaskDescription("");
+    setSelectedLocationId("");
     timerStartRef.current = null;
   };
 
@@ -657,12 +708,14 @@ export default function TimeTrackingPage() {
       description: normalizedDescription,
       hours,
       caseNumber: manualProject || null,
+      sakLocationId: manualLocationId || null,
     });
 
     setShowManualDialog(false);
     setManualHours("");
     setManualDescription("");
     setManualProject("");
+    setManualLocationId("");
     setManualWorkType(workTypeOptions[0]?.id || "");
   };
 
@@ -1230,6 +1283,15 @@ export default function TimeTrackingPage() {
                               Ingen arbeidstyper er satt opp. Be admin konfigurere arbeidstyper i Innstillinger.
                             </p>
                           )}
+
+                          {/* Tideman: lokasjons-velger vises kun når valgt sak har lokasjoner */}
+                          <LocationPickerInline
+                            caseNumber={selectedProject}
+                            value={selectedLocationId}
+                            onChange={setSelectedLocationId}
+                            resolveSakAndLocations={resolveSakAndLocations}
+                            testId="timer-location"
+                          />
 
                           <div className="grid gap-2 sm:grid-cols-2">
                             <Button
@@ -2036,6 +2098,15 @@ export default function TimeTrackingPage() {
               </Select>
             </div>
 
+            {/* Tideman: lokasjons-velger vises kun når valgt sak har lokasjoner */}
+            <LocationPickerInline
+              caseNumber={manualProject}
+              value={manualLocationId}
+              onChange={setManualLocationId}
+              resolveSakAndLocations={resolveSakAndLocations}
+              testId="manual-location"
+            />
+
             <div className="space-y-2">
               <Label htmlFor="manual-work-type">Type arbeid</Label>
               <Select value={manualWorkType} onValueChange={setManualWorkType} disabled={workTypeOptions.length === 0}>
@@ -2193,5 +2264,79 @@ export default function TimeTrackingPage() {
         </DialogContent>
       </Dialog>
     </PortalLayout>
+  );
+}
+
+/* ─── Tideman lokasjons-velger ─────────────────────────────────────────────
+   Vises bare når valgt sak har minst én aktiv lokasjon. Diskret inline-
+   layout — bryter ikke eksisterende sak-velger-rytme.
+   ───────────────────────────────────────────────────────────────────────── */
+function LocationPickerInline({
+  caseNumber,
+  value,
+  onChange,
+  resolveSakAndLocations,
+  testId,
+}: {
+  caseNumber: string;
+  value: string;
+  onChange: (v: string) => void;
+  resolveSakAndLocations: (caseNumber: string | null) => { sakId: string | null; locations: SakLocation[] };
+  testId: string;
+}) {
+  const { locations } = resolveSakAndLocations(caseNumber || null);
+  if (locations.length === 0) return null;
+
+  const formatRate = (loc: SakLocation): string => {
+    if (loc.rate_mode === "day" && loc.day_rate) {
+      return `kr ${Math.round(Number(loc.day_rate))}/døgn`;
+    }
+    if (loc.rate_mode === "hour" && loc.hourly_rate) {
+      return `kr ${Math.round(Number(loc.hourly_rate))}/t`;
+    }
+    return "";
+  };
+
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50/40 p-3" data-testid={testId}>
+      <div className="mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-amber-800">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
+        Tideman: hvor jobbet du?
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className={`rounded-md px-2.5 py-1 text-xs ${
+            value === ""
+              ? "bg-amber-500 text-white"
+              : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+          }`}
+          data-testid={`${testId}-default`}
+        >
+          Generelt (sak-sats)
+        </button>
+        {locations.map((loc) => {
+          const rate = formatRate(loc);
+          const isActive = value === loc.id;
+          return (
+            <button
+              key={loc.id}
+              type="button"
+              onClick={() => onChange(loc.id)}
+              className={`rounded-md px-2.5 py-1 text-xs ${
+                isActive
+                  ? "bg-amber-500 text-white"
+                  : "bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
+              }`}
+              data-testid={`${testId}-${loc.id}`}
+            >
+              {loc.name}
+              {rate && <span className={`ml-1 ${isActive ? "text-white/80" : "text-slate-500"}`}>· {rate}</span>}
+            </button>
+          );
+        })}
+      </div>
+    </div>
   );
 }

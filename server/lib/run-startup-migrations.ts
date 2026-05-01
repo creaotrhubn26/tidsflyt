@@ -16,6 +16,9 @@ const STARTUP_MIGRATIONS: string[] = [
   "043_company_users_email_unique.sql",
   "044_vendor_seat_log.sql",
   "045_company_users_vendor_id_backfill.sql",
+  "047_log_row_sak_id.sql",
+  "048_user_cases_day_rate.sql",
+  "049_sak_locations.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

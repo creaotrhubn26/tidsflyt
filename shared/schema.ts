@@ -39,6 +39,8 @@ export const userCases = pgTable("user_cases", {
   caseId: text("case_id"),
   caseTitle: text("case_title"),
   hourlyRate: numeric("hourly_rate", { precision: 10, scale: 2 }),
+  dayRate: numeric("day_rate", { precision: 10, scale: 2 }),
+  rateMode: text("rate_mode").default("hour").notNull(),
   expensesEnabled: boolean("expenses_enabled").default(false),
   expenseMonthlyCap: numeric("expense_monthly_cap", { precision: 12, scale: 2 }),
   expensePolicyNote: text("expense_policy_note"),
@@ -145,6 +147,8 @@ export const logRow = pgTable("log_row", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: integer("project_id"),
   vendorId: integer("vendor_id"),
+  sakId: uuid("sak_id"),
+  sakLocationId: uuid("sak_location_id"),
   date: date("date").notNull(),
   startTime: time("start_time").notNull(),
   endTime: time("end_time").notNull(),
@@ -1546,6 +1550,8 @@ export type TimeEntry = {
   date: string;
   status: string;
   createdAt: string;
+  sakId?: string | null;
+  sakLocationId?: string | null;
 };
 
 export type Activity = {
@@ -1928,6 +1934,24 @@ export const saker = pgTable("saker", {
   createdAt:       timestamp("created_at").defaultNow(),
   updatedAt:       timestamp("updated_at").defaultNow(),
 });
+
+// Per-sak fysiske lokasjoner (tiltaksbolig, hovedkontor, felt-base).
+// Lokasjonens rate overstyrer user_cases-rate når log_row peker hit.
+export const sakLocations = pgTable("sak_locations", {
+  id:           uuid("id").defaultRandom().primaryKey(),
+  sakId:        uuid("sak_id").notNull(),
+  name:         text("name").notNull(),
+  address:      text("address"),
+  rateMode:     text("rate_mode").default("hour").notNull(),
+  hourlyRate:   numeric("hourly_rate", { precision: 10, scale: 2 }),
+  dayRate:      numeric("day_rate", { precision: 10, scale: 2 }),
+  active:       boolean("active").default(true),
+  createdBy:    text("created_by"),
+  createdAt:    timestamp("created_at").defaultNow(),
+  updatedAt:    timestamp("updated_at").defaultNow(),
+});
+
+export type SakLocation = typeof sakLocations.$inferSelect;
 
 // ── RAPPORTER ─────────────────────────────────────────────────────────────────
 

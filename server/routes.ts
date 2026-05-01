@@ -21,6 +21,7 @@ import { registerLeaveAttachmentsRoutes } from "./routes/leave-attachments-route
 import { registerRapportTemplateRoutes } from "./routes/rapport-template-routes";
 import { seedSystemRapportTemplates } from "./seed/rapport-templates";
 import { registerTiltakslederDashboardRoutes } from "./routes/tiltaksleder-dashboard-routes";
+import { registerTiltakslederRatesRoutes } from "./routes/tiltaksleder-rates-routes";
 import { registerDashboardKpisRoutes } from "./routes/dashboard-kpis-routes";
 import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
 import { registerInviteLinkRoutes } from "./routes/invite-link-routes";
@@ -4648,12 +4649,31 @@ export async function registerRoutes(
 
       const result = await pool.query(
         `SELECT uc.id, uc.case_id, uc.case_title, uc.status, uc.assigned_at,
-                uc.hourly_rate, uc.rate_effective_from, uc.rate_effective_to,
+                uc.hourly_rate, uc.day_rate, uc.rate_mode,
+                uc.rate_effective_from, uc.rate_effective_to,
                 COALESCE(uc.expenses_enabled, false) AS expenses_enabled,
                 uc.expense_monthly_cap,
-                uc.expense_policy_note
+                uc.expense_policy_note,
+                s.id  AS sak_id,
+                s.tittel AS sak_title,
+                COALESCE(
+                  (
+                    SELECT json_agg(json_build_object(
+                      'id', sl.id,
+                      'name', sl.name,
+                      'address', sl.address,
+                      'rate_mode', sl.rate_mode,
+                      'hourly_rate', sl.hourly_rate,
+                      'day_rate', sl.day_rate
+                    ) ORDER BY sl.name)
+                    FROM sak_locations sl
+                    WHERE sl.sak_id = s.id AND sl.active = true
+                  ),
+                  '[]'::json
+                ) AS locations
          FROM company_users cu
          JOIN user_cases uc ON uc.company_user_id = cu.id
+         LEFT JOIN saker s ON s.saksnummer = uc.case_id AND s.vendor_id = cu.vendor_id
          WHERE cu.company_id = $1
            AND cu.approved = true
            AND (
@@ -5157,10 +5177,11 @@ export async function registerRoutes(
 
   app.post("/api/time-entries", isAuthenticated, async (req, res) => {
     try {
-      const { caseNumber, description, hours, expenseCoverage, date, status, createdAt } = req.body;
+      const { caseNumber, description, hours, expenseCoverage, date, status, createdAt, sakId, sakLocationId } = req.body;
       const userId = (req.user as any)?.id as string;
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       await assertMonthNotLocked({ userId, date, callerRole });
+      const isUuid = (v: unknown) => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
       const entry = await storage.createTimeEntry({
         userId,
         caseNumber,
@@ -5170,6 +5191,8 @@ export async function registerRoutes(
         date,
         status: status || 'pending',
         createdAt: createdAt || new Date().toISOString(),
+        sakId: isUuid(sakId) ? sakId : null,
+        sakLocationId: isUuid(sakLocationId) ? sakLocationId : null,
       });
       await storage.createActivity({
         userId,
@@ -6517,6 +6540,7 @@ export async function registerRoutes(
   registerLeaveAttachmentsRoutes(app);
   registerRapportTemplateRoutes(app);
   registerTiltakslederDashboardRoutes(app);
+  registerTiltakslederRatesRoutes(app);
   registerDashboardKpisRoutes(app);
   registerInviteLinkRoutes(app);
   registerGdprRoutes(app);
