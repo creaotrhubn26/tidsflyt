@@ -175,9 +175,14 @@ export default function UsersPage() {
 
   // ── INVITE-LINKS ────────────────────────────────────────────────────────
 
-  const { data: inviteLinks = [] } = useQuery<any[]>({
+  const {
+    data: inviteLinks = [],
+    isError: inviteLinksError,
+    error: inviteLinksErrorDetail,
+  } = useQuery<any[]>({
     queryKey: ["/api/company/invite-links"],
     enabled: linkDialogOpen,
+    retry: false,
   });
 
   // Saker for pre-tildeling
@@ -586,6 +591,12 @@ export default function UsersPage() {
             </DialogHeader>
 
             {/* Existing links */}
+            {inviteLinksError && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
+                Kunne ikke laste invitasjonslenker: {(inviteLinksErrorDetail as any)?.message || "ukjent feil"}.
+                {" "}Denne funksjonen krever at brukeren din er tilknyttet en leverandør.
+              </div>
+            )}
             {inviteLinks.length > 0 && (
               <div className="space-y-2 max-h-64 overflow-y-auto">
                 <p className="text-xs font-medium text-muted-foreground">Aktive lenker</p>
