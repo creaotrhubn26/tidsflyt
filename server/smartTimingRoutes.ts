@@ -1037,8 +1037,28 @@ export function registerSmartTimingRoutes(app: Express) {
          WHERE a.id = $1`,
         [req.admin.id]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Admin not found' });
-      res.json(result.rows[0]);
+      if (result.rows.length > 0) return res.json(result.rows[0]);
+
+      // No admin_users row: req.admin.id is a users.id, not an admin_users.id
+      // — that's expected for every session-minted JWT (see
+      // /api/admin/session-token), which is the *default* CMS login path
+      // for a real super_admin/hovedadmin. admin_users only holds accounts
+      // created through the separate username/password /api/admin/login
+      // flow, so 404ing here silently hid the whole "Leverandører" tab
+      // (gated on isSuperAdmin from this response) for that entire class
+      // of users. Fall back to the role/vendor already embedded in the
+      // JWT/session at authenticateAdmin time.
+      res.json({
+        id: req.admin.id,
+        username: req.admin.username ?? req.admin.email,
+        email: req.admin.email,
+        role: req.admin.role,
+        vendor_id: req.admin.vendorId ?? null,
+        last_login: null,
+        created_at: null,
+        vendor_name: req.admin.vendorName ?? null,
+        vendor_slug: req.admin.vendorSlug ?? null,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
