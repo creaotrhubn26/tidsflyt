@@ -513,10 +513,17 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker, navConfig.portalSidebarOverrides],
   );
 
-  const activePageLabel = useMemo(
-    () => navItems.find((item) => item.path === location)?.label || "Dashboard",
-    [location, navItems],
-  );
+  const activePageLabel = useMemo(() => {
+    // Lengste prefiks-match, med fallback til den ufiltrerte basislisten —
+    // ruter kan være tilgjengelige (f.eks. /tiltaksleder for admin) selv om
+    // nav-elementet er filtrert bort for rollen.
+    const byPrefix = (items: readonly { path: string; label: string; kind?: string }[]) =>
+      items
+        .filter((item) => item.kind !== "modal" && item.path.startsWith("/"))
+        .filter((item) => location === item.path || location.startsWith(`${item.path}/`))
+        .sort((a, b) => b.path.length - a.path.length)[0]?.label;
+    return byPrefix(navItems) || byPrefix(baseNavItems) || "Dashboard";
+  }, [location, navItems]);
 
   const toggleSidebar = useCallback(() => {
     setCollapsed((previous) => !previous);
@@ -684,7 +691,11 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                     {currentUser.name}
                   </p>
                   <p className="text-xs text-[#bad0d5] truncate">
-                    {isPreviewActive ? `${previewModeLabel} visning` : currentUser.email}
+                    {isPreviewActive
+                      ? `${previewModeLabel} visning`
+                      : currentUser.email && currentUser.email !== currentUser.name
+                        ? currentUser.email
+                        : actualRoleLabel}
                   </p>
                 </div>
               )}
@@ -693,7 +704,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
               <p className="text-sm font-medium">{currentUser.name}</p>
-              {currentUser.email ? (
+              {currentUser.email && currentUser.email !== currentUser.name ? (
                 <p className="text-xs text-muted-foreground">{currentUser.email}</p>
               ) : null}
               {resolvedPortalUser ? <div className="mt-1">{getRoleBadge(actualRole)}</div> : null}

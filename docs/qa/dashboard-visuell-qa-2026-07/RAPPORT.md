@@ -1,5 +1,9 @@
 # Visuell QA av dashbordene — juli 2026
 
+> **Status:** Funn 1–7, 11 og 15 er rettet i denne branchen og verifisert
+> visuelt/programmatisk mot kjørende app (se «Rettet i denne branchen» nederst).
+> Funn 8–10, 12–14 og 16 er designvurderinger som står åpne.
+
 Gjennomgang av `/dashboard` (admin-, tiltaksleder- og miljøarbeider-visning) og
 `/tiltaksleder`, i lys og mørk modus, på desktop (1440×900) og mobil (390×844).
 Appen ble kjørt lokalt mot en frisk Postgres-database (alle migreringer + mock-data),
@@ -139,3 +143,25 @@ Se `tiltaksleder-page-desktop-light.png`.
 Merk: skjermbildene er tatt i full sidehøyde; faste elementer (sidemeny,
 bunnavigasjon på mobil) kan derfor se «avkuttet» eller feilplassert ut midt i
 bildet — det er en artefakt av full-side-skjermbilder, ikke en feil i appen.
+
+---
+
+## Rettet i denne branchen
+
+| # | Funn | Fiks |
+| --- | --- | --- |
+| 1 | Dev-server krasjet | `server/vite.ts` resolver config-funksjonen fra `vite.config.ts` før spredning |
+| 2 | «Hei, Maria!»-fallback | `dashboard.tsx` sender `undefined` i stedet for `"Maria"`; `dashboard-worker-mobile.tsx` viser «Hei!» uten navn |
+| 3 | Tom blå periodeknapp på mobil | `relative` lagt på ikonet i begge segmentvelgerne i `dashboard-hero.tsx`, så det ikke males over av det valgte segmentets overlegg |
+| 4 | Nestet `<button>` i statusfliser | Flisen i `dashboard-tasks.tsx` er nå en `div` med en stretched-link-knapp (`absolute inset-0`); «Lag oppgave»-knappen ligger som søsken med `z-10`. Verifisert: 0 `validateDOMNesting`-advarsler, klikk midt på flisen treffer hovedknappen |
+| 5 | Cookie-banner i innlogget app | `DEFAULT_EXCLUDED_PREFIXES` i `client/src/lib/analytics.ts` synket med `PROTECTED_LAYOUT_PREFIXES` (la til `/tiltaksleder`, `/rapporter`, `/institusjoner`, `/import-employees`, `/vendor`). Verifisert: banneret vises ikke på `/tiltaksleder`, men fortsatt på den offentlige landingssiden |
+| 6 | Feil topplinjetittel på `/tiltaksleder` | `activePageLabel` i `portal-layout.tsx` bruker nå lengste prefiks-match med fallback til ufiltrert nav-liste. Verifisert: viser «Tiltaksleder» |
+| 7 | «(29–5 juli)» uten måned | `getPeriodLabel` i `dashboard-hero.tsx` tar med måned på startdato når uken krysser månedsgrense → «(29 juni–5 juli)» |
+| 11 | «0.0 / 15 saker» | `dashboard-goals.tsx` viser desimal kun for timer, ikke for antall → «0 / 15 saker» |
+| 15 | E-post på begge linjer i profilblokken | `portal-layout.tsx` viser rollenavn som undertittel når visningsnavnet er identisk med e-posten |
+
+Åpne designvurderinger (ikke rettet): 8 (trunkert KPI-tittel på desktop),
+9 (undertittel kuttes på mobil), 10 (enslig «+»-knapp på egen rad i
+mobil-verktøylinjen), 12 (100 % fylt fremdriftslinje for «Utkast i arbeid: 0»),
+13 (ghost-eksempel i «Faglig logg»-tomtilstanden), 14 (duplisert
+«Registrering pauset»), 16 («— 0.0 %»-chips i tomtilstander).

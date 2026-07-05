@@ -1421,7 +1421,7 @@ export default function DashboardPage() {
         {isMiljoarbeiderView && (
           <DashboardWorkerMobile
             userId={user?.id || "default"}
-            userName={user?.firstName || "Maria"}
+            userName={user?.firstName || undefined}
             todaySignals={workerTodaySignals}
             summary={workerSummary}
             dailyHoursTarget={prefs.dailyHoursTarget}

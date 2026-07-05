@@ -68,7 +68,8 @@ function getPeriodLabel(range: TimeRange): string {
     case "week": {
       const start = startOfISOWeek(now);
       const end = endOfISOWeek(now);
-      return `Denne uken (${format(start, "d", { locale: nb })}\u2013${format(end, "d MMM", { locale: nb })})`;
+      const sameMonth = start.getMonth() === end.getMonth();
+      return `Denne uken (${format(start, sameMonth ? "d" : "d MMM", { locale: nb })}\u2013${format(end, "d MMM", { locale: nb })})`;
     }
     case "month":
       return `Denne måneden (${format(now, "MMMM yyyy", { locale: nb })})`;
@@ -206,7 +207,7 @@ export function DashboardHero({
                       }
                     />
                   )}
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="relative h-3.5 w-3.5" />
                   <span className="relative hidden sm:inline">{btn.label}</span>
                 </button>
               );
@@ -385,7 +386,7 @@ export function DashboardHero({
                     }
                   />
                 ) : null}
-                <Icon className="h-4 w-4" />
+                <Icon className="relative h-4 w-4" />
                 <span className="relative hidden sm:inline">{btn.label}</span>
               </button>
             );

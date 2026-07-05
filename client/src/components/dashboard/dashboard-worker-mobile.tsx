@@ -539,7 +539,7 @@ export function DashboardWorkerMobile({
 
       <div className="px-0.5">
         <h2 className="text-[28px] leading-none font-semibold tracking-tight text-foreground">
-          Hei, {userName}!
+          {userName ? `Hei, ${userName}!` : "Hei!"}
         </h2>
       </div>
 

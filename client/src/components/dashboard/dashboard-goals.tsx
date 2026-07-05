@@ -223,7 +223,7 @@ export function DashboardGoals({ stats, mode = "default", kpis, targets }: Dashb
                           <span className="text-sm text-muted-foreground tabular-nums">
                             {goal.lowerIsBetter && goal.target === 0
                               ? `${goal.current.toFixed(0)} ${goal.unit}`.trim()
-                              : `${goal.current.toFixed(goal.unit === "%" ? 0 : 1)} / ${goal.target} ${goal.unit}`.trim()}
+                              : `${goal.current.toFixed(goal.unit === "timer" ? 1 : 0)} / ${goal.target} ${goal.unit}`.trim()}
                           </span>
                         )}
                       </div>
