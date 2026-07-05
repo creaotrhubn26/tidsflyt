@@ -118,6 +118,12 @@ export function DashboardHero({
     : isMiljoarbeider
       ? "/rapporter"
       : "/reports";
+  // pendingApprovals means different things per mode: for tiltaksleder it's
+  // reports awaiting approval (reviewed at /rapporter/godkjenning) — sending
+  // them to /time-tracking is a dead end, since that page explicitly tells
+  // tiltaksledere they don't register time there and to use the report flow
+  // instead. For the default/admin mode it's pending user-account approvals.
+  const approvalActionPath = isTiltaksleder ? "/rapporter/godkjenning" : "/time-tracking";
 
   /* ── Live relative-time state ── */
   const [relativeTime, setRelativeTime] = useState<string | null>(null);
@@ -231,7 +237,7 @@ export function DashboardHero({
           </Button>
           {pendingApprovals > 0 && (
             <Button
-              onClick={() => navigate("/time-tracking")}
+              onClick={() => navigate(approvalActionPath)}
               variant="outline"
               size="sm"
               className="gap-1.5"
@@ -315,7 +321,7 @@ export function DashboardHero({
           {/* "Godkjenn" badge-button */}
           {pendingApprovals > 0 && (
             <Button
-              onClick={() => navigate("/time-tracking")}
+              onClick={() => navigate(approvalActionPath)}
               variant="outline"
               size="sm"
               className="gap-1.5 border-border text-muted-foreground hover:bg-accent"

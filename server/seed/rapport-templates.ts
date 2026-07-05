@@ -691,7 +691,8 @@ export async function seedSystemRapportTemplates() {
           createdBy: "system",
         })
         .onConflictDoUpdate({
-          target: [rapportTemplates.vendorId, rapportTemplates.slug],
+          target: [rapportTemplates.slug],
+          targetWhere: sql`${rapportTemplates.vendorId} IS NULL`,
           set: {
             name: tpl.name,
             description: tpl.description,
@@ -708,7 +709,7 @@ export async function seedSystemRapportTemplates() {
         await db.execute(sql`
           INSERT INTO rapport_templates (vendor_id, slug, name, description, suggested_institution_type, sections, is_system, is_active, created_by)
           VALUES (NULL, ${tpl.slug}, ${tpl.name}, ${tpl.description}, ${tpl.suggestedInstitutionType}, ${JSON.stringify(tpl.sections)}::jsonb, true, true, 'system')
-          ON CONFLICT (vendor_id, slug) DO UPDATE
+          ON CONFLICT (slug) WHERE vendor_id IS NULL DO UPDATE
           SET name = EXCLUDED.name,
               description = EXCLUDED.description,
               suggested_institution_type = EXCLUDED.suggested_institution_type,

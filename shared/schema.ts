@@ -215,7 +215,14 @@ export const rapportTemplates = pgTable(
   (table) => ({
     // Required by seedSystemRapportTemplates()'s
     // ON CONFLICT (vendor_id, slug) DO UPDATE upsert — see migration 028/050.
+    // Only matches vendor-owned templates: a plain UNIQUE(vendor_id, slug)
+    // treats every NULL vendor_id as distinct, so it can never catch
+    // duplicate system templates (vendor_id IS NULL) — see the partial
+    // index below and migration 051.
     uniqueVendorSlug: uniqueIndex("rapport_templates_vendor_id_slug_unique").on(table.vendorId, table.slug),
+    // System templates (vendor_id IS NULL) are de-duplicated by slug alone,
+    // via a partial unique index — see migration 051.
+    uniqueSystemSlug: uniqueIndex("rapport_templates_system_slug_unique").on(table.slug).where(sql`${table.vendorId} IS NULL`),
   }),
 );
 
