@@ -528,6 +528,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     // the header "Dashboard".
     const ORPHAN_ROUTE_LABELS: Record<string, string> = {
       "/case-reports": "Saksrapporter",
+      "/profile": "Profil",
     };
     const byOrphanRoute = () =>
       Object.entries(ORPHAN_ROUTE_LABELS).find(
@@ -543,9 +544,13 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
   const activeNavPath = useMemo(() => {
     const isDashboard = location === "/dashboard" || location === "/";
     if (isDashboard) return "/dashboard";
+    // /profile and /settings render the identical Profile component (see
+    // App.tsx) but only "/settings" ("Innstillinger") is a real sidebar
+    // item — alias so the sidebar still highlights something sensible.
+    const effectiveLocation = location === "/profile" || location.startsWith("/profile/") ? "/settings" : location;
     const candidates = navItems.filter((item) => item.kind !== "modal" && item.path.startsWith("/"));
     const match = candidates
-      .filter((item) => location === item.path || location.startsWith(`${item.path}/`))
+      .filter((item) => effectiveLocation === item.path || effectiveLocation.startsWith(`${item.path}/`))
       .sort((a, b) => b.path.length - a.path.length)[0];
     return match?.path;
   }, [location, navItems]);
