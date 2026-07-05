@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { eq, asc, desc, and, ne } from "drizzle-orm";
+import { eq, asc, desc, and, ne, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, pool } from "../db";
 import {
@@ -675,6 +675,9 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const parsed = upsertStageSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
+      if (parsed.data.isWon && !parsed.data.isTerminal) {
+        return res.status(400).json({ error: "En 'vunnet'-stage må også være terminal (isTerminal)." });
+      }
       const [created] = await db.insert(leadPipelineStages).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
@@ -684,12 +687,20 @@ export function registerPricingRoutes(app: Express): void {
 
   app.patch("/api/admin/sales/pipeline/:id", requireSuperAdmin, async (req, res) => {
     try {
+      const id = Number(req.params.id);
       const parsed = upsertStageSchema.partial().safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
+      const [existingStage] = await db.select().from(leadPipelineStages).where(eq(leadPipelineStages.id, id)).limit(1);
+      if (!existingStage) return res.status(404).json({ error: "Pipeline-stage ikke funnet" });
+      const effectiveIsWon = parsed.data.isWon ?? existingStage.isWon;
+      const effectiveIsTerminal = parsed.data.isTerminal ?? existingStage.isTerminal;
+      if (effectiveIsWon && !effectiveIsTerminal) {
+        return res.status(400).json({ error: "En 'vunnet'-stage må også være terminal (isTerminal)." });
+      }
       const [updated] = await db
         .update(leadPipelineStages)
         .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(leadPipelineStages.id, Number(req.params.id)))
+        .where(eq(leadPipelineStages.id, id))
         .returning();
       if (!updated) return res.status(404).json({ error: "Pipeline-stage ikke funnet" });
       res.json(updated);
@@ -700,10 +711,24 @@ export function registerPricingRoutes(app: Express): void {
 
   app.delete("/api/admin/sales/pipeline/:id", requireSuperAdmin, async (req, res) => {
     try {
-      await db.delete(leadPipelineStages).where(eq(leadPipelineStages.id, Number(req.params.id)));
+      const id = Number(req.params.id);
+      // A plain delete here would leave any lead referencing this stage
+      // with a dangling pipeline_stage_id — the LEFT JOIN in lead queries
+      // wouldn't error, it would just silently show that lead as
+      // uncategorized, with no indication anything is wrong.
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(accessRequests)
+        .where(eq(accessRequests.pipelineStageId, id));
+      if (count > 0) {
+        return res.status(400).json({
+          error: `Kan ikke slette: ${count} lead(s) er fortsatt i denne stagen. Flytt dem til en annen stage først.`,
+        });
+      }
+      await db.delete(leadPipelineStages).where(eq(leadPipelineStages.id, id));
       res.json({ success: true });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -758,6 +783,7 @@ export function registerPricingRoutes(app: Express): void {
           lps.label                AS stage_label,
           lps.probability_pct      AS probability_pct,
           lps.sort_order           AS sort_order,
+          lps.is_terminal          AS is_terminal,
           COUNT(ar.id)             AS lead_count,
           COALESCE(SUM(
             CASE
@@ -779,7 +805,7 @@ export function registerPricingRoutes(app: Express): void {
         LEFT JOIN access_requests ar ON ar.pipeline_stage_id = lps.id
         LEFT JOIN pricing_tiers   pt ON pt.id = ar.tier_snapshot_id
         WHERE lps.is_active = TRUE
-        GROUP BY lps.slug, lps.label, lps.probability_pct, lps.sort_order
+        GROUP BY lps.slug, lps.label, lps.probability_pct, lps.sort_order, lps.is_terminal
         ORDER BY lps.sort_order
       `;
       const { rows } = await pool.query(sql);

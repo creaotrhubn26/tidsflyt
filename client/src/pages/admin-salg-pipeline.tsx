@@ -163,7 +163,7 @@ export default function AdminSalgPipeline() {
               <div className="space-y-2">
                 <label className="flex items-center gap-2">
                   <Switch checked={editing.isTerminal}
-                    onCheckedChange={(v) => setEditing({ ...editing, isTerminal: v })} />
+                    onCheckedChange={(v) => setEditing({ ...editing, isTerminal: v, isWon: v ? editing.isWon : false })} />
                   <span className="text-sm">Terminal (lukker leadet)</span>
                 </label>
                 <label className="flex items-center gap-2">
