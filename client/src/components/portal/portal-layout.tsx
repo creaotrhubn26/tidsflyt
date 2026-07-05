@@ -536,6 +536,20 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     return byPrefix(navItems) || byPrefix(baseNavItems) || byOrphanRoute() || "Dashboard";
   }, [location, navItems]);
 
+  // Longest-prefix match wins, computed once across ALL nav items — so when
+  // one item's path is itself a prefix of another (e.g. "/rapporter" and
+  // "/rapporter/godkjenning"), only the more specific one lights up instead
+  // of both matching their own independent startsWith check.
+  const activeNavPath = useMemo(() => {
+    const isDashboard = location === "/dashboard" || location === "/";
+    if (isDashboard) return "/dashboard";
+    const candidates = navItems.filter((item) => item.kind !== "modal" && item.path.startsWith("/"));
+    const match = candidates
+      .filter((item) => location === item.path || location.startsWith(`${item.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    return match?.path;
+  }, [location, navItems]);
+
   const toggleSidebar = useCallback(() => {
     setCollapsed((previous) => !previous);
   }, []);
@@ -618,9 +632,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                   <div className="mx-2 my-1 border-t border-white/10" aria-hidden />
                 )}
                 {itemsInCategory.map((item) => {
-                  const isActive = item.path === "/dashboard"
-                    ? location === "/dashboard" || location === "/"
-                    : location === item.path || (item.path !== "/" && location.startsWith(item.path + "/"));
+                  const isActive = item.path === activeNavPath;
                   const Icon = item.icon;
                   const itemClassName = cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
