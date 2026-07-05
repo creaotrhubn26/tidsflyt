@@ -1,8 +1,7 @@
 # Visuell QA av dashbordene — juli 2026
 
-> **Status:** Funn 1–7, 11 og 15 er rettet i denne branchen og verifisert
+> **Status:** Alle 16 funn er rettet i denne branchen og verifisert
 > visuelt/programmatisk mot kjørende app (se «Rettet i denne branchen» nederst).
-> Funn 8–10, 12–14 og 16 er designvurderinger som står åpne.
 
 Gjennomgang av `/dashboard` (admin-, tiltaksleder- og miljøarbeider-visning) og
 `/tiltaksleder`, i lys og mørk modus, på desktop (1440×900) og mobil (390×844).
@@ -157,11 +156,16 @@ bildet — det er en artefakt av full-side-skjermbilder, ikke en feil i appen.
 | 5 | Cookie-banner i innlogget app | `DEFAULT_EXCLUDED_PREFIXES` i `client/src/lib/analytics.ts` synket med `PROTECTED_LAYOUT_PREFIXES` (la til `/tiltaksleder`, `/rapporter`, `/institusjoner`, `/import-employees`, `/vendor`). Verifisert: banneret vises ikke på `/tiltaksleder`, men fortsatt på den offentlige landingssiden |
 | 6 | Feil topplinjetittel på `/tiltaksleder` | `activePageLabel` i `portal-layout.tsx` bruker nå lengste prefiks-match med fallback til ufiltrert nav-liste. Verifisert: viser «Tiltaksleder» |
 | 7 | «(29–5 juli)» uten måned | `getPeriodLabel` i `dashboard-hero.tsx` tar med måned på startdato når uken krysser månedsgrense → «(29 juni–5 juli)» |
+| 8 | Trunkert KPI-tittel på desktop | `stat-card.tsx`: tittel går fra `truncate` (én linje) til `line-clamp-2`, med mer reservert høyde og ikonet justert til toppen |
+| 9 | Undertittel kuttes uten ellipse på mobil | `dashboard-hero.tsx`: `truncate` hadde ingen effekt fordi elementet også var `flex` — Tailwinds nowrap/ellipsis virker ikke på en flex-container med flere barn. Den trunkerbare teksten ligger nå i sitt eget `<span className="truncate">`, med `min-w-0` på forelderen |
+| 10 | Enslig «+»-knapp på egen rad på mobil | `dashboard.tsx`: header stakket i kolonne på mobil (`flex-col … sm:flex-row`); hurtighandlingen («+ Tiltak») ligger nå på samme rad som periodevelgeren i stedet for å konkurrere om plass med utseende-ikonene i en annen flex-sammenheng |
 | 11 | «0.0 / 15 saker» | `dashboard-goals.tsx` viser desimal kun for timer, ikke for antall → «0 / 15 saker» |
+| 12 | 100 % fylt fremdriftslinje for «Utkast i arbeid: 0» | `dashboard-kpis-routes.ts`: la til forklarende `extraLabel` («Ingen utkast venter — bra jobbet») når `draftCount === 0`, så den fulle linjen ikke leses som «100 % utkast» |
+| 13 | Ghost-eksempel i «Faglig logg» kan leses som ekte data | `activity-feed.tsx`: la til en liten «EKSEMPEL»-etikett over forhåndsvisningsraden |
+| 14 | Duplisert «Registrering pauset» | `dashboard-worker-mobile.tsx`: det andre kortets overskrift beskriver nå kortets innhold («Fremdrift i dag») i stedet for å gjenta kjøre-/pause-status fra kortet over |
 | 15 | E-post på begge linjer i profilblokken | `portal-layout.tsx` viser rollenavn som undertittel når visningsnavnet er identisk med e-posten |
+| 16 | «— 0.0 %»-trendchip i tomtilstander | `stat-card.tsx`: trendchippen skjules når kortet viser tomtilstanden (`showEmpty`), siden det ikke finnes noe å sammenlikne med |
 
-Åpne designvurderinger (ikke rettet): 8 (trunkert KPI-tittel på desktop),
-9 (undertittel kuttes på mobil), 10 (enslig «+»-knapp på egen rad i
-mobil-verktøylinjen), 12 (100 % fylt fremdriftslinje for «Utkast i arbeid: 0»),
-13 (ghost-eksempel i «Faglig logg»-tomtilstanden), 14 (duplisert
-«Registrering pauset»), 16 («— 0.0 %»-chips i tomtilstander).
+Alle fikser er verifisert mot kjørende app (Playwright-skjermbilder + programmatiske
+sjekker for klikkbarhet/DOM), inkludert en omstart av dev-serveren for å plukke opp
+den server-side KPI-endringen (`dashboard-kpis-routes.ts`).

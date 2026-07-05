@@ -148,17 +148,23 @@ export function DashboardHero({
               title
             )}
           </p>
-          {/* Period + live last-updated */}
-          <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
-            {subtitle ? `${subtitle} · ` : ""}{periodLabel}
+          {/* Period + live last-updated. The truncatable text lives in its
+              own span — Tailwind's `truncate` (nowrap + ellipsis) has no
+              effect directly on a `flex` container, since flex children
+              wrap onto the flex line and get hard-clipped instead of
+              ellipsised. */}
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">
+              {subtitle ? `${subtitle} · ` : ""}{periodLabel}
+            </span>
             {!statsFetching && relativeTime && (
-              <>
+              <span className="flex shrink-0 items-center gap-1.5">
                 <span className="text-muted-foreground/40">—</span>
                 <span className="inline-flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                   {relativeTime}
                 </span>
-              </>
+              </span>
             )}
           </p>
         </div>

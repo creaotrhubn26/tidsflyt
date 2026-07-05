@@ -675,9 +675,11 @@ export function DashboardWorkerMobile({
 
       <Card className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="px-4 py-2 border-b border-border bg-muted">
+          {/* Beskriver kortets innhold (fremdrift mot dagsmål) i stedet for
+              å gjenta kjøre-/pause-status fra kortet over. */}
           <p className="flex items-center gap-2 text-[18px] font-medium text-foreground">
             <span className="inline-block h-2.5 w-2.5 rounded-full bg-primary" />
-            {isRunning ? "Registrering pågår…" : "Registrering pauset"}
+            Fremdrift i dag
           </p>
         </div>
         <CardContent className="p-4">

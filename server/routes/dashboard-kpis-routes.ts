@@ -362,7 +362,10 @@ async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Pro
       icon: 'target',
       color: 'blue',
       tooltip: 'Rapporter jeg har begynt på, men ikke sendt inn. Lavere er bedre.',
-      extraLabel: null,
+      // Bar fylles 100 % når current==target==0 ("mål nådd"), som kan lese
+      // som "100 % utkast" uten kontekst — legg til en tekst som gjør det
+      // eksplisitt at fylt bar her betyr "ingen utkast", ikke "mye utkast".
+      extraLabel: draftCount === 0 ? 'Ingen utkast venter — bra jobbet' : null,
       insufficient: false,
       lowerIsBetter: true,
     },

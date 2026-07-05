@@ -484,8 +484,12 @@ function ActivityFeedComponent({
       <p className="mt-1 max-w-[280px] text-xs opacity-70 leading-relaxed">
         Aktivitet vises når det registreres timer, legges til brukere eller sendes inn rapporter.
       </p>
-      {/* Ghost preview row */}
+      {/* Ghost preview row — explicitly labelled "Eksempel" so a faded
+          placeholder card is never mistaken for a real activity entry. */}
       <div className="mt-5 w-full max-w-[320px] opacity-30 pointer-events-none" aria-hidden="true">
+        <div className="mb-1 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Eksempel
+        </div>
         <div className="flex items-start gap-3 rounded-xl border border-dashed border-[#dbe6e2] dark:border-border px-3 py-2.5">
           <div className="shrink-0 rounded-full bg-muted p-2">
             <Clock className="h-4 w-4 text-muted-foreground" />
