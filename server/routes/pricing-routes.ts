@@ -332,6 +332,7 @@ export function registerPricingRoutes(app: Express): void {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(pricingInclusions.id, Number(req.params.id)))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Inclusion ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: friendlyDbErrorMessage(err) });
@@ -367,16 +368,30 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const parsed = updateSettingSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
+      const [existingSetting] = await db
+        .select()
+        .from(salgSettings)
+        .where(eq(salgSettings.key, req.params.key))
+        .limit(1);
+      if (!existingSetting) return res.status(404).json({ error: "Setting not found" });
+      // These values feed price-floor checks and generated contract text
+      // directly, without any downstream validation — a negative or
+      // non-numeric value silently corrupts both.
+      if (existingSetting.dataType === "number" && parsed.data.value != null && parsed.data.value !== "") {
+        const num = Number(parsed.data.value);
+        if (!Number.isFinite(num) || num < 0) {
+          return res.status(400).json({ error: "Verdien må være et gyldig tall (0 eller høyere)." });
+        }
+      }
       const userId = req.user?.id || null;
       const [updated] = await db
         .update(salgSettings)
         .set({ value: parsed.data.value, updatedAt: new Date(), updatedBy: userId })
         .where(eq(salgSettings.key, req.params.key))
         .returning();
-      if (!updated) return res.status(404).json({ error: "Setting not found" });
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -430,6 +445,7 @@ export function registerPricingRoutes(app: Express): void {
         .set(data)
         .where(eq(salesRoutingRules.id, id))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Routing-regel ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -481,6 +497,7 @@ export function registerPricingRoutes(app: Express): void {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(salesScriptBlocks.id, Number(req.params.id)))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Script ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: friendlyDbErrorMessage(err) });
@@ -543,6 +560,7 @@ export function registerPricingRoutes(app: Express): void {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(salgContractTemplates.id, id))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Kontraktsmal ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -621,6 +639,7 @@ export function registerPricingRoutes(app: Express): void {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(salgEmailTemplates.id, Number(req.params.id)))
         .returning();
+      if (!updated) return res.status(404).json({ error: "E-postmal ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: friendlyDbErrorMessage(err) });
@@ -672,6 +691,7 @@ export function registerPricingRoutes(app: Express): void {
         .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(leadPipelineStages.id, Number(req.params.id)))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Pipeline-stage ikke funnet" });
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: friendlyDbErrorMessage(err) });
@@ -825,6 +845,7 @@ export function registerPricingRoutes(app: Express): void {
         .set(data)
         .where(eq(accessRequests.id, id))
         .returning();
+      if (!updated) return res.status(404).json({ error: "Lead ikke funnet" });
 
       // Emit revenue_event if stage changed to a "won" stage and we have
       // enough data (tier snapshot + user count) to compute MRR.
