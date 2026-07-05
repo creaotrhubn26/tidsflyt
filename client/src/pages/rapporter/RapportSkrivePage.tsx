@@ -950,7 +950,7 @@ export default function RapportSkrivePage() {
             {updateRapport.isPending ? "Lagrer…" : "Alle endringer lagres automatisk"}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setPrevDialog(true)}>
             <Copy className="h-3.5 w-3.5 mr-1.5" />
             Forrige rapport
@@ -1046,7 +1046,13 @@ export default function RapportSkrivePage() {
           </div>
         )}
 
-        <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+        {/* grid-cols-1 is load-bearing below lg: without an explicit track,
+            Tailwind falls back to an unconstrained implicit column, so any
+            wide child (e.g. the side-by-side date inputs below) blows out
+            the whole column's width — including the sidebar stacked under
+            it — past the viewport on mobile. grid-cols-1 forces a
+            minmax(0,1fr) track that actually clips/shrinks its content. */}
+        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
 
           {/* ── MAIN COLUMN ────────────────────────────────── */}
           <div className="space-y-4">
@@ -1167,10 +1173,10 @@ export default function RapportSkrivePage() {
 
                 <div className="space-y-2">
                   <Label>Periode</Label>
-                  <div className="flex gap-3 items-center">
-                    <Input type="date" value={periodeFrom} onChange={(e) => { setPeriodeFrom(e.target.value); markDirty(); }} className="flex-1" />
-                    <span className="text-muted-foreground text-sm">–</span>
-                    <Input type="date" value={periodeTo} onChange={(e) => { setPeriodeTo(e.target.value); markDirty(); }} className="flex-1" />
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+                    <Input type="date" value={periodeFrom} onChange={(e) => { setPeriodeFrom(e.target.value); markDirty(); }} className="min-w-0 sm:flex-1" />
+                    <span className="hidden text-muted-foreground text-sm sm:inline">–</span>
+                    <Input type="date" value={periodeTo} onChange={(e) => { setPeriodeTo(e.target.value); markDirty(); }} className="min-w-0 sm:flex-1" />
                   </div>
                 </div>
               </CardContent>
@@ -1242,7 +1248,7 @@ export default function RapportSkrivePage() {
             {/* 3. MÅL OG TILTAK */}
             <Card className="border-border/70 bg-background/70 shadow-sm">
               <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Target className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Mål og tiltak</span>
                   <Badge variant="secondary" className="ml-2 text-xs">{allGoals.length} mål</Badge>
@@ -1295,11 +1301,11 @@ export default function RapportSkrivePage() {
             {/* 4. AKTIVITETSLOGG */}
             <Card className="border-border/70 bg-background/70 shadow-sm">
               <CardHeader className="space-y-3 pb-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Activity className="h-4 w-4 text-primary" />
                   <span className="font-semibold text-sm">Aktivitetslogg</span>
                   <Badge variant="secondary" className="ml-2 text-xs">{allActivities.length} oppføringer</Badge>
-                  <div className="ml-auto flex items-center gap-2">
+                  <div className="ml-auto flex flex-wrap items-center gap-2">
                     {/* View toggle */}
                     <div className="flex rounded-md border overflow-hidden">
                       <button
