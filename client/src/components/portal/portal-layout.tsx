@@ -522,7 +522,18 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
         .filter((item) => item.kind !== "modal" && item.path.startsWith("/"))
         .filter((item) => location === item.path || location.startsWith(`${item.path}/`))
         .sort((a, b) => b.path.length - a.path.length)[0]?.label;
-    return byPrefix(navItems) || byPrefix(baseNavItems) || "Dashboard";
+    // Pages that are live and reachable (dashboard shortcuts, CMS-configurable
+    // sidebar entries) but aren't part of the static baseNavItems array, so
+    // the prefix match above never finds them and would otherwise mislabel
+    // the header "Dashboard".
+    const ORPHAN_ROUTE_LABELS: Record<string, string> = {
+      "/case-reports": "Saksrapporter",
+    };
+    const byOrphanRoute = () =>
+      Object.entries(ORPHAN_ROUTE_LABELS).find(
+        ([path]) => location === path || location.startsWith(`${path}/`),
+      )?.[1];
+    return byPrefix(navItems) || byPrefix(baseNavItems) || byOrphanRoute() || "Dashboard";
   }, [location, navItems]);
 
   const toggleSidebar = useCallback(() => {

@@ -19,6 +19,7 @@ const STARTUP_MIGRATIONS: string[] = [
   "047_log_row_sak_id.sql",
   "048_user_cases_day_rate.sql",
   "049_sak_locations.sql",
+  "050_rapport_templates_unique_constraint.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

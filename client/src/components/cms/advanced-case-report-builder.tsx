@@ -274,7 +274,7 @@ export const AdvancedCaseReportBuilder = React.memo(function AdvancedCaseReportB
     <div className="space-y-4">
       {/* Header with saved views and actions */}
       <div className="flex items-center justify-between gap-4 flex-wrap bg-gradient-to-r from-slate-50 to-white dark:bg-none dark:bg-card dark:from-transparent dark:to-transparent p-4 rounded-lg border border-slate-200/50 dark:border-border shadow-sm">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="gap-2">
