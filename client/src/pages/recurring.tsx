@@ -279,14 +279,14 @@ export default function RecurringPage() {
     <PortalLayout>
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex flex-wrap justify-between items-center gap-3">
           <div>
             <h1 className="text-3xl font-bold">Gjentakende Tidsposter</h1>
             <p className="text-muted-foreground">
               Automatisk generering av tidsposter basert på mønster
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               variant="outline"
               onClick={() => generateMutation.mutate()}
