@@ -118,7 +118,7 @@ export default function ApiDocsPage() {
                   Prising
                 </h3>
                 <p className="text-sm text-muted-foreground">
-                  API-tilgang koster <strong>99 kr/mnd</strong> per leverandor. Inkluderer opptil 60 foresporsler per minutt.
+                  API-tilgang koster <strong>99 kr/mnd</strong> per leverandør. Inkluderer opptil 60 forespørsler per minutt.
                 </p>
               </div>
             </CardContent>
@@ -168,17 +168,17 @@ export default function ApiDocsPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Key className="h-5 w-5" />
-                API-nokkel autentisering
+                API-nøkkel-autentisering
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p>Alle API-foresporsler ma autentiseres med en API-nokkel. Nokkelen sendes i Authorization-headeren.</p>
+              <p>Alle API-forespørsler må autentiseres med en API-nøkkel. Nøkkelen sendes i Authorization-headeren.</p>
               
               <div>
                 <h4 className="font-medium mb-2">Eksempel:</h4>
                 <pre className="bg-muted p-4 rounded-md text-sm overflow-x-auto">
 {`curl -X GET "${BASE_URL}/time-entries" \\
-  -H "Authorization: Bearer st_ditt_api_nokkel_her" \\
+  -H "Authorization: Bearer st_din_api_nokkel_her" \\
   -H "Content-Type: application/json"`}
                 </pre>
               </div>
@@ -186,9 +186,9 @@ export default function ApiDocsPage() {
               <div className="p-4 bg-warning/10 rounded-md border border-warning/20">
                 <h4 className="font-medium mb-1">Viktig</h4>
                 <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                  <li>Hold API-nokkelen hemmelig - del den aldri i offentlig kode</li>
-                  <li>Nokkelen begynner med <code className="bg-muted px-1 rounded">st_</code></li>
-                  <li>Du kan generere nye nokler i administrasjonspanelet</li>
+                  <li>Hold API-nøkkelen hemmelig — del den aldri i offentlig kode</li>
+                  <li>Nøkkelen begynner med <code className="bg-muted px-1 rounded">st_</code></li>
+                  <li>Du kan generere nye nøkler i administrasjonspanelet</li>
                 </ul>
               </div>
             </CardContent>
@@ -197,7 +197,7 @@ export default function ApiDocsPage() {
           <Card>
             <CardHeader>
               <CardTitle>Tillatelser</CardTitle>
-              <CardDescription>API-nokler kan ha folgende tillatelser</CardDescription>
+              <CardDescription>API-nøkler kan ha følgende tillatelser</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-2">
@@ -222,18 +222,18 @@ export default function ApiDocsPage() {
               <CardTitle>Rate Limiting</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p>For a sikre stabil ytelse er API-foresporsler begrenset til 60 per minutt per API-nokkel.</p>
+              <p>For å sikre stabil ytelse er API-forespørsler begrenset til 60 per minutt per API-nøkkel.</p>
               
               <div>
                 <h4 className="font-medium mb-2">Response headers:</h4>
                 <div className="space-y-1 text-sm">
                   <div className="flex gap-2">
                     <code className="bg-muted px-1 rounded">X-RateLimit-Limit</code>
-                    <span className="text-muted-foreground">- Maks antall foresporsler per minutt</span>
+                    <span className="text-muted-foreground">- Maks antall forespørsler per minutt</span>
                   </div>
                   <div className="flex gap-2">
                     <code className="bg-muted px-1 rounded">X-RateLimit-Remaining</code>
-                    <span className="text-muted-foreground">- Gjenstående foresporsler</span>
+                    <span className="text-muted-foreground">- Gjenstående forespørsler</span>
                   </div>
                   <div className="flex gap-2">
                     <code className="bg-muted px-1 rounded">X-RateLimit-Reset</code>
@@ -537,11 +537,11 @@ export default function ApiDocsPage() {
               <div className="space-y-2 text-sm">
                 {[
                   { code: "MISSING_API_KEY", desc: "Authorization header mangler" },
-                  { code: "INVALID_API_KEY", desc: "API-nokkelen er ugyldig" },
-                  { code: "EXPIRED_API_KEY", desc: "API-nokkelen har utlopt" },
+                  { code: "INVALID_API_KEY", desc: "API-nøkkelen er ugyldig" },
+                  { code: "EXPIRED_API_KEY", desc: "API-nøkkelen har utløpt" },
                   { code: "API_ACCESS_DISABLED", desc: "API-tilgang er ikke aktivert" },
                   { code: "SUBSCRIPTION_EXPIRED", desc: "Abonnementet har utlopt" },
-                  { code: "RATE_LIMIT_EXCEEDED", desc: "For mange foresporsler" },
+                  { code: "RATE_LIMIT_EXCEEDED", desc: "For mange forespørsler" },
                   { code: "INSUFFICIENT_PERMISSIONS", desc: "Mangler nodvendig tillatelse" },
                 ].map((err) => (
                   <div key={err.code} className="flex gap-2">

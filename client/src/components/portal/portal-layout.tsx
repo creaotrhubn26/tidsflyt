@@ -529,6 +529,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     const ORPHAN_ROUTE_LABELS: Record<string, string> = {
       "/case-reports": "Saksrapporter",
       "/profile": "Profil",
+      "/admin/case-reviews": "Saksgodkjenning",
     };
     const byOrphanRoute = () =>
       Object.entries(ORPHAN_ROUTE_LABELS).find(

@@ -19,7 +19,7 @@ import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/l
 import { ADMIN_ROLES } from "./middleware/auth";
 import { pushTimesheetToPowerOffice } from "./lib/poweroffice-push";
 import { getPowerOfficeVisibility } from "./lib/poweroffice-visibility";
-import { vendorIntegrations } from "@shared/schema";
+import { vendorIntegrations, caseReports } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { db } from "./db";
 import { processVendorSeatOverrun } from "./lib/seat-overrun";
@@ -35,7 +35,7 @@ import {
   TIDUM_SUPPORT_EMAIL,
   TIDUM_SUPPORT_PHONE,
 } from "@shared/brand";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -3850,17 +3850,15 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status } = req.query;
-      let query = 'SELECT * FROM case_reports';
-      const params: any[] = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      query += ' ORDER BY created_at DESC';
-      
-      const result = await pool.query(query, params);
-      res.json({ reports: result.rows });
+      // Drizzle (not raw pool.query) so the response uses the same camelCase
+      // field names (caseId, userId, ...) as the CaseReport type the client
+      // reads — a raw SELECT * would return snake_case columns and the
+      // client's report.caseId/report.userId/report.month would all be
+      // undefined, crashing the filter below on the first .toLowerCase().
+      const rows = status
+        ? await db.select().from(caseReports).where(eq(caseReports.status, status as string)).orderBy(desc(caseReports.createdAt))
+        : await db.select().from(caseReports).orderBy(desc(caseReports.createdAt));
+      res.json({ reports: rows });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

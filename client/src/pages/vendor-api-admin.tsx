@@ -57,14 +57,16 @@ export default function VendorApiAdminPage() {
 
   const isAuthorized = canAccessVendorApiAdmin(effectiveRole);
 
-  const { data: apiStatus, isLoading: statusLoading } = useQuery<VendorApiStatus>({
+  const { data: apiStatus, isLoading: statusLoading, isError: statusError } = useQuery<VendorApiStatus>({
     queryKey: ["/api/vendor/api-status"],
     enabled: isAuthenticated && isAuthorized,
+    retry: false,
   });
 
-  const { data: apiKeys, isLoading: keysLoading } = useQuery<ApiKey[]>({
+  const { data: apiKeys, isLoading: keysLoading, isError: keysError } = useQuery<ApiKey[]>({
     queryKey: ["/api/vendor/api-keys"],
     enabled: isAuthenticated && isAuthorized,
+    retry: false,
   });
 
   const createKeyMutation = useMutation({
@@ -75,10 +77,10 @@ export default function VendorApiAdminPage() {
     onSuccess: (data) => {
       setGeneratedKey(data.key);
       queryClient.invalidateQueries({ queryKey: ["/api/vendor/api-keys"] });
-      toast({ title: "API-nokkel opprettet" });
+      toast({ title: "API-nøkkel opprettet" });
     },
     onError: () => {
-      toast({ title: "Kunne ikke opprette API-nokkel", variant: "destructive" });
+      toast({ title: "Kunne ikke opprette API-nøkkel", variant: "destructive" });
     },
   });
 
@@ -88,10 +90,10 @@ export default function VendorApiAdminPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vendor/api-keys"] });
-      toast({ title: "API-nokkel deaktivert" });
+      toast({ title: "API-nøkkel deaktivert" });
     },
     onError: () => {
-      toast({ title: "Kunne ikke deaktivere API-nokkel", variant: "destructive" });
+      toast({ title: "Kunne ikke deaktivere API-nøkkel", variant: "destructive" });
     },
   });
 
@@ -151,9 +153,9 @@ export default function VendorApiAdminPage() {
             <div className="mx-auto mb-4 h-12 w-12 rounded-full bg-muted flex items-center justify-center">
               <LogIn className="h-6 w-6 text-muted-foreground" />
             </div>
-            <CardTitle>Logg inn for a fortsette</CardTitle>
+            <CardTitle>Logg inn for å fortsette</CardTitle>
             <CardDescription>
-              Du ma vaere innlogget for a administrere API-nokler
+              Du må være innlogget for å administrere API-nøkler
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
@@ -180,7 +182,7 @@ export default function VendorApiAdminPage() {
             </div>
             <CardTitle>Ingen tilgang</CardTitle>
             <CardDescription>
-              Du har ikke tilgang til a administrere API-nokler. Kontakt din administrator for a fa tilgang.
+              Du har ikke tilgang til å administrere API-nøkler. Kontakt din administrator for å få tilgang.
             </CardDescription>
           </CardHeader>
           <CardContent className="flex justify-center">
@@ -208,7 +210,7 @@ export default function VendorApiAdminPage() {
             <Key className="h-6 w-6" />
             API-administrasjon
           </h1>
-          <p className="text-muted-foreground">Administrer API-tilgang og nokler</p>
+          <p className="text-muted-foreground">Administrer API-tilgang og nøkler</p>
         </div>
         <Link href="/api-docs">
           <Button variant="outline" data-testid="link-api-docs">
@@ -217,6 +219,17 @@ export default function VendorApiAdminPage() {
           </Button>
         </Link>
       </div>
+
+      {(statusError || keysError) && (
+        <Card className="mb-6 border-destructive" data-testid="card-api-admin-error">
+          <CardContent className="pt-6 flex items-start gap-2 text-destructive">
+            <XCircle className="h-5 w-5 shrink-0 mt-0.5" />
+            <p className="text-sm">
+              Kunne ikke laste API-informasjon. Som super-admin må du velge en leverandør (vendorId) for å administrere API-tilgang og -nøkler.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="space-y-6">
         <Card>
@@ -268,8 +281,8 @@ export default function VendorApiAdminPage() {
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4">
             <div>
-              <CardTitle>API-nokler</CardTitle>
-              <CardDescription>Administrer dine API-nokler for integrasjon</CardDescription>
+              <CardTitle>API-nøkler</CardTitle>
+              <CardDescription>Administrer dine API-nøkler for integrasjon</CardDescription>
             </div>
             <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
               <DialogTrigger asChild>
@@ -278,23 +291,23 @@ export default function VendorApiAdminPage() {
                   data-testid="button-create-api-key"
                 >
                   <Plus className="h-4 w-4 mr-2" />
-                  Ny nokkel
+                  Ny nøkkel
                 </Button>
               </DialogTrigger>
               <DialogContent>
                 <DialogHeader>
-                  <DialogTitle>Opprett ny API-nokkel</DialogTitle>
+                  <DialogTitle>Opprett ny API-nøkkel</DialogTitle>
                   <DialogDescription>
                     {generatedKey 
-                      ? "Kopier nokkelen na - den vises ikke igjen!" 
-                      : "Velg navn og tillatelser for den nye nokkelen"}
+                      ? "Kopier nøkkelen nå - den vises ikke igjen!" 
+                      : "Velg navn og tillatelser for den nye nøkkelen"}
                   </DialogDescription>
                 </DialogHeader>
 
                 {generatedKey ? (
                   <div className="space-y-4 py-4">
                     <div className="p-4 bg-muted rounded-md">
-                      <Label className="text-sm text-muted-foreground">Din nye API-nokkel:</Label>
+                      <Label className="text-sm text-muted-foreground">Din nye API-nøkkel:</Label>
                       <div className="flex items-center gap-2 mt-2">
                         <code className="text-sm font-mono flex-1 break-all">{generatedKey}</code>
                         <Button size="icon" variant="ghost" onClick={handleCopyKey}>
@@ -303,7 +316,7 @@ export default function VendorApiAdminPage() {
                       </div>
                     </div>
                     <div className="p-3 bg-warning/10 rounded-md border border-warning/20 text-sm">
-                      Viktig: Lagre denne nokkelen trygt. Du kan ikke se den igjen etter at du lukker dette vinduet.
+                      Viktig: Lagre denne nøkkelen trygt. Du kan ikke se den igjen etter at du lukker dette vinduet.
                     </div>
                   </div>
                 ) : (
@@ -366,7 +379,7 @@ export default function VendorApiAdminPage() {
           </CardHeader>
           <CardContent>
             {keysLoading ? (
-              <p className="text-muted-foreground text-center py-4">Laster nokler...</p>
+              <p className="text-muted-foreground text-center py-4">Laster nøkler...</p>
             ) : !apiKeys || apiKeys.length === 0 ? (
               <div className="text-center py-12">
                 <Key className="h-10 w-10 mx-auto text-muted-foreground/40 mb-3" />

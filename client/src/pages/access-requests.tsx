@@ -219,7 +219,7 @@ export default function AccessRequestsPage() {
           <h1 className="text-2xl font-bold flex items-center gap-2" data-testid="text-access-requests-title">
             <SmartTimingLogo size="sm" showText={false} />
             <UserPlus className="h-6 w-6" />
-            Tilgangsforesporsler
+            Tilgangsforespørsler
           </h1>
           <p className="text-muted-foreground">Administrer forespørsler om tilgang til Tidum</p>
         </div>
