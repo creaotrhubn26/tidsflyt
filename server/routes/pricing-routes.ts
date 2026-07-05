@@ -644,6 +644,48 @@ export function registerPricingRoutes(app: Express): void {
     }
   });
 
+  // ARR pipeline summary (sum of weighted leads by stage)
+  // NB: must be registered before the "/:id" route below, since Express
+  // would otherwise match "pipeline-summary" as the :id param.
+  app.get("/api/admin/leads/pipeline-summary", requireSuperAdmin, async (_req, res) => {
+    try {
+      const sql = `
+        SELECT
+          lps.slug                 AS stage_slug,
+          lps.label                AS stage_label,
+          lps.probability_pct      AS probability_pct,
+          lps.sort_order           AS sort_order,
+          COUNT(ar.id)             AS lead_count,
+          COALESCE(SUM(
+            CASE
+              WHEN pt.id IS NULL OR pt.is_enterprise THEN 0
+              ELSE (pt.price_per_user_ore::bigint
+                    * COALESCE(ar.user_count_estimate, 0)
+                    * 12) / 100
+            END
+          ), 0)                    AS weighted_arr_kr_unweighted,
+          COALESCE(SUM(
+            CASE
+              WHEN pt.id IS NULL OR pt.is_enterprise THEN 0
+              ELSE (pt.price_per_user_ore::bigint
+                    * COALESCE(ar.user_count_estimate, 0)
+                    * 12 * lps.probability_pct) / 10000
+            END
+          ), 0)                    AS weighted_arr_kr
+        FROM lead_pipeline_stages lps
+        LEFT JOIN access_requests ar ON ar.pipeline_stage_id = lps.id
+        LEFT JOIN pricing_tiers   pt ON pt.id = ar.tier_snapshot_id
+        WHERE lps.is_active = TRUE
+        GROUP BY lps.slug, lps.label, lps.probability_pct, lps.sort_order
+        ORDER BY lps.sort_order
+      `;
+      const { rows } = await pool.query(sql);
+      res.json(rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   app.get("/api/admin/leads/:id", requireSuperAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
@@ -878,46 +920,6 @@ export function registerPricingRoutes(app: Express): void {
       res.send(pdf);
     } catch (err: any) {
       console.error("contract-pdf error:", err);
-      res.status(500).json({ error: err.message });
-    }
-  });
-
-  // ARR pipeline summary (sum of weighted leads by stage)
-  app.get("/api/admin/leads/pipeline-summary", requireSuperAdmin, async (_req, res) => {
-    try {
-      const sql = `
-        SELECT
-          lps.slug                 AS stage_slug,
-          lps.label                AS stage_label,
-          lps.probability_pct      AS probability_pct,
-          lps.sort_order           AS sort_order,
-          COUNT(ar.id)             AS lead_count,
-          COALESCE(SUM(
-            CASE
-              WHEN pt.id IS NULL OR pt.is_enterprise THEN 0
-              ELSE (pt.price_per_user_ore::bigint
-                    * COALESCE(ar.user_count_estimate, 0)
-                    * 12) / 100
-            END
-          ), 0)                    AS weighted_arr_kr_unweighted,
-          COALESCE(SUM(
-            CASE
-              WHEN pt.id IS NULL OR pt.is_enterprise THEN 0
-              ELSE (pt.price_per_user_ore::bigint
-                    * COALESCE(ar.user_count_estimate, 0)
-                    * 12 * lps.probability_pct) / 10000
-            END
-          ), 0)                    AS weighted_arr_kr
-        FROM lead_pipeline_stages lps
-        LEFT JOIN access_requests ar ON ar.pipeline_stage_id = lps.id
-        LEFT JOIN pricing_tiers   pt ON pt.id = ar.tier_snapshot_id
-        WHERE lps.is_active = TRUE
-        GROUP BY lps.slug, lps.label, lps.probability_pct, lps.sort_order
-        ORDER BY lps.sort_order
-      `;
-      const { rows } = await pool.query(sql);
-      res.json(rows);
-    } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
