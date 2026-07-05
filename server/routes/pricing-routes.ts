@@ -25,6 +25,65 @@ import {
 import { renderContract } from "../lib/contract-renderer";
 import { renderContractPdf } from "../lib/contract-pdf";
 
+// Turn a Zod safeParse failure into a plain, human-readable string. Every
+// route below sends this as the `error` field of its 400 response; clients
+// build `new Error(json.error)` directly from that field, and `new
+// Error(someObject)` stringifies to the useless "[object Object]" — so
+// `error` must always be a string, never Zod's raw `.flatten()` object.
+function zodErrorMessage(error: z.ZodError): string {
+  const { formErrors, fieldErrors } = error.flatten();
+  const messages = [
+    ...formErrors,
+    ...Object.entries(fieldErrors).map(([field, errs]) => `${field}: ${(errs ?? []).join(", ")}`),
+  ];
+  return messages.join("; ") || "Ugyldig input";
+}
+
+// Postgres/driver errors (e.g. unique-constraint violations on `slug`) leak
+// raw column/constraint names and SQL details in `err.message`. Log the raw
+// error server-side for debugging, but only ever send a clean, generic
+// message to the client.
+function friendlyDbErrorMessage(err: any): string {
+  console.error("pricing-routes DB error:", err);
+  // Drizzle wraps the underlying node-postgres error (which carries the
+  // Postgres SQLSTATE `.code`) in a DrizzleQueryError, with the original
+  // error on `.cause` — check both so the wrapping doesn't defeat this.
+  const code = err?.code ?? err?.cause?.code;
+  if (code === "23505") {
+    return "Denne verdien er allerede i bruk (f.eks. samme slug/ID) — velg en annen.";
+  }
+  return "En databasefeil oppstod. Prøv igjen, eller kontakt support hvis problemet vedvarer.";
+}
+
+// Checks a candidate tier's user-count band (minUsers..maxUsers, maxUsers
+// null = unbounded) against every other active, non-enterprise tier for a
+// range overlap, and that maxUsers isn't below minUsers. Enterprise tiers
+// are quoted manually (see computeQuote) so a config overlap there is much
+// lower-stakes and deliberately not checked here. Returns a user-facing
+// error string, or null if the band is valid.
+async function validateTierBand(
+  candidate: { minUsers: number; maxUsers?: number | null; isEnterprise?: boolean },
+  excludeId?: number,
+): Promise<string | null> {
+  if (candidate.maxUsers != null && candidate.maxUsers < candidate.minUsers) {
+    return "Maks. brukere må være større enn eller lik Min. brukere.";
+  }
+  if (candidate.isEnterprise) return null;
+
+  const others = await db.select().from(pricingTiers).where(eq(pricingTiers.isActive, true));
+  const candidateMax = candidate.maxUsers ?? Infinity;
+  for (const other of others) {
+    if (excludeId != null && other.id === excludeId) continue;
+    if (other.isEnterprise) continue;
+    const otherMax = other.maxUsers ?? Infinity;
+    const overlaps = candidate.minUsers <= otherMax && other.minUsers <= candidateMax;
+    if (overlaps) {
+      return `Brukerintervallet (${candidate.minUsers}-${candidate.maxUsers ?? "∞"}) overlapper med eksisterende tier "${other.label}" (${other.minUsers}-${other.maxUsers ?? "∞"}).`;
+    }
+  }
+  return null;
+}
+
 const upsertTierSchema = z.object({
   slug: z.string().min(1).max(64),
   label: z.string().min(1).max(200),
@@ -173,8 +232,10 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const parsed = upsertTierSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.flatten() });
+        return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       }
+      const bandError = await validateTierBand(parsed.data);
+      if (bandError) return res.status(400).json({ error: bandError });
       const { inclusionIds, ...row } = parsed.data;
       const [created] = await db.insert(pricingTiers).values(row).returning();
       if (inclusionIds && inclusionIds.length) {
@@ -184,7 +245,7 @@ export function registerPricingRoutes(app: Express): void {
       }
       res.status(201).json(created);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -193,8 +254,19 @@ export function registerPricingRoutes(app: Express): void {
       const id = Number(req.params.id);
       const parsed = upsertTierSchema.partial().safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: parsed.error.flatten() });
+        return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       }
+      const [existingTier] = await db.select().from(pricingTiers).where(eq(pricingTiers.id, id)).limit(1);
+      if (!existingTier) return res.status(404).json({ error: "Tier ikke funnet" });
+      const bandError = await validateTierBand(
+        {
+          minUsers: parsed.data.minUsers ?? existingTier.minUsers,
+          maxUsers: parsed.data.maxUsers !== undefined ? parsed.data.maxUsers : existingTier.maxUsers,
+          isEnterprise: parsed.data.isEnterprise ?? existingTier.isEnterprise ?? false,
+        },
+        id,
+      );
+      if (bandError) return res.status(400).json({ error: bandError });
       const { inclusionIds, ...row } = parsed.data;
       const [updated] = await db
         .update(pricingTiers)
@@ -211,7 +283,7 @@ export function registerPricingRoutes(app: Express): void {
       }
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -243,18 +315,18 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/pricing/inclusions", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertInclusionSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [created] = await db.insert(pricingInclusions).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
   app.patch("/api/admin/pricing/inclusions/:id", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertInclusionSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [updated] = await db
         .update(pricingInclusions)
         .set({ ...parsed.data, updatedAt: new Date() })
@@ -262,7 +334,7 @@ export function registerPricingRoutes(app: Express): void {
         .returning();
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -294,7 +366,7 @@ export function registerPricingRoutes(app: Express): void {
   app.patch("/api/admin/settings/:key", requireSuperAdmin, async (req: any, res) => {
     try {
       const parsed = updateSettingSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const userId = req.user?.id || null;
       const [updated] = await db
         .update(salgSettings)
@@ -327,7 +399,10 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/sales/routing", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertRoutingSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
+      if (parsed.data.maxUsers != null && parsed.data.maxUsers < parsed.data.minUsers) {
+        return res.status(400).json({ error: "Maks. brukere må være større enn eller lik Min. brukere." });
+      }
       const data = { ...parsed.data, assigneeEmail: parsed.data.assigneeEmail || null };
       const [created] = await db.insert(salesRoutingRules).values(data).returning();
       res.status(201).json(created);
@@ -338,14 +413,22 @@ export function registerPricingRoutes(app: Express): void {
 
   app.patch("/api/admin/sales/routing/:id", requireSuperAdmin, async (req, res) => {
     try {
+      const id = Number(req.params.id);
       const parsed = upsertRoutingSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
+      const [existingRule] = await db.select().from(salesRoutingRules).where(eq(salesRoutingRules.id, id)).limit(1);
+      if (!existingRule) return res.status(404).json({ error: "Routing-regel ikke funnet" });
+      const effectiveMin = parsed.data.minUsers ?? existingRule.minUsers;
+      const effectiveMax = parsed.data.maxUsers !== undefined ? parsed.data.maxUsers : existingRule.maxUsers;
+      if (effectiveMax != null && effectiveMax < effectiveMin) {
+        return res.status(400).json({ error: "Maks. brukere må være større enn eller lik Min. brukere." });
+      }
       const data: any = { ...parsed.data, updatedAt: new Date() };
       if (parsed.data.assigneeEmail === "") data.assigneeEmail = null;
       const [updated] = await db
         .update(salesRoutingRules)
         .set(data)
-        .where(eq(salesRoutingRules.id, Number(req.params.id)))
+        .where(eq(salesRoutingRules.id, id))
         .returning();
       res.json(updated);
     } catch (err: any) {
@@ -381,18 +464,18 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/sales/scripts", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertScriptSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [created] = await db.insert(salesScriptBlocks).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
   app.patch("/api/admin/sales/scripts/:id", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertScriptSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [updated] = await db
         .update(salesScriptBlocks)
         .set({ ...parsed.data, updatedAt: new Date() })
@@ -400,7 +483,7 @@ export function registerPricingRoutes(app: Express): void {
         .returning();
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -432,7 +515,7 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/contracts/templates", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertContractSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       // Only one default at a time
       if (parsed.data.isDefault) {
         await db.update(salgContractTemplates).set({ isDefault: false });
@@ -448,7 +531,7 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const id = Number(req.params.id);
       const parsed = upsertContractSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       if (parsed.data.isDefault === true) {
         await db
           .update(salgContractTemplates)
@@ -521,18 +604,18 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/email-templates", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertEmailTemplateSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [created] = await db.insert(salgEmailTemplates).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
   app.patch("/api/admin/email-templates/:id", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertEmailTemplateSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [updated] = await db
         .update(salgEmailTemplates)
         .set({ ...parsed.data, updatedAt: new Date() })
@@ -540,7 +623,7 @@ export function registerPricingRoutes(app: Express): void {
         .returning();
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -572,18 +655,18 @@ export function registerPricingRoutes(app: Express): void {
   app.post("/api/admin/sales/pipeline", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertStageSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [created] = await db.insert(leadPipelineStages).values(parsed.data).returning();
       res.status(201).json(created);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
   app.patch("/api/admin/sales/pipeline/:id", requireSuperAdmin, async (req, res) => {
     try {
       const parsed = upsertStageSchema.partial().safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const [updated] = await db
         .update(leadPipelineStages)
         .set({ ...parsed.data, updatedAt: new Date() })
@@ -591,7 +674,7 @@ export function registerPricingRoutes(app: Express): void {
         .returning();
       res.json(updated);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: friendlyDbErrorMessage(err) });
     }
   });
 
@@ -717,7 +800,7 @@ export function registerPricingRoutes(app: Express): void {
     try {
       const id = Number(req.params.id);
       const parsed = updateLeadSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) return res.status(400).json({ error: zodErrorMessage(parsed.error) });
       const data: any = { ...parsed.data, updatedAt: new Date() };
       if (parsed.data.assignedToEmail === "") data.assignedToEmail = null;
 

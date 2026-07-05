@@ -46,6 +46,9 @@ export function registerStripeRoutes(app: Express): void {
   app.post("/api/admin/stripe/sync-tier/:id", requireSuperAdmin, async (req, res) => {
     try {
       const id = Number(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: "Ugyldig tier-id" });
+      }
       const [tier] = await db.select().from(pricingTiers).where(eq(pricingTiers.id, id)).limit(1);
       if (!tier) return res.status(404).json({ error: "Tier not found" });
       const result = await syncTierToStripe(tier);
@@ -61,7 +64,8 @@ export function registerStripeRoutes(app: Express): void {
       if (err instanceof StripeNotConfiguredError) {
         return res.status(400).json({ error: err.message });
       }
-      res.status(500).json({ error: err.message });
+      console.error("sync-tier error:", err);
+      res.status(500).json({ error: "Kunne ikke synkronisere tier mot Stripe" });
     }
   });
 
