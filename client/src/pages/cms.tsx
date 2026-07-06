@@ -64,6 +64,7 @@ async function authenticatedApiRequest(url: string, options: { method?: string; 
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || 'Request failed');
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
@@ -3085,6 +3086,39 @@ function MediaLibrary() {
       setNewFolderName("");
       setShowNewFolder(false);
       toast({ title: "Mappe opprettet" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke opprette mappe", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const renameFolderMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => {
+      return authenticatedApiRequest(`/api/cms/media/folders/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name })
+      });
+    },
+    onSuccess: () => {
+      refetchFolders();
+      toast({ title: "Mappe omdøpt" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke omdøpe mappe", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/media/folders/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: (_data, id) => {
+      refetchFolders();
+      if (currentFolder === id) setCurrentFolder(null);
+      toast({ title: "Mappe slettet", description: "Filer i mappen er flyttet til rotnivå." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke slette mappe", description: err.message, variant: "destructive" });
     }
   });
 
@@ -3112,6 +3146,53 @@ function MediaLibrary() {
     }
   });
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadFiles = async (files: FileList) => {
+    setIsUploading(true);
+    let uploaded = 0;
+    let failed = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData();
+        formData.append('image', file);
+        const token = getAdminToken();
+        const uploadRes = await fetch('/api/cms/upload', {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+          body: formData,
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok || !uploadData.url) {
+          throw new Error(uploadData.error || 'Opplasting feilet');
+        }
+        await authenticatedApiRequest('/api/cms/media', {
+          method: 'POST',
+          body: JSON.stringify({
+            filename: uploadData.filename,
+            original_name: file.name,
+            mime_type: file.type,
+            file_size: uploadData.size,
+            url: uploadData.url,
+            folder_id: currentFolder,
+            width: uploadData.width,
+            height: uploadData.height,
+          }),
+        });
+        uploaded++;
+      } catch (err: any) {
+        failed++;
+        toast({ title: `Kunne ikke laste opp ${file.name}`, description: err.message, variant: "destructive" });
+      }
+    }
+    setIsUploading(false);
+    if (uploaded > 0) {
+      refetchMedia();
+      toast({ title: `${uploaded} fil${uploaded > 1 ? 'er' : ''} lastet opp` });
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -3131,6 +3212,27 @@ function MediaLibrary() {
               <CardDescription>Last opp og organiser bilder og filer</CardDescription>
             </div>
             <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) uploadFiles(e.target.files);
+                  e.target.value = "";
+                }}
+                data-testid="input-media-upload"
+              />
+              <Button
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                data-testid="button-upload-media"
+              >
+                {isUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+                Last opp
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)} data-testid="button-new-folder">
                 <FolderPlus className="h-4 w-4 mr-1" />
                 Ny mappe
@@ -3152,16 +3254,44 @@ function MediaLibrary() {
                 Alle filer
               </Button>
               {folders.map(folder => (
-                <Button
-                  key={folder.id}
-                  variant={currentFolder === folder.id ? "secondary" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => setCurrentFolder(folder.id)}
-                  data-testid={`folder-${folder.id}`}
-                >
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                  {folder.name}
-                </Button>
+                <div key={folder.id} className="group flex items-center gap-1">
+                  <Button
+                    variant={currentFolder === folder.id ? "secondary" : "ghost"}
+                    className="flex-1 justify-start min-w-0"
+                    onClick={() => setCurrentFolder(folder.id)}
+                    data-testid={`folder-${folder.id}`}
+                  >
+                    <FolderOpen className="h-4 w-4 mr-2 shrink-0" />
+                    <span className="truncate">{folder.name}</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100"
+                    onClick={() => {
+                      const newName = window.prompt("Nytt mappenavn", folder.name);
+                      if (newName !== null && newName.trim().length > 0) {
+                        renameFolderMutation.mutate({ id: folder.id, name: newName });
+                      }
+                    }}
+                    data-testid={`button-rename-folder-${folder.id}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100"
+                    onClick={() => {
+                      if (window.confirm(`Slette mappen "${folder.name}"? Filer i mappen flyttes til rotnivå.`)) {
+                        deleteFolderMutation.mutate(folder.id);
+                      }
+                    }}
+                    data-testid={`button-delete-folder-${folder.id}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               ))}
             </div>
 
@@ -3174,7 +3304,7 @@ function MediaLibrary() {
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <Image className="h-12 w-12 mb-4 opacity-50" />
                   <p>Ingen filer i denne mappen</p>
-                  <p className="text-sm">Last opp filer via URL for å komme i gang</p>
+                  <p className="text-sm">Klikk "Last opp" for å legge til bilder</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-4">
@@ -3282,7 +3412,7 @@ function MediaLibrary() {
               <Button variant="outline" onClick={() => setShowNewFolder(false)}>Avbryt</Button>
               <Button
                 onClick={() => createFolderMutation.mutate(newFolderName)}
-                disabled={!newFolderName || createFolderMutation.isPending}
+                disabled={!newFolderName.trim() || createFolderMutation.isPending}
                 data-testid="button-create-folder"
               >
                 {createFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

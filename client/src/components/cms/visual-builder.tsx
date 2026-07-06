@@ -52,6 +52,7 @@ async function authenticatedApiRequest(url: string, options: { method?: string; 
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || 'Request failed');
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 

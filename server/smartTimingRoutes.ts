@@ -4257,11 +4257,42 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/media/folders", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, parent_id } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Mappenavn kan ikke være tomt" });
+      }
       const result = await pool.query(
         'INSERT INTO cms_media_folders (name, parent_id) VALUES ($1, $2) RETURNING *',
-        [name, parent_id || null]
+        [name.trim(), parent_id || null]
       );
       res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/media/folders/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Mappenavn kan ikke være tomt" });
+      }
+      const result = await pool.query(
+        'UPDATE cms_media_folders SET name = $1 WHERE id = $2 RETURNING *',
+        [name.trim(), req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: "Mappe ikke funnet" });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Deleting a folder detaches (doesn't delete) its media/subfolders — both
+  // cms_media.folder_id and cms_media_folders.parent_id are ON DELETE SET NULL.
+  app.delete("/api/cms/media/folders/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_media_folders WHERE id = $1', [req.params.id]);
+      res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
