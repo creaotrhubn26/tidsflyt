@@ -2332,6 +2332,26 @@ export function registerSmartTimingRoutes(app: Express) {
       if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
         return res.status(403).json({ error: "Krever admin-rolle" });
       }
+      // The GET handler falls back to a hardcoded default with "|| ..." for
+      // any falsy value, including an empty string. Saving an empty
+      // companyName/supportEmail/legalEmail therefore looked like it
+      // succeeded (200 "Lagret") but the very next page load silently
+      // showed the old default again, with no indication the value was
+      // never actually applied. Reject empty/invalid values instead.
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const k of ["companyName", "supportEmail", "legalEmail"]) {
+        const v = req.body?.[k];
+        if (typeof v !== "string" || !v.trim()) {
+          return res.status(400).json({ error: `${k} kan ikke være tom` });
+        }
+      }
+      if (!EMAIL_RE.test(req.body.supportEmail.trim())) {
+        return res.status(400).json({ error: "Support e-post er ikke en gyldig e-postadresse" });
+      }
+      if (!EMAIL_RE.test(req.body.legalEmail.trim())) {
+        return res.status(400).json({ error: "Juridisk e-post er ikke en gyldig e-postadresse" });
+      }
+
       const allowed: Record<string, string> = {};
       for (const k of ["supportEmail", "supportPhone", "supportAddress", "legalEmail", "companyName", "companyTagline"]) {
         if (typeof req.body?.[k] === "string") allowed[k] = req.body[k];
