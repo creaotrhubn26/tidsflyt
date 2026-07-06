@@ -66,12 +66,19 @@ export function registerAnalyticsRoutes(app: Express): void {
           [from, to],
         ),
         pool.query(
-          `SELECT COUNT(DISTINCT customer_email) AS active_customers
-           FROM revenue_events
-           WHERE event_type IN ('signup','upgrade','expansion','reactivation')
-             AND customer_email NOT IN (
-               SELECT customer_email FROM revenue_events WHERE event_type = 'churn'
-             )`,
+          // A customer's most recent event decides whether they're
+          // currently active — not "have they ever churned". The previous
+          // NOT IN (... WHERE event_type = 'churn') permanently excluded
+          // anyone who ever churned, even after a later reactivation,
+          // which made re-won customers vanish from "active" while their
+          // MRR still counted in currentArrKr — a self-contradicting pair.
+          `SELECT COUNT(*) AS active_customers
+           FROM (
+             SELECT DISTINCT ON (customer_email) customer_email, event_type
+             FROM revenue_events
+             ORDER BY customer_email, occurred_at DESC
+           ) latest
+           WHERE latest.event_type != 'churn'`,
         ),
       ]);
 
@@ -345,19 +352,34 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   app.get("/api/admin/analytics/top-customers", requireSuperAdmin, async (_req, res) => {
     try {
+      // MAX(mrr_after_ore) and BOOL_OR(event_type = 'churn') both read as
+      // "current state" but are actually "true at any point in history":
+      // a customer who peaked at 10k kr/mnd then downgraded to 3k would
+      // still show 10k as "current" MRR, and a customer who churned and
+      // later reactivated would show as permanently churned forever.
+      // Both must come from each customer's single MOST RECENT event.
       const { rows } = await pool.query(
-        `SELECT
-           customer_email,
-           MAX(customer_company)               AS customer_company,
-           MAX(mrr_after_ore)                  AS current_mrr_ore,
-           SUM(delta_mrr_ore)                  AS net_mrr_ore,
-           MIN(occurred_at) FILTER (WHERE event_type = 'signup') AS signup_at,
-           MAX(occurred_at)                    AS last_event_at,
-           COUNT(*)                            AS event_count,
-           BOOL_OR(event_type = 'churn')       AS is_churned
-         FROM revenue_events
-         GROUP BY customer_email
-         ORDER BY current_mrr_ore DESC NULLS LAST
+        `WITH latest AS (
+           SELECT DISTINCT ON (customer_email)
+             customer_email,
+             mrr_after_ore AS current_mrr_ore,
+             (event_type = 'churn') AS is_churned
+           FROM revenue_events
+           ORDER BY customer_email, occurred_at DESC
+         )
+         SELECT
+           re.customer_email,
+           MAX(re.customer_company)            AS customer_company,
+           latest.current_mrr_ore              AS current_mrr_ore,
+           SUM(re.delta_mrr_ore)                AS net_mrr_ore,
+           MIN(re.occurred_at) FILTER (WHERE re.event_type = 'signup') AS signup_at,
+           MAX(re.occurred_at)                  AS last_event_at,
+           COUNT(*)                             AS event_count,
+           latest.is_churned                    AS is_churned
+         FROM revenue_events re
+         JOIN latest ON latest.customer_email = re.customer_email
+         GROUP BY re.customer_email, latest.current_mrr_ore, latest.is_churned
+         ORDER BY latest.current_mrr_ore DESC NULLS LAST
          LIMIT 50`,
       );
       res.json(rows.map((r: any) => ({

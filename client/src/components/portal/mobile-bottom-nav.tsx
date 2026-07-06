@@ -143,7 +143,14 @@ export function MobileBottomNav() {
       >
         <div className="flex items-center justify-around h-16 px-2">
           {visiblePrimary.map((item) => {
-            const isActive = location === item.path || (item.path === "/rapporter" && location.startsWith("/rapporter"));
+            // /rapporter/godkjenning is its own destination (listed under
+            // "Mer" below) — exclude it here so it doesn't also light up
+            // the "Rapporter" tab via the startsWith prefix match.
+            const isActive = location === item.path || (
+              item.path === "/rapporter" &&
+              location.startsWith("/rapporter") &&
+              !location.startsWith("/rapporter/godkjenning")
+            );
             const Icon = item.icon;
             return (
               <Link

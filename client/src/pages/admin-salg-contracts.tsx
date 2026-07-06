@@ -84,29 +84,37 @@ export default function AdminSalgContracts() {
       const res = await fetch(`/api/admin/contracts/templates/${id}`, {
         method: "DELETE", credentials: "include",
       });
-      if (!res.ok) throw new Error("Sletting feilet");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Sletting feilet");
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/contracts/templates"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/contracts/templates"] });
+      toast({ title: "Slettet" });
+    },
+    onError: (err: any) => toast({ title: "Feil", description: err.message, variant: "destructive" }),
   });
 
   const runPreview = async (id: number) => {
     setPreviewId(id);
-    const res = await fetch(`/api/admin/contracts/templates/${id}/preview`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify({
-        userCount: previewUsers,
-        customerName: previewCustomer,
-        customerOrgNr: previewOrgNr,
-      }),
-    });
-    if (!res.ok) {
-      toast({ title: "Feil", description: "Kunne ikke generere preview", variant: "destructive" });
-      return;
+    try {
+      const res = await fetch(`/api/admin/contracts/templates/${id}/preview`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          userCount: previewUsers,
+          customerName: previewCustomer,
+          customerOrgNr: previewOrgNr,
+        }),
+      });
+      if (!res.ok) {
+        toast({ title: "Feil", description: (await res.json().catch(() => ({}))).error || "Kunne ikke generere preview", variant: "destructive" });
+        return;
+      }
+      const data = await res.json();
+      setPreviewHtml(data.rendered);
+    } catch (err: any) {
+      toast({ title: "Feil", description: err.message || "Kunne ikke generere preview (nettverksfeil)", variant: "destructive" });
     }
-    const data = await res.json();
-    setPreviewHtml(data.rendered);
   };
 
   return (

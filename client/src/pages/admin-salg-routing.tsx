@@ -84,12 +84,13 @@ export default function AdminSalgRouting() {
         method: "DELETE",
         credentials: "include",
       });
-      if (!res.ok) throw new Error("Sletting feilet");
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Sletting feilet");
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["/api/admin/sales/routing"] });
       toast({ title: "Slettet" });
     },
+    onError: (err: any) => toast({ title: "Feil", description: err.message, variant: "destructive" }),
   });
 
   return (

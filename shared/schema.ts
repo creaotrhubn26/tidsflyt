@@ -195,21 +195,36 @@ export const userSettings = pgTable("user_settings", {
 // Rapport templates — define which sections a saksrapport has for different
 // sectors (barnevern, NAV, kommune, helse, generell). System templates are
 // seeded by Tidum; vendors can clone and customize.
-export const rapportTemplates = pgTable("rapport_templates", {
-  id:                        uuid("id").defaultRandom().primaryKey(),
-  vendorId:                  integer("vendor_id"),
-  slug:                      text("slug").notNull(),
-  name:                      text("name").notNull(),
-  description:               text("description"),
-  suggestedInstitutionType:  text("suggested_institution_type"),
-  sections:                  jsonb("sections").notNull().default([]),
-  branding:                  jsonb("branding").default({}),
-  isSystem:                  boolean("is_system").default(false),
-  isActive:                  boolean("is_active").default(true),
-  createdBy:                 text("created_by"),
-  createdAt:                 timestamp("created_at").defaultNow(),
-  updatedAt:                 timestamp("updated_at").defaultNow(),
-});
+export const rapportTemplates = pgTable(
+  "rapport_templates",
+  {
+    id:                        uuid("id").defaultRandom().primaryKey(),
+    vendorId:                  integer("vendor_id"),
+    slug:                      text("slug").notNull(),
+    name:                      text("name").notNull(),
+    description:               text("description"),
+    suggestedInstitutionType:  text("suggested_institution_type"),
+    sections:                  jsonb("sections").notNull().default([]),
+    branding:                  jsonb("branding").default({}),
+    isSystem:                  boolean("is_system").default(false),
+    isActive:                  boolean("is_active").default(true),
+    createdBy:                 text("created_by"),
+    createdAt:                 timestamp("created_at").defaultNow(),
+    updatedAt:                 timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    // Required by seedSystemRapportTemplates()'s
+    // ON CONFLICT (vendor_id, slug) DO UPDATE upsert — see migration 028/050.
+    // Only matches vendor-owned templates: a plain UNIQUE(vendor_id, slug)
+    // treats every NULL vendor_id as distinct, so it can never catch
+    // duplicate system templates (vendor_id IS NULL) — see the partial
+    // index below and migration 051.
+    uniqueVendorSlug: uniqueIndex("rapport_templates_vendor_id_slug_unique").on(table.vendorId, table.slug),
+    // System templates (vendor_id IS NULL) are de-duplicated by slug alone,
+    // via a partial unique index — see migration 051.
+    uniqueSystemSlug: uniqueIndex("rapport_templates_system_slug_unique").on(table.slug).where(sql`${table.vendorId} IS NULL`),
+  }),
+);
 
 // Institutions a vendor (leverandør) works with — shared across all users in the vendor.
 // Used in "Ny sak", as a dropdown, for auto-forwarding rapporter, and for overtime rules.

@@ -1072,8 +1072,12 @@ export default function DashboardPage() {
   return (
     <PortalLayout>
       <div className={cn("space-y-6", prefs.compactMode && "space-y-4")} data-dash-card={prefs.cardStyle}>
-        {/* ─────────── SLIM HEADER STRIP ─────────── */}
-        <header className="flex flex-wrap items-center gap-2 pb-3 border-b border-border">
+        {/* ─────────── SLIM HEADER STRIP ───────────
+            Stacks as a column on mobile so the hero (title, period selector,
+            primary action) always gets the full row width — sharing a row
+            with the hours-pill/view-toggle group left the primary action
+            button squeezed onto its own line, isolated and off-center. */}
+        <header className="flex flex-col gap-3 pb-3 border-b border-border sm:flex-row sm:flex-wrap sm:items-center sm:gap-2">
           <DashboardHero
             slim
             mode={isTiltakslederView ? "tiltaksleder" : isMiljoarbeiderView ? "miljoarbeider" : "default"}
@@ -1098,6 +1102,10 @@ export default function DashboardPage() {
             navigate={navigate}
           />
 
+          {/* ── Hours pill + view toggles — kept together in one group so
+              they wrap as a unit instead of stranding the icon row apart
+              from the "Utseende" button on narrow screens. ── */}
+          <div className="flex flex-wrap items-center gap-2 sm:ml-auto">
           {/* ── Hours this week — non-interactive info pill ── */}
           {!isTiltakslederView && !isMiljoarbeiderView && !statsLoading && stats && timeRange === "week" && (
             <span className={cn(
@@ -1206,6 +1214,7 @@ export default function DashboardPage() {
                 </div>
               </PopoverContent>
             </Popover>
+          </div>
           </div>
         </header>
 
@@ -1421,7 +1430,7 @@ export default function DashboardPage() {
         {isMiljoarbeiderView && (
           <DashboardWorkerMobile
             userId={user?.id || "default"}
-            userName={user?.firstName || "Maria"}
+            userName={user?.firstName || undefined}
             todaySignals={workerTodaySignals}
             summary={workerSummary}
             dailyHoursTarget={prefs.dailyHoursTarget}

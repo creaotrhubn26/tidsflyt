@@ -38,12 +38,19 @@ export default function AdminSalgSettings() {
 
   const [edits, setEdits] = useState<Record<string, string>>({});
 
-  // Initialise edits when settings load
+  // Initialise edits when settings load. Merges in only keys not already
+  // present — saving one field triggers a refetch of the whole settings
+  // list, and overwriting the entire `edits` object here would silently
+  // discard any unsaved edits the user made in other fields in the meantime.
   useEffect(() => {
     if (settings) {
-      const initial: Record<string, string> = {};
-      for (const s of settings) initial[s.key] = s.value ?? "";
-      setEdits(initial);
+      setEdits((prev) => {
+        const next = { ...prev };
+        for (const s of settings) {
+          if (!(s.key in next)) next[s.key] = s.value ?? "";
+        }
+        return next;
+      });
     }
   }, [settings]);
 

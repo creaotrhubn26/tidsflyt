@@ -25,6 +25,8 @@ export interface PricingSettings {
   leverandorLegalEmail: string;
   leverandorSupportEmail: string;
   leverandorSupportPhone: string;
+  leverandorDrifterTjeneste: string;
+  leverandorLovvalgBy: string;
   slaUptimeTargetPct: number;
   slaCriticalResponseHours: number;
 }
@@ -65,6 +67,8 @@ const SETTING_DEFAULTS: PricingSettings = {
   leverandorLegalEmail: "",
   leverandorSupportEmail: "",
   leverandorSupportPhone: "",
+  leverandorDrifterTjeneste: "Tidum",
+  leverandorLovvalgBy: "Oslo",
   slaUptimeTargetPct: 99.5,
   slaCriticalResponseHours: 4,
 };
@@ -111,6 +115,8 @@ export async function loadPricingSettings(): Promise<PricingSettings> {
     ["leverandorLegalEmail",        "leverandor_legal_email"],
     ["leverandorSupportEmail",      "leverandor_support_email"],
     ["leverandorSupportPhone",      "leverandor_support_phone"],
+    ["leverandorDrifterTjeneste",   "leverandor_drifter_tjeneste"],
+    ["leverandorLovvalgBy",         "leverandor_lovvalg_by"],
     ["slaUptimeTargetPct",          "sla_uptime_target_pct"],
     ["slaCriticalResponseHours",    "sla_critical_response_hours"],
   ];

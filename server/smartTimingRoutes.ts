@@ -19,8 +19,8 @@ import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/l
 import { ADMIN_ROLES } from "./middleware/auth";
 import { pushTimesheetToPowerOffice } from "./lib/poweroffice-push";
 import { getPowerOfficeVisibility } from "./lib/poweroffice-visibility";
-import { vendorIntegrations } from "@shared/schema";
-import { and } from "drizzle-orm";
+import { vendorIntegrations, caseReports, designTokens, sectionDesignSettings } from "@shared/schema";
+import { and, getTableColumns } from "drizzle-orm";
 import { db } from "./db";
 import { processVendorSeatOverrun } from "./lib/seat-overrun";
 import {
@@ -35,7 +35,7 @@ import {
   TIDUM_SUPPORT_EMAIL,
   TIDUM_SUPPORT_PHONE,
 } from "@shared/brand";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
@@ -1037,8 +1037,28 @@ export function registerSmartTimingRoutes(app: Express) {
          WHERE a.id = $1`,
         [req.admin.id]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'Admin not found' });
-      res.json(result.rows[0]);
+      if (result.rows.length > 0) return res.json(result.rows[0]);
+
+      // No admin_users row: req.admin.id is a users.id, not an admin_users.id
+      // — that's expected for every session-minted JWT (see
+      // /api/admin/session-token), which is the *default* CMS login path
+      // for a real super_admin/hovedadmin. admin_users only holds accounts
+      // created through the separate username/password /api/admin/login
+      // flow, so 404ing here silently hid the whole "Leverandører" tab
+      // (gated on isSuperAdmin from this response) for that entire class
+      // of users. Fall back to the role/vendor already embedded in the
+      // JWT/session at authenticateAdmin time.
+      res.json({
+        id: req.admin.id,
+        username: req.admin.username ?? req.admin.email,
+        email: req.admin.email,
+        role: req.admin.role,
+        vendor_id: req.admin.vendorId ?? null,
+        last_login: null,
+        created_at: null,
+        vendor_name: req.admin.vendorName ?? null,
+        vendor_slug: req.admin.vendorSlug ?? null,
+      });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -1099,11 +1119,14 @@ export function registerSmartTimingRoutes(app: Express) {
       if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
         return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
       }
+      if (maxUsers !== undefined && maxUsers !== null && (typeof maxUsers !== 'number' || maxUsers < 0)) {
+        return res.status(400).json({ error: 'Maks antall brukere kan ikke være negativt' });
+      }
 
       const result = await pool.query(
         `INSERT INTO vendors (name, slug, email, phone, address, org_number, institution_type, status, max_users, subscription_plan)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
+        [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers === undefined || maxUsers === null ? 50 : maxUsers, subscriptionPlan || 'standard']
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -1130,6 +1153,9 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
         return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
+      }
+      if (maxUsers !== undefined && maxUsers !== null && (typeof maxUsers !== 'number' || maxUsers < 0)) {
+        return res.status(400).json({ error: 'Maks antall brukere kan ikke være negativt' });
       }
       const result = await pool.query(
         `UPDATE vendors SET
@@ -1511,7 +1537,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const result = await pool.query(
         `INSERT INTO portal_settings (vendor_id, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, content_bg, footer_bg, custom_css, nav_items, footer_text, show_branding, tokens, layout, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, true), $14, $15, NOW())
          ON CONFLICT (vendor_id) DO UPDATE SET
            logo_url = COALESCE($2, portal_settings.logo_url),
            logo_text = COALESCE($3, portal_settings.logo_text),
@@ -2306,6 +2332,26 @@ export function registerSmartTimingRoutes(app: Express) {
       if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
         return res.status(403).json({ error: "Krever admin-rolle" });
       }
+      // The GET handler falls back to a hardcoded default with "|| ..." for
+      // any falsy value, including an empty string. Saving an empty
+      // companyName/supportEmail/legalEmail therefore looked like it
+      // succeeded (200 "Lagret") but the very next page load silently
+      // showed the old default again, with no indication the value was
+      // never actually applied. Reject empty/invalid values instead.
+      const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      for (const k of ["companyName", "supportEmail", "legalEmail"]) {
+        const v = req.body?.[k];
+        if (typeof v !== "string" || !v.trim()) {
+          return res.status(400).json({ error: `${k} kan ikke være tom` });
+        }
+      }
+      if (!EMAIL_RE.test(req.body.supportEmail.trim())) {
+        return res.status(400).json({ error: "Support e-post er ikke en gyldig e-postadresse" });
+      }
+      if (!EMAIL_RE.test(req.body.legalEmail.trim())) {
+        return res.status(400).json({ error: "Juridisk e-post er ikke en gyldig e-postadresse" });
+      }
+
       const allowed: Record<string, string> = {};
       for (const k of ["supportEmail", "supportPhone", "supportAddress", "legalEmail", "companyName", "companyTagline"]) {
         if (typeof req.body?.[k] === "string") allowed[k] = req.body[k];
@@ -2677,29 +2723,62 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.put("/api/cms/hero", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3 } = req.body;
+      // Used to destructure and persist only 8 of the 26 real landing_hero
+      // columns — every other field the Hero editor UI lets an admin set
+      // (button URL/type/icon, badge icons, background image/gradient/
+      // overlay, layout, all three stat value/label pairs) was silently
+      // dropped on every save, while the response still reported success.
+      const {
+        title, title_highlight, subtitle,
+        cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+        cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+        badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+        background_image, background_gradient, background_overlay, layout,
+        stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label,
+      } = req.body;
       const existing = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
-      
+
       // Save version before update
       if (existing.rows.length > 0) {
         await createContentVersion('hero', existing.rows[0].id, existing.rows[0], req.admin?.username, 'Hero updated');
       }
-      
+
+      const values = [
+        title, title_highlight, subtitle,
+        cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+        cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+        badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+        background_image, background_gradient, background_overlay, layout,
+        stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label,
+      ];
+
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE landing_hero SET 
-            title = $1, title_highlight = $2, subtitle = $3, 
-            cta_primary_text = $4, cta_secondary_text = $5,
-            badge1 = $6, badge2 = $7, badge3 = $8, updated_at = NOW()
-           WHERE id = $9 RETURNING *`,
-          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3, existing.rows[0].id]
+          `UPDATE landing_hero SET
+            title = $1, title_highlight = $2, subtitle = $3,
+            cta_primary_text = $4, cta_primary_url = $5, cta_primary_type = $6, cta_primary_icon = $7,
+            cta_secondary_text = $8, cta_secondary_url = $9, cta_secondary_type = $10, cta_secondary_icon = $11,
+            badge1 = $12, badge1_icon = $13, badge2 = $14, badge2_icon = $15, badge3 = $16, badge3_icon = $17,
+            background_image = $18, background_gradient = $19, background_overlay = $20, layout = $21,
+            stat1_value = $22, stat1_label = $23, stat2_value = $24, stat2_label = $25, stat3_value = $26, stat3_label = $27,
+            updated_at = NOW()
+           WHERE id = $28 RETURNING *`,
+          [...values, existing.rows[0].id]
         );
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3]
+          `INSERT INTO landing_hero (
+            title, title_highlight, subtitle,
+            cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+            cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+            badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+            background_image, background_gradient, background_overlay, layout,
+            stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label
+          )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+           RETURNING *`,
+          values
         );
         res.json(result.rows[0]);
       }
@@ -2886,20 +2965,13 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: ACTIVITY LOG ==========
-  app.get("/api/cms/activity-log", authenticateAdmin, async (_req: AuthRequest, res) => {
-    try {
-      const result = await pool.query(`
-        SELECT cal.*, au.username as admin_username 
-        FROM cms_activity_log cal
-        LEFT JOIN admin_users au ON cal.admin_id = au.id
-        ORDER BY cal.created_at DESC
-        LIMIT 100
-      `);
-      res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // NB: the real handler for GET /api/cms/activity-log lives further down
+  // (search "SEO CRAWLER ROUTES" nearby) — a duplicate registration of this
+  // exact path used to sit here, referencing a `cal.admin_id` column that
+  // doesn't exist on cms_activity_log (see shared/schema.ts: it's `user_id`/
+  // `user_name`), which always 500'd. Since Express dispatches to the
+  // first matching route, that broken duplicate silently shadowed the
+  // correct, working handler below it — removed instead of fixed in place.
 
   // ========== CMS: LANDING CTA/SECTIONS ==========
   app.get("/api/cms/sections", async (_req, res) => {
@@ -2972,9 +3044,9 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Log the activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, entity_type, entity_id, entity_name, changes_summary, user_name)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        ['published', 'site', null, 'Landingsside', 'Alle endringer publisert til produksjon', req.admin?.username || 'system']
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, details, user_id, user_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        ['published', 'site', null, 'Landingsside', JSON.stringify({ summary: 'Alle endringer publisert til produksjon' }), req.admin?.id, req.admin?.username || 'system']
       );
       
       res.json({ 
@@ -3019,15 +3091,22 @@ export function registerSmartTimingRoutes(app: Express) {
         cta_enterprise: 'Be om Enterprise-tilbud',
         cta_contact_sales: 'Kontakt salg',
         footer_note: 'Faktureres årlig forskuddsvis. Bindingstid fra første dag. Avtalen fornyes automatisk; oppsigelse må sendes skriftlig før utløp. Vikarer og sesongarbeidere kan dekkes som Flex-brukere uten å belaste tier-båndet.',
-      }
+      },
+      tilgjengelighet: {
+        title: 'Tilgjengelighetserklæring',
+        subtitle: 'Hvordan Tidum jobber med universell utforming',
+        content: '## 1. Innledning\nTidum er en tjeneste levert av Creatorhub AS. Vi jobber kontinuerlig med å gjøre tjenesten tilgjengelig for flest mulig.',
+      },
     };
     return defaults[pageType];
   };
 
+  const CMS_PAGE_TYPES = ['contact', 'privacy', 'terms', 'pricing', 'tilgjengelighet'];
+
   app.get("/api/cms/pages/:pageType", async (req, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
+      const validTypes = CMS_PAGE_TYPES;
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }
@@ -3057,7 +3136,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/pages/:pageType", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
+      const validTypes = CMS_PAGE_TYPES;
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }
@@ -3363,10 +3442,14 @@ export function registerSmartTimingRoutes(app: Express) {
         );
         res.json(result.rows[0]);
       } else {
+        // title is NOT NULL, but sections like "cta" only ever send
+        // cta_title/cta_subtitle/etc — never a generic "title" — so the
+        // very first save for such a section always violated the
+        // constraint and 500'd. Fall back to the section id itself.
         const result = await pool.query(
           `INSERT INTO why_page_content (section_id, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [sectionId, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
+          [sectionId, title || sectionId, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
         );
         res.json(result.rows[0]);
       }
@@ -3503,6 +3586,12 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: DESIGN PRESETS ==========
+  // Whitelists of real DB columns, used to guard against building SQL
+  // set-clauses out of untrusted JSONB keys (design_presets.tokens /
+  // section_settings) when applying a preset below.
+  const DESIGN_TOKENS_COLUMNS = new Set(Object.values(getTableColumns(designTokens)).map((c: any) => c.name));
+  const SECTION_DESIGN_SETTINGS_COLUMNS = new Set(Object.values(getTableColumns(sectionDesignSettings)).map((c: any) => c.name));
+
   app.get("/api/cms/design-presets", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
@@ -3560,28 +3649,32 @@ export function registerSmartTimingRoutes(app: Express) {
       if (tokens) {
         const existing = await pool.query('SELECT id FROM design_tokens WHERE is_active = true LIMIT 1');
         if (existing.rows.length > 0) {
-          const columns = Object.keys(tokens).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
-          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
-          const values = columns.map(col => tokens[col]);
-          values.push(existing.rows[0].id);
-          await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          const columns = Object.keys(tokens).filter(k => DESIGN_TOKENS_COLUMNS.has(k) && k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
+          if (columns.length > 0) {
+            const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+            const values = columns.map(col => tokens[col]);
+            values.push(existing.rows[0].id);
+            await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          }
         }
       }
-      
+
       // Apply section settings
       if (section_settings) {
         for (const [sectionName, settings] of Object.entries(section_settings as Record<string, any>)) {
-          const columns = Object.keys(settings).filter(k => k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
+          const columns = Object.keys(settings).filter(k => SECTION_DESIGN_SETTINGS_COLUMNS.has(k) && k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
+          if (columns.length === 0) continue;
           const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
           const values = columns.map(col => settings[col]);
           values.push(sectionName);
           await pool.query(`UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
         }
       }
-      
+
       res.json({ success: true, message: 'Preset applied successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error('Error applying design preset:', err);
+      res.status(500).json({ error: 'Kunne ikke bruke forhåndsinnstillingen. Prøv igjen eller kontakt support.' });
     }
   });
 
@@ -3850,17 +3943,15 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status } = req.query;
-      let query = 'SELECT * FROM case_reports';
-      const params: any[] = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
-      }
-      query += ' ORDER BY created_at DESC';
-      
-      const result = await pool.query(query, params);
-      res.json({ reports: result.rows });
+      // Drizzle (not raw pool.query) so the response uses the same camelCase
+      // field names (caseId, userId, ...) as the CaseReport type the client
+      // reads — a raw SELECT * would return snake_case columns and the
+      // client's report.caseId/report.userId/report.month would all be
+      // undefined, crashing the filter below on the first .toLowerCase().
+      const rows = status
+        ? await db.select().from(caseReports).where(eq(caseReports.status, status as string)).orderBy(desc(caseReports.createdAt))
+        : await db.select().from(caseReports).orderBy(desc(caseReports.createdAt));
+      res.json({ reports: rows });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -4196,11 +4287,42 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/media/folders", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, parent_id } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Mappenavn kan ikke være tomt" });
+      }
       const result = await pool.query(
         'INSERT INTO cms_media_folders (name, parent_id) VALUES ($1, $2) RETURNING *',
-        [name, parent_id || null]
+        [name.trim(), parent_id || null]
       );
       res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/cms/media/folders/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const { name } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Mappenavn kan ikke være tomt" });
+      }
+      const result = await pool.query(
+        'UPDATE cms_media_folders SET name = $1 WHERE id = $2 RETURNING *',
+        [name.trim(), req.params.id]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: "Mappe ikke funnet" });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Deleting a folder detaches (doesn't delete) its media/subfolders — both
+  // cms_media.folder_id and cms_media_folders.parent_id are ON DELETE SET NULL.
+  app.delete("/api/cms/media/folders/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      await pool.query('DELETE FROM cms_media_folders WHERE id = $1', [req.params.id]);
+      res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -4276,13 +4398,17 @@ export function registerSmartTimingRoutes(app: Express) {
         robots_txt, sitemap_enabled, sitemap_auto_generate
       } = req.body;
 
+      if (!site_name || !site_name.trim()) {
+        return res.status(400).json({ error: "Nettstedsnavn kan ikke være tomt" });
+      }
+
       // Support both old and new field names
       const gVerif = google_verification || google_site_verification || '';
       const bVerif = bing_verification || bing_site_verification || '';
 
       const result = await pool.query(
-        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
-         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
+        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image,
+         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled,
          sitemap_auto_generate, updated_at)
          VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
          ON CONFLICT (id) DO UPDATE SET
@@ -4297,7 +4423,7 @@ export function registerSmartTimingRoutes(app: Express) {
          sitemap_auto_generate = COALESCE(EXCLUDED.sitemap_auto_generate, seo_global_settings.sitemap_auto_generate),
          updated_at = NOW()
          RETURNING *`,
-        [site_name || 'Tidum', site_description, default_og_image, favicon_url,
+        [site_name.trim(), site_description, default_og_image, favicon_url,
          gVerif, bVerif, robots_txt, sitemap_enabled, sitemap_auto_generate]
       );
 
@@ -4312,12 +4438,20 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/seo/:pageType/:pageId?", async (req, res) => {
+  app.get("/api/cms/seo/:pageType/:pageId?", async (req, res, next) => {
+    // "/api/cms/seo/pages" (and "/pages/:id") is a distinct, more specific
+    // route registered further down this file (the SEO pages list/CRUD,
+    // backed by the real seo_pages table) — without this guard, Express
+    // matches this generic param route first and swallows it, matching
+    // "pages" as :pageType and querying the unrelated (and non-existent)
+    // cms_seo_settings table instead. next() falls through to the real
+    // handler registered later.
+    if (req.params.pageType === "pages") return next();
     try {
       const { pageType, pageId } = req.params;
       const result = await pool.query(
-        'SELECT * FROM cms_seo_settings WHERE page_type = $1 AND (page_id = $2 OR ($2 IS NULL AND page_id IS NULL)) LIMIT 1',
-        [pageType, pageId || null]
+        'SELECT * FROM cms_seo_settings WHERE page_type = $1 AND page_id = $2 LIMIT 1',
+        [pageType, pageId ? Number(pageId) : 0]
       );
       res.json(result.rows[0] || null);
     } catch (err: any) {
@@ -4325,20 +4459,23 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.put("/api/cms/seo/:pageType/:pageId?", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.put("/api/cms/seo/:pageType/:pageId?", authenticateAdmin, async (req: AuthRequest, res, next) => {
+    // Same "pages" collision as the GET above — PUT /api/cms/seo/pages/:id
+    // is a distinct, more specific route registered further down.
+    if (req.params.pageType === "pages") return next();
     try {
       const { pageType, pageId } = req.params;
       const data = req.body;
-      
+
       const result = await pool.query(
-        `INSERT INTO cms_seo_settings (page_type, page_id, meta_title, meta_description, og_title, og_description, og_image, 
+        `INSERT INTO cms_seo_settings (page_type, page_id, meta_title, meta_description, og_title, og_description, og_image,
          twitter_card, canonical_url, robots, schema_type, schema_data)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (page_type, page_id) DO UPDATE SET
          meta_title = $3, meta_description = $4, og_title = $5, og_description = $6, og_image = $7,
          twitter_card = $8, canonical_url = $9, robots = $10, schema_type = $11, schema_data = $12, updated_at = NOW()
          RETURNING *`,
-        [pageType, pageId || null, data.meta_title, data.meta_description, data.og_title, data.og_description, 
+        [pageType, pageId ? Number(pageId) : 0, data.meta_title, data.meta_description, data.og_title, data.og_description,
          data.og_image, data.twitter_card, data.canonical_url, data.robots, data.schema_type, data.schema_data]
       );
       res.json(result.rows[0]);
@@ -4369,10 +4506,13 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/forms", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, description, fields, submit_button_text, success_message, notification_email } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Skjemanavn kan ikke være tomt" });
+      }
       const result = await pool.query(
         `INSERT INTO cms_forms (name, description, fields, submit_button_text, success_message, notification_email)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email]
+        [name.trim(), description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -4383,11 +4523,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, description, fields, submit_button_text, success_message, notification_email, is_active } = req.body;
+      if (name !== undefined && !name.trim()) {
+        return res.status(400).json({ error: "Skjemanavn kan ikke være tomt" });
+      }
       const result = await pool.query(
-        `UPDATE cms_forms SET name = $1, description = $2, fields = $3, submit_button_text = $4, 
+        `UPDATE cms_forms SET name = $1, description = $2, fields = $3, submit_button_text = $4,
          success_message = $5, notification_email = $6, is_active = $7, updated_at = NOW()
          WHERE id = $8 RETURNING *`,
-        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email, is_active, req.params.id]
+        [name?.trim(), description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email, is_active, req.params.id]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -4458,19 +4601,23 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { location } = req.params;
       const { name, items } = req.body;
-      
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Menynavn kan ikke være tomt" });
+      }
+
       const existing = await pool.query('SELECT * FROM cms_navigation WHERE location = $1', [location]);
-      
+
       if (existing.rows.length > 0) {
         const result = await pool.query(
           `UPDATE cms_navigation SET name = $1, items = $2, updated_at = NOW() WHERE location = $3 RETURNING *`,
-          [name, JSON.stringify(items || []), location]
+          [name.trim(), JSON.stringify(items || []), location]
         );
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
           `INSERT INTO cms_navigation (name, location, items) VALUES ($1, $2, $3) RETURNING *`,
-          [name, location, JSON.stringify(items || [])]
+          [name.trim(), location, JSON.stringify(items || [])]
         );
         res.json(result.rows[0]);
       }
@@ -4491,7 +4638,12 @@ export function registerSmartTimingRoutes(app: Express) {
   }
 
   // Admin: list posts with pagination
-  app.get("/api/cms/posts", async (req, res) => {
+  // Admin listing (all statuses — draft/scheduled/archived included).
+  // Distinct from the public GET /api/blog below, which always filters to
+  // status='published' — this one has no such filter and, unlike the
+  // matching POST/PUT/DELETE, had no auth at all, so any unauthenticated
+  // request could read every unpublished post in the system.
+  app.get("/api/cms/posts", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status, category_id, page = '1', limit = '20' } = req.query;
       const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -4721,7 +4873,9 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Admin: get post by ID
-  app.get("/api/cms/posts/:id", async (req, res) => {
+  // Admin: fetch any single post by id regardless of status — same
+  // missing-auth issue as the list endpoint above.
+  app.get("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
         'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id WHERE p.id = $1',
@@ -4738,6 +4892,14 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
               meta_title, meta_description, og_image, scheduled_at } = req.body;
+
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (!slug || !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const published_at = status === 'published' ? new Date() : null;
       const { readingTime, wordCount } = calculateReadingStats(content);
 
@@ -4745,11 +4907,14 @@ export function registerSmartTimingRoutes(app: Express) {
         `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status,
          meta_title, meta_description, og_image, reading_time, word_count, scheduled_at, published_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft',
+        [title.trim(), slug.trim(), excerpt, content, featured_image, author, category_id, tags, status || 'draft',
          meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, published_at]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "Et innlegg med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -4759,6 +4924,14 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
               meta_title, meta_description, og_image, scheduled_at } = req.body;
+
+      if (title !== undefined && !title.trim()) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (slug !== undefined && !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const existingPost = await pool.query('SELECT status, published_at FROM cms_posts WHERE id = $1', [req.params.id]);
       let published_at = existingPost.rows[0]?.published_at;
 
@@ -4774,11 +4947,14 @@ export function registerSmartTimingRoutes(app: Express) {
          meta_title = $11, meta_description = $12, og_image = $13, reading_time = $14, word_count = $15,
          scheduled_at = $16, updated_at = NOW()
          WHERE id = $17 RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at,
+        [title?.trim(), slug?.trim(), excerpt, content, featured_image, author, category_id, tags, status, published_at,
          meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, req.params.id]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "Et innlegg med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -5184,6 +5360,37 @@ export function registerSmartTimingRoutes(app: Express) {
           );
           restored = true;
           break;
+
+        case 'portal_settings':
+          await pool.query(
+            `UPDATE portal_settings SET logo_url = $1, logo_text = $2, primary_color = $3,
+             accent_color = $4, sidebar_bg = $5, header_bg = $6, content_bg = $7, footer_bg = $8,
+             custom_css = $9, nav_items = $10, footer_text = $11, show_branding = $12,
+             tokens = $13, layout = $14, updated_at = NOW() WHERE id = $15`,
+            [versionData.logo_url, versionData.logo_text, versionData.primary_color,
+             versionData.accent_color, versionData.sidebar_bg, versionData.header_bg,
+             versionData.content_bg, versionData.footer_bg, versionData.custom_css,
+             JSON.stringify(versionData.nav_items || []), versionData.footer_text,
+             versionData.show_branding, JSON.stringify(versionData.tokens || {}),
+             JSON.stringify(versionData.layout || {}), content_id]
+          );
+          restored = true;
+          break;
+
+        case 'cms_pages':
+          await pool.query(
+            `UPDATE cms_pages SET content = $1, updated_at = NOW() WHERE id = $2`,
+            [JSON.stringify(versionData), content_id]
+          );
+          restored = true;
+          break;
+
+        case 'cms_publish':
+          // A publish event is a historical log entry, not live editable
+          // content — there's no row to restore it "into". Handled as an
+          // explicit no-op with a clear message rather than falling through
+          // to the generic "cannot restore" error.
+          return res.status(400).json({ error: 'Publiseringshendelser er historikk og kan ikke gjenopprettes.' });
       }
       
       if (restored) {
@@ -5283,6 +5490,13 @@ export function registerSmartTimingRoutes(app: Express) {
         enable_events, enable_consent_mode, cookie_consent, excluded_paths, custom_events
       } = req.body;
 
+      if (ga4_measurement_id && !/^G-[A-Z0-9]+$/i.test(ga4_measurement_id.trim())) {
+        return res.status(400).json({ error: "GA4 Measurement ID må ha formatet G-XXXXXXXXXX" });
+      }
+      if (gtm_container_id && !/^GTM-[A-Z0-9]+$/i.test(gtm_container_id.trim())) {
+        return res.status(400).json({ error: "GTM Container ID må ha formatet GTM-XXXXXXX" });
+      }
+
       const result = await pool.query(
         `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, 
          enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
@@ -5371,14 +5585,18 @@ export function registerSmartTimingRoutes(app: Express) {
         structured_data, priority, change_frequency
       } = req.body;
 
+      if (!page_path || !page_path.trim()) {
+        return res.status(400).json({ error: "Sidesti kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `INSERT INTO seo_pages (page_path, title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type, twitter_card, twitter_title,
-         twitter_description, twitter_image, robots_index, robots_follow, structured_data, 
+         twitter_description, twitter_image, robots_index, robots_follow, structured_data,
          priority, change_frequency)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING *`,
-        [page_path, title, meta_description, meta_keywords, canonical_url,
+        [page_path.trim(), title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type || 'website', twitter_card || 'summary_large_image',
          twitter_title, twitter_description, twitter_image, robots_index ?? true, robots_follow ?? true,
          structured_data ? JSON.stringify(structured_data) : null, priority || 0.5, change_frequency || 'weekly']
@@ -5400,14 +5618,18 @@ export function registerSmartTimingRoutes(app: Express) {
         structured_data, priority, change_frequency, is_active
       } = req.body;
 
+      if (page_path !== undefined && !page_path.trim()) {
+        return res.status(400).json({ error: "Sidesti kan ikke være tom" });
+      }
+
       const result = await pool.query(
-        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3, 
+        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3,
          meta_keywords = $4, canonical_url = $5, og_title = $6, og_description = $7,
          og_image = $8, og_type = $9, twitter_card = $10, twitter_title = $11,
          twitter_description = $12, twitter_image = $13, robots_index = $14, robots_follow = $15,
          structured_data = $16, priority = $17, change_frequency = $18, is_active = $19, updated_at = NOW()
          WHERE id = $20 RETURNING *`,
-        [page_path, title, meta_description, meta_keywords, canonical_url,
+        [page_path?.trim(), title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type, twitter_card, twitter_title,
          twitter_description, twitter_image, robots_index, robots_follow,
          structured_data ? JSON.stringify(structured_data) : null, priority, change_frequency,
@@ -5630,14 +5852,24 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, slug, subject, html_content, text_content, variables, category } = req.body;
 
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+      if (!slug || !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [name, slug, subject, html_content, text_content, variables, category || 'general']
+        [name.trim(), slug.trim(), subject, html_content, text_content, variables ? JSON.stringify(variables) : null, category || 'general']
       );
 
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "En mal med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -5647,11 +5879,18 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, slug, subject, html_content, text_content, variables, category, is_active } = req.body;
 
+      if (name !== undefined && !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+      if (slug !== undefined && !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `UPDATE email_templates SET name = $1, slug = $2, subject = $3, html_content = $4,
          text_content = $5, variables = $6, category = $7, is_active = $8, updated_at = NOW()
          WHERE id = $9 RETURNING *`,
-        [name, slug, subject, html_content, text_content, variables, category, is_active, req.params.id]
+        [name?.trim(), slug?.trim(), subject, html_content, text_content, variables ? JSON.stringify(variables) : null, category, is_active, req.params.id]
       );
 
       if (result.rows.length === 0) {
@@ -5659,6 +5898,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       }
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "En mal med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -5946,8 +6188,11 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         }
       }
 
-      // Send email using centralized email service
-      await emailService.sendEmail({
+      // Send email using centralized email service. sendEmail() does not
+      // throw on failure (unconfigured SMTP, send error) — it resolves to
+      // false — so the result must be checked explicitly or every send
+      // "succeeds" from the caller's perspective even when nothing went out.
+      const sent = await emailService.sendEmail({
         to: recipient_email,
         subject: subject,
         html: htmlContent,
@@ -5957,9 +6202,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       // Log send history
       await pool.query(
         `INSERT INTO email_send_history (template_id, recipient_email, subject, status, sent_at, metadata)
-         VALUES ($1, $2, $3, 'sent', NOW(), $4)`,
-        [template_id, recipient_email, subject, JSON.stringify({ test: true, variables })]
+         VALUES ($1, $2, $3, $4, NOW(), $5)`,
+        [template_id, recipient_email, subject, sent ? 'sent' : 'failed', JSON.stringify({ test: true, variables })]
       );
+
+      if (!sent) {
+        return res.status(502).json({ error: 'E-posttjenesten er ikke konfigurert eller sending feilet. Sjekk SMTP-innstillingene på serveren.' });
+      }
 
       res.json({ success: true, message: 'Test email sent successfully' });
     } catch (err: any) {
@@ -6224,6 +6473,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         template_type, privacy_notice_enabled, privacy_notice_text
       } = req.body;
 
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       let finalPrivacyEnabled = privacy_notice_enabled;
       let finalPrivacyText = privacy_notice_text;
@@ -6247,7 +6500,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
         RETURNING *`,
         [
-          name, description, company_id, paper_size || 'A4', orientation || 'portrait',
+          name.trim(), description, company_id, paper_size || 'A4', orientation || 'portrait',
           margin_top || '20mm', margin_bottom || '20mm', margin_left || '15mm', margin_right || '15mm',
           header_enabled !== false, header_height || '25mm', header_logo_url, header_logo_position || 'left',
           header_title, header_subtitle, header_show_date !== false, header_show_page_numbers !== false,
@@ -6265,11 +6518,32 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Update report template
+  // Every column a PUT is allowed to write. The handler used to build the
+  // SQL SET clause directly from Object.keys(req.body) with no whitelist —
+  // since the column identifier was string-interpolated (not a bound
+  // parameter), a request body key like
+  // `"name = 'x', description = (SELECT ...) --"` was executed verbatim as
+  // SQL, a straightforward SQL injection via arbitrary JSON keys.
+  const REPORT_TEMPLATE_UPDATABLE_FIELDS = new Set([
+    'name', 'description', 'vendor_id', 'company_id',
+    'template_type', 'privacy_notice_enabled', 'privacy_notice_text',
+    'paper_size', 'orientation', 'margin_top', 'margin_bottom', 'margin_left', 'margin_right',
+    'header_enabled', 'header_height', 'header_logo_url', 'header_logo_position',
+    'header_title', 'header_subtitle', 'header_show_date', 'header_show_page_numbers',
+    'footer_enabled', 'footer_height', 'footer_text', 'footer_show_page_numbers',
+    'primary_color', 'secondary_color', 'font_family', 'font_size', 'line_height',
+    'blocks', 'is_default', 'is_active', 'created_by',
+  ]);
+
   app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const updates = { ...req.body };
-      
+
+      if (updates.name !== undefined && !updates.name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       if (updates.template_type === 'miljoarbeider') {
         updates.privacy_notice_enabled = true;
@@ -6277,8 +6551,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           updates.privacy_notice_text = 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.';
         }
       }
-      
-      const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
+
+      const fields = Object.keys(updates).filter(k => REPORT_TEMPLATE_UPDATABLE_FIELDS.has(k));
       if (fields.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
       }
@@ -6679,6 +6953,17 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Seed a default template
   app.post("/api/report-templates/seed-default", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
+      // report_templates has no unique constraint on name, so a bare
+      // "ON CONFLICT DO NOTHING" below never actually detects a conflict —
+      // every click of the "Standardmal" button inserted a brand new
+      // duplicate row. Check for an existing default template first instead.
+      const existing = await pool.query(
+        `SELECT * FROM report_templates WHERE is_default = true ORDER BY id LIMIT 1`
+      );
+      if (existing.rows.length > 0) {
+        return res.json({ success: true, template: existing.rows[0], alreadyExisted: true });
+      }
+
       const defaultBlocks = [
         { id: '1', type: 'section', config: { title: 'Bakgrunn', field: 'background' } },
         { id: '2', type: 'field', config: { field: 'background', label: 'Bakgrunn', showLabel: true } },
@@ -6699,7 +6984,6 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const result = await pool.query(
         `INSERT INTO report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
          VALUES ($1, $2, $3, $4, $5, true, $6)
-         ON CONFLICT DO NOTHING
          RETURNING *`,
         [
           'Standard Saksrapport',
@@ -7517,7 +7801,6 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const {
         name, target_url, crawl_type = "full",
-        max_pages = 500, max_depth = 10, crawl_delay_ms = 200,
         respect_robots_txt = true, follow_external_links = false,
         follow_subdomains = false, include_images = true,
         include_css = false, include_js = false,
@@ -7532,6 +7815,23 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Validate URL
       try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
+
+      // Destructuring defaults (`= 500`) only kick in for `undefined`, not
+      // `null` — a cleared number input serializes to `null` in JSON, which
+      // slipped straight through into a NOT NULL column and 500'd with a
+      // raw Postgres error. Validate and default explicitly instead.
+      const max_pages = req.body.max_pages === null || req.body.max_pages === undefined ? 500 : Number(req.body.max_pages);
+      const max_depth = req.body.max_depth === null || req.body.max_depth === undefined ? 10 : Number(req.body.max_depth);
+      const crawl_delay_ms = req.body.crawl_delay_ms === null || req.body.crawl_delay_ms === undefined ? 200 : Number(req.body.crawl_delay_ms);
+      if (!Number.isFinite(max_pages) || max_pages < 1) {
+        return res.status(400).json({ error: "Maks sider må være et tall større enn 0" });
+      }
+      if (!Number.isFinite(max_depth) || max_depth < 1) {
+        return res.status(400).json({ error: "Maks dybde må være et tall større enn 0" });
+      }
+      if (!Number.isFinite(crawl_delay_ms) || crawl_delay_ms < 0) {
+        return res.status(400).json({ error: "Forsinkelse må være et tall på 0 eller mer" });
+      }
 
       const result = await pool.query(
         `INSERT INTO crawler_jobs (

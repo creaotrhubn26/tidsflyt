@@ -44,7 +44,11 @@ const DEFAULT_EXCLUDED_PREFIXES = [
   "/cms",
   "/cms-legacy",
   "/api-docs",
-  "/vendor/api",
+  "/vendor",
+  "/rapporter",
+  "/institusjoner",
+  "/tiltaksleder",
+  "/import-employees",
 ];
 
 type ConsentState = "granted" | "denied";

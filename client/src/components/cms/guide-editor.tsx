@@ -478,19 +478,39 @@ export function GuideEditor() {
             </TabsList>
 
             <TabsContent value="visual" className="pt-3">
-              <CategoriesEditor
-                categories={(() => {
-                  // The structured editor edits the parsed objects, but we keep
-                  // the JSON textarea as canonical state. Parse on demand and
-                  // fall back to the form state on parse errors.
-                  try { return JSON.parse(categoriesJson); }
-                  catch { return draft.categories; }
-                })()}
-                onChange={(next) => {
-                  setCategoriesJson(JSON.stringify(next, null, 2));
-                  setDirty(true);
-                }}
-              />
+              {(() => {
+                // The structured editor edits the parsed objects, but we keep
+                // the JSON textarea as canonical state. Parse on demand and
+                // fall back to the form state on parse errors. If the raw
+                // JSON is currently invalid (e.g. mid-edit in the other tab),
+                // any change made here would otherwise silently overwrite
+                // categoriesJson with this stale fallback — discarding
+                // whatever the admin was in the middle of typing there.
+                let parsed = draft.categories;
+                let parseError: string | null = null;
+                try { parsed = JSON.parse(categoriesJson); }
+                catch (e: any) { parseError = e.message; }
+
+                if (parseError) {
+                  return (
+                    <p className="text-sm text-destructive p-3 border border-destructive/30 rounded-md bg-destructive/5">
+                      Rå JSON er ugyldig akkurat nå ({parseError}). Fiks JSON-en i
+                      "Rå JSON (avansert)"-fanen først — den visuelle editoren er
+                      midlertidig deaktivert for å unngå å overskrive endringene dine.
+                    </p>
+                  );
+                }
+
+                return (
+                  <CategoriesEditor
+                    categories={parsed}
+                    onChange={(next) => {
+                      setCategoriesJson(JSON.stringify(next, null, 2));
+                      setDirty(true);
+                    }}
+                  />
+                );
+              })()}
             </TabsContent>
 
             <TabsContent value="json" className="pt-3">
@@ -808,7 +828,7 @@ function StuckMessageEditor({
                   min={0}
                   step={0.5}
                   value={v.weight ?? 1}
-                  onChange={(e) => updateVariant(i, { weight: Number(e.target.value) || 0 })}
+                  onChange={(e) => updateVariant(i, { weight: Math.max(0, Number(e.target.value) || 0) })}
                   className="h-7 text-xs w-20"
                   title="Vekt — høyere = vises oftere"
                 />
@@ -1038,13 +1058,14 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
   );
 }
 
-function NumberField({ label, value, onChange, hint }: { label: string; value: number; onChange: (v: number) => void; hint?: string }) {
+function NumberField({ label, value, onChange, hint, min = 1 }: { label: string; value: number; onChange: (v: number) => void; hint?: string; min?: number }) {
   return (
     <Field label={label} hint={hint}>
       <Input
         type="number"
+        min={min}
         value={value}
-        onChange={(e) => onChange(Number(e.target.value) || 0)}
+        onChange={(e) => onChange(Math.max(min, Number(e.target.value) || 0))}
       />
     </Field>
   );

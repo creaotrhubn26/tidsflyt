@@ -577,18 +577,24 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                 const Icon = tile.icon;
                 const hasItems = tile.count > 0;
                 return (
-                  <button
+                  <div
                     key={tile.key}
-                    type="button"
-                    onClick={() => navigate(resolveDashboardPath(tile.path))}
                     className={cn(
                       "group relative flex flex-col items-stretch gap-3 rounded-xl border p-4 text-left transition-all duration-200",
-                      "hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
+                      "hover:shadow-md hover:-translate-y-0.5 active:translate-y-0",
                       hasItems
                         ? cn("bg-gradient-to-br", tile.tileBg, tile.tileBorder)
                         : "border-border bg-muted/30 opacity-70",
                     )}
                   >
+                    {/* Stretched-link-knapp: dekker hele flisen uten å nøste
+                        den sekundære «Lag oppgave»-knappen inne i en <button> */}
+                    <button
+                      type="button"
+                      onClick={() => navigate(resolveDashboardPath(tile.path))}
+                      aria-label={`${tile.label} — ${tile.count}`}
+                      className="absolute inset-0 rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                    />
                     <div className="flex items-start justify-between gap-2">
                       <div className={cn(
                         "flex items-center justify-center h-9 w-9 rounded-lg shadow-sm bg-gradient-to-br shrink-0",
@@ -621,13 +627,13 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                             inputRef.current?.select();
                           }, 30);
                         }}
-                        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex h-6 w-6 items-center justify-center rounded-full bg-background/80 backdrop-blur border border-border shadow-sm hover:bg-primary hover:text-primary-foreground hover:border-primary"
+                        className="absolute top-2 right-2 z-10 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex h-6 w-6 items-center justify-center rounded-full bg-background/80 backdrop-blur border border-border shadow-sm hover:bg-primary hover:text-primary-foreground hover:border-primary"
                         aria-label="Lag oppgave fra dette"
                       >
                         <Plus className="h-3 w-3" />
                       </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
               {isTiltaksleder && visibleTiles.length === 0 && (

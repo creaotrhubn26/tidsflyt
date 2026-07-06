@@ -111,8 +111,8 @@ Spørsmål om personvern kan rettes til **${TIDUM_SUPPORT_EMAIL}** eller **${TID
     last_updated: "6. april 2026"
   };
 
-  const hasRichCmsContent = Boolean(pageContent?.content && pageContent.content.trim().length > 800);
-  const content = hasRichCmsContent ? pageContent! : defaultContent;
+  const hasCmsContent = Boolean(pageContent?.content && pageContent.content.trim().length > 0);
+  const content = hasCmsContent ? pageContent! : defaultContent;
 
   const resolvedContent = {
     ...content,

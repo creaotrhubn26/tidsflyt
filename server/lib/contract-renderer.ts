@@ -25,9 +25,16 @@ export async function renderContract(
     leverandor_legal_email: settings.leverandorLegalEmail || "",
     leverandor_support_email: settings.leverandorSupportEmail || "",
     leverandor_support_phone: settings.leverandorSupportPhone || "",
+    leverandor_drifter_tjeneste: settings.leverandorDrifterTjeneste || "",
+    leverandor_lovvalg_by: settings.leverandorLovvalgBy || "",
     kunde_navn: input.customer.name || "",
     kunde_org_nr: input.customer.orgNumber || "",
-    bruker_antall: String(input.userCount),
+    // Use the quote's sanitized userCount (computeQuote clamps/rounds the
+    // raw input), not input.userCount directly — otherwise the displayed
+    // user count in the contract text can disagree with the price actually
+    // quoted below it (e.g. a raw "-3" or "7.8" showing verbatim while the
+    // price reflects 0 or 7 users).
+    bruker_antall: String(quote.userCount),
     tier_navn: quote.tier?.label ?? "—",
     tier_slug: quote.tier?.slug ?? "",
     pris_per_bruker_kr: formatKr(quote.pricePerUserMonthlyKr),

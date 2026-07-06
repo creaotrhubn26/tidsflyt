@@ -29,7 +29,7 @@ import {
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
   Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle, Pencil,
-  Lightbulb,
+  Lightbulb, UploadCloud,
   type LucideIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -64,6 +64,7 @@ async function authenticatedApiRequest(url: string, options: { method?: string; 
     const error = await response.json().catch(() => ({ error: 'Request failed' }));
     throw new Error(error.error || 'Request failed');
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
@@ -148,12 +149,13 @@ interface LandingPartner {
 
 interface ActivityLogEntry {
   id: number;
-  admin_id: number;
-  admin_username: string;
+  user_id: string | null;
+  user_name: string | null;
   action: string;
-  entity_type: string;
-  entity_id: number | null;
-  details: string | null;
+  resource_type: string;
+  resource_id: number | null;
+  resource_name: string | null;
+  details: unknown;
   created_at: string;
 }
 
@@ -225,13 +227,27 @@ const iconOptionsWithLabels = [
   { value: "Smartphone", label: "Smarttelefon" },
 ];
 
-function IconSelect({ 
-  value, 
-  onChange, 
-  testId 
-}: { 
-  value: string; 
-  onChange: (value: string) => void; 
+// A handful of CMS sections edit database rows that nothing on the public
+// site (or portal) actually reads yet — the data saves correctly, but has
+// zero visible effect. Found via QA: admins had no way to know this and
+// assumed their edits were live. Until those sections are actually wired
+// up to real rendering, this is an honest heads-up instead of a silent gap.
+function NotYetLiveWarning({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function IconSelect({
+  value,
+  onChange,
+  testId
+}: {
+  value: string;
+  onChange: (value: string) => void;
   testId?: string;
 }) {
   const selectedIcon = value ? cmsIconMap[value] : null;
@@ -1429,6 +1445,10 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Denne seksjonen er ikke koblet til den faktiske landingssiden ennå —
+        endringer lagres, men vises ikke for besøkende på /.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <CardTitle>Legg til ny funksjon</CardTitle>
@@ -1747,6 +1767,10 @@ function SectionsEditor({ sections }: { sections: LandingSections | null }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <NotYetLiveWarning>
+        Denne seksjonen er ikke koblet til den faktiske landingssiden ennå —
+        endringer lagres, men vises ikke for besøkende på /.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <CardTitle>Funksjoner-seksjon</CardTitle>
@@ -2117,24 +2141,36 @@ function ActivityLogViewer() {
       <CardContent>
         {activityLog && activityLog.length > 0 ? (
           <div className="space-y-3">
-            {activityLog.map((entry) => (
-              <div key={entry.id} className="flex items-start gap-4 p-3 border rounded-lg" data-testid={`activity-entry-${entry.id}`}>
-                <div className="flex-1">
-                  <p className="font-medium">
-                    <span className="text-primary">{entry.admin_username || 'Ukjent'}</span>
-                    {' '}{getActionLabel(entry.action)}{' '}
-                    {getEntityLabel(entry.entity_type)}
-                    {entry.entity_id && ` #${entry.entity_id}`}
+            {activityLog.map((entry) => {
+              // details is JSONB — for "restore" events it's an object
+              // ({ restoredFrom: versionId }), not a string. Rendering it
+              // directly as a JSX child crashes the whole page ("Objects
+              // are not valid as a React child").
+              const detailsText = entry.details == null
+                ? null
+                : typeof entry.details === "string"
+                  ? entry.details
+                  : JSON.stringify(entry.details);
+              return (
+                <div key={entry.id} className="flex items-start gap-4 p-3 border rounded-lg" data-testid={`activity-entry-${entry.id}`}>
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      <span className="text-primary">{entry.user_name || 'Ukjent'}</span>
+                      {' '}{getActionLabel(entry.action)}{' '}
+                      {getEntityLabel(entry.resource_type)}
+                      {entry.resource_name && ` "${entry.resource_name}"`}
+                      {entry.resource_id != null && ` #${entry.resource_id}`}
+                    </p>
+                    {detailsText && (
+                      <p className="text-sm text-muted-foreground mt-1">{detailsText}</p>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground whitespace-nowrap">
+                    {formatDate(entry.created_at)}
                   </p>
-                  {entry.details && (
-                    <p className="text-sm text-muted-foreground mt-1">{entry.details}</p>
-                  )}
                 </div>
-                <p className="text-sm text-muted-foreground whitespace-nowrap">
-                  {formatDate(entry.created_at)}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center py-8 text-muted-foreground">
@@ -2436,6 +2472,10 @@ function DesignEditor() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Lagrede design-tokens brukes ikke noe sted i appen ennå — endringer
+        her har ingen synlig effekt.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
@@ -3059,6 +3099,39 @@ function MediaLibrary() {
       setNewFolderName("");
       setShowNewFolder(false);
       toast({ title: "Mappe opprettet" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke opprette mappe", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const renameFolderMutation = useMutation({
+    mutationFn: async ({ id, name }: { id: number; name: string }) => {
+      return authenticatedApiRequest(`/api/cms/media/folders/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ name })
+      });
+    },
+    onSuccess: () => {
+      refetchFolders();
+      toast({ title: "Mappe omdøpt" });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke omdøpe mappe", description: err.message, variant: "destructive" });
+    }
+  });
+
+  const deleteFolderMutation = useMutation({
+    mutationFn: async (id: number) => {
+      return authenticatedApiRequest(`/api/cms/media/folders/${id}`, { method: 'DELETE' });
+    },
+    onSuccess: (_data, id) => {
+      refetchFolders();
+      if (currentFolder === id) setCurrentFolder(null);
+      toast({ title: "Mappe slettet", description: "Filer i mappen er flyttet til rotnivå." });
+    },
+    onError: (err: Error) => {
+      toast({ title: "Kunne ikke slette mappe", description: err.message, variant: "destructive" });
     }
   });
 
@@ -3086,6 +3159,53 @@ function MediaLibrary() {
     }
   });
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const uploadFiles = async (files: FileList) => {
+    setIsUploading(true);
+    let uploaded = 0;
+    let failed = 0;
+    for (const file of Array.from(files)) {
+      try {
+        const formData = new FormData();
+        formData.append('image', file);
+        const token = getAdminToken();
+        const uploadRes = await fetch('/api/cms/upload', {
+          method: 'POST',
+          headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+          body: formData,
+        });
+        const uploadData = await uploadRes.json().catch(() => ({}));
+        if (!uploadRes.ok || !uploadData.url) {
+          throw new Error(uploadData.error || 'Opplasting feilet');
+        }
+        await authenticatedApiRequest('/api/cms/media', {
+          method: 'POST',
+          body: JSON.stringify({
+            filename: uploadData.filename,
+            original_name: file.name,
+            mime_type: file.type,
+            file_size: uploadData.size,
+            url: uploadData.url,
+            folder_id: currentFolder,
+            width: uploadData.width,
+            height: uploadData.height,
+          }),
+        });
+        uploaded++;
+      } catch (err: any) {
+        failed++;
+        toast({ title: `Kunne ikke laste opp ${file.name}`, description: err.message, variant: "destructive" });
+      }
+    }
+    setIsUploading(false);
+    if (uploaded > 0) {
+      refetchMedia();
+      toast({ title: `${uploaded} fil${uploaded > 1 ? 'er' : ''} lastet opp` });
+    }
+  };
+
   const formatFileSize = (bytes: number) => {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -3105,6 +3225,27 @@ function MediaLibrary() {
               <CardDescription>Last opp og organiser bilder og filer</CardDescription>
             </div>
             <div className="flex gap-2">
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,image/svg+xml"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files && e.target.files.length > 0) uploadFiles(e.target.files);
+                  e.target.value = "";
+                }}
+                data-testid="input-media-upload"
+              />
+              <Button
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                data-testid="button-upload-media"
+              >
+                {isUploading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}
+                Last opp
+              </Button>
               <Button variant="outline" size="sm" onClick={() => setShowNewFolder(true)} data-testid="button-new-folder">
                 <FolderPlus className="h-4 w-4 mr-1" />
                 Ny mappe
@@ -3126,16 +3267,44 @@ function MediaLibrary() {
                 Alle filer
               </Button>
               {folders.map(folder => (
-                <Button
-                  key={folder.id}
-                  variant={currentFolder === folder.id ? "secondary" : "ghost"}
-                  className="w-full justify-start"
-                  onClick={() => setCurrentFolder(folder.id)}
-                  data-testid={`folder-${folder.id}`}
-                >
-                  <FolderOpen className="h-4 w-4 mr-2" />
-                  {folder.name}
-                </Button>
+                <div key={folder.id} className="group flex items-center gap-1">
+                  <Button
+                    variant={currentFolder === folder.id ? "secondary" : "ghost"}
+                    className="flex-1 justify-start min-w-0"
+                    onClick={() => setCurrentFolder(folder.id)}
+                    data-testid={`folder-${folder.id}`}
+                  >
+                    <FolderOpen className="h-4 w-4 mr-2 shrink-0" />
+                    <span className="truncate">{folder.name}</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100"
+                    onClick={() => {
+                      const newName = window.prompt("Nytt mappenavn", folder.name);
+                      if (newName !== null && newName.trim().length > 0) {
+                        renameFolderMutation.mutate({ id: folder.id, name: newName });
+                      }
+                    }}
+                    data-testid={`button-rename-folder-${folder.id}`}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 shrink-0 opacity-0 group-hover:opacity-100"
+                    onClick={() => {
+                      if (window.confirm(`Slette mappen "${folder.name}"? Filer i mappen flyttes til rotnivå.`)) {
+                        deleteFolderMutation.mutate(folder.id);
+                      }
+                    }}
+                    data-testid={`button-delete-folder-${folder.id}`}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
               ))}
             </div>
 
@@ -3148,7 +3317,7 @@ function MediaLibrary() {
                 <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
                   <Image className="h-12 w-12 mb-4 opacity-50" />
                   <p>Ingen filer i denne mappen</p>
-                  <p className="text-sm">Last opp filer via URL for å komme i gang</p>
+                  <p className="text-sm">Klikk "Last opp" for å legge til bilder</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-4 gap-4">
@@ -3256,7 +3425,7 @@ function MediaLibrary() {
               <Button variant="outline" onClick={() => setShowNewFolder(false)}>Avbryt</Button>
               <Button
                 onClick={() => createFolderMutation.mutate(newFolderName)}
-                disabled={!newFolderName || createFolderMutation.isPending}
+                disabled={!newFolderName.trim() || createFolderMutation.isPending}
                 data-testid="button-create-folder"
               >
                 {createFolderMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -3666,7 +3835,7 @@ function SEOEditor() {
                     </label>
                     <div>
                       <Label className="text-xs">Prioritet</Label>
-                      <Input type="number" min={0} max={1} step={0.1} value={editingPage?.priority ?? 0.5} onChange={e => setEditingPage({ ...editingPage!, priority: parseFloat(e.target.value) })} />
+                      <Input type="number" min={0} max={1} step={0.1} value={editingPage?.priority ?? 0.5} onChange={e => { const val = parseFloat(e.target.value); setEditingPage({ ...editingPage!, priority: isNaN(val) ? 0 : val }); }} />
                     </div>
                     <div>
                       <Label className="text-xs">Endringsfrekvens</Label>
@@ -3968,6 +4137,11 @@ function FormBuilder() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Sidene på tidum.no bruker sine egne innebygde kontaktskjemaer, ikke
+        skjemaene herfra. Skjemaer opprettet i Skjemabygger lagres, men er
+        ikke koblet til noen side ennå — de mottar ingen reelle innsendelser.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
@@ -4096,7 +4270,8 @@ function FormBuilder() {
               <div className="space-y-3">
                 {selectedForm.fields?.map((field, index) => (
                   <div key={field.id} className="flex gap-3 items-start p-3 bg-muted/50 rounded-lg">
-                    <div className="flex-1 grid grid-cols-4 gap-3">
+                    <div className="flex-1 space-y-3">
+                    <div className="grid grid-cols-4 gap-3">
                       <Input
                         value={field.label}
                         onChange={(e) => updateField(field.id, { label: e.target.value })}
@@ -4136,6 +4311,50 @@ function FormBuilder() {
                           Påkrevd
                         </label>
                       </div>
+                    </div>
+                    {field.type === 'select' && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Valg i nedtrekksliste</Label>
+                        {(field.options ?? []).map((opt, optIndex) => (
+                          <div key={optIndex} className="flex gap-1.5">
+                            <Input
+                              className="h-8 text-sm"
+                              value={opt}
+                              onChange={(e) => {
+                                const opts = [...(field.options ?? [])];
+                                opts[optIndex] = e.target.value;
+                                updateField(field.id, { options: opts });
+                              }}
+                              data-testid={`input-field-option-${index}-${optIndex}`}
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 shrink-0"
+                              onClick={() => {
+                                const opts = (field.options ?? []).filter((_, i) => i !== optIndex);
+                                updateField(field.id, { options: opts });
+                              }}
+                              data-testid={`button-remove-option-${index}-${optIndex}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateField(field.id, { options: [...(field.options ?? []), `Valg ${(field.options?.length ?? 0) + 1}`] })}
+                          data-testid={`button-add-option-${index}`}
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                          Legg til valg
+                        </Button>
+                        {(field.options ?? []).length === 0 && (
+                          <p className="text-xs text-destructive">Nedtrekkslisten trenger minst ett valg for å fungere.</p>
+                        )}
+                      </div>
+                    )}
                     </div>
                     <Button
                       size="icon"
@@ -4190,7 +4409,7 @@ function FormBuilder() {
               <Button variant="outline" onClick={() => setShowNewForm(false)}>Avbryt</Button>
               <Button
                 onClick={() => createFormMutation.mutate(newFormName)}
-                disabled={!newFormName || createFormMutation.isPending}
+                disabled={!newFormName.trim() || createFormMutation.isPending}
                 data-testid="button-create-form"
               >
                 {createFormMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -4333,6 +4552,10 @@ function NavigationEditor() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Lagrede menyer her vises ikke noe sted på nettstedet ennå —
+        endringer lagres, men har ingen synlig effekt.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
@@ -4491,9 +4714,7 @@ function BlogEditor() {
     queryKey: ['/api/cms/posts', filterStatus],
     queryFn: async () => {
       const url = filterStatus ? `/api/cms/posts?status=${filterStatus}&limit=100` : '/api/cms/posts?limit=100';
-      const res = await fetch(url);
-      const data = await res.json();
-      return data;
+      return authenticatedApiRequest(url);
     }
   });
   const posts: BlogPost[] = Array.isArray(postsResponse) ? postsResponse : (postsResponse?.posts ?? []);
@@ -4501,8 +4722,7 @@ function BlogEditor() {
   const { data: categoriesData, refetch: refetchCategories } = useQuery<BlogCategory[]>({
     queryKey: ['/api/cms/categories'],
     queryFn: async () => {
-      const res = await fetch('/api/cms/categories');
-      const data = await res.json();
+      const data = await authenticatedApiRequest('/api/cms/categories');
       return Array.isArray(data) ? data : [];
     }
   });
@@ -4533,6 +4753,9 @@ function BlogEditor() {
       setShowNewPost(false);
       setSelectedPost(newPost);
       toast({ title: "Innlegg opprettet" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke opprette innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -4546,6 +4769,9 @@ function BlogEditor() {
     onSuccess: () => {
       refetchPosts();
       toast({ title: "Innlegg oppdatert" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke oppdatere innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -4557,6 +4783,9 @@ function BlogEditor() {
       refetchPosts();
       setSelectedPost(null);
       toast({ title: "Innlegg slettet" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke slette innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -5145,7 +5374,7 @@ function BlogEditor() {
                   <Button variant="outline" onClick={() => setShowNewPost(false)}>Avbryt</Button>
                   <Button
                     onClick={() => createPostMutation.mutate(newPostTitle)}
-                    disabled={!newPostTitle || createPostMutation.isPending}
+                    disabled={!newPostTitle.trim() || createPostMutation.isPending}
                     data-testid="button-create-post"
                   >
                     {createPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
@@ -5400,6 +5629,9 @@ function WhyStatsEditor({ stats }: { stats: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setNewItem({ value: "", label: "" });
       toast({ title: "Opprettet", description: "Statistikk lagt til." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5410,6 +5642,9 @@ function WhyStatsEditor({ stats }: { stats: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5483,6 +5718,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Opprettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5497,6 +5735,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setEditingId(null);
       toast({ title: "Oppdatert" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke oppdatere.", variant: "destructive" });
     }
   });
 
@@ -5507,6 +5748,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5617,6 +5861,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Opprettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5631,6 +5878,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setEditingId(null);
       toast({ title: "Oppdatert" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke oppdatere.", variant: "destructive" });
     }
   });
 
@@ -5641,6 +5891,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5760,6 +6013,9 @@ function WhyNordicEditor({ content }: { content: any }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Lagret" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5870,6 +6126,9 @@ function WhyCtaEditor({ content }: { content: any }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Lagret" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -6308,6 +6567,9 @@ function VersionHistory() {
     blog_post: 'Blogginnlegg',
     navigation: 'Navigasjon',
     form: 'Skjema',
+    portal_settings: 'Portal-innstillinger',
+    cms_pages: 'Sideinnhold',
+    cms_publish: 'Publisering',
   };
 
   const contentTypeIcons: Record<string, LucideIcon> = {
@@ -6320,6 +6582,9 @@ function VersionHistory() {
     blog_post: Newspaper,
     navigation: Menu,
     form: FormInput,
+    portal_settings: PenTool,
+    cms_pages: FileText,
+    cms_publish: UploadCloud,
   };
 
   const formatDate = (dateString: string) => {
@@ -6492,13 +6757,18 @@ function VersionHistory() {
                 </pre>
               </div>
 
+              {selectedVersion.content_type === 'cms_publish' && (
+                <p className="text-xs text-muted-foreground">
+                  Dette er en historisk publiseringshendelse, ikke redigerbart innhold, og kan ikke gjenopprettes.
+                </p>
+              )}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button variant="outline" onClick={() => setShowDetailDialog(false)}>
                   Lukk
                 </Button>
                 <Button
                   onClick={() => restoreMutation.mutate(selectedVersion.id)}
-                  disabled={restoreMutation.isPending}
+                  disabled={restoreMutation.isPending || selectedVersion.content_type === 'cms_publish'}
                   data-testid="button-restore-version"
                 >
                   {restoreMutation.isPending ? (
@@ -7066,6 +7336,12 @@ function EmailEditor() {
               <CardDescription>Konfigurer e-postserver for utsendelse</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <NotYetLiveWarning>
+                Disse innstillingene lagres, men den faktiske e-posttjenesten
+                bruker SMTP-oppsett fra servermiljøvariabler, ikke verdiene
+                herfra. Å endre felter under har ingen effekt på reell
+                e-postutsendelse.
+              </NotYetLiveWarning>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="smtp-host">SMTP-server</Label>
@@ -8271,7 +8547,6 @@ function VendorManagement() {
     onSuccess: () => {
       toast({ title: 'Opprettet', description: 'Administrator er opprettet' });
       refetchAdmins();
-      setShowAdminDialog(false);
       setAdminForm({ username: '', email: '', password: '' });
     },
     onError: (error: any) => {
@@ -8524,8 +8799,9 @@ function VendorManagement() {
                 <Input
                   id="vendor-max-users"
                   type="number"
+                  min={0}
                   value={vendorForm.maxUsers}
-                  onChange={(e) => setVendorForm({ ...vendorForm, maxUsers: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => setVendorForm({ ...vendorForm, maxUsers: Math.max(0, parseInt(e.target.value) || 0) })}
                   data-testid="input-vendor-max-users"
                 />
               </div>
@@ -8960,6 +9236,10 @@ function PortalDesigner() {
 
   return (
     <div className="space-y-4">
+      <NotYetLiveWarning>
+        Innstillingene her lagres, men brukes ikke av den faktiske
+        portalen (sidebar/header) ennå — endringer har ingen synlig effekt.
+      </NotYetLiveWarning>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
@@ -9137,17 +9417,20 @@ function PortalDesigner() {
                       <div className="p-3 pt-8 space-y-1">
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleNavDragEnd}>
                           <SortableContext items={navItems.map((_, i) => `nav-${i}`)} strategy={verticalListSortingStrategy}>
-                            {navItems.filter(i => i.enabled).map((item, index) => (
+                            {navItems
+                              .map((item, originalIndex) => ({ item, originalIndex }))
+                              .filter(({ item }) => item.enabled)
+                              .map(({ item, originalIndex }) => (
                               <SortableNavItem
                                 key={item.path}
-                                id={`nav-${index}`}
+                                id={`nav-${originalIndex}`}
                                 item={item}
-                                index={index}
-                                isSelected={selectedNavIndex === index}
+                                index={originalIndex}
+                                isSelected={selectedNavIndex === originalIndex}
                                 primaryColor={settings.primary_color}
                                 onClick={() => {
                                   setSelectedRegion('nav-item');
-                                  setSelectedNavIndex(index);
+                                  setSelectedNavIndex(originalIndex);
                                 }}
                               />
                             ))}

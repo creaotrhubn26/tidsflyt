@@ -11,6 +11,7 @@ interface PipelineSummary {
   stage_slug: string;
   stage_label: string;
   probability_pct: number;
+  is_terminal: boolean;
   lead_count: string;
   weighted_arr_kr: string;
   weighted_arr_kr_unweighted: string;
@@ -36,9 +37,15 @@ export default function AdminSalg() {
     queryKey: ["/api/admin/leads/pipeline-summary"],
   });
 
-  const totalLeads = summary?.reduce((sum, s) => sum + Number(s.lead_count || 0), 0) ?? 0;
-  const totalWeightedArr = summary?.reduce((sum, s) => sum + Number(s.weighted_arr_kr || 0), 0) ?? 0;
-  const totalUnweightedArr = summary?.reduce((sum, s) => sum + Number(s.weighted_arr_kr_unweighted || 0), 0) ?? 0;
+  // Terminal stages (won/lost) are closed outcomes, not open pipeline — a
+  // lead sitting in "Tapt" or "Vunnet" isn't "active", so it's excluded
+  // from these three headline sums. It still gets its own row further
+  // down, so the closed count/value is still visible, just not folded
+  // into "active pipeline".
+  const activeStages = summary?.filter((s) => !s.is_terminal) ?? [];
+  const totalLeads = activeStages.reduce((sum, s) => sum + Number(s.lead_count || 0), 0);
+  const totalWeightedArr = activeStages.reduce((sum, s) => sum + Number(s.weighted_arr_kr || 0), 0);
+  const totalUnweightedArr = activeStages.reduce((sum, s) => sum + Number(s.weighted_arr_kr_unweighted || 0), 0);
 
   return (
     <PortalLayout>
@@ -89,6 +96,9 @@ export default function AdminSalg() {
                     <span>
                       <strong>{s.stage_label}</strong>
                       <span className="ml-2 text-muted-foreground">({s.probability_pct}%)</span>
+                      {s.is_terminal && (
+                        <span className="ml-2 text-xs text-muted-foreground">— lukket, ikke i aktiv pipeline</span>
+                      )}
                     </span>
                     <span className="tabular-nums">
                       {s.lead_count} leads · {new Intl.NumberFormat("no-NO").format(Number(s.weighted_arr_kr))} kr

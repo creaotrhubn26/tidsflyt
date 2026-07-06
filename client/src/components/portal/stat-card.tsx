@@ -336,16 +336,16 @@ export function StatCard({
   const content = (
     <CardContent className="p-5 sm:p-6">
       <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 flex-1 min-h-[88px]">
+        <div className="min-w-0 flex-1 min-h-[96px]">
           {/* Title + info tooltip */}
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-medium text-[#5f7075] dark:text-muted-foreground">
+          <div className="flex items-start gap-1.5">
+            <p className="line-clamp-2 text-sm font-medium leading-snug text-[#5f7075] dark:text-muted-foreground">
               {title}
             </p>
             {description && (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Info className="h-3.5 w-3.5 shrink-0 text-[#5d6d72]/40 dark:text-muted-foreground/40 hover:text-[#5d6d72] dark:hover:text-muted-foreground transition-colors cursor-help" />
+                  <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#5d6d72]/40 dark:text-muted-foreground/40 hover:text-[#5d6d72] dark:hover:text-muted-foreground transition-colors cursor-help" />
                 </TooltipTrigger>
                 <TooltipContent
                   side="top"
@@ -381,8 +381,10 @@ export function StatCard({
             </p>
           )}
 
-          {/* Trend pill — always reserves vertical space for stable layout */}
-          <div className="mt-2 min-h-[22px]">{trendPill}</div>
+          {/* Trend pill — reserves vertical space for stable layout. Hidden
+              in the empty state: a "0.0%" trend next to "Ingen data" reads
+              as noise, since there's nothing yet to compare against. */}
+          <div className="mt-2 min-h-[22px]">{showEmpty ? null : trendPill}</div>
         </div>
 
         {/* Icon capsule — variant-driven */}

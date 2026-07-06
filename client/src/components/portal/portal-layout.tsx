@@ -513,10 +513,48 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker, navConfig.portalSidebarOverrides],
   );
 
-  const activePageLabel = useMemo(
-    () => navItems.find((item) => item.path === location)?.label || "Dashboard",
-    [location, navItems],
-  );
+  const activePageLabel = useMemo(() => {
+    // Lengste prefiks-match, med fallback til den ufiltrerte basislisten —
+    // ruter kan være tilgjengelige (f.eks. /tiltaksleder for admin) selv om
+    // nav-elementet er filtrert bort for rollen.
+    const byPrefix = (items: readonly { path: string; label: string; kind?: string }[]) =>
+      items
+        .filter((item) => item.kind !== "modal" && item.path.startsWith("/"))
+        .filter((item) => location === item.path || location.startsWith(`${item.path}/`))
+        .sort((a, b) => b.path.length - a.path.length)[0]?.label;
+    // Pages that are live and reachable (dashboard shortcuts, CMS-configurable
+    // sidebar entries) but aren't part of the static baseNavItems array, so
+    // the prefix match above never finds them and would otherwise mislabel
+    // the header "Dashboard".
+    const ORPHAN_ROUTE_LABELS: Record<string, string> = {
+      "/case-reports": "Saksrapporter",
+      "/profile": "Profil",
+      "/admin/case-reviews": "Saksgodkjenning",
+    };
+    const byOrphanRoute = () =>
+      Object.entries(ORPHAN_ROUTE_LABELS).find(
+        ([path]) => location === path || location.startsWith(`${path}/`),
+      )?.[1];
+    return byPrefix(navItems) || byPrefix(baseNavItems) || byOrphanRoute() || "Dashboard";
+  }, [location, navItems]);
+
+  // Longest-prefix match wins, computed once across ALL nav items — so when
+  // one item's path is itself a prefix of another (e.g. "/rapporter" and
+  // "/rapporter/godkjenning"), only the more specific one lights up instead
+  // of both matching their own independent startsWith check.
+  const activeNavPath = useMemo(() => {
+    const isDashboard = location === "/dashboard" || location === "/";
+    if (isDashboard) return "/dashboard";
+    // /profile and /settings render the identical Profile component (see
+    // App.tsx) but only "/settings" ("Innstillinger") is a real sidebar
+    // item — alias so the sidebar still highlights something sensible.
+    const effectiveLocation = location === "/profile" || location.startsWith("/profile/") ? "/settings" : location;
+    const candidates = navItems.filter((item) => item.kind !== "modal" && item.path.startsWith("/"));
+    const match = candidates
+      .filter((item) => effectiveLocation === item.path || effectiveLocation.startsWith(`${item.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0];
+    return match?.path;
+  }, [location, navItems]);
 
   const toggleSidebar = useCallback(() => {
     setCollapsed((previous) => !previous);
@@ -600,9 +638,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                   <div className="mx-2 my-1 border-t border-white/10" aria-hidden />
                 )}
                 {itemsInCategory.map((item) => {
-                  const isActive = item.path === "/dashboard"
-                    ? location === "/dashboard" || location === "/"
-                    : location === item.path || (item.path !== "/" && location.startsWith(item.path + "/"));
+                  const isActive = item.path === activeNavPath;
                   const Icon = item.icon;
                   const itemClassName = cn(
                     "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors w-full",
@@ -684,7 +720,11 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
                     {currentUser.name}
                   </p>
                   <p className="text-xs text-[#bad0d5] truncate">
-                    {isPreviewActive ? `${previewModeLabel} visning` : currentUser.email}
+                    {isPreviewActive
+                      ? `${previewModeLabel} visning`
+                      : currentUser.email && currentUser.email !== currentUser.name
+                        ? currentUser.email
+                        : actualRoleLabel}
                   </p>
                 </div>
               )}
@@ -693,7 +733,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
           <DropdownMenuContent align="end" className="w-56">
             <div className="px-2 py-1.5">
               <p className="text-sm font-medium">{currentUser.name}</p>
-              {currentUser.email ? (
+              {currentUser.email && currentUser.email !== currentUser.name ? (
                 <p className="text-xs text-muted-foreground">{currentUser.email}</p>
               ) : null}
               {resolvedPortalUser ? <div className="mt-1">{getRoleBadge(actualRole)}</div> : null}

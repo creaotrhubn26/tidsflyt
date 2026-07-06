@@ -92,18 +92,22 @@ export default function Pricing() {
   }>({
     queryKey: ["/api/cms/pages/pricing"],
   });
+  // Admin promises "tom verdi gir innebygd standardtekst" (empty value
+  // falls back to the built-in default) in admin-salg-sidetekster.tsx —
+  // `??` only falls back for null/undefined, not for a field the admin
+  // cleared to "", so this must use `||` to honor that promise.
   const copy = {
-    title: cms?.title ?? "Priser",
+    title: cms?.title || "Priser",
     subtitle:
-      cms?.subtitle ??
+      cms?.subtitle ||
       "Per bruker per måned, fakturert årlig forskuddsvis. Større team får lavere pris per bruker. Velg antall ansatte under for å se hva det vil koste dere.",
-    calculatorTitle: cms?.calculator_title ?? "Hva koster Tidum for dere?",
-    calculatorUserLabel: cms?.calculator_user_label ?? "Antall brukere",
-    ctaRequestAccess: cms?.cta_request_access ?? "Be om tilgang",
-    ctaEnterprise: cms?.cta_enterprise ?? "Be om Enterprise-tilbud",
-    ctaContactSales: cms?.cta_contact_sales ?? "Kontakt salg",
+    calculatorTitle: cms?.calculator_title || "Hva koster Tidum for dere?",
+    calculatorUserLabel: cms?.calculator_user_label || "Antall brukere",
+    ctaRequestAccess: cms?.cta_request_access || "Be om tilgang",
+    ctaEnterprise: cms?.cta_enterprise || "Be om Enterprise-tilbud",
+    ctaContactSales: cms?.cta_contact_sales || "Kontakt salg",
     footerNote:
-      cms?.footer_note ??
+      cms?.footer_note ||
       "Faktureres årlig forskuddsvis. Bindingstid fra første dag. Avtalen fornyes automatisk; oppsigelse må sendes skriftlig før utløp. Vikarer og sesongarbeidere kan dekkes som Flex-brukere uten å belaste tier-båndet.",
   };
 

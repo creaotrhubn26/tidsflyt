@@ -68,7 +68,8 @@ function getPeriodLabel(range: TimeRange): string {
     case "week": {
       const start = startOfISOWeek(now);
       const end = endOfISOWeek(now);
-      return `Denne uken (${format(start, "d", { locale: nb })}\u2013${format(end, "d MMM", { locale: nb })})`;
+      const sameMonth = start.getMonth() === end.getMonth();
+      return `Denne uken (${format(start, sameMonth ? "d" : "d MMM", { locale: nb })}\u2013${format(end, "d MMM", { locale: nb })})`;
     }
     case "month":
       return `Denne måneden (${format(now, "MMMM yyyy", { locale: nb })})`;
@@ -117,6 +118,12 @@ export function DashboardHero({
     : isMiljoarbeider
       ? "/rapporter"
       : "/reports";
+  // pendingApprovals means different things per mode: for tiltaksleder it's
+  // reports awaiting approval (reviewed at /rapporter/godkjenning) — sending
+  // them to /time-tracking is a dead end, since that page explicitly tells
+  // tiltaksledere they don't register time there and to use the report flow
+  // instead. For the default/admin mode it's pending user-account approvals.
+  const approvalActionPath = isTiltaksleder ? "/rapporter/godkjenning" : "/time-tracking";
 
   /* ── Live relative-time state ── */
   const [relativeTime, setRelativeTime] = useState<string | null>(null);
@@ -147,17 +154,23 @@ export function DashboardHero({
               title
             )}
           </p>
-          {/* Period + live last-updated */}
-          <p className="text-xs text-muted-foreground truncate flex items-center gap-1.5">
-            {subtitle ? `${subtitle} · ` : ""}{periodLabel}
+          {/* Period + live last-updated. The truncatable text lives in its
+              own span — Tailwind's `truncate` (nowrap + ellipsis) has no
+              effect directly on a `flex` container, since flex children
+              wrap onto the flex line and get hard-clipped instead of
+              ellipsised. */}
+          <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+            <span className="truncate">
+              {subtitle ? `${subtitle} · ` : ""}{periodLabel}
+            </span>
             {!statsFetching && relativeTime && (
-              <>
+              <span className="flex shrink-0 items-center gap-1.5">
                 <span className="text-muted-foreground/40">—</span>
                 <span className="inline-flex items-center gap-1">
                   <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 flex-shrink-0" />
                   {relativeTime}
                 </span>
-              </>
+              </span>
             )}
           </p>
         </div>
@@ -206,7 +219,7 @@ export function DashboardHero({
                       }
                     />
                   )}
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon className="relative h-3.5 w-3.5" />
                   <span className="relative hidden sm:inline">{btn.label}</span>
                 </button>
               );
@@ -224,7 +237,7 @@ export function DashboardHero({
           </Button>
           {pendingApprovals > 0 && (
             <Button
-              onClick={() => navigate("/time-tracking")}
+              onClick={() => navigate(approvalActionPath)}
               variant="outline"
               size="sm"
               className="gap-1.5"
@@ -308,7 +321,7 @@ export function DashboardHero({
           {/* "Godkjenn" badge-button */}
           {pendingApprovals > 0 && (
             <Button
-              onClick={() => navigate("/time-tracking")}
+              onClick={() => navigate(approvalActionPath)}
               variant="outline"
               size="sm"
               className="gap-1.5 border-border text-muted-foreground hover:bg-accent"
@@ -385,7 +398,7 @@ export function DashboardHero({
                     }
                   />
                 ) : null}
-                <Icon className="h-4 w-4" />
+                <Icon className="relative h-4 w-4" />
                 <span className="relative hidden sm:inline">{btn.label}</span>
               </button>
             );

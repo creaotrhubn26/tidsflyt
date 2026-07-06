@@ -749,6 +749,22 @@ export default function TimeTrackingPage() {
     return sum + e.hours;
   }, 0);
 
+  // Actual first-in/last-out span from today's real entries — this used to
+  // be a hardcoded "08:00 - 16:00" shown regardless of whether the user had
+  // logged anything (or even had any assigned cases) today.
+  const todayClockSpan = useMemo(() => {
+    if (safeTodayEntries.length === 0) return null;
+    const sorted = [...safeTodayEntries].sort(
+      (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+    );
+    const first = sorted[0];
+    const last = sorted[sorted.length - 1];
+    return {
+      from: format(new Date(first.createdAt), "HH:mm", { locale: nb }),
+      to: format(new Date(last.createdAt), "HH:mm", { locale: nb }),
+    };
+  }, [safeTodayEntries]);
+
   const totalLast30Days = useMemo(() => {
     return safeLast30DaysEntries.reduce((sum, e) => {
       if (e.caseNumber === "client_sick") return sum;
@@ -965,13 +981,13 @@ export default function TimeTrackingPage() {
     const fullName = `${firstName} ${lastName}`.trim();
     if (fullName) return fullName;
     if (user?.email) return user.email.split("@")[0];
-    return "Maria L.";
+    return "Ukjent bruker";
   }, [user?.email, user?.firstName, user?.lastName]);
 
-  const greetingName = useMemo(() => {
-    const [firstName] = workerLabel.split(" ");
-    return firstName || "Maria";
-  }, [workerLabel]);
+  // Bruk kun det faktiske fornavnet i hilsenen — workerLabel sin
+  // e-post-prefiks-fallback er fin i identitetslinjen ("Miljøarbeider: dev"),
+  // men leser rart som en hilsen ("Hei, dev!").
+  const greetingName = user?.firstName?.trim() || "";
   const selectedClientLabel = selectedProject ? resolveCaseLabel(selectedProject) : "Velg case i feltet over";
   const sessionHours = elapsedSeconds > 0 ? elapsedSeconds / 3600 : totalToday;
   const sessionDurationLabel = formatHoursWithMinutes(sessionHours);
@@ -1134,7 +1150,9 @@ export default function TimeTrackingPage() {
             <Card className="overflow-hidden border-[#d8e5e1] bg-[#f5faf8] shadow-sm dark:border-slate-700/60 dark:bg-slate-900/60" data-testid="timer-card">
               <CardContent className="p-0">
                 <div className="bg-[linear-gradient(180deg,#f7fbf9_0%,#eef5f2_100%)] px-5 py-5 dark:bg-[linear-gradient(180deg,rgba(28,42,50,0.95)_0%,rgba(20,30,36,0.96)_100%)] md:px-8">
-                  <h2 className="text-3xl font-semibold tracking-tight text-[#22353a] dark:text-slate-100 md:text-4xl">Hei, {greetingName}!</h2>
+                  <h2 className="text-3xl font-semibold tracking-tight text-[#22353a] dark:text-slate-100 md:text-4xl">
+                    {greetingName ? `Hei, ${greetingName}!` : "Hei!"}
+                  </h2>
                   <p className="mt-1 text-sm text-[#5f7277] dark:text-slate-300 md:text-base" data-testid="current-date">
                     {format(currentTime, "EEEE d. MMMM yyyy", { locale: nb })}
                   </p>
@@ -1338,8 +1356,12 @@ export default function TimeTrackingPage() {
                     <div className="grid gap-3">
                       <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
                         <p className="text-2xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-3xl">Oppfølging i dag</p>
-                        <p className="mt-2 text-3xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-4xl">08:00 - 16:00</p>
-                        <p className="mt-1 text-sm text-[#53666b] dark:text-slate-300 md:text-base">Registrert i dag {formatHoursWithMinutes(totalToday)}</p>
+                        <p className="mt-2 text-3xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-4xl">
+                          {todayClockSpan ? `${todayClockSpan.from} - ${todayClockSpan.to}` : "—"}
+                        </p>
+                        <p className="mt-1 text-sm text-[#53666b] dark:text-slate-300 md:text-base">
+                          {todayClockSpan ? `Registrert i dag ${formatHoursWithMinutes(totalToday)}` : "Ingen registrering i dag"}
+                        </p>
                       </div>
                       <div className="rounded-2xl border border-[#d8e5e1] bg-white/90 p-4 dark:border-slate-700/60 dark:bg-slate-900/75">
                         <p className="text-2xl font-medium tracking-tight text-[#1f3338] dark:text-slate-100 md:text-3xl">Oppfølging sist uke</p>

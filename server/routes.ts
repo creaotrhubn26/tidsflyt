@@ -6076,8 +6076,10 @@ export async function registerRoutes(
   // Builder Pages CRUD (Visual Editor)
   // ═══════════════════════════════════════════
 
-  // List all builder pages
-  app.get("/api/cms/builder-pages", async (_req, res) => {
+  // List all builder pages (admin-only, like the create/update/delete
+  // routes below — this used to have no auth at all, letting anyone read
+  // every draft/scheduled/archived page's full content and metadata).
+  app.get("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (_req, res) => {
     try {
       const pages = await db.select().from(builderPages).orderBy(desc(builderPages.updatedAt));
       res.json(pages);
@@ -6086,8 +6088,8 @@ export async function registerRoutes(
     }
   });
 
-  // Get a single builder page by id
-  app.get("/api/cms/builder-pages/:id", async (req, res) => {
+  // Get a single builder page by id (admin-only — same issue as above).
+  app.get("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [page] = await db.select().from(builderPages).where(eq(builderPages.id, id));
@@ -6098,10 +6100,17 @@ export async function registerRoutes(
     }
   });
 
-  // Get a builder page by slug (for public rendering)
+  // Get a builder page by slug (for public rendering). This one must stay
+  // public (it's what /p/:slug actually renders for visitors), but it had
+  // no status check at all — a draft/scheduled/archived page was served
+  // identically to a published one to any visitor who knew or guessed its
+  // slug. There's no separate admin-preview flow for this route (confirmed
+  // client/src/pages/builder-page.tsx is the only consumer), so restricting
+  // to published-only here doesn't break any legitimate preview use.
   app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
     try {
-      const [page] = await db.select().from(builderPages).where(eq(builderPages.slug, req.params.slug));
+      const [page] = await db.select().from(builderPages)
+        .where(and(eq(builderPages.slug, req.params.slug), eq(builderPages.status, "published")));
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
     } catch (error: any) {
@@ -6110,13 +6119,18 @@ export async function registerRoutes(
   });
 
   // Create a new builder page
+  const builderPageCreateSchema = insertBuilderPageSchema.extend({
+    title: z.string().trim().min(1, "Tittel kan ikke være tom"),
+    slug: z.string().trim().min(1, "Slug kan ikke være tom"),
+  });
   app.post("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
-      const data = insertBuilderPageSchema.parse(req.body);
+      const data = builderPageCreateSchema.parse(req.body);
       const [page] = await db.insert(builderPages).values(data).returning();
       res.status(201).json(page);
     } catch (error: any) {
-      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error.code === '23505' || error.cause?.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Ugyldige data" });
       res.status(400).json({ error: error.message });
     }
   });
@@ -6128,7 +6142,14 @@ export async function registerRoutes(
       const { title, slug, description, sections: pageSections, themeKey, status,
               metaTitle, metaDescription, ogImage, canonicalUrl, scheduledAt,
               globalHeader, globalFooter, customCss, locale, translationOf } = req.body;
-      
+
+      if (title !== undefined && title.trim().length === 0) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (slug !== undefined && slug.trim().length === 0) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       // Save current version before updating
       const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, id));
       if (currentPage) {
@@ -6170,7 +6191,7 @@ export async function registerRoutes(
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
     } catch (error: any) {
-      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error.code === '23505' || error.cause?.code === '23505') return res.status(409).json({ error: "Slug already exists" });
       res.status(400).json({ error: error.message });
     }
   });
@@ -6404,7 +6425,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cms/upload", cmsUpload.single('image'), async (req: any, res) => {
+  // Was missing auth entirely — anyone could upload arbitrary images to
+  // the server's disk and get back a public /uploads/cms/... URL, with no
+  // login required at all.
+  app.post("/api/cms/upload", isAuthenticated, requireAdminRole, cmsUpload.single('image'), async (req: any, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const originalPath = req.file.path;

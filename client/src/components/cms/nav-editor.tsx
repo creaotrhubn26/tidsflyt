@@ -55,6 +55,8 @@ const SIDEBAR_PATHS: { path: string; defaultLabel: string; defaultCategory: stri
   { path: "/vendors",               defaultLabel: "Leverandører",               defaultCategory: "administrasjon" },
   { path: "/cms",                   defaultLabel: "CMS",                        defaultCategory: "administrasjon" },
   { path: "/admin/tester-feedback", defaultLabel: "Tester-feedback",            defaultCategory: "administrasjon" },
+  { path: "/admin/salg",            defaultLabel: "Salg & Priser",              defaultCategory: "administrasjon" },
+  { path: "/admin/leads",           defaultLabel: "Leads",                      defaultCategory: "administrasjon" },
   { path: "/settings",              defaultLabel: "Innstillinger",              defaultCategory: "system" },
 ];
 
