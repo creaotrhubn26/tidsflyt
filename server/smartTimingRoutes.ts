@@ -5360,6 +5360,37 @@ export function registerSmartTimingRoutes(app: Express) {
           );
           restored = true;
           break;
+
+        case 'portal_settings':
+          await pool.query(
+            `UPDATE portal_settings SET logo_url = $1, logo_text = $2, primary_color = $3,
+             accent_color = $4, sidebar_bg = $5, header_bg = $6, content_bg = $7, footer_bg = $8,
+             custom_css = $9, nav_items = $10, footer_text = $11, show_branding = $12,
+             tokens = $13, layout = $14, updated_at = NOW() WHERE id = $15`,
+            [versionData.logo_url, versionData.logo_text, versionData.primary_color,
+             versionData.accent_color, versionData.sidebar_bg, versionData.header_bg,
+             versionData.content_bg, versionData.footer_bg, versionData.custom_css,
+             JSON.stringify(versionData.nav_items || []), versionData.footer_text,
+             versionData.show_branding, JSON.stringify(versionData.tokens || {}),
+             JSON.stringify(versionData.layout || {}), content_id]
+          );
+          restored = true;
+          break;
+
+        case 'cms_pages':
+          await pool.query(
+            `UPDATE cms_pages SET content = $1, updated_at = NOW() WHERE id = $2`,
+            [JSON.stringify(versionData), content_id]
+          );
+          restored = true;
+          break;
+
+        case 'cms_publish':
+          // A publish event is a historical log entry, not live editable
+          // content — there's no row to restore it "into". Handled as an
+          // explicit no-op with a clear message rather than falling through
+          // to the generic "cannot restore" error.
+          return res.status(400).json({ error: 'Publiseringshendelser er historikk og kan ikke gjenopprettes.' });
       }
       
       if (restored) {

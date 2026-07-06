@@ -29,7 +29,7 @@ import {
   Palette, Type, Box, Layers, RefreshCw, Image, FolderOpen, Link2, FormInput, 
   PenTool, Newspaper, FolderPlus, Edit, Inbox, ToggleRight, UserPlus, UserCheck,
   Layout, LayoutDashboard, Monitor, Tablet, Undo2, Redo2, AlertTriangle, Pencil,
-  Lightbulb,
+  Lightbulb, UploadCloud,
   type LucideIcon
 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -6567,6 +6567,9 @@ function VersionHistory() {
     blog_post: 'Blogginnlegg',
     navigation: 'Navigasjon',
     form: 'Skjema',
+    portal_settings: 'Portal-innstillinger',
+    cms_pages: 'Sideinnhold',
+    cms_publish: 'Publisering',
   };
 
   const contentTypeIcons: Record<string, LucideIcon> = {
@@ -6579,6 +6582,9 @@ function VersionHistory() {
     blog_post: Newspaper,
     navigation: Menu,
     form: FormInput,
+    portal_settings: PenTool,
+    cms_pages: FileText,
+    cms_publish: UploadCloud,
   };
 
   const formatDate = (dateString: string) => {
@@ -6751,13 +6757,18 @@ function VersionHistory() {
                 </pre>
               </div>
 
+              {selectedVersion.content_type === 'cms_publish' && (
+                <p className="text-xs text-muted-foreground">
+                  Dette er en historisk publiseringshendelse, ikke redigerbart innhold, og kan ikke gjenopprettes.
+                </p>
+              )}
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <Button variant="outline" onClick={() => setShowDetailDialog(false)}>
                   Lukk
                 </Button>
                 <Button
                   onClick={() => restoreMutation.mutate(selectedVersion.id)}
-                  disabled={restoreMutation.isPending}
+                  disabled={restoreMutation.isPending || selectedVersion.content_type === 'cms_publish'}
                   data-testid="button-restore-version"
                 >
                   {restoreMutation.isPending ? (
