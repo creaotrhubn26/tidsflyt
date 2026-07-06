@@ -4491,9 +4491,7 @@ function BlogEditor() {
     queryKey: ['/api/cms/posts', filterStatus],
     queryFn: async () => {
       const url = filterStatus ? `/api/cms/posts?status=${filterStatus}&limit=100` : '/api/cms/posts?limit=100';
-      const res = await fetch(url);
-      const data = await res.json();
-      return data;
+      return authenticatedApiRequest(url);
     }
   });
   const posts: BlogPost[] = Array.isArray(postsResponse) ? postsResponse : (postsResponse?.posts ?? []);
@@ -4501,8 +4499,7 @@ function BlogEditor() {
   const { data: categoriesData, refetch: refetchCategories } = useQuery<BlogCategory[]>({
     queryKey: ['/api/cms/categories'],
     queryFn: async () => {
-      const res = await fetch('/api/cms/categories');
-      const data = await res.json();
+      const data = await authenticatedApiRequest('/api/cms/categories');
       return Array.isArray(data) ? data : [];
     }
   });

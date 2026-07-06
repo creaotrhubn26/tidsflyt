@@ -4520,7 +4520,12 @@ export function registerSmartTimingRoutes(app: Express) {
   }
 
   // Admin: list posts with pagination
-  app.get("/api/cms/posts", async (req, res) => {
+  // Admin listing (all statuses — draft/scheduled/archived included).
+  // Distinct from the public GET /api/blog below, which always filters to
+  // status='published' — this one has no such filter and, unlike the
+  // matching POST/PUT/DELETE, had no auth at all, so any unauthenticated
+  // request could read every unpublished post in the system.
+  app.get("/api/cms/posts", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status, category_id, page = '1', limit = '20' } = req.query;
       const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -4750,7 +4755,9 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Admin: get post by ID
-  app.get("/api/cms/posts/:id", async (req, res) => {
+  // Admin: fetch any single post by id regardless of status — same
+  // missing-auth issue as the list endpoint above.
+  app.get("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
         'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id WHERE p.id = $1',
