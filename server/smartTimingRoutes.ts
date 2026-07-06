@@ -4476,10 +4476,13 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/forms", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, description, fields, submit_button_text, success_message, notification_email } = req.body;
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Skjemanavn kan ikke være tomt" });
+      }
       const result = await pool.query(
         `INSERT INTO cms_forms (name, description, fields, submit_button_text, success_message, notification_email)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email]
+        [name.trim(), description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -4490,11 +4493,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { name, description, fields, submit_button_text, success_message, notification_email, is_active } = req.body;
+      if (name !== undefined && !name.trim()) {
+        return res.status(400).json({ error: "Skjemanavn kan ikke være tomt" });
+      }
       const result = await pool.query(
-        `UPDATE cms_forms SET name = $1, description = $2, fields = $3, submit_button_text = $4, 
+        `UPDATE cms_forms SET name = $1, description = $2, fields = $3, submit_button_text = $4,
          success_message = $5, notification_email = $6, is_active = $7, updated_at = NOW()
          WHERE id = $8 RETURNING *`,
-        [name, description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email, is_active, req.params.id]
+        [name?.trim(), description, JSON.stringify(fields || []), submit_button_text, success_message, notification_email, is_active, req.params.id]
       );
       res.json(result.rows[0]);
     } catch (err: any) {

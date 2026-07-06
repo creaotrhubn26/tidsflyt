@@ -4124,6 +4124,11 @@ function FormBuilder() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Sidene på tidum.no bruker sine egne innebygde kontaktskjemaer, ikke
+        skjemaene herfra. Skjemaer opprettet i Skjemabygger lagres, men er
+        ikke koblet til noen side ennå — de mottar ingen reelle innsendelser.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
@@ -4252,7 +4257,8 @@ function FormBuilder() {
               <div className="space-y-3">
                 {selectedForm.fields?.map((field, index) => (
                   <div key={field.id} className="flex gap-3 items-start p-3 bg-muted/50 rounded-lg">
-                    <div className="flex-1 grid grid-cols-4 gap-3">
+                    <div className="flex-1 space-y-3">
+                    <div className="grid grid-cols-4 gap-3">
                       <Input
                         value={field.label}
                         onChange={(e) => updateField(field.id, { label: e.target.value })}
@@ -4292,6 +4298,50 @@ function FormBuilder() {
                           Påkrevd
                         </label>
                       </div>
+                    </div>
+                    {field.type === 'select' && (
+                      <div className="space-y-1.5">
+                        <Label className="text-xs">Valg i nedtrekksliste</Label>
+                        {(field.options ?? []).map((opt, optIndex) => (
+                          <div key={optIndex} className="flex gap-1.5">
+                            <Input
+                              className="h-8 text-sm"
+                              value={opt}
+                              onChange={(e) => {
+                                const opts = [...(field.options ?? [])];
+                                opts[optIndex] = e.target.value;
+                                updateField(field.id, { options: opts });
+                              }}
+                              data-testid={`input-field-option-${index}-${optIndex}`}
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              className="h-8 w-8 shrink-0"
+                              onClick={() => {
+                                const opts = (field.options ?? []).filter((_, i) => i !== optIndex);
+                                updateField(field.id, { options: opts });
+                              }}
+                              data-testid={`button-remove-option-${index}-${optIndex}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ))}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => updateField(field.id, { options: [...(field.options ?? []), `Valg ${(field.options?.length ?? 0) + 1}`] })}
+                          data-testid={`button-add-option-${index}`}
+                        >
+                          <Plus className="h-3.5 w-3.5 mr-1" />
+                          Legg til valg
+                        </Button>
+                        {(field.options ?? []).length === 0 && (
+                          <p className="text-xs text-destructive">Nedtrekkslisten trenger minst ett valg for å fungere.</p>
+                        )}
+                      </div>
+                    )}
                     </div>
                     <Button
                       size="icon"
@@ -4346,7 +4396,7 @@ function FormBuilder() {
               <Button variant="outline" onClick={() => setShowNewForm(false)}>Avbryt</Button>
               <Button
                 onClick={() => createFormMutation.mutate(newFormName)}
-                disabled={!newFormName || createFormMutation.isPending}
+                disabled={!newFormName.trim() || createFormMutation.isPending}
                 data-testid="button-create-form"
               >
                 {createFormMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
