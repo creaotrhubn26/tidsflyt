@@ -8493,7 +8493,6 @@ function VendorManagement() {
     onSuccess: () => {
       toast({ title: 'Opprettet', description: 'Administrator er opprettet' });
       refetchAdmins();
-      setShowAdminDialog(false);
       setAdminForm({ username: '', email: '', password: '' });
     },
     onError: (error: any) => {
@@ -8746,8 +8745,9 @@ function VendorManagement() {
                 <Input
                   id="vendor-max-users"
                   type="number"
+                  min={0}
                   value={vendorForm.maxUsers}
-                  onChange={(e) => setVendorForm({ ...vendorForm, maxUsers: parseInt(e.target.value) || 0 })}
+                  onChange={(e) => setVendorForm({ ...vendorForm, maxUsers: Math.max(0, parseInt(e.target.value) || 0) })}
                   data-testid="input-vendor-max-users"
                 />
               </div>

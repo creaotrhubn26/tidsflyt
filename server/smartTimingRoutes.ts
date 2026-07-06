@@ -1119,11 +1119,14 @@ export function registerSmartTimingRoutes(app: Express) {
       if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
         return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
       }
+      if (maxUsers !== undefined && maxUsers !== null && (typeof maxUsers !== 'number' || maxUsers < 0)) {
+        return res.status(400).json({ error: 'Maks antall brukere kan ikke være negativt' });
+      }
 
       const result = await pool.query(
         `INSERT INTO vendors (name, slug, email, phone, address, org_number, institution_type, status, max_users, subscription_plan)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
-        [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
+        [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers === undefined || maxUsers === null ? 50 : maxUsers, subscriptionPlan || 'standard']
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -1150,6 +1153,9 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       if (institutionType && !['privat','offentlig','nav'].includes(institutionType)) {
         return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
+      }
+      if (maxUsers !== undefined && maxUsers !== null && (typeof maxUsers !== 'number' || maxUsers < 0)) {
+        return res.status(400).json({ error: 'Maks antall brukere kan ikke være negativt' });
       }
       const result = await pool.query(
         `UPDATE vendors SET
