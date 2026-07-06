@@ -24,7 +24,7 @@ import {
   Globe, MapPin, Send, Rocket, Award, Target, Briefcase, Settings, Grid3X3,
   Undo2, Redo2, Palette, AlignLeft, AlignCenter, AlignRight, Bold, Italic,
   Search, FileText, Link2, ImageIcon, Trash2, GripVertical, PlusCircle, Lightbulb,
-  Database,
+  Database, AlertTriangle,
   type LucideIcon
 } from "lucide-react";
 
@@ -1407,6 +1407,10 @@ function PropertiesPanel() {
       case 'partners':
         return (
           <div className="space-y-4">
+            <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+              <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+              <span>Tittel og undertekst her lagres ikke — de finnes ikke som felt i databasen og forsvinner ved lagring. Kun partner-logoene under er reelle.</span>
+            </div>
             <div className="space-y-2">
               <Label className="text-xs">Seksjonstittel</Label>
               <Input

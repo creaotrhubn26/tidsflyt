@@ -225,13 +225,27 @@ const iconOptionsWithLabels = [
   { value: "Smartphone", label: "Smarttelefon" },
 ];
 
-function IconSelect({ 
-  value, 
-  onChange, 
-  testId 
-}: { 
-  value: string; 
-  onChange: (value: string) => void; 
+// A handful of CMS sections edit database rows that nothing on the public
+// site (or portal) actually reads yet — the data saves correctly, but has
+// zero visible effect. Found via QA: admins had no way to know this and
+// assumed their edits were live. Until those sections are actually wired
+// up to real rendering, this is an honest heads-up instead of a silent gap.
+function NotYetLiveWarning({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+      <span>{children}</span>
+    </div>
+  );
+}
+
+function IconSelect({
+  value,
+  onChange,
+  testId
+}: {
+  value: string;
+  onChange: (value: string) => void;
   testId?: string;
 }) {
   const selectedIcon = value ? cmsIconMap[value] : null;
@@ -1429,6 +1443,10 @@ function FeaturesEditor({ features }: { features: LandingFeature[] }) {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Denne seksjonen er ikke koblet til den faktiske landingssiden ennå —
+        endringer lagres, men vises ikke for besøkende på /.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <CardTitle>Legg til ny funksjon</CardTitle>
@@ -1747,6 +1765,10 @@ function SectionsEditor({ sections }: { sections: LandingSections | null }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
+      <NotYetLiveWarning>
+        Denne seksjonen er ikke koblet til den faktiske landingssiden ennå —
+        endringer lagres, men vises ikke for besøkende på /.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <CardTitle>Funksjoner-seksjon</CardTitle>
@@ -2436,6 +2458,10 @@ function DesignEditor() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Lagrede design-tokens brukes ikke noe sted i appen ennå — endringer
+        her har ingen synlig effekt.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader className="flex flex-row items-center justify-between gap-4">
           <div>
@@ -4333,6 +4359,10 @@ function NavigationEditor() {
 
   return (
     <div className="space-y-6">
+      <NotYetLiveWarning>
+        Lagrede menyer her vises ikke noe sted på nettstedet ennå —
+        endringer lagres, men har ingen synlig effekt.
+      </NotYetLiveWarning>
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4">
@@ -8957,6 +8987,10 @@ function PortalDesigner() {
 
   return (
     <div className="space-y-4">
+      <NotYetLiveWarning>
+        Innstillingene her lagres, men brukes ikke av den faktiske
+        portalen (sidebar/header) ennå — endringer har ingen synlig effekt.
+      </NotYetLiveWarning>
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h2 className="text-xl font-semibold flex items-center gap-2">
