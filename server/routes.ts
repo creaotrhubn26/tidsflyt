@@ -6119,13 +6119,18 @@ export async function registerRoutes(
   });
 
   // Create a new builder page
+  const builderPageCreateSchema = insertBuilderPageSchema.extend({
+    title: z.string().trim().min(1, "Tittel kan ikke være tom"),
+    slug: z.string().trim().min(1, "Slug kan ikke være tom"),
+  });
   app.post("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (req, res) => {
     try {
-      const data = insertBuilderPageSchema.parse(req.body);
+      const data = builderPageCreateSchema.parse(req.body);
       const [page] = await db.insert(builderPages).values(data).returning();
       res.status(201).json(page);
     } catch (error: any) {
       if (error.code === '23505' || error.cause?.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error instanceof z.ZodError) return res.status(400).json({ error: error.issues[0]?.message || "Ugyldige data" });
       res.status(400).json({ error: error.message });
     }
   });
@@ -6137,7 +6142,14 @@ export async function registerRoutes(
       const { title, slug, description, sections: pageSections, themeKey, status,
               metaTitle, metaDescription, ogImage, canonicalUrl, scheduledAt,
               globalHeader, globalFooter, customCss, locale, translationOf } = req.body;
-      
+
+      if (title !== undefined && title.trim().length === 0) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (slug !== undefined && slug.trim().length === 0) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       // Save current version before updating
       const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, id));
       if (currentPage) {
