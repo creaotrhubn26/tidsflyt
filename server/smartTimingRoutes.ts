@@ -19,8 +19,8 @@ import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/l
 import { ADMIN_ROLES } from "./middleware/auth";
 import { pushTimesheetToPowerOffice } from "./lib/poweroffice-push";
 import { getPowerOfficeVisibility } from "./lib/poweroffice-visibility";
-import { vendorIntegrations, caseReports } from "@shared/schema";
-import { and } from "drizzle-orm";
+import { vendorIntegrations, caseReports, designTokens, sectionDesignSettings } from "@shared/schema";
+import { and, getTableColumns } from "drizzle-orm";
 import { db } from "./db";
 import { processVendorSeatOverrun } from "./lib/seat-overrun";
 import {
@@ -3556,6 +3556,12 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: DESIGN PRESETS ==========
+  // Whitelists of real DB columns, used to guard against building SQL
+  // set-clauses out of untrusted JSONB keys (design_presets.tokens /
+  // section_settings) when applying a preset below.
+  const DESIGN_TOKENS_COLUMNS = new Set(Object.values(getTableColumns(designTokens)).map((c: any) => c.name));
+  const SECTION_DESIGN_SETTINGS_COLUMNS = new Set(Object.values(getTableColumns(sectionDesignSettings)).map((c: any) => c.name));
+
   app.get("/api/cms/design-presets", async (_req, res) => {
     try {
       const result = await pool.query('SELECT * FROM design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
@@ -3613,28 +3619,32 @@ export function registerSmartTimingRoutes(app: Express) {
       if (tokens) {
         const existing = await pool.query('SELECT id FROM design_tokens WHERE is_active = true LIMIT 1');
         if (existing.rows.length > 0) {
-          const columns = Object.keys(tokens).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
-          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
-          const values = columns.map(col => tokens[col]);
-          values.push(existing.rows[0].id);
-          await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          const columns = Object.keys(tokens).filter(k => DESIGN_TOKENS_COLUMNS.has(k) && k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
+          if (columns.length > 0) {
+            const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+            const values = columns.map(col => tokens[col]);
+            values.push(existing.rows[0].id);
+            await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          }
         }
       }
-      
+
       // Apply section settings
       if (section_settings) {
         for (const [sectionName, settings] of Object.entries(section_settings as Record<string, any>)) {
-          const columns = Object.keys(settings).filter(k => k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
+          const columns = Object.keys(settings).filter(k => SECTION_DESIGN_SETTINGS_COLUMNS.has(k) && k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
+          if (columns.length === 0) continue;
           const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
           const values = columns.map(col => settings[col]);
           values.push(sectionName);
           await pool.query(`UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
         }
       }
-      
+
       res.json({ success: true, message: 'Preset applied successfully' });
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error('Error applying design preset:', err);
+      res.status(500).json({ error: 'Kunne ikke bruke forhåndsinnstillingen. Prøv igjen eller kontakt support.' });
     }
   });
 
