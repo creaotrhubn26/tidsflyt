@@ -6125,7 +6125,7 @@ export async function registerRoutes(
       const [page] = await db.insert(builderPages).values(data).returning();
       res.status(201).json(page);
     } catch (error: any) {
-      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error.code === '23505' || error.cause?.code === '23505') return res.status(409).json({ error: "Slug already exists" });
       res.status(400).json({ error: error.message });
     }
   });
@@ -6179,7 +6179,7 @@ export async function registerRoutes(
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
     } catch (error: any) {
-      if (error.code === '23505') return res.status(409).json({ error: "Slug already exists" });
+      if (error.code === '23505' || error.cause?.code === '23505') return res.status(409).json({ error: "Slug already exists" });
       res.status(400).json({ error: error.message });
     }
   });
