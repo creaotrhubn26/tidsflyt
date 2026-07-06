@@ -4368,13 +4368,17 @@ export function registerSmartTimingRoutes(app: Express) {
         robots_txt, sitemap_enabled, sitemap_auto_generate
       } = req.body;
 
+      if (!site_name || !site_name.trim()) {
+        return res.status(400).json({ error: "Nettstedsnavn kan ikke være tomt" });
+      }
+
       // Support both old and new field names
       const gVerif = google_verification || google_site_verification || '';
       const bVerif = bing_verification || bing_site_verification || '';
 
       const result = await pool.query(
-        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
-         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
+        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image,
+         favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled,
          sitemap_auto_generate, updated_at)
          VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
          ON CONFLICT (id) DO UPDATE SET
@@ -4389,7 +4393,7 @@ export function registerSmartTimingRoutes(app: Express) {
          sitemap_auto_generate = COALESCE(EXCLUDED.sitemap_auto_generate, seo_global_settings.sitemap_auto_generate),
          updated_at = NOW()
          RETURNING *`,
-        [site_name || 'Tidum', site_description, default_og_image, favicon_url,
+        [site_name.trim(), site_description, default_og_image, favicon_url,
          gVerif, bVerif, robots_txt, sitemap_enabled, sitemap_auto_generate]
       );
 
@@ -5481,14 +5485,18 @@ export function registerSmartTimingRoutes(app: Express) {
         structured_data, priority, change_frequency
       } = req.body;
 
+      if (!page_path || !page_path.trim()) {
+        return res.status(400).json({ error: "Sidesti kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `INSERT INTO seo_pages (page_path, title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type, twitter_card, twitter_title,
-         twitter_description, twitter_image, robots_index, robots_follow, structured_data, 
+         twitter_description, twitter_image, robots_index, robots_follow, structured_data,
          priority, change_frequency)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
          RETURNING *`,
-        [page_path, title, meta_description, meta_keywords, canonical_url,
+        [page_path.trim(), title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type || 'website', twitter_card || 'summary_large_image',
          twitter_title, twitter_description, twitter_image, robots_index ?? true, robots_follow ?? true,
          structured_data ? JSON.stringify(structured_data) : null, priority || 0.5, change_frequency || 'weekly']
@@ -5510,14 +5518,18 @@ export function registerSmartTimingRoutes(app: Express) {
         structured_data, priority, change_frequency, is_active
       } = req.body;
 
+      if (page_path !== undefined && !page_path.trim()) {
+        return res.status(400).json({ error: "Sidesti kan ikke være tom" });
+      }
+
       const result = await pool.query(
-        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3, 
+        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3,
          meta_keywords = $4, canonical_url = $5, og_title = $6, og_description = $7,
          og_image = $8, og_type = $9, twitter_card = $10, twitter_title = $11,
          twitter_description = $12, twitter_image = $13, robots_index = $14, robots_follow = $15,
          structured_data = $16, priority = $17, change_frequency = $18, is_active = $19, updated_at = NOW()
          WHERE id = $20 RETURNING *`,
-        [page_path, title, meta_description, meta_keywords, canonical_url,
+        [page_path?.trim(), title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type, twitter_card, twitter_title,
          twitter_description, twitter_image, robots_index, robots_follow,
          structured_data ? JSON.stringify(structured_data) : null, priority, change_frequency,

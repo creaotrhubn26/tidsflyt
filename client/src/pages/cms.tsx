@@ -3822,7 +3822,7 @@ function SEOEditor() {
                     </label>
                     <div>
                       <Label className="text-xs">Prioritet</Label>
-                      <Input type="number" min={0} max={1} step={0.1} value={editingPage?.priority ?? 0.5} onChange={e => setEditingPage({ ...editingPage!, priority: parseFloat(e.target.value) })} />
+                      <Input type="number" min={0} max={1} step={0.1} value={editingPage?.priority ?? 0.5} onChange={e => { const val = parseFloat(e.target.value); setEditingPage({ ...editingPage!, priority: isNaN(val) ? 0 : val }); }} />
                     </div>
                     <div>
                       <Label className="text-xs">Endringsfrekvens</Label>
