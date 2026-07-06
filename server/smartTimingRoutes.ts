@@ -7770,7 +7770,6 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const {
         name, target_url, crawl_type = "full",
-        max_pages = 500, max_depth = 10, crawl_delay_ms = 200,
         respect_robots_txt = true, follow_external_links = false,
         follow_subdomains = false, include_images = true,
         include_css = false, include_js = false,
@@ -7785,6 +7784,23 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Validate URL
       try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
+
+      // Destructuring defaults (`= 500`) only kick in for `undefined`, not
+      // `null` — a cleared number input serializes to `null` in JSON, which
+      // slipped straight through into a NOT NULL column and 500'd with a
+      // raw Postgres error. Validate and default explicitly instead.
+      const max_pages = req.body.max_pages === null || req.body.max_pages === undefined ? 500 : Number(req.body.max_pages);
+      const max_depth = req.body.max_depth === null || req.body.max_depth === undefined ? 10 : Number(req.body.max_depth);
+      const crawl_delay_ms = req.body.crawl_delay_ms === null || req.body.crawl_delay_ms === undefined ? 200 : Number(req.body.crawl_delay_ms);
+      if (!Number.isFinite(max_pages) || max_pages < 1) {
+        return res.status(400).json({ error: "Maks sider må være et tall større enn 0" });
+      }
+      if (!Number.isFinite(max_depth) || max_depth < 1) {
+        return res.status(400).json({ error: "Maks dybde må være et tall større enn 0" });
+      }
+      if (!Number.isFinite(crawl_delay_ms) || crawl_delay_ms < 0) {
+        return res.status(400).json({ error: "Forsinkelse må være et tall på 0 eller mer" });
+      }
 
       const result = await pool.query(
         `INSERT INTO crawler_jobs (

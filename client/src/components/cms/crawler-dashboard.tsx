@@ -13,7 +13,7 @@
  * - Schedule recurring crawls
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, Fragment } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient } from "@/lib/queryClient";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -456,14 +456,19 @@ function NewCrawlForm({ onCreated }: { onCreated: (id: number) => void }) {
                   <SelectItem value="url_list">URL-liste</SelectItem>
                 </SelectContent>
               </Select>
+              {(form.crawl_type === "links_only" || form.crawl_type === "sitemap") && (
+                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  Ikke implementert ennå — kjører en full crawl i stedet.
+                </p>
+              )}
             </div>
             <div>
               <Label>Maks sider</Label>
-              <Input type="number" value={form.max_pages} onChange={(e) => updateField("max_pages", parseInt(e.target.value))} min={1} max={10000} />
+              <Input type="number" value={form.max_pages} onChange={(e) => updateField("max_pages", Math.max(1, parseInt(e.target.value) || 500))} min={1} max={10000} />
             </div>
             <div>
               <Label>Maks dybde</Label>
-              <Input type="number" value={form.max_depth} onChange={(e) => updateField("max_depth", parseInt(e.target.value))} min={1} max={50} />
+              <Input type="number" value={form.max_depth} onChange={(e) => updateField("max_depth", Math.max(1, parseInt(e.target.value) || 10))} min={1} max={50} />
             </div>
           </div>
 
@@ -854,7 +859,7 @@ function ResultDetail({ result: r }: { result: CrawlResultRow }) {
             <h4 className="font-semibold text-sm mt-3">Open Graph</h4>
             <div className="grid grid-cols-2 gap-1">
               {Object.entries(r.og_tags).map(([k, v]) => (
-                <><span key={`${k}-l`} className="text-muted-foreground">{k}:</span><span key={`${k}-v`} className="truncate">{v}</span></>
+                <Fragment key={k}><span className="text-muted-foreground">{k}:</span><span className="truncate">{v}</span></Fragment>
               ))}
             </div>
           </>
@@ -1288,6 +1293,14 @@ function ScheduleManager() {
 
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+        <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+        <span>
+          Tidsplaner lagres, men det finnes ennå ingen bakgrunnsjobb som leser
+          dem og faktisk starter en planlagt crawl automatisk. Bruk "Ny
+          crawl"-fanen for å kjøre en crawl manuelt i mellomtiden.
+        </span>
+      </div>
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-semibold">Planlagte crawl-jobber</h3>
         <Button size="sm" onClick={() => setShowNew(true)}>
