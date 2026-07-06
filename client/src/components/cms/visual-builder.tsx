@@ -2058,6 +2058,20 @@ function ContentModelingPanel() {
   );
 }
 
+function MockupPanelWarning({ realEditorLabel }: { realEditorLabel: string }) {
+  return (
+    <div className="rounded-lg border border-amber-300 bg-amber-50 dark:border-amber-800 dark:bg-amber-950/40 px-4 py-3 text-sm text-amber-900 dark:text-amber-200 flex items-start gap-2">
+      <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+      <span>
+        Dette er kun en visuell forhåndsvisning med eksempeldata — "Lagre" gjør
+        ingenting, og listen over er ikke koblet til noen database. Bruk{' '}
+        <strong>{realEditorLabel}</strong> i CMS-adminet (/cms-legacy) for å
+        redigere det som faktisk vises på siden.
+      </span>
+    </div>
+  );
+}
+
 function DesignSystemPanel() {
   const { toast } = useToast();
   const [colors, setColors] = useState({
@@ -2079,6 +2093,7 @@ function DesignSystemPanel() {
 
   return (
     <div className="p-4 space-y-6">
+      <MockupPanelWarning realEditorLabel="Design" />
       <div className="space-y-4">
         <h3 className="text-sm font-medium">Farger</h3>
         <div className="grid gap-3">
@@ -2483,6 +2498,7 @@ function FormsPanel() {
 
   return (
     <div className="p-4 space-y-4">
+      <MockupPanelWarning realEditorLabel="Skjemaer" />
       <Button className="w-full" data-testid="button-create-form">
         <Plus className="h-4 w-4 mr-2" />
         Opprett nytt skjema
@@ -2512,6 +2528,7 @@ function BlogPanel() {
 
   return (
     <div className="p-4 space-y-4">
+      <MockupPanelWarning realEditorLabel="Blogg" />
       <Button className="w-full" data-testid="button-create-post">
         <Plus className="h-4 w-4 mr-2" />
         Nytt blogginnlegg
@@ -2544,6 +2561,7 @@ function EmailPanel() {
 
   return (
     <div className="p-4 space-y-4">
+      <MockupPanelWarning realEditorLabel="E-post" />
       <Button className="w-full" data-testid="button-create-email-template">
         <Plus className="h-4 w-4 mr-2" />
         Ny e-postmal
@@ -2662,6 +2680,7 @@ function PortalPanel() {
 
   return (
     <div className="p-4 space-y-4">
+      <MockupPanelWarning realEditorLabel="Portal" />
       <div className="space-y-3">
         <h3 className="text-sm font-medium">Brukerportal-innstillinger</h3>
         
@@ -2710,6 +2729,7 @@ function AnalyticsPanel() {
 
   return (
     <div className="p-4 space-y-4">
+      <MockupPanelWarning realEditorLabel="Rapporter/analyse-verktøyene" />
       <div className="grid grid-cols-2 gap-3">
         {stats.map((stat) => (
           <div key={stat.label} className="p-3 border rounded-md">
