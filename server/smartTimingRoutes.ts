@@ -3044,9 +3044,9 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Log the activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, entity_type, entity_id, entity_name, changes_summary, user_name)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
-        ['published', 'site', null, 'Landingsside', 'Alle endringer publisert til produksjon', req.admin?.username || 'system']
+        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, details, user_id, user_name)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        ['published', 'site', null, 'Landingsside', JSON.stringify({ summary: 'Alle endringer publisert til produksjon' }), req.admin?.id, req.admin?.username || 'system']
       );
       
       res.json({ 

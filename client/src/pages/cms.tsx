@@ -149,12 +149,13 @@ interface LandingPartner {
 
 interface ActivityLogEntry {
   id: number;
-  admin_id: number;
-  admin_username: string;
+  user_id: string | null;
+  user_name: string | null;
   action: string;
-  entity_type: string;
-  entity_id: number | null;
-  details: string | null;
+  resource_type: string;
+  resource_id: number | null;
+  resource_name: string | null;
+  details: unknown;
   created_at: string;
 }
 
@@ -2140,24 +2141,36 @@ function ActivityLogViewer() {
       <CardContent>
         {activityLog && activityLog.length > 0 ? (
           <div className="space-y-3">
-            {activityLog.map((entry) => (
-              <div key={entry.id} className="flex items-start gap-4 p-3 border rounded-lg" data-testid={`activity-entry-${entry.id}`}>
-                <div className="flex-1">
-                  <p className="font-medium">
-                    <span className="text-primary">{entry.admin_username || 'Ukjent'}</span>
-                    {' '}{getActionLabel(entry.action)}{' '}
-                    {getEntityLabel(entry.entity_type)}
-                    {entry.entity_id && ` #${entry.entity_id}`}
+            {activityLog.map((entry) => {
+              // details is JSONB — for "restore" events it's an object
+              // ({ restoredFrom: versionId }), not a string. Rendering it
+              // directly as a JSX child crashes the whole page ("Objects
+              // are not valid as a React child").
+              const detailsText = entry.details == null
+                ? null
+                : typeof entry.details === "string"
+                  ? entry.details
+                  : JSON.stringify(entry.details);
+              return (
+                <div key={entry.id} className="flex items-start gap-4 p-3 border rounded-lg" data-testid={`activity-entry-${entry.id}`}>
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      <span className="text-primary">{entry.user_name || 'Ukjent'}</span>
+                      {' '}{getActionLabel(entry.action)}{' '}
+                      {getEntityLabel(entry.resource_type)}
+                      {entry.resource_name && ` "${entry.resource_name}"`}
+                      {entry.resource_id != null && ` #${entry.resource_id}`}
+                    </p>
+                    {detailsText && (
+                      <p className="text-sm text-muted-foreground mt-1">{detailsText}</p>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground whitespace-nowrap">
+                    {formatDate(entry.created_at)}
                   </p>
-                  {entry.details && (
-                    <p className="text-sm text-muted-foreground mt-1">{entry.details}</p>
-                  )}
                 </div>
-                <p className="text-sm text-muted-foreground whitespace-nowrap">
-                  {formatDate(entry.created_at)}
-                </p>
-              </div>
-            ))}
+              );
+            })}
           </div>
         ) : (
           <div className="flex flex-col items-center py-8 text-muted-foreground">
