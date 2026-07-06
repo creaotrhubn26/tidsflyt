@@ -5429,6 +5429,13 @@ export function registerSmartTimingRoutes(app: Express) {
         enable_events, enable_consent_mode, cookie_consent, excluded_paths, custom_events
       } = req.body;
 
+      if (ga4_measurement_id && !/^G-[A-Z0-9]+$/i.test(ga4_measurement_id.trim())) {
+        return res.status(400).json({ error: "GA4 Measurement ID må ha formatet G-XXXXXXXXXX" });
+      }
+      if (gtm_container_id && !/^GTM-[A-Z0-9]+$/i.test(gtm_container_id.trim())) {
+        return res.status(400).json({ error: "GTM Container ID må ha formatet GTM-XXXXXXX" });
+      }
+
       const result = await pool.query(
         `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, 
          enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
