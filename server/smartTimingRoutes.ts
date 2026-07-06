@@ -2906,20 +2906,13 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: ACTIVITY LOG ==========
-  app.get("/api/cms/activity-log", authenticateAdmin, async (_req: AuthRequest, res) => {
-    try {
-      const result = await pool.query(`
-        SELECT cal.*, au.username as admin_username 
-        FROM cms_activity_log cal
-        LEFT JOIN admin_users au ON cal.admin_id = au.id
-        ORDER BY cal.created_at DESC
-        LIMIT 100
-      `);
-      res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  });
+  // NB: the real handler for GET /api/cms/activity-log lives further down
+  // (search "SEO CRAWLER ROUTES" nearby) — a duplicate registration of this
+  // exact path used to sit here, referencing a `cal.admin_id` column that
+  // doesn't exist on cms_activity_log (see shared/schema.ts: it's `user_id`/
+  // `user_name`), which always 500'd. Since Express dispatches to the
+  // first matching route, that broken duplicate silently shadowed the
+  // correct, working handler below it — removed instead of fixed in place.
 
   // ========== CMS: LANDING CTA/SECTIONS ==========
   app.get("/api/cms/sections", async (_req, res) => {
@@ -3039,15 +3032,22 @@ export function registerSmartTimingRoutes(app: Express) {
         cta_enterprise: 'Be om Enterprise-tilbud',
         cta_contact_sales: 'Kontakt salg',
         footer_note: 'Faktureres årlig forskuddsvis. Bindingstid fra første dag. Avtalen fornyes automatisk; oppsigelse må sendes skriftlig før utløp. Vikarer og sesongarbeidere kan dekkes som Flex-brukere uten å belaste tier-båndet.',
-      }
+      },
+      tilgjengelighet: {
+        title: 'Tilgjengelighetserklæring',
+        subtitle: 'Hvordan Tidum jobber med universell utforming',
+        content: '## 1. Innledning\nTidum er en tjeneste levert av Creatorhub AS. Vi jobber kontinuerlig med å gjøre tjenesten tilgjengelig for flest mulig.',
+      },
     };
     return defaults[pageType];
   };
 
+  const CMS_PAGE_TYPES = ['contact', 'privacy', 'terms', 'pricing', 'tilgjengelighet'];
+
   app.get("/api/cms/pages/:pageType", async (req, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
+      const validTypes = CMS_PAGE_TYPES;
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }
@@ -3077,7 +3077,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/pages/:pageType", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { pageType } = req.params;
-      const validTypes = ['contact', 'privacy', 'terms', 'pricing'];
+      const validTypes = CMS_PAGE_TYPES;
       if (!validTypes.includes(pageType)) {
         return res.status(400).json({ error: 'Invalid page type' });
       }
