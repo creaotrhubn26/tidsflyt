@@ -3422,10 +3422,14 @@ export function registerSmartTimingRoutes(app: Express) {
         );
         res.json(result.rows[0]);
       } else {
+        // title is NOT NULL, but sections like "cta" only ever send
+        // cta_title/cta_subtitle/etc — never a generic "title" — so the
+        // very first save for such a section always violated the
+        // constraint and 500'd. Fall back to the section id itself.
         const result = await pool.query(
           `INSERT INTO why_page_content (section_id, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [sectionId, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
+          [sectionId, title || sectionId, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
         );
         res.json(result.rows[0]);
       }

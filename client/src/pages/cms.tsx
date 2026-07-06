@@ -5616,6 +5616,9 @@ function WhyStatsEditor({ stats }: { stats: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setNewItem({ value: "", label: "" });
       toast({ title: "Opprettet", description: "Statistikk lagt til." });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5626,6 +5629,9 @@ function WhyStatsEditor({ stats }: { stats: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5699,6 +5705,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Opprettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5713,6 +5722,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setEditingId(null);
       toast({ title: "Oppdatert" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke oppdatere.", variant: "destructive" });
     }
   });
 
@@ -5723,6 +5735,9 @@ function WhyBenefitsEditor({ benefits }: { benefits: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5833,6 +5848,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Opprettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -5847,6 +5865,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       setEditingId(null);
       toast({ title: "Oppdatert" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke oppdatere.", variant: "destructive" });
     }
   });
 
@@ -5857,6 +5878,9 @@ function WhyFeaturesEditor({ features }: { features: any[] }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Slettet" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke slette.", variant: "destructive" });
     }
   });
 
@@ -5976,6 +6000,9 @@ function WhyNordicEditor({ content }: { content: any }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Lagret" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
@@ -6086,6 +6113,9 @@ function WhyCtaEditor({ content }: { content: any }) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/why-page'] });
       toast({ title: "Lagret" });
+    },
+    onError: (error: any) => {
+      toast({ title: "Feil", description: error.message || "Kunne ikke lagre.", variant: "destructive" });
     }
   });
 
