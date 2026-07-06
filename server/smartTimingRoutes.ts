@@ -6412,6 +6412,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         template_type, privacy_notice_enabled, privacy_notice_text
       } = req.body;
 
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       let finalPrivacyEnabled = privacy_notice_enabled;
       let finalPrivacyText = privacy_notice_text;
@@ -6435,7 +6439,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
         RETURNING *`,
         [
-          name, description, company_id, paper_size || 'A4', orientation || 'portrait',
+          name.trim(), description, company_id, paper_size || 'A4', orientation || 'portrait',
           margin_top || '20mm', margin_bottom || '20mm', margin_left || '15mm', margin_right || '15mm',
           header_enabled !== false, header_height || '25mm', header_logo_url, header_logo_position || 'left',
           header_title, header_subtitle, header_show_date !== false, header_show_page_numbers !== false,
@@ -6474,6 +6478,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { id } = req.params;
       const updates = { ...req.body };
+
+      if (updates.name !== undefined && !updates.name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
 
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       if (updates.template_type === 'miljoarbeider') {
@@ -6884,6 +6892,17 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Seed a default template
   app.post("/api/report-templates/seed-default", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
+      // report_templates has no unique constraint on name, so a bare
+      // "ON CONFLICT DO NOTHING" below never actually detects a conflict —
+      // every click of the "Standardmal" button inserted a brand new
+      // duplicate row. Check for an existing default template first instead.
+      const existing = await pool.query(
+        `SELECT * FROM report_templates WHERE is_default = true ORDER BY id LIMIT 1`
+      );
+      if (existing.rows.length > 0) {
+        return res.json({ success: true, template: existing.rows[0], alreadyExisted: true });
+      }
+
       const defaultBlocks = [
         { id: '1', type: 'section', config: { title: 'Bakgrunn', field: 'background' } },
         { id: '2', type: 'field', config: { field: 'background', label: 'Bakgrunn', showLabel: true } },
@@ -6904,7 +6923,6 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const result = await pool.query(
         `INSERT INTO report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
          VALUES ($1, $2, $3, $4, $5, true, $6)
-         ON CONFLICT DO NOTHING
          RETURNING *`,
         [
           'Standard Saksrapport',
