@@ -2697,29 +2697,62 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.put("/api/cms/hero", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3 } = req.body;
+      // Used to destructure and persist only 8 of the 26 real landing_hero
+      // columns — every other field the Hero editor UI lets an admin set
+      // (button URL/type/icon, badge icons, background image/gradient/
+      // overlay, layout, all three stat value/label pairs) was silently
+      // dropped on every save, while the response still reported success.
+      const {
+        title, title_highlight, subtitle,
+        cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+        cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+        badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+        background_image, background_gradient, background_overlay, layout,
+        stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label,
+      } = req.body;
       const existing = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
-      
+
       // Save version before update
       if (existing.rows.length > 0) {
         await createContentVersion('hero', existing.rows[0].id, existing.rows[0], req.admin?.username, 'Hero updated');
       }
-      
+
+      const values = [
+        title, title_highlight, subtitle,
+        cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+        cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+        badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+        background_image, background_gradient, background_overlay, layout,
+        stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label,
+      ];
+
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE landing_hero SET 
-            title = $1, title_highlight = $2, subtitle = $3, 
-            cta_primary_text = $4, cta_secondary_text = $5,
-            badge1 = $6, badge2 = $7, badge3 = $8, updated_at = NOW()
-           WHERE id = $9 RETURNING *`,
-          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3, existing.rows[0].id]
+          `UPDATE landing_hero SET
+            title = $1, title_highlight = $2, subtitle = $3,
+            cta_primary_text = $4, cta_primary_url = $5, cta_primary_type = $6, cta_primary_icon = $7,
+            cta_secondary_text = $8, cta_secondary_url = $9, cta_secondary_type = $10, cta_secondary_icon = $11,
+            badge1 = $12, badge1_icon = $13, badge2 = $14, badge2_icon = $15, badge3 = $16, badge3_icon = $17,
+            background_image = $18, background_gradient = $19, background_overlay = $20, layout = $21,
+            stat1_value = $22, stat1_label = $23, stat2_value = $24, stat2_label = $25, stat3_value = $26, stat3_label = $27,
+            updated_at = NOW()
+           WHERE id = $28 RETURNING *`,
+          [...values, existing.rows[0].id]
         );
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-          [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3]
+          `INSERT INTO landing_hero (
+            title, title_highlight, subtitle,
+            cta_primary_text, cta_primary_url, cta_primary_type, cta_primary_icon,
+            cta_secondary_text, cta_secondary_url, cta_secondary_type, cta_secondary_icon,
+            badge1, badge1_icon, badge2, badge2_icon, badge3, badge3_icon,
+            background_image, background_gradient, background_overlay, layout,
+            stat1_value, stat1_label, stat2_value, stat2_label, stat3_value, stat3_label
+          )
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+           RETURNING *`,
+          values
         );
         res.json(result.rows[0]);
       }
