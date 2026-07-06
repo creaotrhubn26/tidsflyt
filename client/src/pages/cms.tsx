@@ -4740,6 +4740,9 @@ function BlogEditor() {
       setShowNewPost(false);
       setSelectedPost(newPost);
       toast({ title: "Innlegg opprettet" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke opprette innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -4753,6 +4756,9 @@ function BlogEditor() {
     onSuccess: () => {
       refetchPosts();
       toast({ title: "Innlegg oppdatert" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke oppdatere innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -4764,6 +4770,9 @@ function BlogEditor() {
       refetchPosts();
       setSelectedPost(null);
       toast({ title: "Innlegg slettet" });
+    },
+    onError: (error: Error) => {
+      toast({ title: "Kunne ikke slette innlegg", description: error.message, variant: "destructive" });
     }
   });
 
@@ -5352,7 +5361,7 @@ function BlogEditor() {
                   <Button variant="outline" onClick={() => setShowNewPost(false)}>Avbryt</Button>
                   <Button
                     onClick={() => createPostMutation.mutate(newPostTitle)}
-                    disabled={!newPostTitle || createPostMutation.isPending}
+                    disabled={!newPostTitle.trim() || createPostMutation.isPending}
                     data-testid="button-create-post"
                   >
                     {createPostMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}

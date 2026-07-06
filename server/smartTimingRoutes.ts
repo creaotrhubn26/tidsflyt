@@ -4862,6 +4862,14 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
               meta_title, meta_description, og_image, scheduled_at } = req.body;
+
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (!slug || !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const published_at = status === 'published' ? new Date() : null;
       const { readingTime, wordCount } = calculateReadingStats(content);
 
@@ -4869,11 +4877,14 @@ export function registerSmartTimingRoutes(app: Express) {
         `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status,
          meta_title, meta_description, og_image, reading_time, word_count, scheduled_at, published_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft',
+        [title.trim(), slug.trim(), excerpt, content, featured_image, author, category_id, tags, status || 'draft',
          meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, published_at]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "Et innlegg med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -4883,6 +4894,14 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
               meta_title, meta_description, og_image, scheduled_at } = req.body;
+
+      if (title !== undefined && !title.trim()) {
+        return res.status(400).json({ error: "Tittel kan ikke være tom" });
+      }
+      if (slug !== undefined && !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const existingPost = await pool.query('SELECT status, published_at FROM cms_posts WHERE id = $1', [req.params.id]);
       let published_at = existingPost.rows[0]?.published_at;
 
@@ -4898,11 +4917,14 @@ export function registerSmartTimingRoutes(app: Express) {
          meta_title = $11, meta_description = $12, og_image = $13, reading_time = $14, word_count = $15,
          scheduled_at = $16, updated_at = NOW()
          WHERE id = $17 RETURNING *`,
-        [title, slug, excerpt, content, featured_image, author, category_id, tags, status, published_at,
+        [title?.trim(), slug?.trim(), excerpt, content, featured_image, author, category_id, tags, status, published_at,
          meta_title, meta_description, og_image, readingTime, wordCount, scheduled_at, req.params.id]
       );
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "Et innlegg med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
