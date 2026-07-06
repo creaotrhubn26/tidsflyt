@@ -7282,6 +7282,12 @@ function EmailEditor() {
               <CardDescription>Konfigurer e-postserver for utsendelse</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <NotYetLiveWarning>
+                Disse innstillingene lagres, men den faktiske e-posttjenesten
+                bruker SMTP-oppsett fra servermiljøvariabler, ikke verdiene
+                herfra. Å endre felter under har ingen effekt på reell
+                e-postutsendelse.
+              </NotYetLiveWarning>
               <div className="grid gap-4 md:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="smtp-host">SMTP-server</Label>

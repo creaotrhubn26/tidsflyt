@@ -5791,14 +5791,24 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, slug, subject, html_content, text_content, variables, category } = req.body;
 
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+      if (!slug || !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [name, slug, subject, html_content, text_content, variables, category || 'general']
+        [name.trim(), slug.trim(), subject, html_content, text_content, variables ? JSON.stringify(variables) : null, category || 'general']
       );
 
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "En mal med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -5808,11 +5818,18 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, slug, subject, html_content, text_content, variables, category, is_active } = req.body;
 
+      if (name !== undefined && !name.trim()) {
+        return res.status(400).json({ error: "Malnavn kan ikke være tomt" });
+      }
+      if (slug !== undefined && !slug.trim()) {
+        return res.status(400).json({ error: "Slug kan ikke være tom" });
+      }
+
       const result = await pool.query(
         `UPDATE email_templates SET name = $1, slug = $2, subject = $3, html_content = $4,
          text_content = $5, variables = $6, category = $7, is_active = $8, updated_at = NOW()
          WHERE id = $9 RETURNING *`,
-        [name, slug, subject, html_content, text_content, variables, category, is_active, req.params.id]
+        [name?.trim(), slug?.trim(), subject, html_content, text_content, variables ? JSON.stringify(variables) : null, category, is_active, req.params.id]
       );
 
       if (result.rows.length === 0) {
@@ -5820,6 +5837,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       }
       res.json(result.rows[0]);
     } catch (err: any) {
+      if (err.code === '23505' || err.cause?.code === '23505') {
+        return res.status(409).json({ error: "En mal med denne slugen finnes allerede" });
+      }
       res.status(500).json({ error: err.message });
     }
   });
@@ -6107,8 +6127,11 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         }
       }
 
-      // Send email using centralized email service
-      await emailService.sendEmail({
+      // Send email using centralized email service. sendEmail() does not
+      // throw on failure (unconfigured SMTP, send error) — it resolves to
+      // false — so the result must be checked explicitly or every send
+      // "succeeds" from the caller's perspective even when nothing went out.
+      const sent = await emailService.sendEmail({
         to: recipient_email,
         subject: subject,
         html: htmlContent,
@@ -6118,9 +6141,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       // Log send history
       await pool.query(
         `INSERT INTO email_send_history (template_id, recipient_email, subject, status, sent_at, metadata)
-         VALUES ($1, $2, $3, 'sent', NOW(), $4)`,
-        [template_id, recipient_email, subject, JSON.stringify({ test: true, variables })]
+         VALUES ($1, $2, $3, $4, NOW(), $5)`,
+        [template_id, recipient_email, subject, sent ? 'sent' : 'failed', JSON.stringify({ test: true, variables })]
       );
+
+      if (!sent) {
+        return res.status(502).json({ error: 'E-posttjenesten er ikke konfigurert eller sending feilet. Sjekk SMTP-innstillingene på serveren.' });
+      }
 
       res.json({ success: true, message: 'Test email sent successfully' });
     } catch (err: any) {
