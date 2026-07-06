@@ -1531,7 +1531,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const result = await pool.query(
         `INSERT INTO portal_settings (vendor_id, logo_url, logo_text, primary_color, accent_color, sidebar_bg, header_bg, content_bg, footer_bg, custom_css, nav_items, footer_text, show_branding, tokens, layout, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, COALESCE($13, true), $14, $15, NOW())
          ON CONFLICT (vendor_id) DO UPDATE SET
            logo_url = COALESCE($2, portal_settings.logo_url),
            logo_text = COALESCE($3, portal_settings.logo_text),
