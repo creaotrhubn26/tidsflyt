@@ -10,7 +10,7 @@ import { useBrandInfo } from "@/hooks/use-brand-info";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 
-interface PageContent { title?: string; subtitle?: string; content?: string }
+interface PageContent { title?: string; subtitle?: string; content?: string; last_updated?: string }
 
 const LAST_UPDATED = "15. april 2026";
 
@@ -130,6 +130,9 @@ export default function Tilgjengelighet() {
   });
   const cmsContent = cmsPage?.content?.trim();
   const renderedContent = cmsContent && cmsContent.length > 0 ? cmsContent : TILGJENGELIGHET_CONTENT;
+  const renderedTitle = cmsPage?.title?.trim() || "Tilgjengelighetserklæring";
+  const renderedSubtitle = cmsPage?.subtitle?.trim() || "Tidum skal være brukbar for alle — uavhengig av funksjonsevne, hjelpemiddel-teknologi eller nettleser.";
+  const renderedLastUpdated = cmsPage?.last_updated?.trim() || LAST_UPDATED;
 
   useSEO({
     title: "Tilgjengelighetserklæring – Tidum",
@@ -179,12 +182,12 @@ export default function Tilgjengelighet() {
                 <Accessibility className="h-7 w-7 text-[#3A8B73]" />
               </div>
             </div>
-            <h1 className="tidum-title">Tilgjengelighetserklæring</h1>
+            <h1 className="tidum-title">{renderedTitle}</h1>
             <p className="tidum-text mt-4 max-w-2xl mx-auto">
-              Tidum skal være brukbar for alle — uavhengig av funksjonsevne, hjelpemiddel-teknologi eller nettleser.
+              {renderedSubtitle}
             </p>
             <p className="text-sm text-[var(--color-text-muted)] mt-3">
-              Sist oppdatert: {LAST_UPDATED}
+              Sist oppdatert: {renderedLastUpdated}
             </p>
           </div>
         </section>
