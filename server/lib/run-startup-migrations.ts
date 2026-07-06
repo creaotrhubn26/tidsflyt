@@ -21,6 +21,7 @@ const STARTUP_MIGRATIONS: string[] = [
   "049_sak_locations.sql",
   "050_rapport_templates_unique_constraint.sql",
   "051_rapport_templates_system_slug_unique.sql",
+  "052_cms_missing_tables.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

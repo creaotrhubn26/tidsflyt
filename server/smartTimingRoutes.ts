@@ -4330,12 +4330,20 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/seo/:pageType/:pageId?", async (req, res) => {
+  app.get("/api/cms/seo/:pageType/:pageId?", async (req, res, next) => {
+    // "/api/cms/seo/pages" (and "/pages/:id") is a distinct, more specific
+    // route registered further down this file (the SEO pages list/CRUD,
+    // backed by the real seo_pages table) — without this guard, Express
+    // matches this generic param route first and swallows it, matching
+    // "pages" as :pageType and querying the unrelated (and non-existent)
+    // cms_seo_settings table instead. next() falls through to the real
+    // handler registered later.
+    if (req.params.pageType === "pages") return next();
     try {
       const { pageType, pageId } = req.params;
       const result = await pool.query(
-        'SELECT * FROM cms_seo_settings WHERE page_type = $1 AND (page_id = $2 OR ($2 IS NULL AND page_id IS NULL)) LIMIT 1',
-        [pageType, pageId || null]
+        'SELECT * FROM cms_seo_settings WHERE page_type = $1 AND page_id = $2 LIMIT 1',
+        [pageType, pageId ? Number(pageId) : 0]
       );
       res.json(result.rows[0] || null);
     } catch (err: any) {
@@ -4343,20 +4351,23 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.put("/api/cms/seo/:pageType/:pageId?", authenticateAdmin, async (req: AuthRequest, res) => {
+  app.put("/api/cms/seo/:pageType/:pageId?", authenticateAdmin, async (req: AuthRequest, res, next) => {
+    // Same "pages" collision as the GET above — PUT /api/cms/seo/pages/:id
+    // is a distinct, more specific route registered further down.
+    if (req.params.pageType === "pages") return next();
     try {
       const { pageType, pageId } = req.params;
       const data = req.body;
-      
+
       const result = await pool.query(
-        `INSERT INTO cms_seo_settings (page_type, page_id, meta_title, meta_description, og_title, og_description, og_image, 
+        `INSERT INTO cms_seo_settings (page_type, page_id, meta_title, meta_description, og_title, og_description, og_image,
          twitter_card, canonical_url, robots, schema_type, schema_data)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
          ON CONFLICT (page_type, page_id) DO UPDATE SET
          meta_title = $3, meta_description = $4, og_title = $5, og_description = $6, og_image = $7,
          twitter_card = $8, canonical_url = $9, robots = $10, schema_type = $11, schema_data = $12, updated_at = NOW()
          RETURNING *`,
-        [pageType, pageId || null, data.meta_title, data.meta_description, data.og_title, data.og_description, 
+        [pageType, pageId ? Number(pageId) : 0, data.meta_title, data.meta_description, data.og_title, data.og_description,
          data.og_image, data.twitter_card, data.canonical_url, data.robots, data.schema_type, data.schema_data]
       );
       res.json(result.rows[0]);
