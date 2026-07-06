@@ -4571,19 +4571,23 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { location } = req.params;
       const { name, items } = req.body;
-      
+
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Menynavn kan ikke være tomt" });
+      }
+
       const existing = await pool.query('SELECT * FROM cms_navigation WHERE location = $1', [location]);
-      
+
       if (existing.rows.length > 0) {
         const result = await pool.query(
           `UPDATE cms_navigation SET name = $1, items = $2, updated_at = NOW() WHERE location = $3 RETURNING *`,
-          [name, JSON.stringify(items || []), location]
+          [name.trim(), JSON.stringify(items || []), location]
         );
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
           `INSERT INTO cms_navigation (name, location, items) VALUES ($1, $2, $3) RETURNING *`,
-          [name, location, JSON.stringify(items || [])]
+          [name.trim(), location, JSON.stringify(items || [])]
         );
         res.json(result.rows[0]);
       }
