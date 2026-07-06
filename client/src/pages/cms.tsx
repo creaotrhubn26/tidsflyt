@@ -9363,17 +9363,20 @@ function PortalDesigner() {
                       <div className="p-3 pt-8 space-y-1">
                         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleNavDragEnd}>
                           <SortableContext items={navItems.map((_, i) => `nav-${i}`)} strategy={verticalListSortingStrategy}>
-                            {navItems.filter(i => i.enabled).map((item, index) => (
+                            {navItems
+                              .map((item, originalIndex) => ({ item, originalIndex }))
+                              .filter(({ item }) => item.enabled)
+                              .map(({ item, originalIndex }) => (
                               <SortableNavItem
                                 key={item.path}
-                                id={`nav-${index}`}
+                                id={`nav-${originalIndex}`}
                                 item={item}
-                                index={index}
-                                isSelected={selectedNavIndex === index}
+                                index={originalIndex}
+                                isSelected={selectedNavIndex === originalIndex}
                                 primaryColor={settings.primary_color}
                                 onClick={() => {
                                   setSelectedRegion('nav-item');
-                                  setSelectedNavIndex(index);
+                                  setSelectedNavIndex(originalIndex);
                                 }}
                               />
                             ))}
