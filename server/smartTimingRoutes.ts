@@ -6294,11 +6294,28 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Update report template
+  // Every column a PUT is allowed to write. The handler used to build the
+  // SQL SET clause directly from Object.keys(req.body) with no whitelist —
+  // since the column identifier was string-interpolated (not a bound
+  // parameter), a request body key like
+  // `"name = 'x', description = (SELECT ...) --"` was executed verbatim as
+  // SQL, a straightforward SQL injection via arbitrary JSON keys.
+  const REPORT_TEMPLATE_UPDATABLE_FIELDS = new Set([
+    'name', 'description', 'vendor_id', 'company_id',
+    'template_type', 'privacy_notice_enabled', 'privacy_notice_text',
+    'paper_size', 'orientation', 'margin_top', 'margin_bottom', 'margin_left', 'margin_right',
+    'header_enabled', 'header_height', 'header_logo_url', 'header_logo_position',
+    'header_title', 'header_subtitle', 'header_show_date', 'header_show_page_numbers',
+    'footer_enabled', 'footer_height', 'footer_text', 'footer_show_page_numbers',
+    'primary_color', 'secondary_color', 'font_family', 'font_size', 'line_height',
+    'blocks', 'is_default', 'is_active', 'created_by',
+  ]);
+
   app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
       const updates = { ...req.body };
-      
+
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       if (updates.template_type === 'miljoarbeider') {
         updates.privacy_notice_enabled = true;
@@ -6306,8 +6323,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           updates.privacy_notice_text = 'PERSONVERN: Navn og personlig informasjon er ikke tillatt i Tidum. Denne rapporten skal ikke inneholde personidentifiserbar informasjon i tråd med GDPR-krav. Personer omtales med generelle betegnelser.';
         }
       }
-      
-      const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
+
+      const fields = Object.keys(updates).filter(k => REPORT_TEMPLATE_UPDATABLE_FIELDS.has(k));
       if (fields.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
       }
