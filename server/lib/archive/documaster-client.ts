@@ -4,8 +4,12 @@
  * Documaster-provider for Noark 5-arkivering, skrevet mot Documasters
  * offisielle Noark 5-webtjenester v1 (github.com/documaster/noark5-web-services):
  *
- *   - Token:       POST {baseUrl}/idp/oauth2/token           (client_credentials,
- *                  utstedes av instansens OpenID Connect IdP — stien kan variere)
+ *   - Token:       POST {idp}/oauth2/token — Documaster IDP kan kjøre på egen
+ *                  host; sett apiPaths.token til absolutt URL ved behov.
+ *                  NB: klassisk Documaster IDP (idp-web-services) dokumenterer
+ *                  authorization_code/password-flow; client_credentials hører
+ *                  til det nyere «Noark5 Compliant API». Avklar flow og
+ *                  token-URL med Documaster ved onboarding.
  *   - Query:       POST {baseUrl}/rms/api/public/noark5/v1/query
  *   - Transaction: POST {baseUrl}/rms/api/public/noark5/v1/transaction
  *                  (save/link/unlink/delete i én transaksjon)
@@ -86,6 +90,9 @@ export class DocumasterProvider implements ArchiveProvider {
   }
 
   private url(path: string): string {
+    // apiPaths kan inneholde en absolutt URL — IdP-en (token) kjører ofte
+    // på en annen host enn arkivet (github.com/documaster/idp-web-services).
+    if (/^https?:\/\//.test(path)) return path;
     return this.cfg.baseUrl.replace(/\/+$/, "") + path;
   }
 

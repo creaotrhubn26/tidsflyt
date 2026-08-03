@@ -226,21 +226,28 @@ Før du godtar integrasjonen:
 
 ## 5. Kjente problemer og fixes
 
-### Token-endepunktet finnes ikke (404)
+### Token-endepunktet finnes ikke (404) eller feil grant_type
 
-Token utstedes av instansens OpenID Connect IdP — stien varierer per oppsett.
-Spør Documaster om riktig token-URL og oversty via config:
+Token utstedes av Documaster IDP, som ofte kjører på **egen host** —
+offisielt endepunkt er `https://{idpserver}/oauth2/token`
+(github.com/documaster/idp-web-services). `apiPaths.token` godtar en
+absolutt URL:
 
 ```typescript
 createArchiveProvider("documaster", {
-  baseUrl: "...",
+  baseUrl: "https://kunde.documaster.no",
   clientId: "...",
   clientSecret: "...",
   apiPaths: {
-    token: "/auth/realms/rms/protocol/openid-connect/token",  // eksempel
+    token: "https://idp.kunde.documaster.no/oauth2/token",
   },
 })
 ```
+
+Merk også: klassisk Documaster IDP dokumenterer authorization_code- og
+password-flow; **client_credentials** hører til det nyere «Noark5 Compliant
+API». Avklar med Documaster hvilken API-generasjon og flow sandkassen
+bruker — dette er et konkret spørsmål å stille ved onboarding.
 
 Standardstiene ellers er de offisielle
 (`/rms/api/public/noark5/v1/{query,transaction,upload}`) og skal normalt
