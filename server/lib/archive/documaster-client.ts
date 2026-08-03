@@ -1,25 +1,32 @@
 /**
  * server/lib/archive/documaster-client.ts
  *
- * Documaster-provider for Noark 5-arkivering.
+ * Documaster-provider for Noark 5-arkivering, skrevet mot Documasters
+ * offisielle Noark 5-webtjenester v1 (github.com/documaster/noark5-web-services):
  *
- * Documasters integrasjons-API er Noark 5-webtjenestene:
- *   - Token:  POST {baseUrl}/idp/oauth2/token  (client_credentials)
- *   - Query:  POST {baseUrl}/rms/api/v2/query   (finn eksisterende objekter)
- *   - Save:   POST {baseUrl}/rms/api/v2/save    (opprett/oppdater objektgraf)
- *   - Upload: POST {baseUrl}/rms/api/v2/upload  (last opp fil, får temp-id)
+ *   - Token:       POST {baseUrl}/idp/oauth2/token           (client_credentials,
+ *                  utstedes av instansens OpenID Connect IdP — stien kan variere)
+ *   - Query:       POST {baseUrl}/rms/api/public/noark5/v1/query
+ *   - Transaction: POST {baseUrl}/rms/api/public/noark5/v1/transaction
+ *                  (save/link/unlink/delete i én transaksjon)
+ *   - Upload:      POST {baseUrl}/rms/api/public/noark5/v1/upload
  *
- * Stiene kan overstyres per config (apiPaths) siden de varierer mellom
- * Documaster-versjoner og andre Noark 5-kjerner med samme tjenesteform.
- * NB: Klienten er skrevet mot dokumentert tjenesteform, men er ikke
- * verifisert mot en Documaster-sandkasse ennå — se docs/integrations/
- * documaster.md for verifiseringsplanen. All transport er samlet i denne
- * filen slik at justeringer etter sandkassetest ikke berører resten av
- * arkivmodulen.
+ * Viktige trekk ved tjenesteformen (fra spesifikasjonen):
+ *   - Referansefelter (refArkivdel, refMappe, ...) settes med egne
+ *     `link`-actions — aldri som felter i `save`.
+ *   - Dokumenter modelleres som Dokument + Dokumentversjon (ikke
+ *     Dokumentbeskrivelse/Dokumentobjekt); filen refereres via
+ *     `referanseDokumentfil` = id fra upload.
+ *   - Kodelister bruker koder: journalposttype I/U/X/N/S,
+ *     tilknyttetRegistreringSom H/V, variantformat P/A.
+ *   - `skjerming` (M500) er én kode fra instansens konfigurerte
+ *     skjermings-kodeliste (koden bærer navn + hjemmel i Documaster);
+ *     vi sender spec-ens tilgangsrestriksjon (f.eks. "UO") som kode.
+ *   - EksternId har feltene `eksterntSystem` + `eksternID` og kobles til
+ *     eieren med link (refMappe/refRegistrering).
  *
- * Idempotens: mapper og journalposter merkes med Tidums eksternId
- * (virksomhetsspesifikk nøkkel), og provideren spør etter eksisterende
- * objekt før opprettelse.
+ * Idempotens: mapper og journalposter merkes med Tidums eksternId og slås
+ * opp (refEksternId.eksternID = @id) før opprettelse.
  */
 
 import type { ArchiveDocumentFile, JournalpostSpec, SaksmappeSpec } from "./noark";
@@ -47,10 +54,12 @@ export interface ArchiveProvider {
 
 const DEFAULT_PATHS = {
   token: "/idp/oauth2/token",
-  query: "/rms/api/v2/query",
-  save: "/rms/api/v2/save",
-  upload: "/rms/api/v2/upload",
+  query: "/rms/api/public/noark5/v1/query",
+  transaction: "/rms/api/public/noark5/v1/transaction",
+  upload: "/rms/api/public/noark5/v1/upload",
 };
+
+const EKSTERNT_SYSTEM = "Tidum";
 
 export class DocumasterError extends Error {
   constructor(message: string, public readonly status?: number, public readonly body?: unknown) {
@@ -63,6 +72,11 @@ interface CachedToken { accessToken: string; expiresAt: number }
 
 // Token-cache per clientId — Documaster-tokens er kortlevde.
 const tokenCache = new Map<string, CachedToken>();
+
+const VARIANTFORMAT_CODES: Record<ArchiveDocumentFile["variantformat"], string> = {
+  Arkivformat: "A",
+  Produksjonsformat: "P",
+};
 
 export class DocumasterProvider implements ArchiveProvider {
   private paths: typeof DEFAULT_PATHS;
@@ -99,15 +113,17 @@ export class DocumasterProvider implements ArchiveProvider {
     return json.access_token;
   }
 
-  private async api<T = any>(path: string, body: unknown, contentType = "application/json"): Promise<T> {
+  private async api<T = any>(path: string, body: unknown): Promise<T> {
     const token = await this.getToken();
     const res = await fetch(this.url(path), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
-        ...(contentType ? { "Content-Type": contentType } : {}),
+        "Content-Type": "application/json",
+        // JSON-feilmeldinger gir errorId + beskrivelse i stedet for ren tekst.
+        "X-Documaster-Error-Response-Type": "application/json",
       },
-      body: contentType === "application/json" ? JSON.stringify(body) : (body as any),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       throw new DocumasterError(`Documaster API-feil (${res.status}) på ${path}`, res.status, await safeBody(res));
@@ -128,8 +144,8 @@ export class DocumasterProvider implements ArchiveProvider {
     const result: any = await this.api(this.paths.query, {
       type,
       limit: 1,
-      query: "refEksternId.eksternID = @eksternId",
-      parameters: { "@eksternId": eksternId },
+      query: "refEksternId.eksternID = @eksternId && refEksternId.eksterntSystem = @system",
+      parameters: { "@eksternId": eksternId, "@system": EKSTERNT_SYSTEM },
     });
     return result?.results?.[0] ?? null;
   }
@@ -143,7 +159,7 @@ export class DocumasterProvider implements ArchiveProvider {
     const arkivdelId = spec.arkivdelId ?? this.cfg.arkivdelId;
     if (!arkivdelId) throw new DocumasterError("arkivdelId mangler i arkivkonfigurasjonen");
 
-    const saved: any = await this.api(this.paths.save, {
+    const saved: any = await this.api(this.paths.transaction, {
       actions: [
         {
           action: "save",
@@ -152,23 +168,20 @@ export class DocumasterProvider implements ArchiveProvider {
           fields: {
             tittel: spec.tittel,
             offentligTittel: spec.offentligTittel ?? spec.tittel,
-            refArkivdel: arkivdelId,
-            ...(spec.skjerming
-              ? {
-                  skjerming: {
-                    skjermingshjemmel: spec.skjerming.skjermingshjemmel,
-                    tilgangsrestriksjon: spec.skjerming.tilgangsrestriksjon,
-                    skjermingMetadata: spec.skjerming.skjermingMetadata,
-                  },
-                }
-              : {}),
+            // administrativEnhet (M305) er påkrevd i Documasters modell;
+            // verdien må finnes i instansens kodeliste.
+            ...(this.cfg.journalenhet ? { administrativEnhet: this.cfg.journalenhet } : {}),
+            ...(spec.skjerming ? { skjerming: spec.skjerming.tilgangsrestriksjon } : {}),
           },
         },
+        { action: "link", type: "Saksmappe", id: "@mappe", ref: "refArkivdel", linkToId: [String(arkivdelId)] },
         {
           action: "save",
           type: "EksternId",
-          fields: { refMappe: "@mappe", eksternSystem: "Tidum", eksternID: spec.eksternId },
+          id: "@eid",
+          fields: { eksterntSystem: EKSTERNT_SYSTEM, eksternID: spec.eksternId },
         },
+        { action: "link", type: "EksternId", id: "@eid", ref: "refMappe", linkToId: ["@mappe"] },
       ],
     });
 
@@ -179,12 +192,15 @@ export class DocumasterProvider implements ArchiveProvider {
 
   private async uploadFile(file: ArchiveDocumentFile): Promise<string> {
     const token = await this.getToken();
+    // RFC 6266/5987: filename (ASCII-fallback) + filename* (UTF-8).
+    const asciiName = file.filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
     const res = await fetch(this.url(this.paths.upload), {
       method: "POST",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/octet-stream",
-        "Content-Disposition": `attachment; filename="${encodeURIComponent(file.filename)}"`,
+        "Content-Disposition":
+          `attachment; filename="${asciiName}"; filename*=utf-8''${encodeURIComponent(file.filename)}`,
       },
       body: new Uint8Array(file.content),
     });
@@ -192,7 +208,7 @@ export class DocumasterProvider implements ArchiveProvider {
       throw new DocumasterError(`Documaster filopplasting feilet (${res.status})`, res.status, await safeBody(res));
     }
     const json: any = await res.json();
-    const id = json?.id ?? json?.uploadId;
+    const id = json?.id;
     if (!id) throw new DocumasterError("Documaster upload-respons mangler id", undefined, json);
     return String(id);
   }
@@ -211,63 +227,58 @@ export class DocumasterProvider implements ArchiveProvider {
       uploadIds.push(await this.uploadFile(file));
     }
 
-    const skjerming = spec.skjerming
-      ? {
-          skjerming: {
-            skjermingshjemmel: spec.skjerming.skjermingshjemmel,
-            tilgangsrestriksjon: spec.skjerming.tilgangsrestriksjon,
-            skjermingMetadata: spec.skjerming.skjermingMetadata,
-          },
-        }
-      : {};
-
     const actions: any[] = [
       {
         action: "save",
         type: "Journalpost",
         id: "@jp",
         fields: {
-          refMappe: mappeId,
           tittel: spec.tittel,
           offentligTittel: spec.offentligTittel ?? spec.tittel,
           journalposttype: spec.journalposttype,
           ...(spec.dokumentdato ? { dokumentetsDato: spec.dokumentdato } : {}),
-          ...(spec.journalenhet ? { journalenhet: spec.journalenhet } : {}),
-          ...skjerming,
+          ...(spec.skjerming ? { skjerming: spec.skjerming.tilgangsrestriksjon } : {}),
         },
       },
+      { action: "link", type: "Journalpost", id: "@jp", ref: "refMappe", linkToId: [String(mappeId)] },
       {
         action: "save",
         type: "EksternId",
-        fields: { refRegistrering: "@jp", eksternSystem: "Tidum", eksternID: spec.eksternId },
+        id: "@eid",
+        fields: { eksterntSystem: EKSTERNT_SYSTEM, eksternID: spec.eksternId },
       },
+      { action: "link", type: "EksternId", id: "@eid", ref: "refRegistrering", linkToId: ["@jp"] },
     ];
 
     spec.files.forEach((file, i) => {
-      const bId = `@db${i}`;
-      actions.push({
-        action: "save",
-        type: "Dokumentbeskrivelse",
-        id: bId,
-        fields: {
-          refRegistrering: "@jp",
-          tittel: file.filename,
-          tilknyttetRegistreringSom: i === 0 ? "Hoveddokument" : "Vedlegg",
+      const dokId = `@dok${i}`;
+      const versjonId = `@dv${i}`;
+      actions.push(
+        {
+          action: "save",
+          type: "Dokument",
+          id: dokId,
+          fields: {
+            tittel: file.filename,
+            tilknyttetRegistreringSom: i === 0 ? "H" : "V",
+          },
         },
-      });
-      actions.push({
-        action: "save",
-        type: "Dokumentobjekt",
-        fields: {
-          refDokumentbeskrivelse: bId,
-          variantformat: file.variantformat,
-          format: file.mimeType,
-          refDokumentfil: uploadIds[i],
+        { action: "link", type: "Dokument", id: dokId, ref: "refRegistrering", linkToId: ["@jp"] },
+        {
+          action: "save",
+          type: "Dokumentversjon",
+          id: versjonId,
+          fields: {
+            variantformat: VARIANTFORMAT_CODES[file.variantformat],
+            format: file.mimeType,
+            referanseDokumentfil: uploadIds[i],
+          },
         },
-      });
+        { action: "link", type: "Dokumentversjon", id: versjonId, ref: "refDokument", linkToId: [dokId] },
+      );
     });
 
-    const saved: any = await this.api(this.paths.save, { actions });
+    const saved: any = await this.api(this.paths.transaction, { actions });
     const jp = extractSaved(saved, "@jp");
     if (!jp?.id) throw new DocumasterError("Documaster returnerte ikke journalpost-id", undefined, saved);
     return { id: String(jp.id), journalpostIdent: jp.fields?.journalpostIdent ?? null };
@@ -275,13 +286,8 @@ export class DocumasterProvider implements ArchiveProvider {
 }
 
 function extractSaved(response: any, tempId: string): any | null {
-  // Save-responsen mapper temp-id → lagret objekt; formen varierer noe
-  // mellom versjoner, så vi prøver de kjente feltene.
-  return (
-    response?.saved?.[tempId] ??
-    response?.results?.find((r: any) => r?.tempId === tempId) ??
-    null
-  );
+  // Transaction-responsen mapper temp-id → lagret objekt i `saved`.
+  return response?.saved?.[tempId] ?? null;
 }
 
 async function safeBody(res: Response): Promise<unknown> {

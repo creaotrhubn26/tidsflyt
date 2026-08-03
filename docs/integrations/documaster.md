@@ -80,11 +80,14 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 
 ## Gjenstår før produksjon
 
-- [ ] **Sandkasseverifisering mot Documaster** — API-stiene
-      (`/idp/oauth2/token`, `/rms/api/v2/{query,save,upload}`) og felt-/
-      responsformen i `documaster-client.ts` er skrevet mot dokumentert
-      tjenesteform, men må bekreftes mot en reell instans. All transport er
-      isolert i den ene filen; `apiPaths` i config kan overstyre stier.
+- [ ] **Sandkasseverifisering mot Documaster** — klienten er skrevet mot
+      den offisielle spesifikasjonen (github.com/documaster/noark5-web-services,
+      v1): `/rms/api/public/noark5/v1/{query,transaction,upload}`, referanser
+      som `link`-actions, Dokument+Dokumentversjon, kodeliste-koder (H/V, P/A)
+      og `eksterntSystem`/`eksternID`. Gjenstår å kjøre
+      `scripts/test-documaster-integration.ts` mot en reell instans — særlig
+      token-stien (instansens IdP), skjermingskoder og `administrativEnhet`
+      er instans-konfigurert. `apiPaths` i config kan overstyre stier.
 - [ ] Partneravtale/API-tilgang med Documaster (jf. veikartets steg 5).
 - [x] UI i innstillinger — `ArkivConnectCard` på `/settings` for vendor_admin+
       (`client/src/components/integrations/arkiv-connect-card.tsx`): connect-skjema
