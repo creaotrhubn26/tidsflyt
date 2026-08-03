@@ -258,6 +258,65 @@ export const vendorIntegrations = pgTable("vendor_integrations", {
   updatedAt:        timestamp("updated_at").defaultNow(),
 });
 
+// ── ARKIV (Noark 5 via ekstern arkivkjerne, migrasjon 052) ────────────────────
+// Godkjente rapporter (senere vedtak/dialog) arkiveres som journalposter i en
+// saksmappe per sak. Documaster er første provider. client_secret forsegles
+// med server/lib/secret-box.ts før lagring.
+
+export const archiveConfigs = pgTable("archive_configs", {
+  id:                  uuid("id").defaultRandom().primaryKey(),
+  vendorId:            integer("vendor_id").notNull().unique(),
+  provider:            text("provider").notNull().default("documaster"),
+  baseUrl:             text("base_url").notNull(),
+  clientId:            text("client_id").notNull(),
+  clientSecret:        text("client_secret").notNull(),
+  arkivdelId:          text("arkivdel_id"),
+  journalenhet:        text("journalenhet"),
+  autoArchive:         boolean("auto_archive").notNull().default(true),
+  skjermingshjemmel:   text("skjermingshjemmel").default("Offl. § 13 jf. fvl. § 13"),
+  tilgangsrestriksjon: text("tilgangsrestriksjon").default("UO"),
+  status:              text("status").notNull().default("active"), // active | disabled | invalid
+  lastVerifiedAt:      timestamp("last_verified_at", { withTimezone: true }),
+  lastError:           text("last_error"),
+  createdBy:           text("created_by"),
+  createdAt:           timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt:           timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export const archiveCaseLinks = pgTable("archive_case_links", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  vendorId:       integer("vendor_id").notNull(),
+  sakId:          uuid("sak_id").notNull().unique(),
+  eksternMappeId: text("ekstern_mappe_id").notNull(),
+  mappeIdent:     text("mappe_ident"),
+  createdAt:      timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const archiveEntries = pgTable("archive_entries", {
+  id:                   uuid("id").defaultRandom().primaryKey(),
+  vendorId:             integer("vendor_id").notNull(),
+  entityType:           text("entity_type").notNull(), // rapport | vedtak | dialog
+  entityId:             text("entity_id").notNull(),
+  sakId:                uuid("sak_id"),
+  status:               text("status").notNull().default("pending"), // pending | archived | failed | skipped
+  triggerKind:          text("trigger_kind"), // approved | manual | retry
+  attempts:             integer("attempts").notNull().default(0),
+  nextAttemptAt:        timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+  eksternMappeId:       text("ekstern_mappe_id"),
+  eksternJournalpostId: text("ekstern_journalpost_id"),
+  journalpostIdent:     text("journalpost_ident"),
+  payloadHash:          text("payload_hash"),
+  skjerming:            jsonb("skjerming"),
+  error:                text("error"),
+  archivedAt:           timestamp("archived_at", { withTimezone: true }),
+  createdBy:            text("created_by"),
+  createdAt:            timestamp("created_at", { withTimezone: true }).defaultNow(),
+  updatedAt:            timestamp("updated_at", { withTimezone: true }).defaultNow(),
+});
+
+export type ArchiveConfig = typeof archiveConfigs.$inferSelect;
+export type ArchiveEntry = typeof archiveEntries.$inferSelect;
+
 // Ansatt-importer (Planday/Visma/CSV → Tidum, migrasjon 042). To-fase:
 // upload+parse → 'staged'-rad i imports + én rad per ansatt i import_rows;
 // hovedadmin går gjennom preview, bekrefter → 'confirmed' og rader flyttes

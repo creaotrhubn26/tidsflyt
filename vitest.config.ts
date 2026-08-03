@@ -15,6 +15,8 @@ export default defineConfig({
       // placeholder is safe for tests that never issue a query.
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/tidum_test_unreachable',
     },
+    // tests/ er Playwright-specs (npm run test:e2e) — ikke vitest-tester
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/**', 'tidsflyt-mobile/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

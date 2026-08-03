@@ -21,6 +21,7 @@ import {
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
 import { emailService } from "./lib/email-service";
+import { queueRapportArchiving } from "./lib/archive/archive-service";
 import { users } from "../shared/schema";
 import OpenAI from "openai";
 
@@ -712,6 +713,12 @@ rapportRouter.post(
         console.error("Failed to auto-forward rapport:", forwardErr);
       }
 
+      // Noark 5-arkivering hvis vendoren har arkivintegrasjon (best-effort;
+      // outbox + cron håndterer feil og retry).
+      queueRapportArchiving(updated.id, "approved", String(req.user?.id ?? "")).catch((archiveErr) =>
+        console.error("Failed to queue rapport archiving:", archiveErr),
+      );
+
       res.json(updated);
     } catch (e) {
       res.status(500).json({ error: String(e) });
@@ -905,6 +912,9 @@ rapportRouter.post(
           });
         }
         try { await maybeForwardRapportToInstitution(updated.id); } catch (e) { console.error("bulk auto-forward failed:", e); }
+        queueRapportArchiving(updated.id, "approved", String(req.user?.id ?? "")).catch((e) =>
+          console.error("bulk archive queue failed:", e),
+        );
         approved.push(id);
       } catch (e: any) {
         failed.push({ id, error: e?.message ?? String(e) });

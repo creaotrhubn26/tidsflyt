@@ -85,7 +85,7 @@ Bygger det Halden kalte «digital samhandling med brukerne i sikre kanaler» —
 | Tiltak | Bygger på |
 |---|---|
 | **Innbyggerportal** (partsinnsyn): part logger inn med ID-porten, ser dokumenter delt med seg, mottar og sender meldinger i sikker kanal, signerer samtykker | Ny app-flate; gjenbruker rapport-/dokumentmodell, varsler, e-postmotor |
-| **Documaster-integrasjon**: godkjente rapporter, vedtak og dialog arkiveres som journalposter (Noark 5) med gradering | Documaster har åpent API; `arkivert`-status finnes allerede i rapportflyten |
+| **Documaster-integrasjon**: godkjente rapporter, vedtak og dialog arkiveres som journalposter (Noark 5) med gradering | ✅ **Påbegynt** — backend implementert, se [docs/integrations/documaster.md](integrations/documaster.md); gjenstår sandkasseverifisering + UI |
 | **Freg/DSF-oppslag** (KS Fiks Folkeregister): person registreres én gang, hentes ved saksopprettelse, manuell fallback; håndtering av adressegradering kode 6/7 i hele flaten (skjerming i UI, logger, eksport) | `saker`-modellen; virksomhetssertifikat fra fase 1 |
 | **KS Fiks SvarUt** for utgående ekspedering til parter uten digital dialog | e-postmotor/forward-flyt |
 | Samtykke- og fullmaktsmodell (hvem er part i saken, hvem ser hva) | rollemodell + `user_cases` |
