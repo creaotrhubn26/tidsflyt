@@ -86,6 +86,8 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
       tjenesteform, men må bekreftes mot en reell instans. All transport er
       isolert i den ene filen; `apiPaths` i config kan overstyre stier.
 - [ ] Partneravtale/API-tilgang med Documaster (jf. veikartets steg 5).
-- [ ] UI i innstillinger (connect-skjema + arkivlogg) — API-et er klart.
+- [x] UI i innstillinger — `ArkivConnectCard` på `/settings` for vendor_admin+
+      (`client/src/components/integrations/arkiv-connect-card.tsx`): connect-skjema
+      med hjemmel-forslag, auto-arkivering av/på, tilkoblingstest, arkivlogg med retry.
 - [ ] Utvide til `vedtak` og `dialog` som entity_types når de modulene
       finnes (fase 3 i veikartet) — outbox og provider støtter det allerede.

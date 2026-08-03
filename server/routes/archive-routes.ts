@@ -19,7 +19,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { archiveConfigs, archiveEntries, rapporter, saker } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
-import { sealSecret } from "../lib/secret-box";
+import { openSecret, sealSecret } from "../lib/secret-box";
 import { createArchiveProvider } from "../lib/archive/documaster-client";
 import {
   getArchiveConfig,
@@ -141,6 +141,73 @@ export function registerArchiveRoutes(app: Express) {
         .returning();
 
       res.json(publicView(row));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /**
+   * PATCH /api/integrations/arkiv/settings
+   * Oppdater innstillinger som ikke krever ny secret:
+   * Body: { autoArchive?, skjermingshjemmel?, tilgangsrestriksjon?, arkivdelId?, journalenhet? }
+   */
+  app.patch("/api/integrations/arkiv/settings", requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!hasRole(req, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan endre arkivinnstillinger" });
+      const vendorId = userVendorId(req);
+      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+
+      const { autoArchive, skjermingshjemmel, tilgangsrestriksjon, arkivdelId, journalenhet } = req.body ?? {};
+      const set: Record<string, unknown> = { updatedAt: new Date() };
+      if (typeof autoArchive === "boolean") set.autoArchive = autoArchive;
+      if (skjermingshjemmel !== undefined) set.skjermingshjemmel = String(skjermingshjemmel);
+      if (tilgangsrestriksjon !== undefined) set.tilgangsrestriksjon = String(tilgangsrestriksjon);
+      if (arkivdelId !== undefined) set.arkivdelId = arkivdelId ? String(arkivdelId) : null;
+      if (journalenhet !== undefined) set.journalenhet = journalenhet ? String(journalenhet) : null;
+      if (Object.keys(set).length === 1) return res.status(400).json({ error: "Ingen felter å oppdatere" });
+
+      const [row] = await db
+        .update(archiveConfigs)
+        .set(set)
+        .where(eq(archiveConfigs.vendorId, vendorId))
+        .returning();
+      if (!row) return res.status(404).json({ error: "Ingen arkivkobling å oppdatere" });
+      res.json(publicView(row));
+    } catch (e: any) {
+      res.status(500).json({ error: e.message });
+    }
+  });
+
+  /** POST /api/integrations/arkiv/test — verifiser lagret tilkobling. */
+  app.post("/api/integrations/arkiv/test", requireAuth, async (req: Request, res: Response) => {
+    try {
+      if (!hasRole(req, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
+      const vendorId = userVendorId(req);
+      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+      const cfg = await getArchiveConfig(vendorId);
+      if (!cfg) return res.status(404).json({ error: "Ingen arkivkobling konfigurert" });
+
+      try {
+        await createArchiveProvider(cfg.provider, {
+          baseUrl: cfg.baseUrl,
+          clientId: cfg.clientId,
+          clientSecret: openSecret(cfg.clientSecret),
+          arkivdelId: cfg.arkivdelId,
+        }).verify();
+        const [row] = await db
+          .update(archiveConfigs)
+          .set({ lastVerifiedAt: new Date(), lastError: null, status: "active", updatedAt: new Date() })
+          .where(eq(archiveConfigs.vendorId, vendorId))
+          .returning();
+        res.json(publicView(row));
+      } catch (verifyErr: any) {
+        const message = String(verifyErr?.message ?? verifyErr);
+        await db
+          .update(archiveConfigs)
+          .set({ lastError: message.slice(0, 2000), updatedAt: new Date() })
+          .where(eq(archiveConfigs.vendorId, vendorId));
+        res.status(422).json({ error: `Tilkoblingstest feilet: ${message}` });
+      }
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
