@@ -1,7 +1,8 @@
 # Anbudsanalyse: Halden kommune — Administrativt system for barnevernstjenesten
 
 **Doffin-referanse:** [2026-112379](https://doffin.no/notices/2026-112379) · TED: [502088-2026](https://ted.europa.eu/en/notice/-/detail/502088-2026)
-**Status:** Analyse-utkast · Sist oppdatert 03.08.2026
+**Status:** Analyse ferdigstilt · Sist oppdatert 03.08.2026
+**Oppfølging:** Gap-listen er omsatt til strategisk plan i [Veikart: Barnevern som ny vertikal](../veikart-barnevern-vertikal.md)
 
 ---
 
