@@ -37,7 +37,7 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 | Metode | Sti | Roller | Beskrivelse |
 |---|---|---|---|
 | GET | `/api/integrations/arkiv/status` | admin + tiltaksleder-tier | Vendorens config (uten secret) |
-| POST | `/api/integrations/arkiv/connect` | vendor_admin+ | Verifiser tilkobling + lagre. Body: `{ baseUrl, clientId, clientSecret, arkivdelId?, journalenhet?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }` |
+| POST | `/api/integrations/arkiv/connect` | vendor_admin+ | Verifiser tilkobling + lagre. Body: `{ baseUrl, clientId, clientSecret, arkivdelId?, journalenhet?, klasseId?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }` |
 | DELETE | `/api/integrations/arkiv/disconnect` | vendor_admin+ | Fjern config |
 | GET | `/api/integrations/arkiv/entries?status=` | admin + tiltaksleder-tier | Arkivlogg (outbox-rader) |
 | POST | `/api/integrations/arkiv/entries/:id/retry` | admin + tiltaksleder-tier | Manuell retry, nullstiller backoff |

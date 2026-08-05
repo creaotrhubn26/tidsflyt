@@ -41,6 +41,7 @@ interface ArkivStatusResponse {
   baseUrl?: string;
   arkivdelId?: string | null;
   journalenhet?: string | null;
+  klasseId?: string | null;
   autoArchive?: boolean;
   skjermingshjemmel?: string | null;
   tilgangsrestriksjon?: string | null;
@@ -213,6 +214,7 @@ export function ArkivConnectCard() {
   const [clientSecret, setClientSecret] = useState("");
   const [arkivdelId, setArkivdelId] = useState("");
   const [journalenhet, setJournalenhet] = useState("");
+  const [klasseId, setKlasseId] = useState("");
   const [skjermingshjemmel, setSkjermingshjemmel] = useState(HJEMMEL_PRESETS[0]);
   const [logOpen, setLogOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -235,6 +237,7 @@ export function ArkivConnectCard() {
         clientSecret: clientSecret.trim(),
         arkivdelId: arkivdelId.trim() || undefined,
         journalenhet: journalenhet.trim() || undefined,
+        klasseId: klasseId.trim() || undefined,
         skjermingshjemmel: skjermingshjemmel.trim() || undefined,
       });
       return res.json();
@@ -331,6 +334,12 @@ export function ArkivConnectCard() {
                 <dt className="text-muted-foreground">Arkivdel:</dt>
                 <dd className="font-mono text-xs self-center">{data?.arkivdelId ?? "—"}</dd>
               </div>
+              {data?.klasseId && (
+                <div className="flex gap-2">
+                  <dt className="text-muted-foreground">Primærklasse:</dt>
+                  <dd className="font-mono text-xs self-center">{data.klasseId}</dd>
+                </div>
+              )}
               <div className="flex gap-2">
                 <dt className="text-muted-foreground">Skjerming:</dt>
                 <dd>{data?.skjermingshjemmel} ({data?.tilgangsrestriksjon})</dd>
@@ -489,6 +498,20 @@ export function ArkivConnectCard() {
                   data-testid="arkiv-journalenhet-input"
                 />
               </div>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="arkiv-klasse">Primærklasse-ID (valgfritt)</Label>
+              <Input
+                id="arkiv-klasse"
+                value={klasseId}
+                onChange={(e) => setKlasseId(e.target.value)}
+                autoComplete="off"
+                data-testid="arkiv-klasse-input"
+              />
+              <p className="text-xs text-muted-foreground">
+                Fylles kun ut hvis arkivkjernen krever klassifikasjon på saksmapper —
+                id-en til klassen mappene skal knyttes til.
+              </p>
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="arkiv-hjemmel">Skjermingshjemmel</Label>

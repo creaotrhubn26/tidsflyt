@@ -280,6 +280,25 @@ curl "${DOCUMASTER_BASE_URL}/rms/api/public/noark5/v1/code-lists?type=Saksmappe&
   -H "Authorization: Bearer ${ACCESS_TOKEN}"
 ```
 
+### Instansen krever primærklasse på saksmapper
+
+Noen Documaster-oppsett har et primært klassifikasjonssystem på arkivdelen
+og krever at mapper knyttes til en Klasse. Sett `klasseId` i configen
+(UI: «Primærklasse-ID» i connect-skjemaet, eller `DOCUMASTER_KLASSE_ID` i
+testscriptet) — mappen får da en `refPrimaerKlasse`-link. Finn klasse-id:
+
+```bash
+curl -X POST "${DOCUMASTER_BASE_URL}/rms/api/public/noark5/v1/query" \
+  -H "Authorization: Bearer ${ACCESS_TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "Klasse",
+    "limit": 10,
+    "query": "refKlassifikasjonssystem.refArkivdelSomPrimaer.id = @arkivdel",
+    "parameters": { "@arkivdel": "'${DOCUMASTER_ARKIVDEL_ID}'" }
+  }'
+```
+
 ### Arkivdel-ID finnes ikke
 
 Verifiser at arkivdelen finnes via query:

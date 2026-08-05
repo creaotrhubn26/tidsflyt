@@ -41,6 +41,8 @@ export interface ArchiveProviderConfig {
   clientSecret: string;
   arkivdelId?: string | null;
   journalenhet?: string | null;
+  /** Valgfri primærklasse — settes hvis instansen krever klassifikasjon på mapper. */
+  klasseId?: string | null;
   apiPaths?: Partial<typeof DEFAULT_PATHS>;
 }
 
@@ -182,6 +184,11 @@ export class DocumasterProvider implements ArchiveProvider {
           },
         },
         { action: "link", type: "Saksmappe", id: "@mappe", ref: "refArkivdel", linkToId: [String(arkivdelId)] },
+        // Valgfri primærklasse (Klasse fra arkivdelens primære
+        // klassifikasjonssystem) — kreves i noen instans-oppsett.
+        ...(this.cfg.klasseId
+          ? [{ action: "link", type: "Saksmappe", id: "@mappe", ref: "refPrimaerKlasse", linkToId: [String(this.cfg.klasseId)] }]
+          : []),
         {
           action: "save",
           type: "EksternId",

@@ -272,6 +272,7 @@ export const archiveConfigs = pgTable("archive_configs", {
   clientSecret:        text("client_secret").notNull(),
   arkivdelId:          text("arkivdel_id"),
   journalenhet:        text("journalenhet"),
+  klasseId:            text("klasse_id"),
   autoArchive:         boolean("auto_archive").notNull().default(true),
   skjermingshjemmel:   text("skjermingshjemmel").default("Offl. § 13 jf. fvl. § 13"),
   tilgangsrestriksjon: text("tilgangsrestriksjon").default("UO"),

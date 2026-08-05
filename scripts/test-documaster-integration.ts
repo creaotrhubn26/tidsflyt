@@ -5,7 +5,11 @@
  * Kjøring:
  *   DOCUMASTER_BASE_URL=... DOCUMASTER_CLIENT_ID=... \
  *   DOCUMASTER_CLIENT_SECRET=... DOCUMASTER_ARKIVDEL_ID=... \
+ *   [DOCUMASTER_KLASSE_ID=...] \
  *   npx tsx scripts/test-documaster-integration.ts
+ *
+ * DOCUMASTER_KLASSE_ID er valgfri — settes hvis instansen krever
+ * primærklasse på saksmapper.
  *
  * Testene:
  * 1. OAuth2 token-flow + verify()
@@ -49,10 +53,13 @@ async function main() {
     process.exit(1);
   }
 
+  const klasseId = process.env.DOCUMASTER_KLASSE_ID || undefined;
+
   ok(`Base URL: ${baseUrl}`);
   ok(`Arkivdel: ${arkivdelId}`);
+  if (klasseId) ok(`Primærklasse: ${klasseId}`);
 
-  const provider = createArchiveProvider("documaster", { baseUrl, clientId, clientSecret, arkivdelId });
+  const provider = createArchiveProvider("documaster", { baseUrl, clientId, clientSecret, arkivdelId, klasseId });
 
   // En unik test-sak per kjøring, så gjentatte kjøringer ikke kolliderer.
   const runId = Date.now().toString(36);

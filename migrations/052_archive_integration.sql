@@ -17,6 +17,10 @@ CREATE TABLE IF NOT EXISTS archive_configs (
   -- Noark 5-struktur journalpostene skal inn i (hentes fra arkivkjernen)
   arkivdel_id        text,
   journalenhet       text,
+  -- Valgfri primærklasse: settes hvis arkivkjernen krever klassifikasjon
+  -- på saksmapper (refPrimaerKlasse mot en Klasse i arkivdelens primære
+  -- klassifikasjonssystem).
+  klasse_id          text,
   -- Automatisk arkivering ved godkjenning av rapport
   auto_archive       boolean NOT NULL DEFAULT true,
   -- Standard skjerming for journalposter (kan overstyres per oppføring)
@@ -29,6 +33,9 @@ CREATE TABLE IF NOT EXISTS archive_configs (
   created_at         timestamptz NOT NULL DEFAULT now(),
   updated_at         timestamptz NOT NULL DEFAULT now()
 );
+
+-- Eksisterende installasjoner: kolonne lagt til etter første utrulling.
+ALTER TABLE archive_configs ADD COLUMN IF NOT EXISTS klasse_id text;
 
 -- Kobling sak -> saksmappe i arkivkjernen, slik at alle journalposter for
 -- samme sak havner i samme mappe og mappen bare opprettes én gang.

@@ -84,6 +84,7 @@ export function registerArchiveRoutes(app: Express) {
         clientSecret,
         arkivdelId,
         journalenhet,
+        klasseId,
         skjermingshjemmel,
         tilgangsrestriksjon,
         autoArchive,
@@ -124,6 +125,7 @@ export function registerArchiveRoutes(app: Express) {
         clientSecret: sealSecret(String(clientSecret)),
         arkivdelId: arkivdelId ? String(arkivdelId) : null,
         journalenhet: journalenhet ? String(journalenhet) : null,
+        klasseId: klasseId ? String(klasseId) : null,
         ...(skjermingshjemmel ? { skjermingshjemmel: String(skjermingshjemmel) } : {}),
         ...(tilgangsrestriksjon ? { tilgangsrestriksjon: String(tilgangsrestriksjon) } : {}),
         autoArchive: autoArchive !== false,
@@ -157,13 +159,14 @@ export function registerArchiveRoutes(app: Express) {
       const vendorId = userVendorId(req);
       if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
 
-      const { autoArchive, skjermingshjemmel, tilgangsrestriksjon, arkivdelId, journalenhet } = req.body ?? {};
+      const { autoArchive, skjermingshjemmel, tilgangsrestriksjon, arkivdelId, journalenhet, klasseId } = req.body ?? {};
       const set: Record<string, unknown> = { updatedAt: new Date() };
       if (typeof autoArchive === "boolean") set.autoArchive = autoArchive;
       if (skjermingshjemmel !== undefined) set.skjermingshjemmel = String(skjermingshjemmel);
       if (tilgangsrestriksjon !== undefined) set.tilgangsrestriksjon = String(tilgangsrestriksjon);
       if (arkivdelId !== undefined) set.arkivdelId = arkivdelId ? String(arkivdelId) : null;
       if (journalenhet !== undefined) set.journalenhet = journalenhet ? String(journalenhet) : null;
+      if (klasseId !== undefined) set.klasseId = klasseId ? String(klasseId) : null;
       if (Object.keys(set).length === 1) return res.status(400).json({ error: "Ingen felter å oppdatere" });
 
       const [row] = await db

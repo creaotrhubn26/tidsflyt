@@ -57,6 +57,7 @@ function providerFor(cfg: ArchiveConfig): ArchiveProvider {
     clientSecret: openSecret(cfg.clientSecret),
     arkivdelId: cfg.arkivdelId,
     journalenhet: cfg.journalenhet,
+    klasseId: cfg.klasseId,
   });
 }
 
