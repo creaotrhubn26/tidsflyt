@@ -284,6 +284,38 @@ const DEV_USER: AuthUser = {
   vendorId: null,
 };
 
+export async function handleMobileRefresh(req: Request, res: any) {
+  const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+  if (!refreshToken) {
+    return res.status(400).json({ message: "refreshToken er påkrevd" });
+  }
+
+  try {
+    const result = await refreshMobileAccessToken(refreshToken);
+    if (!result) {
+      return res.status(401).json({ message: "Ugyldig eller utløpt refresh-token" });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error("Mobile refresh token error:", error);
+    return res.status(500).json({ error: "Kunne ikke fornye token akkurat nå." });
+  }
+}
+
+export async function handleMobileLogout(req: Request, res: any) {
+  const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+
+  try {
+    if (refreshToken) {
+      await revokeMobileRefreshToken(refreshToken);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Mobile logout error:", error);
+    return res.status(500).json({ error: "Kunne ikke logge ut akkurat nå." });
+  }
+}
+
 export async function setupCustomAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
@@ -430,37 +462,8 @@ export async function setupCustomAuth(app: Express) {
     )(req, res, next);
   });
 
-  app.post("/api/auth/mobile/refresh", async (req, res) => {
-    const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
-    if (!refreshToken) {
-      return res.status(400).json({ message: "refreshToken er påkrevd" });
-    }
-
-    try {
-      const result = await refreshMobileAccessToken(refreshToken);
-      if (!result) {
-        return res.status(401).json({ message: "Ugyldig eller utløpt refresh-token" });
-      }
-      res.json(result);
-    } catch (error) {
-      console.error("Mobile refresh token error:", error);
-      return res.status(500).json({ error: "Kunne ikke fornye token akkurat nå." });
-    }
-  });
-
-  app.post("/api/auth/mobile/logout", async (req, res) => {
-    const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
-
-    try {
-      if (refreshToken) {
-        await revokeMobileRefreshToken(refreshToken);
-      }
-      res.json({ success: true });
-    } catch (error) {
-      console.error("Mobile logout error:", error);
-      return res.status(500).json({ error: "Kunne ikke logge ut akkurat nå." });
-    }
-  });
+  app.post("/api/auth/mobile/refresh", handleMobileRefresh);
+  app.post("/api/auth/mobile/logout", handleMobileLogout);
 
   app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
