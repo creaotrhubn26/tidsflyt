@@ -847,7 +847,7 @@ git commit -m "feat(mobile-auth): add mobile Google login, token refresh, and lo
 - Create: `ios/Tidum/project.yml`
 - Create: `ios/Tidum/Tidum/TidumApp.swift`
 - Create: `ios/Tidum/Tidum/Root/RootView.swift`
-- Create: `ios/Tidum/TidumTests/PlaceholderTests.swift` (replaced by real tests in later tasks — a genuinely empty test target fails `xcodebuild test`, so this exists only to make Step 4 pass; Task 9 adds `APIClientTests.swift` which supersedes it)
+- Create: `ios/Tidum/TidumTests/PlaceholderTests.swift` (a genuinely empty test target fails `xcodebuild test`, so this exists only to make Step 4 pass; Task 8 adds `APIClientTests.swift` and later tasks add more — nothing ever deletes this file, it just stops being the only test)
 - Generated: `ios/Tidum/Tidum.xcodeproj` (via XcodeGen, not hand-edited, not committed — add to `.gitignore`)
 
 **Interfaces:**
