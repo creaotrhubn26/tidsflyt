@@ -7,6 +7,7 @@ import { and, eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
+import { getAppBaseUrl } from "./lib/app-base-url";
 
 declare global {
   namespace Express {
@@ -159,7 +160,14 @@ export async function setupEidAuth(app: Express): Promise<void> {
     domain,
     clientID,
     clientSecret,
-    redirectUri: IDURA_CALLBACK_PATH,
+    // Absolutt URL, ikke relativ sti: relativ sti får @criipto/verify-express
+    // til å bygge redirect_uri fra req.get('host'), som bak Netlifys _redirects-
+    // proxy er tidum-backend.onrender.com (proxyens egen upstream-Host), ikke
+    // tidum.no. Idura sender da sluttbrukeren rett til onrender.com — et annet
+    // origin enn der økt-cookien (satt uten Domain-attributt, host-only for
+    // tidum.no) faktisk finnes, så økten "forsvinner" ved kobling. Samme
+    // mønster som getGoogleCallbackUrl() bruker for Google-innlogging.
+    redirectUri: `${getAppBaseUrl()}${IDURA_CALLBACK_PATH}`,
     beforeAuthorize: (_req, options) => ({
       ...options,
       scope: "openid ssn",
