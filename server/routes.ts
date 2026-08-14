@@ -52,7 +52,7 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
@@ -3926,7 +3926,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/stats", isAuthenticated, apiRateLimit, async (req, res) => {
+  app.get("/api/stats", isAuthenticatedOrBearer, apiRateLimit, async (req, res) => {
     try {
       const { range } = req.query;
       const cacheKey = `stats:${range || 'default'}`;
@@ -4168,7 +4168,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/profile", isAuthenticated, async (req, res) => {
+  app.get("/api/profile", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const userId = (req.user as { id: string }).id;
       const [row] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
@@ -4196,7 +4196,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/profile", isAuthenticated, async (req, res) => {
+  app.patch("/api/profile", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const userId = (req.user as { id: string }).id;
       const parsed = profileUpdateSchema.safeParse(req.body);
@@ -4400,7 +4400,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/time-tracking/work-types", isAuthenticated, async (req, res) => {
+  app.get("/api/time-tracking/work-types", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const normalizedRole = normalizeRole((req.user as any)?.role);
       const config = await readTimeTrackingWorkTypeConfig();
@@ -4612,7 +4612,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/time-entries", isAuthenticated, async (req, res) => {
+  app.get("/api/time-entries", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const { userId, startDate, endDate, status } = req.query;
       const entries = await storage.getTimeEntries({
@@ -4627,7 +4627,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/worker/summary", isAuthenticated, async (req, res) => {
+  app.get("/api/worker/summary", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const authUserId = String((req.user as any)?.id || "").trim();
       if (!authUserId) return res.status(401).json({ error: "Unauthorized" });
@@ -4639,7 +4639,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/company/me/assigned-cases", isAuthenticated, async (req, res) => {
+  app.get("/api/company/me/assigned-cases", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const authEmail = String((req.user as any)?.email || "").trim().toLowerCase();
       if (!authEmail) {
@@ -5177,7 +5177,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/time-entries", isAuthenticated, async (req, res) => {
+  app.post("/api/time-entries", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const { caseNumber, description, hours, expenseCoverage, date, status, createdAt, sakId, sakLocationId } = req.body;
       const userId = (req.user as any)?.id as string;
@@ -5212,7 +5212,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/time-entries/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/time-entries/:id", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       const existing = await storage.getTimeEntry(req.params.id);
@@ -5230,7 +5230,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/time-entries/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/time-entries/:id", isAuthenticatedOrBearer, async (req, res) => {
     try {
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       const existing = await storage.getTimeEntry(req.params.id);

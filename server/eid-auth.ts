@@ -277,7 +277,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
   app.get(IDURA_CALLBACK_PATH, iduraMiddleware, handleIduraCallback);
 
   app.get("/api/auth/eid/status", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) {
+    if (!req.user) {
       return res.status(401).json({ message: "Ikke autentisert" });
     }
     const user = req.user as AuthUser;

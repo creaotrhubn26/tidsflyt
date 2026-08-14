@@ -5,6 +5,7 @@ import type { Express, Request, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
+import { verifyAccessToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
@@ -288,6 +289,7 @@ export async function setupCustomAuth(app: Express) {
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+  app.use(resolveBearerUser);
 
   // DEV MODE: inject a mock user so all API routes work without OAuth
   if (isDev) {
@@ -456,10 +458,10 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.isAuthenticated?.()) {
+    if (isDev && !req.user) {
       return res.json(DEV_USER);
     }
-    if (req.isAuthenticated() && req.user) {
+    if (req.user) {
       res.json(req.user);
     } else {
       res.status(401).json({ message: "Ikke autentisert" });
@@ -496,6 +498,43 @@ export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (req.isAuthenticated() && req.user) {
     return next();
   }
+  res.status(401).json({ message: "Ikke autentisert" });
+};
+
+// Populerer req.user fra en Bearer-JWT hvis til stede — påvirker ALDRI en
+// gyldig Passport-sesjon (web), og blokkerer aldri selv: en manglende/ugyldig
+// header lar requesten fortsette usatt, og ruten under avgjør 401 selv.
+// Montert globalt i setupCustomAuth, rett etter passport.session(), slik at
+// ALLE ruter i appen — også de som sjekker req.user direkte uten
+// isAuthenticatedOrBearer (f.eks. sakerRapportRoutes.ts sin lokale
+// requireAuth) — automatisk fungerer med mobil-token uten videre endring.
+export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
+  if (req.user) return next();
+  const authHeader = req.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return next();
+  try {
+    const userId = verifyAccessToken(authHeader.slice("Bearer ".length));
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (user) {
+      req.user = {
+        id: user.id,
+        email: user.email || "",
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
+        profileImageUrl: user.profileImageUrl,
+        provider: "mobile",
+        role: user.role || "member",
+        vendorId: user.vendorId,
+      };
+    }
+  } catch {
+    // Ugyldig/utløpt token — req.user forblir usatt, ruten under avgjør 401.
+  }
+  next();
+};
+
+export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
+  if (isDev) return next();
+  if (req.user) return next();
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
