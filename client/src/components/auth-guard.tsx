@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
+import { useEidStatus } from "@/hooks/use-eid-status";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { Redirect } from "wouter";
 import { normalizeRole } from "@shared/roles";
@@ -10,11 +11,14 @@ interface AuthGuardProps {
   requiredRoles?: string[];
 }
 
+const EID_LINK_PATH = "/logg-inn/koble-bankid";
+
 export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
   // DEV MODE: bypass auth to allow full page access
   const isDev = import.meta.env.DEV;
   const { user, isLoading, isAuthenticated } = useAuth();
   const { effectiveRole } = useRolePreview();
+  const { data: eidStatus, isLoading: eidStatusLoading } = useEidStatus(isAuthenticated && !isDev);
 
   const hasRequiredRole = (() => {
     if (!requiredRoles || !user) return true;
@@ -43,6 +47,26 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
 
   if (!isAuthenticated) {
     return <Redirect to="/" />;
+  }
+
+  if (isAuthenticated && !isDev && eidStatusLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-background">
+        <div className="inline-flex items-center gap-3 text-sm font-medium text-muted-foreground">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
+          Laster...
+        </div>
+      </main>
+    );
+  }
+
+  if (
+    !eidStatusLoading &&
+    eidStatus?.required &&
+    !eidStatus.linked &&
+    window.location.pathname !== EID_LINK_PATH
+  ) {
+    return <Redirect to={EID_LINK_PATH} />;
   }
 
   if (!hasRequiredRole) {

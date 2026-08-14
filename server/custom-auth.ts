@@ -12,16 +12,8 @@ import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
 import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
-
-interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  profileImageUrl: string | null;
-  provider: string;
-  role: string;
-  vendorId: number | null;
-}
+import type { AuthUser } from "./lib/auth-types";
+import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
 
 type EmailIdentityInput = {
   email: string;
@@ -233,6 +225,10 @@ async function resolveAuthorizedUserByEmail({
   return null;
 }
 
+export function shouldRejectNonEidLogin(role: string | null | undefined, eidLinked: boolean): boolean {
+  return requiresEidLogin(role) && eidLinked;
+}
+
 declare global {
   namespace Express {
     interface User extends AuthUser {}
@@ -365,12 +361,19 @@ export async function setupCustomAuth(app: Express) {
           return res.redirect(`/?error=${errorCode}`);
         }
 
-        req.logIn(user, (loginError) => {
-          if (loginError) {
-            return next(loginError);
-          }
-          return res.redirect(getPostAuthRedirect(req));
-        });
+        hasLinkedEid(user.id)
+          .then((eidLinked) => {
+            if (shouldRejectNonEidLogin(user.role, eidLinked)) {
+              return res.redirect("/?error=eid_required");
+            }
+            req.logIn(user, (loginError) => {
+              if (loginError) {
+                return next(loginError);
+              }
+              return res.redirect(getPostAuthRedirect(req));
+            });
+          })
+          .catch(next);
       })(req, res, next);
     }
   );
@@ -426,6 +429,11 @@ export async function setupCustomAuth(app: Express) {
 
       if (!user) {
         return res.redirect("/?error=access_request_required");
+      }
+
+      const eidLinked = await hasLinkedEid(user.id);
+      if (shouldRejectNonEidLogin(user.role, eidLinked)) {
+        return res.redirect("/?error=eid_required");
       }
 
       req.logIn(user, (loginError) => {

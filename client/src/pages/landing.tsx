@@ -5,7 +5,7 @@ import { isExternalHref } from "@shared/nav-config";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
-import { buildGoogleAuthUrl } from "@/lib/auth-utils";
+import { buildGoogleAuthUrl, IDURA_LOGIN_URL } from "@/lib/auth-utils";
 import {
   ArrowRight,
   BarChart3,
@@ -461,6 +461,34 @@ const howItWorksSteps = [
   },
 ] as const;
 
+const AUTH_ERROR_MESSAGES: Record<string, { title: string; body: string }> = {
+  access_request_required: {
+    title: "Denne Google-kontoen er ikke aktivert i Tidum ennå.",
+    body: "Virksomhetsledere må godkjennes av Creatorhub AS først. Miljøarbeidere får tilgang via leder eller admin inne i løsningen.",
+  },
+  eid_required: {
+    title: "Denne kontoen bruker BankID.",
+    body: "Rollen din krever BankID-innlogging. Bruk BankID-knappen for å logge inn.",
+  },
+  eid_not_linked: {
+    title: "Fant ingen konto koblet til denne BankID-en.",
+    body: "Logg inn med Google eller e-post først, og koble BankID til kontoen din derfra.",
+  },
+  eid_missing_ssn: {
+    title: "Fikk ikke fødselsnummer fra BankID.",
+    body: "Prøv igjen, eller kontakt administrator hvis problemet vedvarer.",
+  },
+  eid_already_linked: {
+    title: "Denne BankID-en er allerede koblet til en annen konto.",
+    body: "Kontakt administrator hvis du mener dette er feil.",
+  },
+};
+
+const DEFAULT_AUTH_ERROR_MESSAGE = {
+  title: "Vi kunne ikke logge deg inn akkurat nå.",
+  body: "Prøv igjen, eller send en tilgangsforespørsel hvis virksomheten din ikke er aktivert ennå.",
+};
+
 export default function LandingPage() {
   const [, setLocation] = useLocation();
   usePublicLightTheme();
@@ -536,6 +564,14 @@ export default function LandingPage() {
   const startGoogleLogin = (source: string) => {
     trackGoogleLoginClick(source);
     window.location.href = buildGoogleAuthUrl("/dashboard");
+  };
+
+  const startEidLogin = (source: string) => {
+    trackTidumPublicEvent("tidum_bankid_login_click", {
+      source,
+      destination: IDURA_LOGIN_URL,
+    });
+    window.location.href = IDURA_LOGIN_URL;
   };
 
   const scrollToFeatures = (source: string) => {
@@ -650,16 +686,15 @@ export default function LandingPage() {
               <div className="flex max-w-4xl items-start gap-3 rounded-2xl border border-[#D4E6DD] bg-white/90 px-4 py-3 text-[#234049] shadow-[0_8px_24px_rgba(22,43,49,0.05)] dark:border-[#1d3a35] dark:bg-[#17252b] dark:text-[#c8e8ec]">
                 <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-primary)]" />
                 <div>
-                  <p className="font-semibold">
-                    {authError === "access_request_required"
-                      ? "Denne Google-kontoen er ikke aktivert i Tidum ennå."
-                      : "Vi kunne ikke logge deg inn akkurat nå."}
-                  </p>
-                  <p className="mt-1 text-[13px] text-[#4F656B] dark:text-[#8fa3a8]">
-                    {authError === "access_request_required"
-                      ? "Virksomhetsledere må godkjennes av Creatorhub AS først. Miljøarbeidere får tilgang via leder eller admin inne i løsningen."
-                      : "Prøv igjen, eller send en tilgangsforespørsel hvis virksomheten din ikke er aktivert ennå."}
-                  </p>
+                  {(() => {
+                    const { title, body } = AUTH_ERROR_MESSAGES[authError] ?? DEFAULT_AUTH_ERROR_MESSAGE;
+                    return (
+                      <>
+                        <p className="font-semibold">{title}</p>
+                        <p className="mt-1 text-[13px] text-[#4F656B] dark:text-[#8fa3a8]">{body}</p>
+                      </>
+                    );
+                  })()}
                 </div>
               </div>
             </div>
@@ -693,6 +728,14 @@ export default function LandingPage() {
                   className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
                   Logg inn med Google
+                </Button>
+                <Button
+                  type="button"
+                  onClick={() => startEidLogin("hero_bankid")}
+                  variant="outline"
+                  className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
+                >
+                  Logg inn med BankID
                 </Button>
               </div>
             </div>
