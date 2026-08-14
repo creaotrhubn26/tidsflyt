@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { buildEidAuthUrl } from "@/lib/auth-utils";
 
 export default function KobleBankId() {
   return (
@@ -14,7 +13,7 @@ export default function KobleBankId() {
           <Button
             type="button"
             onClick={() => {
-              window.location.href = buildEidAuthUrl("bankid", "/dashboard");
+              window.location.href = "/api/auth/eid/link/bankid";
             }}
           >
             Fortsett med BankID
@@ -23,7 +22,7 @@ export default function KobleBankId() {
             type="button"
             variant="outline"
             onClick={() => {
-              window.location.href = buildEidAuthUrl("buypass", "/dashboard");
+              window.location.href = "/api/auth/eid/link/buypass";
             }}
           >
             Fortsett med Buypass

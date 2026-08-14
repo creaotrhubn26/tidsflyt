@@ -43,17 +43,27 @@ export function requiresEidLogin(role: string | null | undefined): boolean {
 export function buildEidStatus(
   role: string | null | undefined,
   linked: boolean,
+  anyProviderRegistered: boolean,
 ): { linked: boolean; required: boolean } {
-  return { linked, required: requiresEidLogin(role) };
+  return { linked, required: requiresEidLogin(role) && anyProviderRegistered };
 }
 
 export async function hasLinkedEid(userId: string): Promise<boolean> {
-  const rows = await db
-    .select({ id: eidIdentities.id })
-    .from(eidIdentities)
-    .where(eq(eidIdentities.userId, userId))
-    .limit(1);
-  return rows.length > 0;
+  // Fail-safe, not fail-closed: any error here (e.g. eid_identities missing
+  // because a migration hasn't run yet) must never block Google/e-post login
+  // for every role. Worst case a user who should be forced to eID gets one
+  // more non-eID login before the gate catches up — far better than an outage.
+  try {
+    const rows = await db
+      .select({ id: eidIdentities.id })
+      .from(eidIdentities)
+      .where(eq(eidIdentities.userId, userId))
+      .limit(1);
+    return rows.length > 0;
+  } catch (err) {
+    console.error("[eid] hasLinkedEid query failed — treating as not linked", userId, err);
+    return false;
+  }
 }
 
 async function resolveUserByEidIdentity(
@@ -179,7 +189,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
     }
     const user = req.user as AuthUser;
     const linked = await hasLinkedEid(user.id);
-    res.json(buildEidStatus(user.role, linked));
+    res.json(buildEidStatus(user.role, linked, registeredProviders.size > 0));
   });
 }
 
@@ -200,7 +210,17 @@ async function registerProvider(app: Express, provider: EidProvider): Promise<vo
   // Discovery må være ferdig FØR Strategy konstrueres — konstruktøren leser
   // config synkront. setupEidAuth awaiter dette før routes.ts starter
   // serveren, så ingen request kan treffe ruten før strategien er klar.
-  const oidcConfig = await client.discovery(new URL(issuerUrl), clientId, clientSecret);
+  //
+  // I try/catch: en nede/utilgjengelig Signicat (DNS, nettverk, rotert
+  // secret, discovery som feiler) skal ALDRI kunne ta ned serverstart,
+  // samme filosofi som manglende env-vars-tidligavbruddet over.
+  let oidcConfig: Awaited<ReturnType<typeof client.discovery>>;
+  try {
+    oidcConfig = await client.discovery(new URL(issuerUrl), clientId, clientSecret);
+  } catch (err) {
+    console.warn(`[eid:${provider}] discovery mot Signicat feilet — hopper over registrering`, err);
+    return;
+  }
 
   const verify: VerifyFunctionWithRequest = async (req, tokens, verified) => {
     try {
@@ -275,6 +295,13 @@ async function registerProvider(app: Express, provider: EidProvider): Promise<vo
 
       return verified(null, resolvedUser);
     } catch (err) {
+      // Unique-constraint-brudd på eid_identities_ssn_provider_key: denne
+      // fnr-en er allerede koblet til en ANNEN bruker. Beskyttelsen virker
+      // som tiltenkt — bare gi brukeren en forståelig feilmelding i stedet
+      // for en rå 500.
+      if ((err as { code?: string })?.code === "23505") {
+        return verified(null, false, { message: "eid_already_linked" });
+      }
       return verified(err as Error);
     }
   };

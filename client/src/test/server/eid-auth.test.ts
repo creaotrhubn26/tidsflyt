@@ -41,15 +41,19 @@ describe("requiresEidLogin", () => {
 
 describe("buildEidStatus", () => {
   it("is not required and not linked for admin roles with no identity", () => {
-    expect(buildEidStatus("vendor_admin", false)).toEqual({ linked: false, required: false });
+    expect(buildEidStatus("vendor_admin", false, true)).toEqual({ linked: false, required: false });
   });
 
   it("is required and not linked for a non-admin role with no identity yet", () => {
-    expect(buildEidStatus("miljoarbeider", false)).toEqual({ linked: false, required: true });
+    expect(buildEidStatus("miljoarbeider", false, true)).toEqual({ linked: false, required: true });
   });
 
   it("is required and linked once the identity exists", () => {
-    expect(buildEidStatus("miljoarbeider", true)).toEqual({ linked: true, required: true });
+    expect(buildEidStatus("miljoarbeider", true, true)).toEqual({ linked: true, required: true });
+  });
+
+  it("is not required for a non-admin role when no eID provider is registered, even though the identity is linked", () => {
+    expect(buildEidStatus("miljoarbeider", true, false)).toEqual({ linked: true, required: false });
   });
 });
 
