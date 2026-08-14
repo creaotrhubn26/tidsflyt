@@ -20,6 +20,7 @@ declare global {
 // BankID velges via acr_values på autoriser-kallet, ikke via en egen
 // klient/strategi per eID-metode slik Signicat-modellen krevde. Buypass
 // er ikke støttet av Idura og er derfor ikke med her.
+const IDURA_LOGIN_PATH = "/api/auth/idura/login";
 const IDURA_CALLBACK_PATH = "/api/auth/idura/callback";
 const IDURA_ACR_BANKID = process.env.IDURA_ACR_BANKID || "urn:grn:authn:no:bankid";
 const IDURA_SSN_CLAIM_KEY = "socialno";
@@ -166,20 +167,24 @@ export async function setupEidAuth(app: Express): Promise<void> {
     }),
   });
 
-  // Samme rute er både innloggings-trigger og callback (Iduras eget mønster
-  // — se @criipto/verify-express sin CriiptoVerifyExpressRedirect.middleware).
+  // To ruter, samme middleware+handler. IDURA_LOGIN_PATH er trigger-inngangen
+  // knappene peker på; IDURA_CALLBACK_PATH er den eksakte redirect_uri-en
+  // registrert i Idura-dashbordet. De MÅ være forskjellige stier: hvis
+  // trigger-hitet skjer på nøyaktig samme sti som redirectUri, legger
+  // @criipto/verify-express automatisk til en ?returnTo=-parameter på
+  // redirect_uri-en den sender til Idura — som da ikke lenger er et eksakt
+  // treff mot det registrerte redirect_uri-et (Idura støtter ikke wildcards),
+  // og hele autoriseringen feiler med invalid_request. Verifisert i praksis
+  // mot test-miljøet, ikke antatt.
+  //
   // Kobling vs. innlogging avgjøres av om det allerede finnes en sesjon når
   // callback-steget kjører, ikke av hvilken URL knappen pekte på.
-  // force:true hopper alltid over sesjonens claims-cache — hver klikk skal
+  // force:true hopper alltid over sesjonens claims-cache — hvert klikk skal
   // være en ekte, fersk BankID-autentisering, aldri en gjenbrukt verdi.
-  app.get(
-    IDURA_CALLBACK_PATH,
-    // @criipto/verify-express types its `next` parameter as
-    // `(err?: Error) => {}` instead of Express's `NextFunction` — a
-    // harmless typing looseness in their .d.ts, not a runtime mismatch.
-    idura.middleware({ force: true, failureRedirect: "/" }) as unknown as RequestHandler,
-    async (req, res, next) => {
-      try {
+  const iduraMiddleware = idura.middleware({ force: true, failureRedirect: "/" }) as unknown as RequestHandler;
+
+  const handleIduraCallback: RequestHandler = async (req, res, next) => {
+    try {
         const claims = req.claims;
         if (!claims) {
           return res.redirect("/?error=eid_failed");
@@ -251,15 +256,17 @@ export async function setupEidAuth(app: Express): Promise<void> {
           if (loginError) return next(loginError);
           return res.redirect("/dashboard");
         });
-      } catch (err) {
-        if ((err as { code?: string })?.code === "23505") {
-          // Denne fnr-hashen er allerede koblet til en ANNEN bruker.
-          return res.redirect("/?error=eid_already_linked");
-        }
-        return next(err);
+    } catch (err) {
+      if ((err as { code?: string })?.code === "23505") {
+        // Denne fnr-hashen er allerede koblet til en ANNEN bruker.
+        return res.redirect("/?error=eid_already_linked");
       }
-    },
-  );
+      return next(err);
+    }
+  };
+
+  app.get(IDURA_LOGIN_PATH, iduraMiddleware, handleIduraCallback);
+  app.get(IDURA_CALLBACK_PATH, iduraMiddleware, handleIduraCallback);
 
   app.get("/api/auth/eid/status", async (req, res) => {
     if (!req.isAuthenticated() || !req.user) {
