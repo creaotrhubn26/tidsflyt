@@ -8,6 +8,13 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     setupFiles: ['./client/src/test/setup.ts'],
+    env: {
+      // Fallback only — real DATABASE_URL (CI/local) always wins. Lets
+      // tests that import server/db.ts (e.g. eid-auth tests) run without a
+      // live database; pg.Pool does not connect eagerly, so an unreachable
+      // placeholder is safe for tests that never issue a query.
+      DATABASE_URL: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/tidum_test_unreachable',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
