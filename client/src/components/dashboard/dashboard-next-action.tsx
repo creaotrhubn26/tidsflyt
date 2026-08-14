@@ -106,16 +106,6 @@ export function DashboardNextAction({
         variant: "critical",
       };
     }
-    if (pendingApprovals > 0) {
-      return {
-        icon: CheckCircle,
-        label: `Godkjenn ${pendingApprovals} ${pendingApprovals === 1 ? "timeliste" : "timelister"}`,
-        description: "Timelister venter på din godkjenning",
-        buttonText: "Godkjenn nå",
-        path: "/time-tracking",
-        variant: "warning",
-      };
-    }
     if (myDrafts > 0) {
       return {
         icon: FileText,

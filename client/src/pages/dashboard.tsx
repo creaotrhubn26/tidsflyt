@@ -756,13 +756,16 @@ export default function DashboardPage() {
         overdueItems: 0,
       };
     }
+    // Default mode's "pendingApprovals" card reads as tiltak/timeliste approvals,
+    // but stats.pendingApprovals is unapproved-user count — a different thing
+    // this role has no page to act on. Don't leak it into this label.
     return {
-      pendingApprovals: stats?.pendingApprovals ?? 0,
+      pendingApprovals: 0,
       myDrafts: draftsCount,
       assignedCases: list.length,
       overdueItems: 0,
     };
-  }, [myRapporter, stats, isMiljoarbeiderView, isTiltakslederView, tiltakslederSnapshot]);
+  }, [myRapporter, isMiljoarbeiderView, isTiltakslederView]);
 
   // Real status signals for tiltaksleder — counts from their rapport data
   const statusSignals = useMemo<StatusSignal[]>(() => {
@@ -837,15 +840,6 @@ export default function DashboardPage() {
         title: "Lav oppfølgingsaktivitet i perioden",
         description: "Viktig fordi lange hull kan gi svakere oppfølging. Neste steg: gjennomgå klientsaker uten kontakt.",
         action: () => navigate("/cases"),
-      });
-    }
-    if (!isTiltakslederView && stats && stats.pendingApprovals > 10) {
-      items.push({
-        id: 1,
-        type: "warning",
-        title: `${stats.pendingApprovals} ventende godkjenninger`,
-        description: "Høy arbeidsmengde oppdaget",
-        action: () => navigate("/time-tracking"),
       });
     }
     return items;
@@ -1085,13 +1079,16 @@ export default function DashboardPage() {
             statsLoading={statsLoading}
             // Bruk rolle-spesifikt antall — `stats.pendingApprovals` er
             // antall ikke-godkjente brukere (admin-info), ikke noe en
-            // miljøarbeider eller tiltaksleder skal se på toppen.
+            // miljøarbeider eller tiltaksleder skal se på toppen. Default-modus
+            // (super_admin/hovedadmin/vendor_admin) har heller ingen side å
+            // godkjenne brukere fra ennå (kun /invites, låst til tiltaksleder),
+            // så pillen holdes skjult (0) i stedet for å peke til /time-tracking.
             pendingApprovals={
               isMiljoarbeiderView
                 ? 0
                 : isTiltakslederView
                   ? (Array.isArray(tiltakslederSnapshot?.pendingApprovals) ? tiltakslederSnapshot!.pendingApprovals.length : 0)
-                  : (stats?.pendingApprovals ?? 0)
+                  : 0
             }
             lastUpdated={lastUpdated}
             userName={user?.firstName || undefined}
@@ -1259,7 +1256,7 @@ export default function DashboardPage() {
                       <StatCard
                         statId="reports-missing"
                         title="Rapporter mangler/venter"
-                        value={stats.pendingApprovals}
+                        value={myTasks.pendingApprovals}
                         icon={<FileText className="h-5 w-5" />}
                         trend={{ value: stats.approvalsTrend, isPositive: stats.approvalsTrend <= 0 }}
                         trendDirection="goodDown"
