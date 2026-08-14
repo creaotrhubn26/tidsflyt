@@ -2,3 +2,7 @@
 # only place the Express server (API + auth) actually runs. Netlify only
 # ever serves the static frontend build.
 /api/*  https://tidum-backend.onrender.com/api/:splat  200
+
+# SPA fallback: client-side routes (e.g. /dashboard) have no matching static
+# file on Netlify. Must come after the /api/* rule above — first match wins.
+/*  /index.html  200
