@@ -9,7 +9,11 @@ describe("hashSsn", () => {
   });
 
   afterEach(() => {
-    process.env.EID_SSN_HASH_PEPPER = originalPepper;
+    if (originalPepper === undefined) {
+      delete process.env.EID_SSN_HASH_PEPPER;
+    } else {
+      process.env.EID_SSN_HASH_PEPPER = originalPepper;
+    }
   });
 
   it("produces the same hash for the same fnr", () => {
