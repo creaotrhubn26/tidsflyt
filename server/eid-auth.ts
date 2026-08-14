@@ -21,7 +21,7 @@ interface EidProviderConfig {
 
 // BankID først (Task 3). Buypass legges til i Task 6 med samme struktur —
 // annet scope og annen claim-nøkkel for fødselsnummer, se skillens tabell.
-const EID_PROVIDERS: Record<EidProvider, EidProviderConfig> = {
+export const EID_PROVIDERS: Record<EidProvider, EidProviderConfig> = {
   bankid: {
     clientIdEnv: "SIGNICAT_BANKID_CLIENT_ID",
     clientSecretEnv: "SIGNICAT_BANKID_CLIENT_SECRET",
@@ -160,6 +160,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
   }
 
   await registerProvider(app, "bankid");
+  await registerProvider(app, "buypass");
 
   app.get("/api/auth/eid/link/:provider", (req, res, next) => {
     const provider = req.params.provider as EidProvider;

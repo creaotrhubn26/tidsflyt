@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { requiresEidLogin, buildEidStatus } from "../../../../server/eid-auth";
+import { requiresEidLogin, buildEidStatus, EID_PROVIDERS } from "../../../../server/eid-auth";
 
 describe("requiresEidLogin", () => {
   it("does not require eID for super_admin", () => {
@@ -50,5 +50,17 @@ describe("buildEidStatus", () => {
 
   it("is required and linked once the identity exists", () => {
     expect(buildEidStatus("miljoarbeider", true)).toEqual({ linked: true, required: true });
+  });
+});
+
+describe("EID_PROVIDERS", () => {
+  it("requests the ssn scope and reads the socialno claim for BankID", () => {
+    expect(EID_PROVIDERS.bankid.scope).toContain("ssn");
+    expect(EID_PROVIDERS.bankid.ssnClaimKey).toBe("socialno");
+  });
+
+  it("requests the bpnnin scope and reads the bp_nnin_sub claim for Buypass", () => {
+    expect(EID_PROVIDERS.buypass.scope).toContain("bpnnin");
+    expect(EID_PROVIDERS.buypass.ssnClaimKey).toBe("bp_nnin_sub");
   });
 });
