@@ -5,7 +5,7 @@ import { isExternalHref } from "@shared/nav-config";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
-import { buildGoogleAuthUrl, buildEidAuthUrl } from "@/lib/auth-utils";
+import { buildGoogleAuthUrl, IDURA_LOGIN_URL } from "@/lib/auth-utils";
 import {
   ArrowRight,
   BarChart3,
@@ -566,12 +566,12 @@ export default function LandingPage() {
     window.location.href = buildGoogleAuthUrl("/dashboard");
   };
 
-  const startEidLogin = (provider: "bankid" | "buypass", source: string) => {
-    trackTidumPublicEvent(`tidum_${provider}_login_click`, {
+  const startEidLogin = (source: string) => {
+    trackTidumPublicEvent("tidum_bankid_login_click", {
       source,
-      destination: `/api/auth/${provider}/login`,
+      destination: IDURA_LOGIN_URL,
     });
-    window.location.href = buildEidAuthUrl(provider, "/dashboard");
+    window.location.href = IDURA_LOGIN_URL;
   };
 
   const scrollToFeatures = (source: string) => {
@@ -731,19 +731,11 @@ export default function LandingPage() {
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => startEidLogin("bankid", "hero_bankid")}
+                  onClick={() => startEidLogin("hero_bankid")}
                   variant="outline"
                   className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
                   Logg inn med BankID
-                </Button>
-                <Button
-                  type="button"
-                  onClick={() => startEidLogin("buypass", "hero_buypass")}
-                  variant="outline"
-                  className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
-                >
-                  Logg inn med Buypass
                 </Button>
               </div>
             </div>

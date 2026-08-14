@@ -1,40 +1,28 @@
-import * as client from "openid-client";
-import { Strategy, type VerifyFunctionWithRequest } from "openid-client/passport";
-import passport from "passport";
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
+import { CriiptoVerifyExpressRedirect } from "@criipto/verify-express";
+import type { JWTPayload } from "jose";
 import { db } from "./db";
 import { authLoginEvents, eidIdentities, users } from "@shared/schema";
 import { and, eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin } from "@shared/roles";
-import { getEidCallbackUrl } from "./lib/app-base-url";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 
-export type EidProvider = "bankid" | "buypass";
-
-interface EidProviderConfig {
-  clientIdEnv: string;
-  clientSecretEnv: string;
-  scope: string;
-  ssnClaimKey: string;
+declare global {
+  namespace Express {
+    interface Request {
+      claims?: JWTPayload;
+    }
+  }
 }
 
-// BankID først (Task 3). Buypass legges til i Task 6 med samme struktur —
-// annet scope og annen claim-nøkkel for fødselsnummer, se skillens tabell.
-export const EID_PROVIDERS: Record<EidProvider, EidProviderConfig> = {
-  bankid: {
-    clientIdEnv: "SIGNICAT_BANKID_CLIENT_ID",
-    clientSecretEnv: "SIGNICAT_BANKID_CLIENT_SECRET",
-    scope: "openid ssn",
-    ssnClaimKey: "socialno",
-  },
-  buypass: {
-    clientIdEnv: "SIGNICAT_BUYPASS_CLIENT_ID",
-    clientSecretEnv: "SIGNICAT_BUYPASS_CLIENT_SECRET",
-    scope: "openid bpnnin",
-    ssnClaimKey: "bp_nnin_sub",
-  },
-};
+// Idura (tidligere Criipto) er brokeren — én OIDC-klient for hele appen.
+// BankID velges via acr_values på autoriser-kallet, ikke via en egen
+// klient/strategi per eID-metode slik Signicat-modellen krevde. Buypass
+// er ikke støttet av Idura og er derfor ikke med her.
+const IDURA_CALLBACK_PATH = "/api/auth/idura/callback";
+const IDURA_ACR_BANKID = process.env.IDURA_ACR_BANKID || "urn:grn:authn:no:bankid";
+const IDURA_SSN_CLAIM_KEY = "socialno";
 
 export function requiresEidLogin(role: string | null | undefined): boolean {
   return !canAccessVendorApiAdmin(role);
@@ -43,16 +31,12 @@ export function requiresEidLogin(role: string | null | undefined): boolean {
 export function buildEidStatus(
   role: string | null | undefined,
   linked: boolean,
-  anyProviderRegistered: boolean,
+  iduraConfigured: boolean,
 ): { linked: boolean; required: boolean } {
-  return { linked, required: requiresEidLogin(role) && anyProviderRegistered };
+  return { linked, required: requiresEidLogin(role) && iduraConfigured };
 }
 
 export async function hasLinkedEid(userId: string): Promise<boolean> {
-  // Fail-safe, not fail-closed: any error here (e.g. eid_identities missing
-  // because a migration hasn't run yet) must never block Google/e-post login
-  // for every role. Worst case a user who should be forced to eID gets one
-  // more non-eID login before the gate catches up — far better than an outage.
   try {
     const rows = await db
       .select({ id: eidIdentities.id })
@@ -61,19 +45,16 @@ export async function hasLinkedEid(userId: string): Promise<boolean> {
       .limit(1);
     return rows.length > 0;
   } catch (err) {
-    console.error("[eid] hasLinkedEid query failed — treating as not linked", userId, err);
+    console.error("HAS LINKED EID QUERY FAILED", userId, err);
     return false;
   }
 }
 
-async function resolveUserByEidIdentity(
-  provider: EidProvider,
-  ssnHash: string,
-): Promise<AuthUser | null> {
+async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | null> {
   const [identity] = await db
     .select()
     .from(eidIdentities)
-    .where(and(eq(eidIdentities.provider, provider), eq(eidIdentities.ssnHash, ssnHash)))
+    .where(and(eq(eidIdentities.provider, "bankid"), eq(eidIdentities.ssnHash, ssnHash)))
     .limit(1);
 
   if (!identity) return null;
@@ -86,7 +67,7 @@ async function resolveUserByEidIdentity(
     email: user.email || "",
     name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
     profileImageUrl: user.profileImageUrl,
-    provider,
+    provider: "bankid",
     role: user.role || "member",
     vendorId: user.vendorId,
   };
@@ -94,7 +75,6 @@ async function resolveUserByEidIdentity(
 
 async function upsertEidIdentity(params: {
   userId: string;
-  provider: EidProvider;
   sub: string;
   ssnHash: string;
   givenName: string | null;
@@ -107,7 +87,7 @@ async function upsertEidIdentity(params: {
       .insert(eidIdentities)
       .values({
         userId: params.userId,
-        provider: params.provider,
+        provider: "bankid",
         sub: params.sub,
         ssnHash: params.ssnHash,
         givenName: params.givenName,
@@ -129,13 +109,12 @@ async function upsertEidIdentity(params: {
         },
       });
   } catch (err) {
-    console.error("EID IDENTITY WRITE FAILED", params.userId, params.provider, err);
+    console.error("EID IDENTITY WRITE FAILED", params.userId, err);
     throw err;
   }
 }
 
 async function logAuthEvent(params: {
-  provider: EidProvider;
   userId: string | null;
   sessionId: string | null;
   ipAddress: string | undefined;
@@ -143,45 +122,144 @@ async function logAuthEvent(params: {
 }): Promise<void> {
   try {
     await db.insert(authLoginEvents).values({
-      provider: params.provider,
+      provider: "bankid",
       userId: params.userId,
       sessionId: params.sessionId,
       ipAddress: params.ipAddress || null,
       userAgent: params.userAgent || null,
     });
   } catch (err) {
-    console.error("AUTH LOGIN EVENT WRITE FAILED", params.provider, params.userId, err);
+    console.error("AUTH LOGIN EVENT WRITE FAILED", params.userId, err);
   }
 }
 
-// Brukes av /eid/link/:provider og /eid/status til å vite hvilke providere
-// som faktisk fikk en Strategy registrert (kan være færre enn EID_PROVIDERS
-// hvis Signicat-credentials for én av dem ikke er satt ennå).
-const registeredProviders = new Set<EidProvider>();
-
 export async function setupEidAuth(app: Express): Promise<void> {
   if (!process.env.EID_SSN_HASH_PEPPER) {
-    // Samme filosofi som Google-oppsettet lenger ned i custom-auth.ts
+    // Samme filosofi som Google-oppsettet i custom-auth.ts
     // (`if (process.env.GOOGLE_CLIENT_ID && ...)`): manglende credentials
     // deaktiverer KUN denne innloggingsmetoden, tar aldri ned resten av
-    // appen. Google/e-post må fortsette å virke uansett Signicat-status.
-    console.warn("[eid] EID_SSN_HASH_PEPPER er ikke satt — BankID/Buypass er deaktivert");
+    // appen. Google/e-post må fortsette å virke uansett Idura-status.
+    console.warn("[eid] EID_SSN_HASH_PEPPER er ikke satt — BankID er deaktivert");
     return;
   }
 
-  await registerProvider(app, "bankid");
-  await registerProvider(app, "buypass");
+  const domain = process.env.IDURA_DOMAIN;
+  const clientID = process.env.IDURA_CLIENT_ID;
+  const clientSecret = process.env.IDURA_CLIENT_SECRET;
 
-  app.get("/api/auth/eid/link/:provider", (req, res, next) => {
-    const provider = req.params.provider as EidProvider;
-    if (!registeredProviders.has(provider)) {
-      return res.status(500).json({ error: "Denne eID-leverandøren er ikke konfigurert" });
-    }
-    if (!req.isAuthenticated() || !req.user) {
-      return res.status(401).json({ message: "Ikke autentisert" });
-    }
-    passport.authenticate(`eid:${provider}`)(req, res, next);
+  if (!domain || !clientID || !clientSecret) {
+    console.warn(
+      "[eid] IDURA_DOMAIN/IDURA_CLIENT_ID/IDURA_CLIENT_SECRET er ikke konfigurert — BankID er deaktivert",
+    );
+    return;
+  }
+
+  const idura = new CriiptoVerifyExpressRedirect({
+    domain,
+    clientID,
+    clientSecret,
+    redirectUri: IDURA_CALLBACK_PATH,
+    beforeAuthorize: (_req, options) => ({
+      ...options,
+      scope: "openid ssn",
+      acr_values: IDURA_ACR_BANKID,
+    }),
   });
+
+  // Samme rute er både innloggings-trigger og callback (Iduras eget mønster
+  // — se @criipto/verify-express sin CriiptoVerifyExpressRedirect.middleware).
+  // Kobling vs. innlogging avgjøres av om det allerede finnes en sesjon når
+  // callback-steget kjører, ikke av hvilken URL knappen pekte på.
+  // force:true hopper alltid over sesjonens claims-cache — hver klikk skal
+  // være en ekte, fersk BankID-autentisering, aldri en gjenbrukt verdi.
+  app.get(
+    IDURA_CALLBACK_PATH,
+    // @criipto/verify-express types its `next` parameter as
+    // `(err?: Error) => {}` instead of Express's `NextFunction` — a
+    // harmless typing looseness in their .d.ts, not a runtime mismatch.
+    idura.middleware({ force: true, failureRedirect: "/" }) as unknown as RequestHandler,
+    async (req, res, next) => {
+      try {
+        const claims = req.claims;
+        if (!claims) {
+          return res.redirect("/?error=eid_failed");
+        }
+
+        const fnr = claims[IDURA_SSN_CLAIM_KEY];
+        if (typeof fnr !== "string" || !fnr) {
+          // Logges selv om vi avviser: Idura fakturerer autentiseringen
+          // uansett om vi fikk fnr eller ikke (kostnadssporing).
+          await logAuthEvent({
+            userId: null,
+            sessionId: null,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+          });
+          return res.redirect("/?error=eid_missing_ssn");
+        }
+
+        const ssnHash = hashSsn(fnr);
+        const sub = typeof claims.sub === "string" ? claims.sub : String(claims.sub);
+        const givenName = typeof claims.given_name === "string" ? claims.given_name : null;
+        const familyName = typeof claims.family_name === "string" ? claims.family_name : null;
+        const fullName = typeof claims.name === "string" ? claims.name : null;
+        const rawClaims: Record<string, unknown> = { ...claims };
+        delete rawClaims[IDURA_SSN_CLAIM_KEY];
+
+        if (req.isAuthenticated() && req.user) {
+          // Kobling: bruker er allerede innlogget (Google/e-post), dette er
+          // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
+          const currentUser = req.user as AuthUser;
+          await upsertEidIdentity({
+            userId: currentUser.id,
+            sub,
+            ssnHash,
+            givenName,
+            familyName,
+            fullName,
+            rawClaims,
+          });
+          await logAuthEvent({
+            userId: currentUser.id,
+            sessionId: null, // koblingen fødte ikke økten
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+          });
+          return res.redirect("/dashboard");
+        }
+
+        // Innlogging: slå opp eksisterende kobling. Opprett ALDRI ny bruker.
+        const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+        if (!resolvedUser) {
+          await logAuthEvent({
+            userId: null,
+            sessionId: null,
+            ipAddress: req.ip,
+            userAgent: req.get("user-agent") || undefined,
+          });
+          return res.redirect("/?error=eid_not_linked");
+        }
+
+        await logAuthEvent({
+          userId: resolvedUser.id,
+          sessionId: req.sessionID,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+
+        req.logIn(resolvedUser, (loginError) => {
+          if (loginError) return next(loginError);
+          return res.redirect("/dashboard");
+        });
+      } catch (err) {
+        if ((err as { code?: string })?.code === "23505") {
+          // Denne fnr-hashen er allerede koblet til en ANNEN bruker.
+          return res.redirect("/?error=eid_already_linked");
+        }
+        return next(err);
+      }
+    },
+  );
 
   app.get("/api/auth/eid/status", async (req, res) => {
     if (!req.isAuthenticated() || !req.user) {
@@ -189,151 +267,6 @@ export async function setupEidAuth(app: Express): Promise<void> {
     }
     const user = req.user as AuthUser;
     const linked = await hasLinkedEid(user.id);
-    res.json(buildEidStatus(user.role, linked, registeredProviders.size > 0));
-  });
-}
-
-async function registerProvider(app: Express, provider: EidProvider): Promise<void> {
-  const config = EID_PROVIDERS[provider];
-  const issuerUrl = process.env.SIGNICAT_ISSUER_URL;
-  const clientId = process.env[config.clientIdEnv];
-  const clientSecret = process.env[config.clientSecretEnv];
-
-  if (!issuerUrl || !clientId || !clientSecret) {
-    console.warn(
-      `[eid:${provider}] ikke konfigurert (mangler SIGNICAT_ISSUER_URL, ${config.clientIdEnv} eller ${config.clientSecretEnv}) — hopper over registrering`,
-    );
-    return;
-  }
-
-  const strategyName = `eid:${provider}`;
-  // Discovery må være ferdig FØR Strategy konstrueres — konstruktøren leser
-  // config synkront. setupEidAuth awaiter dette før routes.ts starter
-  // serveren, så ingen request kan treffe ruten før strategien er klar.
-  //
-  // I try/catch: en nede/utilgjengelig Signicat (DNS, nettverk, rotert
-  // secret, discovery som feiler) skal ALDRI kunne ta ned serverstart,
-  // samme filosofi som manglende env-vars-tidligavbruddet over.
-  let oidcConfig: Awaited<ReturnType<typeof client.discovery>>;
-  try {
-    oidcConfig = await client.discovery(new URL(issuerUrl), clientId, clientSecret);
-  } catch (err) {
-    console.warn(`[eid:${provider}] discovery mot Signicat feilet — hopper over registrering`, err);
-    return;
-  }
-
-  const verify: VerifyFunctionWithRequest = async (req, tokens, verified) => {
-    try {
-      const claims: Record<string, unknown> = tokens.claims() || {};
-      console.log(`[eid:${provider}] claim keys on first token:`, Object.keys(claims));
-
-      const fnr = claims[config.ssnClaimKey];
-      if (typeof fnr !== "string" || !fnr) {
-        // Logges selv om vi avviser: Signicat fakturerer autentiseringen
-        // uansett om vi fikk fnr eller ikke (regel 5 — kostnadssporing).
-        await logAuthEvent({
-          provider,
-          userId: null,
-          sessionId: null,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        return verified(null, false, { message: "eid_missing_ssn" });
-      }
-
-      const ssnHash = hashSsn(fnr);
-      const sub = String(claims.sub);
-      const givenName = typeof claims.given_name === "string" ? claims.given_name : null;
-      const familyName = typeof claims.family_name === "string" ? claims.family_name : null;
-      const fullName = typeof claims.name === "string" ? claims.name : null;
-      const rawClaims = { ...claims };
-      delete rawClaims[config.ssnClaimKey];
-
-      if (req.isAuthenticated() && req.user) {
-        // Kobling: bruker er allerede innlogget (Google/e-post), dette er
-        // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
-        await upsertEidIdentity({
-          userId: (req.user as AuthUser).id,
-          provider,
-          sub,
-          ssnHash,
-          givenName,
-          familyName,
-          fullName,
-          rawClaims,
-        });
-        await logAuthEvent({
-          provider,
-          userId: (req.user as AuthUser).id,
-          sessionId: null, // koblingen fødte ikke økten
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        return verified(null, req.user as AuthUser);
-      }
-
-      // Innlogging: slå opp eksisterende kobling. Opprett ALDRI ny bruker.
-      const resolvedUser = await resolveUserByEidIdentity(provider, ssnHash);
-      if (!resolvedUser) {
-        await logAuthEvent({
-          provider,
-          userId: null,
-          sessionId: null,
-          ipAddress: req.ip,
-          userAgent: req.get("user-agent") || undefined,
-        });
-        return verified(null, false, { message: "eid_not_linked" });
-      }
-
-      await logAuthEvent({
-        provider,
-        userId: resolvedUser.id,
-        sessionId: req.sessionID,
-        ipAddress: req.ip,
-        userAgent: req.get("user-agent") || undefined,
-      });
-
-      return verified(null, resolvedUser);
-    } catch (err) {
-      // Unique-constraint-brudd på eid_identities_ssn_provider_key: denne
-      // fnr-en er allerede koblet til en ANNEN bruker. Beskyttelsen virker
-      // som tiltenkt — bare gi brukeren en forståelig feilmelding i stedet
-      // for en rå 500.
-      if ((err as { code?: string })?.code === "23505") {
-        return verified(null, false, { message: "eid_already_linked" });
-      }
-      return verified(err as Error);
-    }
-  };
-
-  passport.use(
-    strategyName,
-    new Strategy(
-      {
-        name: strategyName,
-        config: oidcConfig,
-        callbackURL: getEidCallbackUrl(provider),
-        scope: config.scope,
-        passReqToCallback: true,
-      },
-      verify,
-    ),
-  );
-  registeredProviders.add(provider);
-
-  app.get(`/api/auth/${provider}/login`, passport.authenticate(strategyName));
-
-  app.get(`/api/auth/${provider}/callback`, (req, res, next) => {
-    passport.authenticate(strategyName, (err: Error | null, user: AuthUser | false, info?: { message?: string }) => {
-      if (err) return next(err);
-      if (!user) {
-        const errorCode = info?.message || "eid_failed";
-        return res.redirect(`/?error=${errorCode}`);
-      }
-      req.logIn(user, (loginError) => {
-        if (loginError) return next(loginError);
-        return res.redirect("/dashboard");
-      });
-    })(req, res, next);
+    res.json(buildEidStatus(user.role, linked, true));
   });
 }

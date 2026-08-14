@@ -1,4 +1,5 @@
 import { Button } from "@/components/ui/button";
+import { IDURA_LOGIN_URL } from "@/lib/auth-utils";
 
 export default function KobleBankId() {
   return (
@@ -13,19 +14,10 @@ export default function KobleBankId() {
           <Button
             type="button"
             onClick={() => {
-              window.location.href = "/api/auth/eid/link/bankid";
+              window.location.href = IDURA_LOGIN_URL;
             }}
           >
             Fortsett med BankID
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              window.location.href = "/api/auth/eid/link/buypass";
-            }}
-          >
-            Fortsett med Buypass
           </Button>
         </div>
       </div>
