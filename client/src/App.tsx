@@ -20,6 +20,7 @@ import { ComposeModal } from "@/components/email/compose-modal";
 import { TesterFeedbackButton } from "@/components/tester/tester-feedback-button";
 
 const Landing = lazy(() => import("@/pages/landing"));
+const KobleBankId = lazy(() => import("@/pages/koble-bankid"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const TimeTracking = lazy(() => import("@/pages/time-tracking"));
 const Reports = lazy(() => import("@/pages/reports"));
@@ -143,6 +144,7 @@ function Router() {
         <Route path="/blog/:slug" component={BlogPostPage} />
         <Route path="/p/:slug" component={BuilderPage} />
         <Route path="/invite/:token" component={InviteAcceptPage} />
+        <Route path="/logg-inn/koble-bankid" component={KobleBankId} />
 
         {/* Protected routes */}
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
