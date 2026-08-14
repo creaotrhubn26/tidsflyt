@@ -1,0 +1,4 @@
+# Proxy API/auth calls from tidum.no to the Render backend, which is the
+# only place the Express server (API + auth) actually runs. Netlify only
+# ever serves the static frontend build.
+/api/*  https://tidum-backend.onrender.com/api/:splat  200
