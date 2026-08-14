@@ -40,6 +40,22 @@ export function requiresEidLogin(role: string | null | undefined): boolean {
   return !canAccessVendorApiAdmin(role);
 }
 
+export function buildEidStatus(
+  role: string | null | undefined,
+  linked: boolean,
+): { linked: boolean; required: boolean } {
+  return { linked, required: requiresEidLogin(role) };
+}
+
+async function hasLinkedEid(userId: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: eidIdentities.id })
+    .from(eidIdentities)
+    .where(eq(eidIdentities.userId, userId))
+    .limit(1);
+  return rows.length > 0;
+}
+
 async function resolveUserByEidIdentity(
   provider: EidProvider,
   ssnHash: string,
@@ -144,6 +160,26 @@ export async function setupEidAuth(app: Express): Promise<void> {
   }
 
   await registerProvider(app, "bankid");
+
+  app.get("/api/auth/eid/link/:provider", (req, res, next) => {
+    const provider = req.params.provider as EidProvider;
+    if (!registeredProviders.has(provider)) {
+      return res.status(500).json({ error: "Denne eID-leverandøren er ikke konfigurert" });
+    }
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ message: "Ikke autentisert" });
+    }
+    passport.authenticate(`eid:${provider}`)(req, res, next);
+  });
+
+  app.get("/api/auth/eid/status", async (req, res) => {
+    if (!req.isAuthenticated() || !req.user) {
+      return res.status(401).json({ message: "Ikke autentisert" });
+    }
+    const user = req.user as AuthUser;
+    const linked = await hasLinkedEid(user.id);
+    res.json(buildEidStatus(user.role, linked));
+  });
 }
 
 async function registerProvider(app: Express, provider: EidProvider): Promise<void> {

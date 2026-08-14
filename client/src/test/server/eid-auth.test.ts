@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { requiresEidLogin } from "../../../../server/eid-auth";
+import { requiresEidLogin, buildEidStatus } from "../../../../server/eid-auth";
 
 describe("requiresEidLogin", () => {
   it("does not require eID for super_admin", () => {
@@ -36,5 +36,19 @@ describe("requiresEidLogin", () => {
 
   it("requires eID for an unknown/null role (defaults to member)", () => {
     expect(requiresEidLogin(null)).toBe(true);
+  });
+});
+
+describe("buildEidStatus", () => {
+  it("is not required and not linked for admin roles with no identity", () => {
+    expect(buildEidStatus("vendor_admin", false)).toEqual({ linked: false, required: false });
+  });
+
+  it("is required and not linked for a non-admin role with no identity yet", () => {
+    expect(buildEidStatus("miljoarbeider", false)).toEqual({ linked: false, required: true });
+  });
+
+  it("is required and linked once the identity exists", () => {
+    expect(buildEidStatus("miljoarbeider", true)).toEqual({ linked: true, required: true });
   });
 });
