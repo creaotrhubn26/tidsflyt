@@ -52,7 +52,7 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
@@ -2255,7 +2255,7 @@ export async function registerRoutes(
   // Middleware to require vendor authentication via OAuth
   const requireVendorAuth = async (req: any, res: any, next: any) => {
     // Check if user is authenticated
-    if (!req.isAuthenticated || !req.isAuthenticated()) {
+    if (!req.isAuthenticated || !hasSessionAuth(req)) {
       return res.status(401).json({ 
         error: "Unauthorized", 
         message: "Please log in to access this resource." 

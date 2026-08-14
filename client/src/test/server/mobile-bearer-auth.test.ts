@@ -45,3 +45,40 @@ describe("isAuthenticatedOrBearer", () => {
     await db.delete(users).where(eq(users.id, user.id));
   });
 });
+
+describe("isAuthenticated stays session-cookie-only", () => {
+  it("rejects a request where only req.user is set (what resolveBearerUser produces for a Bearer token), with no req.session.passport", async () => {
+    const { isAuthenticated } = await import("../../../../server/custom-auth");
+    const app = express();
+    // Simulates exactly the post-condition resolveBearerUser leaves behind
+    // for a Bearer-only request: req.user populated, no Passport session.
+    // No need to round-trip through a real JWT/DB lookup to prove this
+    // boundary — isAuthenticated must reject on req.session alone.
+    app.use((req: any, _res, next) => {
+      req.user = { id: "bearer-user-1" };
+      next();
+    });
+    app.get("/protected", isAuthenticated, (_req, res) => res.json({ ok: true }));
+
+    const res = await request(app).get("/protected");
+    expect(res.status).toBe(401);
+  });
+
+  it("accepts a request with a real Passport session (req.session.passport.user set)", async () => {
+    const { isAuthenticated } = await import("../../../../server/custom-auth");
+    const app = express();
+    // Mirrors what passport.deserializeUser produces on a real session-backed
+    // request — no need for the full express-session + passport middleware
+    // stack to unit-test that isAuthenticated reads this field.
+    app.use((req: any, _res, next) => {
+      req.session = { passport: { user: { id: "session-user-1" } } };
+      req.user = { id: "session-user-1" };
+      next();
+    });
+    app.get("/protected", isAuthenticated, (req, res) => res.json({ id: (req.user as any).id }));
+
+    const res = await request(app).get("/protected");
+    expect(res.status).toBe(200);
+    expect(res.body.id).toBe("session-user-1");
+  });
+});

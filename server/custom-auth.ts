@@ -493,9 +493,24 @@ export async function setupCustomAuth(app: Express) {
   });
 }
 
+// req.isAuthenticated() (from passport) is literally `!!req.user` — it has
+// no concept of session vs. Bearer-JWT auth. Since resolveBearerUser also
+// populates req.user (intentionally, for routes that check req.user
+// directly), guards that must stay session-cookie-only cannot use
+// req.isAuthenticated() anymore. This checks the raw Passport session-store
+// field instead — resolveBearerUser never touches req.session.passport, only
+// req.user, so this correctly excludes Bearer-only requests. Matches this
+// file's existing ad-hoc session-field-access style (see
+// AUTH_RETURN_TO_SESSION_KEY usage above).
+export function hasSessionAuth(req: Request): boolean {
+  const session = req.session as unknown as Record<string, unknown> | undefined;
+  const passportSession = session?.passport as { user?: unknown } | undefined;
+  return !!passportSession?.user;
+}
+
 export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (req.isAuthenticated() && req.user) {
+  if (hasSessionAuth(req) && req.user) {
     return next();
   }
   res.status(401).json({ message: "Ikke autentisert" });
@@ -540,7 +555,7 @@ export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
 
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (!req.isAuthenticated() || !req.user) {
+  if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
   
@@ -554,7 +569,7 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (!req.isAuthenticated() || !req.user) {
+  if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
   

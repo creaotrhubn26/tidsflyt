@@ -8,6 +8,7 @@ import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
+import { hasSessionAuth } from "./custom-auth";
 
 declare global {
   namespace Express {
@@ -219,7 +220,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
         const rawClaims: Record<string, unknown> = { ...claims };
         delete rawClaims[IDURA_SSN_CLAIM_KEY];
 
-        if (req.isAuthenticated() && req.user) {
+        if (hasSessionAuth(req) && req.user) {
           // Kobling: bruker er allerede innlogget (Google/e-post), dette er
           // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
           const currentUser = req.user as AuthUser;
