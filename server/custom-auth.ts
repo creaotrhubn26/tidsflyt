@@ -5,7 +5,7 @@ import type { Express, Request, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
-import { verifyAccessToken } from "./lib/mobile-auth";
+import { verifyAccessToken, issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
@@ -379,6 +379,76 @@ export async function setupCustomAuth(app: Express) {
       })(req, res, next);
     }
   );
+
+  // Mobilappens Google-innlogging. passport-oauth2 lar callbackURL overstyres
+  // per authenticate()-kall (options.callbackURL || this._callbackURL, se
+  // node_modules/passport-oauth2/lib/strategy.js) — samme registrerte
+  // "google"-strategi gjenbrukes, bare med et annet mål for redirect_uri enn
+  // web-varianten. MOBILE_AUTH_CALLBACK_URL er custom URL scheme-en appen
+  // fanger opp via ASWebAuthenticationSession.
+  const MOBILE_AUTH_CALLBACK_URL = "tidum://auth-callback";
+  const getGoogleMobileCallbackUrl = () => `${getAppBaseUrl()}/api/auth/google/callback-mobile`;
+
+  app.get("/api/auth/google-mobile", (req, res, next) => {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
+    }
+    passport.authenticate("google", {
+      scope: ["openid", "email"],
+      prompt: "select_account",
+      callbackURL: getGoogleMobileCallbackUrl(),
+    } as any)(req, res, next);
+  });
+
+  app.get("/api/auth/google/callback-mobile", (req, res, next) => {
+    passport.authenticate(
+      "google",
+      { callbackURL: getGoogleMobileCallbackUrl() } as any,
+      (err: Error | null, user: AuthUser | false, info?: { message?: string }) => {
+        if (err) return next(err);
+        if (!user) {
+          const normalizedMessage = info?.message?.toLowerCase() || "";
+          const errorCode = normalizedMessage.includes("tilgangsforespørsel")
+            ? "access_request_required"
+            : "auth_failed";
+          return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=${errorCode}`);
+        }
+        hasLinkedEid(user.id)
+          .then(async (eidLinked) => {
+            if (shouldRejectNonEidLogin(user.role, eidLinked)) {
+              return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_required`);
+            }
+            const { accessToken, refreshToken, expiresIn } = await issueMobileTokens(user.id);
+            const redirectUrl = new URL(MOBILE_AUTH_CALLBACK_URL);
+            redirectUrl.searchParams.set("access_token", accessToken);
+            redirectUrl.searchParams.set("refresh_token", refreshToken);
+            redirectUrl.searchParams.set("expires_in", String(expiresIn));
+            return res.redirect(redirectUrl.toString());
+          })
+          .catch(next);
+      },
+    )(req, res, next);
+  });
+
+  app.post("/api/auth/mobile/refresh", async (req, res) => {
+    const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+    if (!refreshToken) {
+      return res.status(400).json({ message: "refreshToken er påkrevd" });
+    }
+    const result = await refreshMobileAccessToken(refreshToken);
+    if (!result) {
+      return res.status(401).json({ message: "Ugyldig eller utløpt refresh-token" });
+    }
+    res.json(result);
+  });
+
+  app.post("/api/auth/mobile/logout", async (req, res) => {
+    const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+    if (refreshToken) {
+      await revokeMobileRefreshToken(refreshToken);
+    }
+    res.json({ success: true });
+  });
 
   app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
