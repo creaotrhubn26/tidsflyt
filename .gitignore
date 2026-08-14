@@ -21,3 +21,9 @@ playwright-report/
 # Local-only secrets-setup scripts (inneholder Render API-tokens)
 scripts/setup-tidum-secrets.mjs
 scripts/playwright-setup-secrets.mjs
+
+# iOS: XcodeGen-generated, regenerate with `xcodegen generate` in ios/Tidum
+ios/Tidum/Tidum.xcodeproj/
+ios/Tidum/*.xcworkspace/
+ios/Tidum/DerivedData/
+ios/Tidum/Tidum/Info.plist
