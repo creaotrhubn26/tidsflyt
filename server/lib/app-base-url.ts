@@ -19,3 +19,7 @@ export function getAppBaseUrl(): string {
 export function getGoogleCallbackUrl(): string {
   return `${getAppBaseUrl()}/api/auth/google/callback`;
 }
+
+export function getEidCallbackUrl(provider: "bankid" | "buypass"): string {
+  return `${getAppBaseUrl()}/api/auth/${provider}/callback`;
+}

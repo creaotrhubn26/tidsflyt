@@ -53,6 +53,7 @@ import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
 import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated } from "./custom-auth";
+import { setupEidAuth } from "./eid-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
@@ -1552,7 +1553,8 @@ export async function registerRoutes(
   
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
-  
+  await setupEidAuth(app);
+
   // Never seed data automatically in production.
   if (shouldSeedLocalData) {
     try {

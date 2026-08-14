@@ -12,16 +12,7 @@ import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
 import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
-
-interface AuthUser {
-  id: string;
-  email: string;
-  name: string;
-  profileImageUrl: string | null;
-  provider: string;
-  role: string;
-  vendorId: number | null;
-}
+import type { AuthUser } from "./lib/auth-types";
 
 type EmailIdentityInput = {
   email: string;
