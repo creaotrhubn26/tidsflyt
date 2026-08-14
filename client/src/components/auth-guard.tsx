@@ -49,6 +49,17 @@ export function AuthGuard({ children, requiredRoles }: AuthGuardProps) {
     return <Redirect to="/" />;
   }
 
+  if (isAuthenticated && !isDev && eidStatusLoading) {
+    return (
+      <main className="min-h-screen flex items-center justify-center bg-background">
+        <div className="inline-flex items-center gap-3 text-sm font-medium text-muted-foreground">
+          <span className="h-2.5 w-2.5 animate-pulse rounded-full bg-primary" />
+          Laster...
+        </div>
+      </main>
+    );
+  }
+
   if (
     !eidStatusLoading &&
     eidStatus?.required &&
