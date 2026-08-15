@@ -4614,7 +4614,11 @@ export async function registerRoutes(
 
   app.get("/api/time-entries", isAuthenticatedOrBearer, async (req, res) => {
     try {
-      const { userId, startDate, endDate, status } = req.query;
+      const { startDate, endDate, status } = req.query;
+      // Uten eksplisitt userId scopes lista til innlogget bruker. Uten dette
+      // returnerer storage.getTimeEntries de nyeste radene på tvers av alle
+      // brukere og vendors (mobilappen sender ingen userId).
+      const userId = (req.query.userId as string) || (req.user as any)?.id;
       const entries = await storage.getTimeEntries({
         userId: userId as string,
         startDate: startDate as string,
