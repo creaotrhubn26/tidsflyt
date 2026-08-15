@@ -6,12 +6,13 @@ import UIKit
 @Observable
 final class AuthSession: NSObject {
     enum Provider {
-        case bankID, google
+        case bankID, google, buypass
 
         var loginPath: String {
             switch self {
             case .bankID: "/api/auth/idura/login-mobile"
             case .google: "/api/auth/google-mobile"
+            case .buypass: "/api/auth/buypass/login-mobile"
             }
         }
     }
