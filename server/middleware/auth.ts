@@ -8,6 +8,10 @@ import jwt from 'jsonwebtoken';
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
 const isDevMode = process.env.NODE_ENV !== 'production';
 
+export function isDevAuthBypassAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
+}
+
 /** Roles considered "admin-level" (can approve, manage users, etc.) */
 export const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
 
@@ -23,7 +27,7 @@ function normalizeRoleName(role: string): string {
  * Returns true if the request is authenticated, false otherwise.
  */
 function authenticate(req: Request): boolean {
-  if (isDevMode) {
+  if (isDevAuthBypassAllowed()) {
     (req as any).authUser = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
     return true;
   }

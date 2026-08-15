@@ -274,6 +274,10 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
 
 const isDev = process.env.NODE_ENV !== "production";
 
+function isDevAuthBypassAllowed(): boolean {
+  return isDev && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
+}
+
 const DEV_USER: AuthUser = {
   id: "1",
   email: "dev@tidum.no",
@@ -323,8 +327,10 @@ export async function setupCustomAuth(app: Express) {
   app.use(passport.session());
   app.use(resolveBearerUser);
 
-  // DEV MODE: inject a mock user so all API routes work without OAuth
-  if (isDev) {
+  // DEV MODE: inject a mock user so all API routes work without OAuth —
+  // krever eksplisitt ALLOW_DEV_AUTH_BYPASS=true i tillegg til NODE_ENV,
+  // slik at ingen utvikler kan bli logget inn som super_admin ved et uhell.
+  if (isDevAuthBypassAllowed()) {
     app.use((req, _res, next) => {
       if (!req.user) {
         req.user = DEV_USER;
