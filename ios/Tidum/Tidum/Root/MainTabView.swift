@@ -15,7 +15,7 @@ struct MainTabView: View {
             CasesListView(apiClient: appState.apiClient)
                 .tabItem { Label("Klientsaker", systemImage: "folder") }
 
-            Text("Profil") // Task 13 replaces this
+            ProfileView(appState: appState)
                 .tabItem { Label("Profil", systemImage: "person") }
         }
     }
