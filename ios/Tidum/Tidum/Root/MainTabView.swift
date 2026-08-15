@@ -9,7 +9,7 @@ struct MainTabView: View {
             DashboardView(apiClient: appState.apiClient)
                 .tabItem { Label("Dashboard", systemImage: "house") }
 
-            Text("Timeføring") // Task 11 replaces this
+            TimeTrackingView(apiClient: appState.apiClient)
                 .tabItem { Label("Timeføring", systemImage: "clock") }
 
             Text("Klientsaker") // Task 12 replaces this
