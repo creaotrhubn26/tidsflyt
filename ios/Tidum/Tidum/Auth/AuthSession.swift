@@ -37,7 +37,11 @@ final class AuthSession: NSObject {
             session.presentationContextProvider = self
             session.prefersEphemeralWebBrowserSession = true
             self.currentSession = session
-            session.start()
+            let started = session.start()
+            guard started else {
+                continuation.resume(throwing: URLError(.cannotConnectToHost))
+                return
+            }
         }
     }
 }
