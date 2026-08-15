@@ -10,6 +10,7 @@ import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
 import { hasSessionAuth } from "./custom-auth";
 import { issueMobileTokens } from "./lib/mobile-auth";
+import { authRateLimit } from "./rate-limit";
 
 declare global {
   namespace Express {
@@ -352,8 +353,8 @@ export async function setupEidAuth(app: Express): Promise<void> {
     }
   };
 
-  app.get(IDURA_MOBILE_LOGIN_PATH, iduraMobileMiddleware, handleIduraMobileCallback);
-  app.get(IDURA_MOBILE_CALLBACK_PATH, iduraMobileMiddleware, handleIduraMobileCallback);
+  app.get(IDURA_MOBILE_LOGIN_PATH, authRateLimit, iduraMobileMiddleware, handleIduraMobileCallback);
+  app.get(IDURA_MOBILE_CALLBACK_PATH, authRateLimit, iduraMobileMiddleware, handleIduraMobileCallback);
 
   app.get("/api/auth/eid/status", async (req, res) => {
     if (!req.user) {

@@ -421,7 +421,7 @@ export async function setupCustomAuth(app: Express) {
   const MOBILE_AUTH_CALLBACK_URL = "tidum://auth-callback";
   const getGoogleMobileCallbackUrl = () => `${getAppBaseUrl()}/api/auth/google/callback-mobile`;
 
-  app.get("/api/auth/google-mobile", (req, res, next) => {
+  app.get("/api/auth/google-mobile", authRateLimit, (req, res, next) => {
     if (!process.env.GOOGLE_CLIENT_ID) {
       return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
     }
@@ -432,7 +432,7 @@ export async function setupCustomAuth(app: Express) {
     } as any)(req, res, next);
   });
 
-  app.get("/api/auth/google/callback-mobile", (req, res, next) => {
+  app.get("/api/auth/google/callback-mobile", authRateLimit, (req, res, next) => {
     passport.authenticate(
       "google",
       { callbackURL: getGoogleMobileCallbackUrl() } as any,
@@ -462,8 +462,8 @@ export async function setupCustomAuth(app: Express) {
     )(req, res, next);
   });
 
-  app.post("/api/auth/mobile/refresh", handleMobileRefresh);
-  app.post("/api/auth/mobile/logout", handleMobileLogout);
+  app.post("/api/auth/mobile/refresh", authRateLimit, handleMobileRefresh);
+  app.post("/api/auth/mobile/logout", authRateLimit, handleMobileLogout);
 
   app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
