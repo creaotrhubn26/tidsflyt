@@ -19,6 +19,11 @@ struct LoginView: View {
                 Task { await appState.login(with: .google) }
             }
             .buttonStyle(.bordered)
+
+            Button("Logg inn med Buypass") {
+                Task { await appState.login(with: .buypass) }
+            }
+            .buttonStyle(.bordered)
         }
         .padding()
     }

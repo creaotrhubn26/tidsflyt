@@ -54,6 +54,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
+import { setupBuypassAuth } from "./buypass-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
@@ -1554,6 +1555,7 @@ export async function registerRoutes(
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
   await setupEidAuth(app);
+  await setupBuypassAuth(app);
 
   // Never seed data automatically in production.
   if (shouldSeedLocalData) {

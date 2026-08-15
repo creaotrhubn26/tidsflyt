@@ -5,7 +5,7 @@ import { isExternalHref } from "@shared/nav-config";
 import { useSEO } from "@/hooks/use-seo";
 import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import { trackTidumPublicEvent } from "@/lib/analytics";
-import { buildGoogleAuthUrl, IDURA_LOGIN_URL } from "@/lib/auth-utils";
+import { buildGoogleAuthUrl, IDURA_LOGIN_URL, BUYPASS_LOGIN_URL } from "@/lib/auth-utils";
 import {
   ArrowRight,
   BarChart3,
@@ -569,6 +569,14 @@ export default function LandingPage() {
     window.location.href = IDURA_LOGIN_URL;
   };
 
+  const startBuypassLogin = (source: string) => {
+    trackTidumPublicEvent("tidum_buypass_login_click", {
+      source,
+      destination: BUYPASS_LOGIN_URL,
+    });
+    window.location.href = BUYPASS_LOGIN_URL;
+  };
+
   const scrollToFeatures = (source: string) => {
     trackTidumPublicEvent("tidum_section_navigation_click", {
       source,
@@ -718,11 +726,11 @@ export default function LandingPage() {
                 </Button>
                 <Button
                   type="button"
-                  disabled
+                  onClick={() => startBuypassLogin("hero_buypass")}
                   variant="outline"
-                  className="tidum-btn-secondary h-auto cursor-not-allowed px-6 py-3 text-lg font-medium opacity-60"
+                  className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
-                  Buypass (Kommer snart)
+                  Logg inn med Buypass
                 </Button>
               </div>
             </div>
