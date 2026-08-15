@@ -85,6 +85,21 @@ export async function resolveUserByEidIdentity(ssnHash: string, provider: string
   };
 }
 
+// Sjekk om ssn_hash allerede peker på en ANNEN bruker enn den som forsøker å
+// koble til — på tvers av provider. Kan ikke uttrykkes som DB-constraint:
+// unik-indeksene er (userId, provider) og (ssnHash, provider), ikke ssnHash
+// alene, så to ulike brukere kan i prinsippet dele en ssn_hash på tvers av
+// provider uten å bryte noen constraint. Denne sjekken er det som hindrer
+// at koblingen skjer i utgangspunktet.
+export async function findConflictingEidUser(ssnHash: string, currentUserId: string): Promise<boolean> {
+  const [existing] = await db
+    .select({ userId: eidIdentities.userId })
+    .from(eidIdentities)
+    .where(eq(eidIdentities.ssnHash, ssnHash))
+    .limit(1);
+  return Boolean(existing && existing.userId !== currentUserId);
+}
+
 async function upsertEidIdentity(params: {
   userId: string;
   provider: string;
@@ -236,6 +251,9 @@ export async function setupEidAuth(app: Express): Promise<void> {
           // Kobling: bruker er allerede innlogget (Google/e-post), dette er
           // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
           const currentUser = req.user as AuthUser;
+          if (await findConflictingEidUser(ssnHash, currentUser.id)) {
+            return res.redirect("/?error=eid_already_linked");
+          }
           await upsertEidIdentity({
             userId: currentUser.id,
             provider: "bankid",

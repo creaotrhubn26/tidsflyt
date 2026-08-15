@@ -1,8 +1,8 @@
-import type { Express, Request, RequestHandler } from "express";
-import { discovery, buildAuthorizationUrl, authorizationCodeGrant, randomState, randomPKCECodeVerifier, calculatePKCECodeChallenge } from "openid-client";
+import type { Express, Request } from "express";
+import { discovery, buildAuthorizationUrl, authorizationCodeGrant, randomState, randomPKCECodeVerifier, calculatePKCECodeChallenge, AuthorizationResponseError } from "openid-client";
 import type { Configuration } from "openid-client";
 import { hasSessionAuth } from "./custom-auth";
-import { hasLinkedEid, resolveUserByEidIdentity } from "./eid-auth";
+import { findConflictingEidUser, resolveUserByEidIdentity } from "./eid-auth";
 import { hashSsn } from "./lib/eid-hash";
 import { getAppBaseUrl } from "./lib/app-base-url";
 import { issueMobileTokens } from "./lib/mobile-auth";
@@ -81,9 +81,17 @@ async function logBuypassAuthEvent(params: {
   }
 }
 
+function registerBuypassDisabledRoutes(app: Express): void {
+  app.get(BUYPASS_LOGIN_PATH, (_req, res) => res.redirect("/?error=eid_failed"));
+  app.get("/api/auth/buypass/login-mobile", (_req, res) =>
+    res.redirect("tidum://auth-callback?error=eid_failed"),
+  );
+}
+
 export async function setupBuypassAuth(app: Express): Promise<void> {
   if (!process.env.EID_SSN_HASH_PEPPER) {
     console.warn("[buypass] EID_SSN_HASH_PEPPER er ikke satt — Buypass er deaktivert");
+    registerBuypassDisabledRoutes(app);
     return;
   }
 
@@ -95,10 +103,18 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
     console.warn(
       "[buypass] BUYPASS_ISSUER_URL/BUYPASS_CLIENT_ID/BUYPASS_CLIENT_SECRET er ikke konfigurert — Buypass er deaktivert",
     );
+    registerBuypassDisabledRoutes(app);
     return;
   }
 
-  const config: Configuration = await discovery(new URL(issuerUrl), clientId, { client_secret: clientSecret });
+  let config: Configuration;
+  try {
+    config = await discovery(new URL(issuerUrl), clientId, { client_secret: clientSecret });
+  } catch (err) {
+    console.warn("[buypass] OIDC discovery feilet — Buypass er deaktivert", err);
+    registerBuypassDisabledRoutes(app);
+    return;
+  }
 
   const buypassRedirectUri = `${getAppBaseUrl()}${BUYPASS_CALLBACK_PATH}`;
 
@@ -145,6 +161,7 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
 
       const fnr = claims[BUYPASS_SSN_CLAIM_KEY];
       if (typeof fnr !== "string" || !fnr) {
+        console.warn("[buypass] fnr-claim mangler, tilgjengelige claims:", Object.keys(claims));
         await logBuypassAuthEvent({
           userId: null,
           sessionId: null,
@@ -159,11 +176,20 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
       const givenName = typeof claims.given_name === "string" ? claims.given_name : null;
       const familyName = typeof claims.family_name === "string" ? claims.family_name : null;
       const fullName = typeof claims.name === "string" ? claims.name : null;
-      const rawClaims: Record<string, unknown> = { ...claims };
-      delete rawClaims[BUYPASS_SSN_CLAIM_KEY];
+      const rawClaims: Record<string, unknown> = {
+        sub: claims.sub,
+        name: claims.name,
+        given_name: claims.given_name,
+        family_name: claims.family_name,
+        auth_time: claims.auth_time,
+        iss: claims.iss,
+      };
 
       if (hasSessionAuth(req) && req.user) {
         const currentUser = req.user as AuthUser;
+        if (await findConflictingEidUser(ssnHash, currentUser.id)) {
+          return res.redirect("/?error=eid_already_linked");
+        }
         await upsertBuypassIdentity({
           userId: currentUser.id,
           sub,
@@ -207,6 +233,9 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {
         return res.redirect("/?error=eid_already_linked");
+      }
+      if (err instanceof AuthorizationResponseError) {
+        return res.redirect("/?error=eid_failed");
       }
       return next(err);
     }
@@ -260,6 +289,7 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
 
       const fnr = claims[BUYPASS_SSN_CLAIM_KEY];
       if (typeof fnr !== "string" || !fnr) {
+        console.warn("[buypass] fnr-claim mangler, tilgjengelige claims:", Object.keys(claims));
         await logBuypassAuthEvent({
           userId: null,
           sessionId: null,
@@ -295,6 +325,9 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
       redirectUrl.searchParams.set("expires_in", String(expiresIn));
       return res.redirect(redirectUrl.toString());
     } catch (err) {
+      if (err instanceof AuthorizationResponseError) {
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_failed`);
+      }
       return next(err);
     }
   });
