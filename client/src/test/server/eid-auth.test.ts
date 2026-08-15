@@ -56,3 +56,47 @@ describe("buildEidStatus", () => {
     expect(buildEidStatus("miljoarbeider", true, false)).toEqual({ linked: true, required: false });
   });
 });
+
+import { db } from "../../../../server/db";
+import { eidIdentities, users } from "../../../../shared/schema";
+import { eq } from "drizzle-orm";
+
+describe("resolveUserByEidIdentity — provider-uavhengig gjenkjenning", () => {
+  it("gjenkjenner en bruker via Buypass-innlogging når kun BankID er koblet fra før", async () => {
+    const { resolveUserByEidIdentity } = await import("../../../../server/eid-auth");
+
+    const [user] = await db
+      .insert(users)
+      .values({ email: `cross-provider-test-${Date.now()}@example.com`, role: "member" })
+      .returning();
+
+    const ssnHash = "test-hash-" + Date.now();
+    await db.insert(eidIdentities).values({
+      userId: user.id,
+      provider: "bankid",
+      sub: "test-sub",
+      ssnHash,
+      givenName: "Test",
+      familyName: "Testsen",
+      fullName: "Test Testsen",
+      rawClaims: {},
+    });
+
+    const resolved = await resolveUserByEidIdentity(ssnHash, "buypass");
+
+    expect(resolved).not.toBeNull();
+    expect(resolved?.id).toBe(user.id);
+    // provider skal reflektere DENNE innloggingens metode (buypass),
+    // ikke hvilken provider som opprinnelig koblet raden (bankid).
+    expect(resolved?.provider).toBe("buypass");
+
+    await db.delete(eidIdentities).where(eq(eidIdentities.userId, user.id));
+    await db.delete(users).where(eq(users.id, user.id));
+  });
+
+  it("returnerer null når ingen kobling finnes for noen provider", async () => {
+    const { resolveUserByEidIdentity } = await import("../../../../server/eid-auth");
+    const resolved = await resolveUserByEidIdentity("nonexistent-hash-" + Date.now(), "buypass");
+    expect(resolved).toBeNull();
+  });
+});

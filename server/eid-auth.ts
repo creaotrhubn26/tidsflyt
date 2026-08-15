@@ -3,7 +3,7 @@ import { CriiptoVerifyExpressRedirect } from "@criipto/verify-express";
 import type { JWTPayload } from "jose";
 import { db } from "./db";
 import { authLoginEvents, eidIdentities, users } from "@shared/schema";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
@@ -55,11 +55,18 @@ export async function hasLinkedEid(userId: string): Promise<boolean> {
   }
 }
 
-async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | null> {
+// Provider-uavhengig oppslag: ssn_hash er kontonøkkelen, ikke provider.
+// En bruker koblet via BankID gjenkjennes umiddelbart av et Buypass-
+// innloggingsforsøk med samme fnr-hash, og omvendt — matcher kommentaren i
+// migrasjon 050 om at "samme person skal matche samme rad uansett om hun
+// logger inn med BankID eller Buypass". `provider`-parameteren beskriver
+// KUN hvilken metode DENNE innloggingen skjedde med (satt på det returnerte
+// AuthUser-objektet), ikke hvilken provider som opprinnelig skrev raden.
+export async function resolveUserByEidIdentity(ssnHash: string, provider: string): Promise<AuthUser | null> {
   const [identity] = await db
     .select()
     .from(eidIdentities)
-    .where(and(eq(eidIdentities.provider, "bankid"), eq(eidIdentities.ssnHash, ssnHash)))
+    .where(eq(eidIdentities.ssnHash, ssnHash))
     .limit(1);
 
   if (!identity) return null;
@@ -72,7 +79,7 @@ async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | nul
     email: user.email || "",
     name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
     profileImageUrl: user.profileImageUrl,
-    provider: "bankid",
+    provider,
     role: user.role || "member",
     vendorId: user.vendorId,
   };
@@ -80,6 +87,7 @@ async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | nul
 
 async function upsertEidIdentity(params: {
   userId: string;
+  provider: string;
   sub: string;
   ssnHash: string;
   givenName: string | null;
@@ -92,7 +100,7 @@ async function upsertEidIdentity(params: {
       .insert(eidIdentities)
       .values({
         userId: params.userId,
-        provider: "bankid",
+        provider: params.provider,
         sub: params.sub,
         ssnHash: params.ssnHash,
         givenName: params.givenName,
@@ -120,6 +128,7 @@ async function upsertEidIdentity(params: {
 }
 
 async function logAuthEvent(params: {
+  provider: string;
   userId: string | null;
   sessionId: string | null;
   ipAddress: string | undefined;
@@ -127,7 +136,7 @@ async function logAuthEvent(params: {
 }): Promise<void> {
   try {
     await db.insert(authLoginEvents).values({
-      provider: "bankid",
+      provider: params.provider,
       userId: params.userId,
       sessionId: params.sessionId,
       ipAddress: params.ipAddress || null,
@@ -206,6 +215,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
           // Logges selv om vi avviser: Idura fakturerer autentiseringen
           // uansett om vi fikk fnr eller ikke (kostnadssporing).
           await logAuthEvent({
+            provider: "bankid",
             userId: null,
             sessionId: null,
             ipAddress: req.ip,
@@ -228,6 +238,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
           const currentUser = req.user as AuthUser;
           await upsertEidIdentity({
             userId: currentUser.id,
+            provider: "bankid",
             sub,
             ssnHash,
             givenName,
@@ -236,6 +247,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
             rawClaims,
           });
           await logAuthEvent({
+            provider: "bankid",
             userId: currentUser.id,
             sessionId: null, // koblingen fødte ikke økten
             ipAddress: req.ip,
@@ -245,9 +257,10 @@ export async function setupEidAuth(app: Express): Promise<void> {
         }
 
         // Innlogging: slå opp eksisterende kobling. Opprett ALDRI ny bruker.
-        const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+        const resolvedUser = await resolveUserByEidIdentity(ssnHash, "bankid");
         if (!resolvedUser) {
           await logAuthEvent({
+            provider: "bankid",
             userId: null,
             sessionId: null,
             ipAddress: req.ip,
@@ -257,6 +270,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
         }
 
         await logAuthEvent({
+          provider: "bankid",
           userId: resolvedUser.id,
           sessionId: req.sessionID,
           ipAddress: req.ip,
@@ -315,6 +329,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
       const fnr = claims[IDURA_SSN_CLAIM_KEY];
       if (typeof fnr !== "string" || !fnr) {
         await logAuthEvent({
+          provider: "bankid",
           userId: null,
           sessionId: null,
           ipAddress: req.ip,
@@ -324,9 +339,10 @@ export async function setupEidAuth(app: Express): Promise<void> {
       }
 
       const ssnHash = hashSsn(fnr);
-      const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+      const resolvedUser = await resolveUserByEidIdentity(ssnHash, "bankid");
       if (!resolvedUser) {
         await logAuthEvent({
+          provider: "bankid",
           userId: null,
           sessionId: null,
           ipAddress: req.ip,
@@ -336,6 +352,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
       }
 
       await logAuthEvent({
+        provider: "bankid",
         userId: resolvedUser.id,
         sessionId: null,
         ipAddress: req.ip,
