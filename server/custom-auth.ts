@@ -5,6 +5,7 @@ import type { Express, Request, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
+import { verifyAccessToken, issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
 import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
@@ -283,11 +284,44 @@ const DEV_USER: AuthUser = {
   vendorId: null,
 };
 
+export async function handleMobileRefresh(req: Request, res: any) {
+  const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+  if (!refreshToken) {
+    return res.status(400).json({ message: "refreshToken er påkrevd" });
+  }
+
+  try {
+    const result = await refreshMobileAccessToken(refreshToken);
+    if (!result) {
+      return res.status(401).json({ message: "Ugyldig eller utløpt refresh-token" });
+    }
+    res.json(result);
+  } catch (error) {
+    console.error("Mobile refresh token error:", error);
+    return res.status(500).json({ error: "Kunne ikke fornye token akkurat nå." });
+  }
+}
+
+export async function handleMobileLogout(req: Request, res: any) {
+  const refreshToken = typeof req.body?.refreshToken === "string" ? req.body.refreshToken : "";
+
+  try {
+    if (refreshToken) {
+      await revokeMobileRefreshToken(refreshToken);
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Mobile logout error:", error);
+    return res.status(500).json({ error: "Kunne ikke logge ut akkurat nå." });
+  }
+}
+
 export async function setupCustomAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+  app.use(resolveBearerUser);
 
   // DEV MODE: inject a mock user so all API routes work without OAuth
   if (isDev) {
@@ -378,6 +412,59 @@ export async function setupCustomAuth(app: Express) {
     }
   );
 
+  // Mobilappens Google-innlogging. passport-oauth2 lar callbackURL overstyres
+  // per authenticate()-kall (options.callbackURL || this._callbackURL, se
+  // node_modules/passport-oauth2/lib/strategy.js) — samme registrerte
+  // "google"-strategi gjenbrukes, bare med et annet mål for redirect_uri enn
+  // web-varianten. MOBILE_AUTH_CALLBACK_URL er custom URL scheme-en appen
+  // fanger opp via ASWebAuthenticationSession.
+  const MOBILE_AUTH_CALLBACK_URL = "tidum://auth-callback";
+  const getGoogleMobileCallbackUrl = () => `${getAppBaseUrl()}/api/auth/google/callback-mobile`;
+
+  app.get("/api/auth/google-mobile", authRateLimit, (req, res, next) => {
+    if (!process.env.GOOGLE_CLIENT_ID) {
+      return res.status(500).json({ error: "Google OAuth er ikke konfigurert" });
+    }
+    passport.authenticate("google", {
+      scope: ["openid", "email"],
+      prompt: "select_account",
+      callbackURL: getGoogleMobileCallbackUrl(),
+    } as any)(req, res, next);
+  });
+
+  app.get("/api/auth/google/callback-mobile", authRateLimit, (req, res, next) => {
+    passport.authenticate(
+      "google",
+      { callbackURL: getGoogleMobileCallbackUrl() } as any,
+      (err: Error | null, user: AuthUser | false, info?: { message?: string }) => {
+        if (err) return next(err);
+        if (!user) {
+          const normalizedMessage = info?.message?.toLowerCase() || "";
+          const errorCode = normalizedMessage.includes("tilgangsforespørsel")
+            ? "access_request_required"
+            : "auth_failed";
+          return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=${errorCode}`);
+        }
+        hasLinkedEid(user.id)
+          .then(async (eidLinked) => {
+            if (shouldRejectNonEidLogin(user.role, eidLinked)) {
+              return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_required`);
+            }
+            const { accessToken, refreshToken, expiresIn } = await issueMobileTokens(user.id);
+            const redirectUrl = new URL(MOBILE_AUTH_CALLBACK_URL);
+            redirectUrl.searchParams.set("access_token", accessToken);
+            redirectUrl.searchParams.set("refresh_token", refreshToken);
+            redirectUrl.searchParams.set("expires_in", String(expiresIn));
+            return res.redirect(redirectUrl.toString());
+          })
+          .catch(next);
+      },
+    )(req, res, next);
+  });
+
+  app.post("/api/auth/mobile/refresh", authRateLimit, handleMobileRefresh);
+  app.post("/api/auth/mobile/logout", authRateLimit, handleMobileLogout);
+
   app.post("/api/auth/email/request-link", authRateLimit, async (req, res) => {
     const rawEmail = typeof req.body?.email === "string" ? req.body.email : "";
     const email = rawEmail.trim().toLowerCase();
@@ -456,10 +543,10 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.isAuthenticated?.()) {
+    if (isDev && !req.user) {
       return res.json(DEV_USER);
     }
-    if (req.isAuthenticated() && req.user) {
+    if (req.user) {
       res.json(req.user);
     } else {
       res.status(401).json({ message: "Ikke autentisert" });
@@ -491,17 +578,69 @@ export async function setupCustomAuth(app: Express) {
   });
 }
 
+// req.isAuthenticated() (from passport) is literally `!!req.user` — it has
+// no concept of session vs. Bearer-JWT auth. Since resolveBearerUser also
+// populates req.user (intentionally, for routes that check req.user
+// directly), guards that must stay session-cookie-only cannot use
+// req.isAuthenticated() anymore. This checks the raw Passport session-store
+// field instead — resolveBearerUser never touches req.session.passport, only
+// req.user, so this correctly excludes Bearer-only requests. Matches this
+// file's existing ad-hoc session-field-access style (see
+// AUTH_RETURN_TO_SESSION_KEY usage above).
+export function hasSessionAuth(req: Request): boolean {
+  const session = req.session as unknown as Record<string, unknown> | undefined;
+  const passportSession = session?.passport as { user?: unknown } | undefined;
+  return !!passportSession?.user;
+}
+
 export const isAuthenticated: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (req.isAuthenticated() && req.user) {
+  if (hasSessionAuth(req) && req.user) {
     return next();
   }
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
+// Populerer req.user fra en Bearer-JWT hvis til stede — påvirker ALDRI en
+// gyldig Passport-sesjon (web), og blokkerer aldri selv: en manglende/ugyldig
+// header lar requesten fortsette usatt, og ruten under avgjør 401 selv.
+// Montert globalt i setupCustomAuth, rett etter passport.session(), slik at
+// ALLE ruter i appen — også de som sjekker req.user direkte uten
+// isAuthenticatedOrBearer (f.eks. sakerRapportRoutes.ts sin lokale
+// requireAuth) — automatisk fungerer med mobil-token uten videre endring.
+export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
+  if (req.user) return next();
+  const authHeader = req.get("authorization");
+  if (!authHeader?.startsWith("Bearer ")) return next();
+  try {
+    const userId = verifyAccessToken(authHeader.slice("Bearer ".length));
+    const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
+    if (user) {
+      req.user = {
+        id: user.id,
+        email: user.email || "",
+        name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
+        profileImageUrl: user.profileImageUrl,
+        provider: "mobile",
+        role: user.role || "member",
+        vendorId: user.vendorId,
+      };
+    }
+  } catch {
+    // Ugyldig/utløpt token — req.user forblir usatt, ruten under avgjør 401.
+  }
+  next();
+};
+
+export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
+  if (isDev) return next();
+  if (req.user) return next();
+  res.status(401).json({ message: "Ikke autentisert" });
+};
+
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (!req.isAuthenticated() || !req.user) {
+  if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
   
@@ -515,7 +654,7 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
   if (isDev) return next();
-  if (!req.isAuthenticated() || !req.user) {
+  if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
   

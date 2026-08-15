@@ -8,6 +8,9 @@ import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
+import { hasSessionAuth } from "./custom-auth";
+import { issueMobileTokens } from "./lib/mobile-auth";
+import { authRateLimit } from "./rate-limit";
 
 declare global {
   namespace Express {
@@ -219,7 +222,7 @@ export async function setupEidAuth(app: Express): Promise<void> {
         const rawClaims: Record<string, unknown> = { ...claims };
         delete rawClaims[IDURA_SSN_CLAIM_KEY];
 
-        if (req.isAuthenticated() && req.user) {
+        if (hasSessionAuth(req) && req.user) {
           // Kobling: bruker er allerede innlogget (Google/e-post), dette er
           // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
           const currentUser = req.user as AuthUser;
@@ -276,8 +279,85 @@ export async function setupEidAuth(app: Express): Promise<void> {
   app.get(IDURA_LOGIN_PATH, iduraMiddleware, handleIduraCallback);
   app.get(IDURA_CALLBACK_PATH, iduraMiddleware, handleIduraCallback);
 
+  // Mobilappens BankID-innlogging. Egen CriiptoVerifyExpressRedirect-instans
+  // fordi redirectUri er fast per instans (biblioteket støtter ingen
+  // per-kall override) — samme prinsipp som web-varianten over, bare med et
+  // annet fast mål. Kun frittstående innlogging i fase 1: kobling til en
+  // allerede innlogget mobil-sesjon er eksplisitt utenfor omfang her, se
+  // Global Constraints i planen.
+  const IDURA_MOBILE_LOGIN_PATH = "/api/auth/idura/login-mobile";
+  const IDURA_MOBILE_CALLBACK_PATH = "/api/auth/idura/callback-mobile";
+  const MOBILE_AUTH_CALLBACK_URL = "tidum://auth-callback";
+
+  const iduraMobile = new CriiptoVerifyExpressRedirect({
+    domain,
+    clientID,
+    clientSecret,
+    redirectUri: `${getAppBaseUrl()}${IDURA_MOBILE_CALLBACK_PATH}`,
+    beforeAuthorize: (_req, options) => ({
+      ...options,
+      scope: "openid ssn",
+      acr_values: IDURA_ACR_BANKID,
+    }),
+  });
+  const iduraMobileMiddleware = iduraMobile.middleware({
+    force: true,
+    failureRedirect: MOBILE_AUTH_CALLBACK_URL,
+  }) as unknown as RequestHandler;
+
+  const handleIduraMobileCallback: RequestHandler = async (req, res, next) => {
+    try {
+      const claims = req.claims;
+      if (!claims) {
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_failed`);
+      }
+
+      const fnr = claims[IDURA_SSN_CLAIM_KEY];
+      if (typeof fnr !== "string" || !fnr) {
+        await logAuthEvent({
+          userId: null,
+          sessionId: null,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_missing_ssn`);
+      }
+
+      const ssnHash = hashSsn(fnr);
+      const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+      if (!resolvedUser) {
+        await logAuthEvent({
+          userId: null,
+          sessionId: null,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_not_linked`);
+      }
+
+      await logAuthEvent({
+        userId: resolvedUser.id,
+        sessionId: null,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+
+      const { accessToken, refreshToken, expiresIn } = await issueMobileTokens(resolvedUser.id);
+      const redirectUrl = new URL(MOBILE_AUTH_CALLBACK_URL);
+      redirectUrl.searchParams.set("access_token", accessToken);
+      redirectUrl.searchParams.set("refresh_token", refreshToken);
+      redirectUrl.searchParams.set("expires_in", String(expiresIn));
+      return res.redirect(redirectUrl.toString());
+    } catch (err) {
+      return next(err);
+    }
+  };
+
+  app.get(IDURA_MOBILE_LOGIN_PATH, authRateLimit, iduraMobileMiddleware, handleIduraMobileCallback);
+  app.get(IDURA_MOBILE_CALLBACK_PATH, authRateLimit, iduraMobileMiddleware, handleIduraMobileCallback);
+
   app.get("/api/auth/eid/status", async (req, res) => {
-    if (!req.isAuthenticated() || !req.user) {
+    if (!req.user) {
       return res.status(401).json({ message: "Ikke autentisert" });
     }
     const user = req.user as AuthUser;

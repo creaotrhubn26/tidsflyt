@@ -64,6 +64,17 @@ export const eidIdentities = pgTable(
 export type EidIdentity = typeof eidIdentities.$inferSelect;
 export type NewEidIdentity = typeof eidIdentities.$inferInsert;
 
+export const mobileRefreshTokens = pgTable("mobile_refresh_tokens", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  revokedAt: timestamp("revoked_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export type MobileRefreshToken = typeof mobileRefreshTokens.$inferSelect;
+
 export const authLoginEvents = pgTable(
   "auth_login_events",
   {

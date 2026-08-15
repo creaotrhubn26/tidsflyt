@@ -8,7 +8,7 @@ import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
 import { emailService } from "./lib/email-service";
-import { buildEmailLoginUrl } from "./custom-auth";
+import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
 import crypto from "crypto";
 import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
@@ -991,7 +991,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Mint a CMS-compatible JWT for the currently session-authenticated admin user.
   // Lets Google OAuth users use admin pages without a separate username/password.
   app.get("/api/admin/session-token", async (req: any, res) => {
-    if (!req.isAuthenticated?.() || !req.user) {
+    if (!hasSessionAuth(req) || !req.user) {
       return res.status(401).json({ error: 'Not authenticated' });
     }
     const sessionUser = req.user;
