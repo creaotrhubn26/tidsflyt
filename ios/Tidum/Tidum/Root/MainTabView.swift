@@ -12,7 +12,7 @@ struct MainTabView: View {
             TimeTrackingView(apiClient: appState.apiClient)
                 .tabItem { Label("Timeføring", systemImage: "clock") }
 
-            Text("Klientsaker") // Task 12 replaces this
+            CasesListView(apiClient: appState.apiClient)
                 .tabItem { Label("Klientsaker", systemImage: "folder") }
 
             Text("Profil") // Task 13 replaces this
