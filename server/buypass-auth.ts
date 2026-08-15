@@ -5,6 +5,7 @@ import { hasSessionAuth } from "./custom-auth";
 import { hasLinkedEid, resolveUserByEidIdentity } from "./eid-auth";
 import { hashSsn } from "./lib/eid-hash";
 import { getAppBaseUrl } from "./lib/app-base-url";
+import { issueMobileTokens } from "./lib/mobile-auth";
 import { authRateLimit } from "./rate-limit";
 import { db } from "./db";
 import { authLoginEvents, eidIdentities } from "@shared/schema";
@@ -207,6 +208,93 @@ export async function setupBuypassAuth(app: Express): Promise<void> {
       if ((err as { code?: string })?.code === "23505") {
         return res.redirect("/?error=eid_already_linked");
       }
+      return next(err);
+    }
+  });
+
+  const BUYPASS_MOBILE_LOGIN_PATH = "/api/auth/buypass/login-mobile";
+  const BUYPASS_MOBILE_CALLBACK_PATH = "/api/auth/buypass/callback-mobile";
+  const MOBILE_AUTH_CALLBACK_URL = "tidum://auth-callback";
+  const buypassMobileRedirectUri = `${getAppBaseUrl()}${BUYPASS_MOBILE_CALLBACK_PATH}`;
+
+  app.get(BUYPASS_MOBILE_LOGIN_PATH, authRateLimit, async (req, res, next) => {
+    try {
+      const state = randomState();
+      const codeVerifier = randomPKCECodeVerifier();
+      const codeChallenge = await calculatePKCECodeChallenge(codeVerifier);
+      const bag = getSessionBag(req);
+      bag.buypassMobileState = state;
+      bag.buypassMobileCodeVerifier = codeVerifier;
+
+      const authUrl = buildAuthorizationUrl(config, {
+        redirect_uri: buypassMobileRedirectUri,
+        scope: "openid",
+        state,
+        code_challenge: codeChallenge,
+        code_challenge_method: "S256",
+      });
+      res.redirect(authUrl.href);
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  app.get(BUYPASS_MOBILE_CALLBACK_PATH, authRateLimit, async (req, res, next) => {
+    try {
+      const bag = getSessionBag(req);
+      const expectedState = bag.buypassMobileState as string | undefined;
+      const pkceCodeVerifier = bag.buypassMobileCodeVerifier as string | undefined;
+      if (!expectedState || !pkceCodeVerifier) {
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_failed`);
+      }
+
+      const currentUrl = new URL(req.originalUrl, getAppBaseUrl());
+      const tokens = await authorizationCodeGrant(config, currentUrl, {
+        expectedState,
+        pkceCodeVerifier,
+      });
+      const claims = tokens.claims();
+      if (!claims) {
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_failed`);
+      }
+
+      const fnr = claims[BUYPASS_SSN_CLAIM_KEY];
+      if (typeof fnr !== "string" || !fnr) {
+        await logBuypassAuthEvent({
+          userId: null,
+          sessionId: null,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_missing_ssn`);
+      }
+
+      const ssnHash = hashSsn(fnr);
+      const resolvedUser = await resolveUserByEidIdentity(ssnHash, "buypass");
+      if (!resolvedUser) {
+        await logBuypassAuthEvent({
+          userId: null,
+          sessionId: null,
+          ipAddress: req.ip,
+          userAgent: req.get("user-agent") || undefined,
+        });
+        return res.redirect(`${MOBILE_AUTH_CALLBACK_URL}?error=eid_not_linked`);
+      }
+
+      await logBuypassAuthEvent({
+        userId: resolvedUser.id,
+        sessionId: null,
+        ipAddress: req.ip,
+        userAgent: req.get("user-agent") || undefined,
+      });
+
+      const { accessToken, refreshToken, expiresIn } = await issueMobileTokens(resolvedUser.id);
+      const redirectUrl = new URL(MOBILE_AUTH_CALLBACK_URL);
+      redirectUrl.searchParams.set("access_token", accessToken);
+      redirectUrl.searchParams.set("refresh_token", refreshToken);
+      redirectUrl.searchParams.set("expires_in", String(expiresIn));
+      return res.redirect(redirectUrl.toString());
+    } catch (err) {
       return next(err);
     }
   });
