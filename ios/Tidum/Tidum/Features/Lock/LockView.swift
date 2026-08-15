@@ -12,6 +12,11 @@ struct LockView: View {
                 Task { await appState.unlock() }
             }
             .buttonStyle(.borderedProminent)
+            // Escape-luke: biometri utestengt/avregistrert, eller Keychain-token
+            // invalidert av .biometryCurrentSet. Uten denne står brukeren fast.
+            Button("Logg inn på nytt") {
+                appState.logOut()
+            }
         }
         .task { await appState.unlock() }
     }
