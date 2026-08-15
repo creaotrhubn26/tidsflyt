@@ -22,9 +22,14 @@ Ingen nye avhengigheter, ingen skjemaendringer. Hver er en isolert, bakoverkompa
 
 `server/middleware/auth.ts:26-29` setter i dag `authUser` automatisk til en hardkodet `super_admin` når `isDevMode` er sann, uten noe eksplisitt opt-in utover `NODE_ENV`. Endres til å kreve BÅDE `NODE_ENV !== "production"` OG en eksplisitt ny env-variabel `ALLOW_DEV_AUTH_BYPASS=true`. Mangler den andre, er bypasset av — ingen implisitt bypass lenger, selv i utvikling.
 
-### A2. JWT/magic-link-hemmelighet uten fallback til tom streng
+### A2. To separate JWT-hemmeligheter uten trygg fallback
 
-`server/custom-auth.ts`, funksjonen `getEmailLoginSecret()` faller i dag `EMAIL_MAGIC_LINK_SECRET || JWT_SECRET || SESSION_SECRET || ""` — en tom streng er en gyldig HMAC-nøkkel, som betyr at hvis ALLE tre env-variablene mangler, signeres magic-link-tokens med en kjent, offentlig nøkkel («»). Endres til å kreve `EMAIL_MAGIC_LINK_SECRET` eksplisitt og kaste ved oppstart hvis den mangler — samme mønster som `requireDatabaseConnectionString()` i `server/database-config.ts` allerede bruker for `DATABASE_URL`. `JWT_SECRET`/`SESSION_SECRET` beholdes som egne, fortsatt påkrevde variabler for sine egne formål (ikke fjernet — kun fjernet som fallback-kilde for denne ene hemmeligheten).
+To uavhengige funn, samme rotårsak (fallback til noe usikkert i stedet for å kreve konfigurasjon), samme fiksmønster:
+
+- `server/custom-auth.ts`, funksjonen `getEmailLoginSecret()` faller i dag `EMAIL_MAGIC_LINK_SECRET || JWT_SECRET || SESSION_SECRET || ""` — en tom streng er en gyldig HMAC-nøkkel, som betyr at hvis ALLE tre env-variablene mangler, signeres magic-link-tokens med en kjent, offentlig nøkkel («»).
+- `server/middleware/auth.ts:8` — `const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production'`, brukt til å verifisere Bearer-tokens (`jwt.verify(...)` linje 42). Dette er alvorligere: hvis begge env-variablene mangler, kan HVEM SOM HELST signere et gyldig Bearer-token selv (nøkkelen er en offentlig kjent streng i kildekoden) og late som de er en hvilken som helst bruker/rolle.
+
+Begge endres til å kreve sin egen dedikerte env-variabel eksplisitt og kaste ved oppstart hvis den mangler — samme mønster som `requireDatabaseConnectionString()` i `server/database-config.ts` (for `DATABASE_URL`) og `server/lib/mobile-auth.ts`s `requireSecret()`-funksjon (for `MOBILE_JWT_SECRET`) ALLEREDE bruker korrekt i denne kodebasen. `EMAIL_MAGIC_LINK_SECRET` for magic-link, en ny `AUTH_JWT_SECRET` for Bearer-token-verifiseringen i `middleware/auth.ts` (adskilt fra `JWT_SECRET`, som ikke lenger brukes som fallback-kilde noe sted). `JWT_SECRET`/`SESSION_SECRET` beholdes som egne variabler der de brukes til andre, allerede riktige formål (f.eks. express-session) — ikke fjernet, kun fjernet som fallback-kilde for disse to hemmelighetene.
 
 ### A3. `rejectUnauthorized: false` på databasetilkoblingen
 
@@ -44,7 +49,7 @@ Dette er det største punktet i planen — det endrer databasetilgangsmønsteret
 
 ### 5.1 Dagens tilstand
 
-51 filer under `server/` kaller `db.select()/.insert()/.update()/.delete()` direkte fra den delte, poolede tilkoblingen eksportert fra `server/db.ts`. Ingen per-request-transaksjon finnes noe sted. `server/routes/export-routes.ts:23-33` er det konkret påviste eksemplet: spørringen filtrerer på dato og valgfri `userId`, men ALDRI på `vendorId`, selv om `logRow.vendorId`-kolonnen finnes — enhver innlogget bruker kan hente tidsregistreringer for enhver `userId`, uansett vendor.
+56 filer under `server/` importerer `db` (drizzle) eller `pool` (rå `pg`) direkte fra `server/db.ts` — verifisert via import-basert søk (et enklere søk etter bokstavelig `await db\.` på samme linje underrapporterte kraftig, siden mange kall er skrevet med metodekjeden på neste linje, og fanger heller ikke rå `pool.query(...)`-kall). Ingen per-request-transaksjon finnes noe sted. `server/routes/export-routes.ts:23-33` er det konkret påviste eksemplet: spørringen filtrerer på dato og valgfri `userId`, men ALDRI på `vendorId`, selv om `logRow.vendorId`-kolonnen finnes — enhver innlogget bruker kan hente tidsregistreringer for enhver `userId`, uansett vendor.
 
 ### 5.2 Hvorfor RLS, ikke bare app-nivå-filtre
 
@@ -73,41 +78,80 @@ CREATE POLICY vendor_isolation ON <tabell>
 
 `users`-tabellen (`shared/models/auth.ts`) har `vendorId` som nullable (null for `super_admin`) — policyen over dekker den uendret: super_admin-raden selv har `vendor_id IS NULL`, som ikke matcher `vendor_id = ...`, men matcher `is_super_admin`-grenen når den innloggede brukeren selv er super_admin.
 
-### 5.5 Per-request-transaksjon
+### 5.5 Per-request-transaksjon via AsyncLocalStorage — ikke eksplisitt `req.db`
 
-Ny middleware, montert RETT ETTER autentisering (dvs. etter at `req.user` er satt av passport/Bearer-middlewaren, IKKE globalt først i kjeden):
+`server/storage.ts` er IKKE et sentralt datalag alle 56 filene går gjennom (kun én rute importerer derfra) — db-tilgangen er spredt direkte i alle 56. Å kreve at hver av dem skriver om til en eksplisitt `req.db`-parameter ville også kreve å endre funksjonssignaturer i rene service-hjelpefiler (f.eks. `server/lib/pricing-service.ts`, `server/lib/seat-overrun.ts`) som ikke engang har `req` tilgjengelig i dag — en reell, stor mekanisk rewrite av alle 56 filer.
+
+I stedet: gjør selve `db`- og `pool`-eksporten i `server/db.ts` om til en `Proxy` som leser den aktive request-scopede tilkoblingen fra en `AsyncLocalStorage`-kontekst, satt av en ny middleware, og faller tilbake til `tidum_system`-tilkoblingen når ingen kontekst er satt (cron, migrasjon, oppstart). Konsumerende filer endres IKKE i det hele tatt for selve tilkoblings-delen — de fortsetter å skrive `db.select()...`/`pool.query(...)` akkurat som i dag; proxyen avgjør usynlig hvilken faktiske tilkobling det kall lander på.
+
+```ts
+// server/lib/request-db-context.ts
+import { AsyncLocalStorage } from "node:async_hooks";
+import type { NodePgDatabase } from "drizzle-orm/node-pg";
+import type { PoolClient } from "pg";
+
+export interface RequestDbContext {
+  db: NodePgDatabase<typeof schema>;
+  client: PoolClient;
+}
+
+export const requestDbStorage = new AsyncLocalStorage<RequestDbContext>();
+```
+
+```ts
+// server/db.ts (relevant del) — db/pool blir Proxy-objekter
+export const db: NodePgDatabase<typeof schema> = new Proxy(systemDb, {
+  get(target, prop, receiver) {
+    const ctx = requestDbStorage.getStore();
+    const actual = ctx ? ctx.db : target;
+    return Reflect.get(actual, prop, receiver);
+  },
+});
+
+export const pool: Pool | PoolClient = new Proxy(systemPool, {
+  get(target, prop, receiver) {
+    const ctx = requestDbStorage.getStore();
+    const actual = ctx ? ctx.client : target;
+    return Reflect.get(actual, prop, receiver);
+  },
+});
+```
+
+Middleware, montert RETT ETTER autentisering (dvs. etter at `req.user` er satt av passport/Bearer-middlewaren, IKKE globalt først i kjeden):
 
 ```ts
 async function withVendorScopedDb(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) return next(); // uautentiserte ruter bruker fortsatt `db` direkte
+  if (!req.user) return next(); // uautentiserte ruter kjører uten kontekst -> proxy faller til tidum_system
   const user = req.user as AuthUser;
   const client = await appPool.connect();
   try {
     await client.query("BEGIN");
     await client.query("SET LOCAL app.vendor_id = $1", [user.vendorId ?? -1]);
     await client.query("SET LOCAL app.is_super_admin = $1", [user.role === "super_admin" ? "true" : "false"]);
-    req.db = drizzle(client, { schema });
+    const scopedDb = drizzle(client, { schema });
     res.on("finish", () => { client.query("COMMIT").finally(() => client.release()); });
     res.on("close", () => { client.query("ROLLBACK").finally(() => client.release()); });
-    next();
+    requestDbStorage.run({ db: scopedDb, client }, next);
   } catch (err) {
     client.release();
     next(err);
   }
 }
 ```
-(Eksakt plassering av `res.on` vs. try/catch-detaljer spikres i planen — prinsippet er: én pg-tilkobling hentes fra en egen `tidum_app`-pool per request, sesjonsvariablene settes med `SET LOCAL` (kun gyldig innenfor den åpne transaksjonen — derfor MÅ alt arbeid for requesten skje på samme tilkobling, ikke på den delte poolen), og transaksjonen committes ved vellykket respons, rulles tilbake ellers.)
+(Eksakt plassering av `res.on` vs. try/catch-detaljer spikres i planen — prinsippet er: én pg-tilkobling hentes fra en egen `tidum_app`-pool per request, sesjonsvariablene settes med `SET LOCAL` (kun gyldig innenfor den åpne transaksjonen — derfor MÅ alt arbeid for requesten skje på samme tilkobling, ikke på den delte poolen), konteksten kjøres via `AsyncLocalStorage.run()` slik at ALLE videre kall i requesten (uansett hvor dypt nede i kallkjeden, inkludert service-hjelpefiler som aldri ser `req`) automatisk lander på riktig tilkobling, og transaksjonen committes ved vellykket respons, rulles tilbake ellers.)
 
-### 5.6 Berørte tabeller og filer
+### 5.6 Berørte tabeller — og hvorfor filantallet ikke lenger er en handlingsliste
 
-18 tabeller har i dag en `vendorId`-kolonne (kartlagt via `grep vendorId shared/schema.ts shared/models/*.ts`): `companies`, `companyUsers`, `projectInfo`, `logRow`, `rapportTemplates`, `vendorInstitutions`, `vendorIntegrations`, `imports`, `vendorSeatLog`, `apiKeys`, `apiUsageLog`, `caseReports`, `feedbackRequests`, `feedbackResponses`, `timesheetSubmissions`, `vendorInviteLinks`, `rapportAvvik`, `vendorAvvikProtokoller`, `vendorTemplates`, pluss `saker` og `users` (nullable `vendorId`, håndtert som i §5.4). Full liste over hvilke av de 51 filene med `await db.` som skal skrives om til `await req.db.` — og hvilke som bevisst skal fortsette på `db` (autentiseringskode, migrasjoner, cron, ekte offentlige ruter) — kartlegges fil for fil i implementeringsplanen, ikke her.
+18 tabeller har i dag en `vendorId`-kolonne (kartlagt via `grep vendorId shared/schema.ts shared/models/*.ts`): `companies`, `companyUsers`, `projectInfo`, `logRow`, `rapportTemplates`, `vendorInstitutions`, `vendorIntegrations`, `imports`, `vendorSeatLog`, `apiKeys`, `apiUsageLog`, `caseReports`, `feedbackRequests`, `feedbackResponses`, `timesheetSubmissions`, `vendorInviteLinks`, `rapportAvvik`, `vendorAvvikProtokoller`, `vendorTemplates`, pluss `saker` og `users` (nullable `vendorId`, håndtert som i §5.4).
+
+Med ALS-proxy-mønsteret i §5.5 er 56-filslisten IKKE lenger en liste over filer som må skrives om — de fleste trenger ingen endring i det hele tatt, siden `db`/`pool` fortsetter å virke som før. Det som faktisk gjenstår å avklare per fil er kun: hører denne filens db-bruk til (a) autentiseringskode som strukturelt kjører før `req.user` finnes, (b) bakgrunnsjobber/cron/migrasjon uten request-kontekst, (c) kode som kun berører globale/ikke-vendor-scopede tabeller (f.eks. e-postmaler, SEO-/crawler-data — RLS-policyen er uansett irrelevant for disse), eller (d) ekte forretningslogikk mot en vendor-scopet tabell i en autentisert request (som SKAL og automatisk VIL bli RLS-håndhevet av proxyen, uten kodeendring). Kategori (a) og (b) må aktivt hoppe UT av ALS-konteksten (eller aldri kjøre inne i den) for å beholde `tidum_system`-tilgang — resten av arbeidet er verifikasjon, ikke omskriving. Denne klassifiseringen (fil for fil, med begrunnelse) er selve leveransen til den første RLS-oppgaven i implementeringsplanen — ikke noe som skal gjettes på forhånd her.
 
 ### 5.7 Migreringsrekkefølge (unngå nedetid/lockout)
 
 1. Opprett `tidum_app`-databaserolle og `tidum_system`-databaserolle (system-rollen er ny navngiving av dagens rolle — ingen funksjonell endring der).
 2. Legg til policyene MEN ikke slå på `FORCE ROW LEVEL SECURITY` ennå (kun `ENABLE`, som tabelleieren fortsatt omgår) — verifiser policyene mot skyggetrafikk/staging først.
-3. Rull ut per-request-transaksjonsmiddlewaren og skriv om filene til `req.db`, mens `db`-rollen fortsatt kan lese alt (sikkerhetsnett under overgangen).
-4. Når alle berørte filer er verifisert flyttet til `req.db`: slå på `FORCE ROW LEVEL SECURITY`.
+3. Rull ut ALS-proxyen og per-request-transaksjonsmiddlewaren; klassifiser alle 56 filene (§5.6) og flytt auth-/cron-/migrasjonskode eksplisitt UT av ALS-konteksten der den feilaktig ville arvet den, mens `tidum_system`-rollen fortsatt kan lese alt (sikkerhetsnett under overgangen).
+4. Når klassifiseringen er verifisert komplett og korrekt: slå på `FORCE ROW LEVEL SECURITY`.
 5. Fjern `tidum_system`-rollens generelle lesetilgang til vendor-tabellene utover det auth-oppslagene faktisk trenger (prinsippet om minste privilegium — presiseres i planen).
 
 ## 6. Arkitektur, del D — Kryptering av integrasjonshemmeligheter
@@ -133,7 +177,7 @@ Nytt bibliotek: `otplib` (aktivt vedlikeholdt, ingen tunge avhengigheter).
 
 - A1-A3: enhetstester på hver av de tre isolerte endringene (bypass av/på, hemmelighet kaster ved mangel, `rejectUnauthorized` er `true` i konfigurasjonen som bygges).
 - B: integrasjonstest som verifiserer at en tilstandsendrende sesjons-rute avviser forespørsler uten gyldig CSRF-token, og at en Bearer-autentisert mobilrute IKKE krever det.
-- C: dette er det tyngste testarbeidet. Per tabell: en test som (a) oppretter data for vendor A og vendor B på `tidum_app`-tilkoblingen, (b) verifiserer at en spørring med `app.vendor_id` satt til A kun ser A sine rader, (c) verifiserer at samme spørring uten satt sesjonsvariabel (fail-closed) ser ingen rader. Migreringsplanens steg 3-4 (§5.7) gir et konkret sjekkpunkt: ALLE 51 filer bekreftet flyttet til `req.db` FØR `FORCE ROW LEVEL SECURITY` slås på — planen må ha en eksplisitt task som verifiserer dette (f.eks. et script som griper etter gjenværende `await db\.` utenfor den godkjente unntakslisten).
+- C: dette er det tyngste testarbeidet. Per tabell: en test som (a) oppretter data for vendor A og vendor B på `tidum_app`-tilkoblingen, (b) verifiserer at en spørring med `app.vendor_id` satt til A kun ser A sine rader, (c) verifiserer at samme spørring uten satt sesjonsvariabel (fail-closed) ser ingen rader. Egen test på selve ALS-proxyen: to samtidige "requests" (simulert med to parallelle `requestDbStorage.run()`-kall) må aldri lekke hverandres tilkobling/sesjonsvariabler. Migreringsplanens steg 3-4 (§5.7) gir et konkret sjekkpunkt: ALLE 56 filer sin klassifisering (§5.6) bekreftet komplett og korrekt FØR `FORCE ROW LEVEL SECURITY` slås på.
 - D: rundtur-test (krypter → dekrypter → samme verdi), og en test som bekrefter migreringsscriptet er idempotent (kjør to ganger, verifiser ingen dobbel-kryptering).
 - E: enrollment-flyt, login med gyldig TOTP-kode, login med gyldig gjenopprettingskode (og at den deretter er brukt opp), login-forsøk med utløpt/feil kode avvist.
 - Kjent miljøbegrensning (samme som resten av sesjonen): DB-berørende tester kan ikke kjøre fullt i denne sandboxen (ingen lokal Postgres-rolle) — vurderes ved lesing der de ikke kan kjøre, samme akseptable mønster som tidligere i prosjektet.
@@ -141,10 +185,10 @@ Nytt bibliotek: `otplib` (aktivt vedlikeholdt, ingen tunge avhengigheter).
 ## 9. Global Constraints
 
 - Ingen av de fem delene (A-E) skal endre eksisterende offentlige API-kontrakter (ruter, respons-shape) utover de nye feil-tilstandene som er beskrevet over.
-- `tidum_system`-rollens bruk begrenses eksplisitt til: migrasjoner, seed, cron, og auth-oppslag som strukturelt kjører før `req.user` finnes. Ingen forretningslogikk-rute skal bruke `db` direkte etter at del C er fullført, med mindre den er eksplisitt unntatt og begrunnet i planen.
-- Alle nye hemmeligheter (`SECRETS_ENCRYPTION_KEY`, `EMAIL_MAGIC_LINK_SECRET`) er PÅKREVDE ved oppstart i produksjon — appen skal feile raskt og tydelig ved mangel, ikke falle stille tilbake til noe usikkert.
+- `tidum_system`-rollens bruk begrenses eksplisitt til: migrasjoner, seed, cron, og auth-oppslag som strukturelt kjører før `req.user` finnes — kode i disse kategoriene skal eksplisitt IKKE kjøre inne i `requestDbStorage`-konteksten. Enhver fil som bevisst forblir på `tidum_system` utenfor disse kategoriene skal være eksplisitt unntatt og begrunnet i planen (§5.6-klassifiseringen).
+- Alle nye hemmeligheter (`SECRETS_ENCRYPTION_KEY`, `EMAIL_MAGIC_LINK_SECRET`, `AUTH_JWT_SECRET`) er PÅKREVDE ved oppstart i produksjon — appen skal feile raskt og tydelig ved mangel, ikke falle stille tilbake til noe usikkert.
 - Ingen klartekst-hemmelighet (SMTP-passord, PowerOffice-nøkkel, TOTP-secret) skal noensinne logges — samme prinsipp som allerede etablert for fnr i eID-integrasjonene.
-- RLS-utrullingen følger rekkefølgen i §5.7 — `FORCE ROW LEVEL SECURITY` slås aldri på før alle berørte filer er bekreftet migrert til `req.db`.
+- RLS-utrullingen følger rekkefølgen i §5.7 — `FORCE ROW LEVEL SECURITY` slås aldri på før §5.6-klassifiseringen av alle 56 filer er bekreftet komplett.
 
 ## 10. Hva vi bevisst IKKE gjør nå
 
