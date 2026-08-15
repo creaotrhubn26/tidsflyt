@@ -6,7 +6,6 @@ import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
-const isDevMode = process.env.NODE_ENV !== 'production';
 
 export function isDevAuthBypassAllowed(): boolean {
   return process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV_AUTH_BYPASS === "true";

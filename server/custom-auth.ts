@@ -549,7 +549,7 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.user) {
+    if (isDevAuthBypassAllowed() && !req.user) {
       return res.json(DEV_USER);
     }
     if (req.user) {
@@ -600,7 +600,7 @@ export function hasSessionAuth(req: Request): boolean {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (hasSessionAuth(req) && req.user) {
     return next();
   }
@@ -639,35 +639,35 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
 };
 
 export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (req.user) return next();
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
+
   const user = req.user as AuthUser;
   if (!canAccessVendorApiAdmin(user.role)) {
     return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
   }
-  
+
   next();
 };
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
+
   const user = req.user as AuthUser;
   if (!isSuperAdminLikeRole(user.role)) {
     return res.status(403).json({ message: "Krever super_admin rolle" });
   }
-  
+
   next();
 };
