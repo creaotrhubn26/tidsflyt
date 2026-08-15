@@ -1,6 +1,7 @@
 // ios/Tidum/Tidum/Auth/BiometricLock.swift
 import LocalAuthentication
 
+@MainActor
 @Observable
 final class BiometricLock {
     func authenticate() async -> Bool {

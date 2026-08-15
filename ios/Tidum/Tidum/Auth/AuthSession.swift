@@ -2,6 +2,7 @@
 import AuthenticationServices
 import UIKit
 
+@MainActor
 @Observable
 final class AuthSession: NSObject {
     enum Provider {
