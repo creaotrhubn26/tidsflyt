@@ -17,6 +17,7 @@ targets:
       path: Tidum/Info.plist
       properties:
         UILaunchScreen: {}
+        NSFaceIDUsageDescription: "Bruk Face ID for å låse opp Tidum"
         CFBundleURLTypes:
           - CFBundleURLSchemes: [tidum]
     settings:
