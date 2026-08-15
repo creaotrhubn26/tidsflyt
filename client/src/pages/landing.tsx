@@ -561,11 +561,6 @@ export default function LandingPage() {
     });
   };
 
-  const startGoogleLogin = (source: string) => {
-    trackGoogleLoginClick(source);
-    window.location.href = buildGoogleAuthUrl("/dashboard");
-  };
-
   const startEidLogin = (source: string) => {
     trackTidumPublicEvent("tidum_bankid_login_click", {
       source,
@@ -663,14 +658,6 @@ export default function LandingPage() {
                   </Link>
                 );
               })}
-              <a
-                href={buildGoogleAuthUrl("/dashboard")}
-                onClick={() => trackGoogleLoginClick("header_navigation")}
-                className="inline-flex items-center gap-2 text-base font-medium text-[#26373C] dark:text-[#d0e0e3] transition-colors hover:text-[var(--color-primary)]"
-              >
-                <LogIn className="h-4 w-4" />
-                <span className="hidden sm:inline">Logg inn med Google</span>
-              </a>
               <Button
                 onClick={() => goToContact("header_primary")}
                 className="tidum-btn-primary inline-flex h-auto items-center px-6 py-3 text-base font-semibold"
@@ -723,19 +710,19 @@ export default function LandingPage() {
                 </Button>
                 <Button
                   type="button"
-                  onClick={() => startGoogleLogin("hero_secondary")}
-                  variant="outline"
-                  className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
-                >
-                  Logg inn med Google
-                </Button>
-                <Button
-                  type="button"
                   onClick={() => startEidLogin("hero_bankid")}
                   variant="outline"
                   className="tidum-btn-secondary h-auto px-6 py-3 text-lg font-medium"
                 >
                   Logg inn med BankID
+                </Button>
+                <Button
+                  type="button"
+                  disabled
+                  variant="outline"
+                  className="tidum-btn-secondary h-auto cursor-not-allowed px-6 py-3 text-lg font-medium opacity-60"
+                >
+                  Buypass (Kommer snart)
                 </Button>
               </div>
             </div>
