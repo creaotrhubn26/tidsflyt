@@ -37,6 +37,7 @@ export function buildGoogleAuthUrl(returnTo?: string | null): string {
 // Egen trigger-rute, atskilt fra callback-ruten (se server/eid-auth.ts for
 // hvorfor de må være forskjellige stier).
 export const IDURA_LOGIN_URL = "/api/auth/idura/login";
+export const BUYPASS_LOGIN_URL = "/api/auth/buypass/login";
 
 // Redirect to login with a toast notification
 export function redirectToLogin(toast?: (options: { title: string; description: string; variant: string }) => void) {
