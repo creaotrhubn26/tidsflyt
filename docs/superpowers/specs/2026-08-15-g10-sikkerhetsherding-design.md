@@ -1,6 +1,7 @@
 # G-10 Sikkerhetsherding — Design
 
 **Status:** Godkjent retning 15.08.2026
+**RLS cutover-migrasjon (054) skrevet:** 16.08.2026 — FORCE ROW LEVEL SECURITY på alle 26 tabeller fra migrasjon 052, pluss ALTER DEFAULT PRIVILEGES-fiksen fra Task 9. IKKE kjørt mot staging/produksjon ennå (ingen ekte tidum_app/tidum_system-tilkobling tilgjengelig i denne sandboxen — samme aksepterte begrensning som Task 7-9). Se docs/security/rls-file-classification.md og migrations/054_force_rls.sql for gjenstående manuell verifikasjon før produksjonskjøring.
 **Utløst av:** Gap-analyse [Halden-anbudet](anbud/2026-112379-halden-barnevern-gap-analyse.md) (branch `claude/anbudskrav-analyse-k52s1q`), punkt G-10
 **Henger sammen med:** [Veikart: Barnevern som ny vertikal](veikart-barnevern-vertikal.md) Fase 0, [Compliance-roadmap](compliance/roadmap.md)
 
