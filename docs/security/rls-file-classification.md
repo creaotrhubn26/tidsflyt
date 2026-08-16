@@ -311,6 +311,23 @@ RLS-håndhevelse: Task 7s roller og policyer er ikke rullet ut mot noen
 database ennå, så både denne GRANT-en og selve policy-oppførselen må
 verifiseres mot staging når rollene faktisk finnes.
 
+**LUKKET i migrations/054_force_rls.sql (Task 10, fix-runde 1.)** Den
+enkle `ALTER DEFAULT PRIVILEGES IN SCHEMA public ... TO tidum_app` skissert
+over (uten `FOR ROLE`) viste seg utilstrekkelig ved formell review: den
+dekker kun objekter opprettet av DEN UTFØRENDE rollen, mens `server/db.ts`
+kobler `systemPool`/`pool` som `tidum_system` utenfor request-kontekst — så
+BÅDE `server/lib/run-startup-migrations.ts`s ordinære migrasjoner OG denne
+oppgavens egen DDL-ruting av lat `CREATE TABLE IF NOT EXISTS` kjører faktisk
+SOM `tidum_system`, ikke som migrasjonsrollen. 054 bruker derfor
+`ALTER DEFAULT PRIVILEGES FOR ROLE tidum_system ...`, pluss
+`GRANT CREATE ON SCHEMA public TO tidum_system` (manglet helt — `tidum_system`
+kunne i praksis ikke utføre den late DDL-en den er ment å utføre, siden
+Postgres 15+ ikke lenger gir `PUBLIC` automatisk `CREATE` på `public`).
+Begge reprodusert og verifisert løst mot lokal Postgres med riktig
+rolle-simulering (`SET ROLE tidum_system; CREATE TABLE ...`, deretter
+`SET ROLE tidum_app`-lesing/skriving) — se migrations/054_force_rls.sql og
+`.superpowers/sdd/2026-08-15-g10-sikkerhetsherding/task-10-report.md`.
+
 Relatert, og løst: kodebasen har **~66 lat-opprettende DDL-setninger**
 (`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN IF NOT EXISTS`),
 fordelt på `server/routes.ts` (24), `server/smartTimingRoutes.ts` (42) og fem

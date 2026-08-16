@@ -4,9 +4,10 @@
 -- fra migrasjon 052 (ENABLE ROW LEVEL SECURITY der). Forutsetter:
 --   - docs/security/rls-file-classification.md er komplett og verifisert
 --     (Task 9) — ingen "MANUELL GJENNOMGANG"-rader gjenstår.
---   - withVendorScopedDb (Task 8) er utrullet og stabil i produksjon i
---     minst [X dager — sett en reell verdi ved faktisk utrulling, ikke
---     skrevet her siden den avhenger av når Task 8 faktisk deployes].
+--   - withVendorScopedDb (Task 8) er utrullet og stabil i produksjon i en
+--     periode (anbefalt: minst 7 dager) — konkret varighet er en
+--     anbefaling, ikke en hardkodet sannhet, og avgjøres ved faktisk
+--     utrulling ut fra hvor mye trafikk/loggvolum som faktisk dekkes.
 --
 -- Tabellisten under er hentet PROGRAMMATISK fra migrations/052_rls_roles_and_policies.sql
 -- (ikke håndkopiert): de 22 tabellene i policy-løkken pluss de 4 tabellene
@@ -27,11 +28,18 @@
 --
 -- MANUELL KJØRING KAN VÆRE PÅKREVD — samme forbehold som migrasjon 052: en
 -- app-kjørt migrasjonsrolle har typisk ikke eierskap/superuser på en
--- administrert Postgres (Neon/Render). ALTER DEFAULT PRIVILEGES må i
--- tillegg kjøres av SAMME rolle som kjørte migrasjon 052 (den rollen som
--- oppretter tabellene) — se forklaring under. Denne filen er bevisst IKKE
--- lagt til i STARTUP_MIGRATIONS i server/lib/run-startup-migrations.ts, av
--- samme grunn som 052.
+-- administrert Postgres (Neon/Render). Denne filen er bevisst IKKE lagt til
+-- i STARTUP_MIGRATIONS i server/lib/run-startup-migrations.ts, av samme
+-- grunn som 052.
+--
+-- YTTERLIGERE PRESISERING utover "MANUAL KJØRING" over: `ALTER DEFAULT
+-- PRIVILEGES FOR ROLE tidum_system ...` under krever at kjørende rolle enten
+-- ER `tidum_system`, ER superuser, eller er MEDLEM AV `tidum_system` (kan
+-- sette dens defaults via rollemedlemskap). En vanlig admin-rolle uten et av
+-- disse tre er IKKE nok — setningen vil da stille ikke ha noen effekt for
+-- `tidum_system`s framtidige objekter (Postgres feiler ikke synlig på dette,
+-- den bare setter default privileges for FEIL rolle). Verifiser hvilken
+-- rolle som faktisk kjører denne filen før kjøring mot produksjon.
 --
 -- IKKE TRYGG Å KJØRE PÅ NYTT UTEN ETTERTANKE for policy-delen i seg selv er
 -- den trygg (FORCE/ENABLE er idempotente, GRANT og ALTER DEFAULT PRIVILEGES
@@ -56,22 +64,39 @@
 -- transaksjon i request-kontekst, rammer det alle rå-SQL-stier i en
 -- autentisert request.
 --
--- To deler: (a) ALTER DEFAULT PRIVILEGES dekker FRAMTIDIGE CREATE TABLE
--- gjort av samme rolle, (b) et nytt GRANT ON ALL TABLES tar igjen tabeller
--- som allerede ble opprettet lat i tidsrommet mellom 052 og denne filen.
--- Grant-listen speiler nøyaktig hva 052 ga tidum_app/tidum_system (linje
--- 44-50 i 052): SELECT/INSERT/UPDATE/DELETE på tabeller, USAGE/SELECT på
--- sekvenser.
+-- KRITISK PRESISERING (funnet av formell review, ikke i første versjon av
+-- denne filen): en ren `ALTER DEFAULT PRIVILEGES ... GRANT ...` uten
+-- `FOR ROLE` gjelder KUN framtidige objekter opprettet AV DEN UTFØRENDE
+-- ROLLEN (den som kjører selve migrasjonsfilen). Men tabeller opprettes i
+-- praksis ALDRI av den rollen i denne appen: `server/db.ts` kobler
+-- `systemPool`/`pool` (utenfor request-kontekst) som `tidum_system`, og
+-- BÅDE server/lib/run-startup-migrations.ts (de ordinære, nummererte
+-- migrasjonene som IKKE er 052/054) OG Task 9s DDL-ruting av all lat
+-- `CREATE TABLE IF NOT EXISTS`/`ADD COLUMN IF NOT EXISTS` kjører derfor SOM
+-- `tidum_system`. `FOR ROLE tidum_system` er derfor ikke et forsiktighetstillegg
+-- — det er den eneste varianten som faktisk dekker hvordan tabeller
+-- opprettes i denne appen. Reprodusert og verifisert: en tabell opprettet
+-- av `tidum_system` etter at den ikke-scopede varianten hadde kjørt, ga
+-- fortsatt `permission denied` for `tidum_app`.
+--
+-- `tidum_system` manglet i tillegg `CREATE` på schema `public` (kun
+-- `USAGE` er gitt i 052 og over) — på Postgres 15+ har `PUBLIC` ikke lenger
+-- automatisk `CREATE` på `public`-schemaet, så `tidum_system` kunne i
+-- praksis ikke utføre den late DDL-en den er ment å utføre i utgangspunktet
+-- (feiler stille, svelges av `try {} catch(_) {}` i kallstedene — skjema-
+-- drift uten synlig feil). Rettet under.
+--
+-- To deler: (a) ALTER DEFAULT PRIVILEGES FOR ROLE tidum_system dekker
+-- FRAMTIDIGE CREATE TABLE gjort av tidum_system, (b) et nytt
+-- GRANT ON ALL TABLES tar igjen tabeller som allerede ble opprettet lat i
+-- tidsrommet mellom 052 og denne filen.
 
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
+GRANT CREATE ON SCHEMA public TO tidum_system;
+
+ALTER DEFAULT PRIVILEGES FOR ROLE tidum_system IN SCHEMA public
   GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tidum_app;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
+ALTER DEFAULT PRIVILEGES FOR ROLE tidum_system IN SCHEMA public
   GRANT USAGE, SELECT ON SEQUENCES TO tidum_app;
-
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tidum_system;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public
-  GRANT USAGE, SELECT ON SEQUENCES TO tidum_system;
 
 -- Ta igjen tabeller/sekvenser opprettet lat mellom 052 og nå (samme
 -- setninger som 052 selv, trygt å kjøre på nytt — GRANT er idempotent).
