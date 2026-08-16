@@ -16,6 +16,7 @@ import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
 import { csrfProtection, generateCsrfToken } from "./lib/csrf";
+import { hasTotpEnrolled } from "./lib/totp";
 
 type EmailIdentityInput = {
   email: string;
@@ -81,6 +82,38 @@ function getPostAuthRedirect(req: Request, fallback?: unknown): string {
     delete session[AUTH_RETURN_TO_SESSION_KEY];
   }
   return sessionReturnTo ?? sanitizeReturnTo(fallback) ?? DEFAULT_POST_AUTH_REDIRECT;
+}
+
+// Datoen G-10-utrullingen skjedde — 30-dagersvinduet regnes herfra.
+const TOTP_ROLLOUT_DATE = new Date("2026-08-15T00:00:00Z");
+
+async function checkTotpRequirement(user: AuthUser): Promise<"not_required" | "grace_period" | "required_missing" | "satisfied"> {
+  if (!canAccessVendorApiAdmin(user.role)) return "not_required";
+  const enrolled = await hasTotpEnrolled(user.id);
+  if (enrolled) return "satisfied";
+  const daysSinceRollout = (Date.now() - TOTP_ROLLOUT_DATE.getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceRollout < 30 ? "grace_period" : "required_missing";
+}
+
+// Kalles rett etter en vellykket req.logIn for de web-sesjonsbaserte
+// innloggingsflytene (Google-callback, magic-link) — mobilappens
+// Bearer-token-flyt bruker aldri req.logIn/sesjon og har derfor ingen
+// dashbord-redirect å avskjære her (se totp-routes.ts for API-siden av
+// håndhevelsen, evt. senere oppgave for mobil).
+// "required_missing": sesjonen er opprettet, men klienten skal ikke vise
+// dashbordet før TOTP er satt opp, så vi sender til oppsettsiden i stedet.
+// "grace_period": sett et sesjonsflagg klienten kan lese for et varsel, men
+// fortsett til dashbordet som normalt.
+async function redirectAfterLogin(req: Request, res: any, user: AuthUser, fallback?: unknown): Promise<void> {
+  const totpStatus = await checkTotpRequirement(user);
+  if (totpStatus === "required_missing") {
+    res.redirect("/totp-setup");
+    return;
+  }
+  if (totpStatus === "grace_period") {
+    (req.session as any).totpGracePeriod = true;
+  }
+  res.redirect(getPostAuthRedirect(req, fallback));
 }
 
 export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
@@ -431,7 +464,7 @@ export async function setupCustomAuth(app: Express) {
               if (loginError) {
                 return next(loginError);
               }
-              return res.redirect(getPostAuthRedirect(req));
+              redirectAfterLogin(req, res, user).catch(next);
             });
           })
           .catch(next);
@@ -554,7 +587,7 @@ export async function setupCustomAuth(app: Express) {
         if (loginError) {
           return next(loginError);
         }
-        return res.redirect(getPostAuthRedirect(req, payload?.returnTo));
+        redirectAfterLogin(req, res, user, payload?.returnTo).catch(next);
       });
     } catch (error) {
       console.error("Email login verify error:", error);
