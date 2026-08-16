@@ -16,6 +16,7 @@ import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
 import { csrfProtection, generateCsrfToken } from "./lib/csrf";
+import { withVendorScopedDb } from "./middleware/vendor-scoped-db";
 import { hasTotpEnrolled } from "./lib/totp";
 
 type EmailIdentityInput = {
@@ -375,6 +376,7 @@ export async function setupCustomAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
   app.use(resolveBearerUser);
+  app.use(withVendorScopedDb);
 
   app.get("/api/csrf-token", (req, res) => {
     res.json({ token: generateCsrfToken(req, res) });
