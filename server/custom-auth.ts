@@ -105,6 +105,12 @@ async function checkTotpRequirement(user: AuthUser): Promise<"not_required" | "g
 // dashbordet før TOTP er satt opp, så vi sender til oppsettsiden i stedet.
 // "grace_period": sett et sesjonsflagg klienten kan lese for et varsel, men
 // fortsett til dashbordet som normalt.
+// "satisfied": brukeren HAR en registrert TOTP-credential, men det betyr
+// bare at raden finnes — ikke at DENNE innloggingen ble utfordret (spec §7:
+// TOTP kreves ved hver innlogging etter enrollment, ikke bare én gang ved
+// oppsett). totpVerified initialiseres eksplisitt til false her — ikke
+// videreført fra en tidligere sesjon — og requireVendorAuth/requireSuperAdmin
+// avviser til /api/totp/verify setter den til true.
 export async function redirectAfterLogin(req: Request, res: any, user: AuthUser, fallback?: unknown): Promise<void> {
   const totpStatus = await checkTotpRequirement(user);
   if (totpStatus === "required_missing") {
@@ -113,6 +119,11 @@ export async function redirectAfterLogin(req: Request, res: any, user: AuthUser,
   }
   if (totpStatus === "grace_period") {
     (req.session as any).totpGracePeriod = true;
+  }
+  if (totpStatus === "satisfied") {
+    (req.session as any).totpVerified = false;
+    res.redirect("/totp-challenge");
+    return;
   }
   res.redirect(getPostAuthRedirect(req, fallback));
 }
@@ -710,6 +721,14 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
     return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
   }
 
+  // totpVerified === false betyr: denne innloggingen ble flagget som
+  // "krever step-up" (redirectAfterLogin i denne filen, satisfied-grenen),
+  // og /api/totp/verify har ikke satt den til true ennå. undefined (aldri
+  // satt — not_required/grace_period/required_missing) slipper gjennom.
+  if ((req.session as any)?.totpVerified === false) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
+  }
+
   next();
 };
 
@@ -722,6 +741,10 @@ export const requireSuperAdmin: RequestHandler = (req, res, next) => {
   const user = req.user as AuthUser;
   if (!isSuperAdminLikeRole(user.role)) {
     return res.status(403).json({ message: "Krever super_admin rolle" });
+  }
+
+  if ((req.session as any)?.totpVerified === false) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
   }
 
   next();

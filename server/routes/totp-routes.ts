@@ -5,6 +5,7 @@ import { db } from "../db";
 import { adminTotpCredentials } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
 import { canAccessVendorApiAdmin } from "@shared/roles";
+import { authRateLimit } from "../rate-limit";
 
 export function registerTotpRoutes(app: Express) {
   app.get("/api/totp/status", requireAuth, async (req: Request, res: Response) => {
@@ -39,7 +40,7 @@ export function registerTotpRoutes(app: Express) {
     res.json({ recoveryCodes }); // vist ÉN gang — hentbare aldri igjen
   });
 
-  app.post("/api/totp/verify", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/totp/verify", authRateLimit, requireAuth, async (req: Request, res: Response) => {
     const user = req.user as any;
     const { code } = req.body as { code?: string };
     if (!code || !(await verifyTotpOrRecoveryCode(user.id, code))) {
