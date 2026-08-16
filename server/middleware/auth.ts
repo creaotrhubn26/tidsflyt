@@ -5,7 +5,15 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
+// Egen hemmelighet for Bearer-token-verifisering i denne filen, ikke delt
+// med magic-link (custom-auth.ts) eller mobil-JWT (lib/mobile-auth.ts).
+export function requireAuthJwtSecret(): string {
+  const secret = process.env.AUTH_JWT_SECRET;
+  if (!secret) {
+    throw new Error("AUTH_JWT_SECRET er ikke konfigurert");
+  }
+  return secret;
+}
 
 export function isDevAuthBypassAllowed(): boolean {
   return process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
@@ -42,7 +50,7 @@ function authenticate(req: Request): boolean {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     try {
-      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET) as any;
+      const decoded = jwt.verify(authHeader.split(' ')[1], requireAuthJwtSecret()) as any;
       (req as any).authUser = decoded;
       return true;
     } catch {

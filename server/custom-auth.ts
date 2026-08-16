@@ -43,13 +43,16 @@ function isSuperAdminEmail(email: string): boolean {
   return getSuperAdminEmails().has(email.trim().toLowerCase());
 }
 
-function getEmailLoginSecret(): string {
-  return (
-    process.env.EMAIL_MAGIC_LINK_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.SESSION_SECRET ||
-    ""
-  );
+// Egen hemmelighet for magic-link-tokens, ikke delt med mobil-JWT (se
+// server/lib/mobile-auth.ts) eller Bearer-JWT-verifisering (se
+// server/middleware/auth.ts) — samme isolasjonsprinsipp: en kompromittert
+// hemmelighet av én tokentype skal aldri kunne forfalske en annen.
+export function requireEmailLoginSecret(): string {
+  const secret = process.env.EMAIL_MAGIC_LINK_SECRET;
+  if (!secret) {
+    throw new Error("EMAIL_MAGIC_LINK_SECRET er ikke konfigurert");
+  }
+  return secret;
 }
 
 function sanitizeReturnTo(value: unknown): string | null {
@@ -81,10 +84,10 @@ function getPostAuthRedirect(req: Request, fallback?: unknown): string {
 
 export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
   const normalizedEmail = email.trim().toLowerCase();
-  const secret = getEmailLoginSecret();
+  const secret = requireEmailLoginSecret();
   const sanitizedReturnTo = sanitizeReturnTo(returnTo);
 
-  if (!normalizedEmail || !secret) {
+  if (!normalizedEmail) {
     throw new Error("Email magic link is not configured.");
   }
 
@@ -504,9 +507,9 @@ export async function setupCustomAuth(app: Express) {
   app.get("/api/auth/email/verify", async (req, res, next) => {
     try {
       const token = typeof req.query?.token === "string" ? req.query.token : "";
-      const secret = getEmailLoginSecret();
+      const secret = requireEmailLoginSecret();
 
-      if (!token || !secret) {
+      if (!token) {
         return res.redirect("/?error=magic_link_invalid");
       }
 
