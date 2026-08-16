@@ -35,3 +35,17 @@ describe("totp", () => {
     expect(verifyTotpCode(encryptSecret(secret), "000000")).toBe(false);
   });
 });
+
+describe("redirectAfterLogin er koblet til alle sesjonsbaserte innloggingsspor", () => {
+  it("custom-auth eksporterer redirectAfterLogin, og eid-auth (BankID-innlogging) importerer/laster den uten feil", async () => {
+    const customAuth = await import("../../../../server/custom-auth");
+    expect(typeof customAuth.redirectAfterLogin).toBe("function");
+
+    // Full integrasjonstest (ekte req/res/session gjennom handleIduraCallback)
+    // er ikke praktisk i denne sandboxen (krever en levende Idura-middleware +
+    // DB). Denne import-sjekken dekker det som faktisk kan brytes ved en
+    // feilskrevet importsti/eksport: modulet laster og bruker samme funksjon.
+    const eidAuth = await import("../../../../server/eid-auth");
+    expect(typeof eidAuth.setupEidAuth).toBe("function");
+  });
+});

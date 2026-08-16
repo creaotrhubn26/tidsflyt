@@ -96,15 +96,16 @@ async function checkTotpRequirement(user: AuthUser): Promise<"not_required" | "g
 }
 
 // Kalles rett etter en vellykket req.logIn for de web-sesjonsbaserte
-// innloggingsflytene (Google-callback, magic-link) — mobilappens
-// Bearer-token-flyt bruker aldri req.logIn/sesjon og har derfor ingen
-// dashbord-redirect å avskjære her (se totp-routes.ts for API-siden av
+// innloggingsflytene (Google-callback, magic-link, BankID/eID-innlogging i
+// server/eid-auth.ts — eksportert herfra og importert der for det) —
+// mobilappens Bearer-token-flyt bruker aldri req.logIn/sesjon og har derfor
+// ingen dashbord-redirect å avskjære her (se totp-routes.ts for API-siden av
 // håndhevelsen, evt. senere oppgave for mobil).
 // "required_missing": sesjonen er opprettet, men klienten skal ikke vise
 // dashbordet før TOTP er satt opp, så vi sender til oppsettsiden i stedet.
 // "grace_period": sett et sesjonsflagg klienten kan lese for et varsel, men
 // fortsett til dashbordet som normalt.
-async function redirectAfterLogin(req: Request, res: any, user: AuthUser, fallback?: unknown): Promise<void> {
+export async function redirectAfterLogin(req: Request, res: any, user: AuthUser, fallback?: unknown): Promise<void> {
   const totpStatus = await checkTotpRequirement(user);
   if (totpStatus === "required_missing") {
     res.redirect("/totp-setup");

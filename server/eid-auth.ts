@@ -8,7 +8,7 @@ import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
-import { hasSessionAuth } from "./custom-auth";
+import { hasSessionAuth, redirectAfterLogin } from "./custom-auth";
 import { issueMobileTokens } from "./lib/mobile-auth";
 import { authRateLimit } from "./rate-limit";
 
@@ -263,9 +263,9 @@ export async function setupEidAuth(app: Express): Promise<void> {
           userAgent: req.get("user-agent") || undefined,
         });
 
-        req.logIn(resolvedUser, (loginError) => {
+        req.logIn(resolvedUser, async (loginError) => {
           if (loginError) return next(loginError);
-          return res.redirect("/dashboard");
+          await redirectAfterLogin(req, res, resolvedUser);
         });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {
