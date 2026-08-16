@@ -14,12 +14,19 @@ function requireCsrfSecret(): string {
   return secret;
 }
 
+// __Host- is a browser-enforced cookie-name prefix: the cookie is silently
+// rejected unless Secure is also set, regardless of transport. secure is
+// only true when NODE_ENV === "production", so the prefix must match —
+// otherwise the cookie never lands outside production and every real
+// session-authenticated state-changing request fails CSRF silently.
+const isProd = process.env.NODE_ENV === "production";
+
 const { doubleCsrfProtection, generateCsrfToken: generate } = doubleCsrf({
   getSecret: () => requireCsrfSecret(),
-  cookieName: "__Host-tidum.csrf",
+  cookieName: isProd ? "__Host-tidum.csrf" : "tidum.csrf",
   cookieOptions: {
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isProd,
     path: "/",
   },
   getSessionIdentifier: (req) => (req as any).sessionID || "no-session",

@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterEach, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 import { csrfProtection, generateCsrfToken } from "../../../../server/lib/csrf";
@@ -38,5 +38,43 @@ describe("CSRF-vern", () => {
       .set("x-csrf-token", tokenRes.body.token)
       .send({});
     expect(res.status).toBe(200);
+  });
+});
+
+describe("CSRF-cookienavn (__Host- prefiks krever secure)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  async function getSetCookieHeader(nodeEnv: string): Promise<string> {
+    vi.stubEnv("NODE_ENV", nodeEnv);
+    process.env.CSRF_SECRET ||= "test-secret-for-vitest";
+    vi.resetModules();
+    const { generateCsrfToken: generate } = await import("../../../../server/lib/csrf");
+
+    const app = express();
+    app.use((req, _res, next) => {
+      (req as any).session = {};
+      next();
+    });
+    app.get("/csrf-token", (req, res) => {
+      generate(req, res);
+      res.end();
+    });
+
+    const res = await request(app).get("/csrf-token");
+    return (res.headers["set-cookie"] || []).join(";");
+  }
+
+  it("bruker __Host-prefiks i production (secure=true)", async () => {
+    const setCookie = await getSetCookieHeader("production");
+    expect(setCookie).toContain("__Host-tidum.csrf=");
+  });
+
+  it("bruker plain cookienavn utenfor production (secure=false)", async () => {
+    const setCookie = await getSetCookieHeader("test");
+    expect(setCookie).toContain("tidum.csrf=");
+    expect(setCookie).not.toContain("__Host-tidum.csrf=");
   });
 });
