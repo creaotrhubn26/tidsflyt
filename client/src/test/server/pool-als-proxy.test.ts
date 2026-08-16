@@ -108,6 +108,51 @@ describe("pool-eksporten er ALS-bevisst (mot ekte Postgres)", () => {
     }
   }, 10000);
 
+  // Fix-runde 3: DDL kjører på en ANNEN backend enn requestens åpne
+  // transaksjon. Skriver requesten først til samme tabell, holder den en lås
+  // DDL-en må vente på — og requesten kan ikke committe før DDL-kallet
+  // returnerer. Postgres ser ingen sirkel og griper ikke inn. lock_timeout på
+  // system-poolen gjør dette til en tydelig, fanget feil i stedet for en
+  // uendelig hengende request. Dette mønsteret ligger i koden i dag:
+  // POST /api/company/users (smartTimingRoutes.ts) gjør INSERT INTO
+  // company_users og deretter ALTER TABLE company_users ADD COLUMN IF NOT EXISTS.
+  it("DDL som venter på en lås requesten selv holder, feiler raskt i stedet for å henge", async () => {
+    if (!dbReachable) return;
+    const { pool, requestDbStorage } = await loadDb();
+    const client = await appPool!.connect();
+    try {
+      await pool.query("DROP TABLE IF EXISTS tidum_lock_probe");
+      await pool.query("CREATE TABLE tidum_lock_probe (id SERIAL PRIMARY KEY)");
+
+      await client.query("BEGIN");
+      await client.query("INSERT INTO tidum_lock_probe DEFAULT VALUES"); // ROW EXCLUSIVE
+
+      const started = Date.now();
+      const outcome = await requestDbStorage.run({ db: {} as any, client }, async () => {
+        try {
+          // Krever ACCESS EXCLUSIVE -> må vente på requestens egen transaksjon.
+          await Promise.race([
+            pool.query("ALTER TABLE tidum_lock_probe ADD COLUMN IF NOT EXISTS institution TEXT"),
+            new Promise((_, rej) =>
+              setTimeout(() => rej(new Error("HANG: DDL-en ventet uendelig")), 8000),
+            ),
+          ]);
+          return "fullførte";
+        } catch (e) {
+          return (e as Error).message;
+        }
+      });
+
+      // Skal være lock_timeout-feilen, ikke HANG — og godt under 8s.
+      expect(outcome).toMatch(/lock timeout/i);
+      expect(Date.now() - started).toBeLessThan(6000);
+    } finally {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+      await pool.query("DROP TABLE IF EXISTS tidum_lock_probe").catch(() => {});
+    }
+  }, 20000);
+
   it("DDL rutes til system-tilkoblingen selv inne i ALS-konteksten", async () => {
     if (!dbReachable) return;
     const { pool, requestDbStorage } = await loadDb();

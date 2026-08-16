@@ -30,6 +30,41 @@ systemPool.on('error', (err) => {
   console.error('Database pool error:', err);
 });
 
+// lock_timeout på system-poolen. Nødvendig fordi DDL rutes hit (se
+// pool-proxyen under) og derfor kjører på en ANNEN backend enn requestens
+// egen, allerede åpne tidum_app-transaksjon. Et reelt eksempel som ligger i
+// koden i dag: POST /api/company/users gjør `INSERT INTO company_users` på
+// request-clienten (tar ROW EXCLUSIVE) og deretter
+// `ALTER TABLE company_users ADD COLUMN IF NOT EXISTS institution` (krever
+// ACCESS EXCLUSIVE). System-tilkoblingen venter da på requestens transaksjon,
+// som ikke kan committe før dette await-kallet returnerer. Postgres oppdager
+// IKKE dette som en deadlock — det er ingen sirkel i låsegrafen; den ene
+// backenden er idle-in-transaction og venter på applikasjonen. Uten timeout
+// venter den for alltid. Verifisert mot ekte Postgres: uten lock_timeout
+// henger ALTER-en i det uendelige, med den feiler den på ~3s med "canceling
+// statement due to lock timeout" — som kallstedene allerede fanger.
+//
+// NB: ADD COLUMN IF NOT EXISTS tar ACCESS EXCLUSIVE FØR den sjekker om
+// kolonnen finnes, så dette rammer også normaltilfellet der kolonnen for
+// lengst er lagt til.
+//
+// Satt via connect-lytteren, ikke via Pool-feltet `options`: en managed
+// Postgres (Neon) legger sin egen `options=endpoint%3D…` i
+// tilkoblingsstrengen, og et eksplisitt options-felt ville overstyrt den.
+// pg køer spørringer per client, så denne SET-en kjører alltid før den første
+// virkelige spørringen på tilkoblingen.
+//
+// Bevisst IKKE statement_timeout: samme pool kjører migrasjonene
+// (runStartupMigrations), der en indeksbygging legitimt kan ta lang tid.
+// Avveiningen for lock_timeout er at en migrasjon som venter >3s på en lås nå
+// feiler i stedet for å vente — den feilen logges per fil uten å ta ned
+// oppstarten, og er uansett å foretrekke framfor en oppstart som henger.
+systemPool.on('connect', (client) => {
+  client.query('SET lock_timeout = 3000').catch((err) => {
+    console.error('Failed to set lock_timeout on system connection:', err);
+  });
+});
+
 // systemDb/systemPool kobler som tidum_system (BYPASSRLS) — se Task 7.
 // Selve tilkoblingsstrengens rolle avgjøres av hvilken bruker
 // DATABASE_URL/TIDUM_APP_DATABASE_URL faktisk peker på; denne filen endrer

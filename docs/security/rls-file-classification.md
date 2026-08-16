@@ -139,7 +139,9 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/userStateRoutes.ts` | (c) | `db` | `user_settings`, `user_drafts`, `user_task_prefs`. |
 | `server/vendor-api.ts` | (d) | `db` | Offentlig vendor-API (`/api/v1/vendor/*`, API-nøkkel): `company_users`, `project_info`, `log_row`, `api_keys`, `api_usage_log`, `case_reports`, `users`. **Fikk aldri ALS-kontekst før fix-runde 2** — `apiKeyAuth` setter `req.vendorId`, ikke `req.user`, så `withVendorScopedDb` hoppet over disse. Nå har alle 8 API-nøkkel-rutene `withApiKeyScopedDb` montert rett etter `apiKeyAuth`. `/health` (uten `apiKeyAuth`) er bevisst ikke scopet. |
 
-Oppsummert: (a) 5 · (b) 8 · (c) 14 · (d) 20 · (d!) 12.
+Oppsummert, 59 filer: (a) 5 · (b) 7 (hvorav 3 med dokumentert tvers-vendor-unntak)
+· (c) 14 · (d) 21 · (d!) 11 · 1 som er begge deler (`server/routes.ts`, som
+bruker både `db` og rå `pool` mot policy-dekkede tabeller).
 
 ## Filer som krevde manuell gjennomgang
 
@@ -302,7 +304,12 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 `ALTER DEFAULT PRIVILEGES` gjelder kun tabeller opprettet av den rollen som
 kjører kommandoen, så den må kjøres som samme rolle som migrasjonene bruker.
-Ikke verifiserbart i denne sandboxen (ingen database), derfor kun dokumentert.
+En lokal Postgres ER tilgjengelig i utviklingsmiljøet og brukes av flere av
+testene i denne oppgaven (`vendor-scoped-db.test.ts`, `pool-als-proxy.test.ts`).
+Det som IKKE er verifiserbart her, er `tidum_app`-rollens faktiske
+RLS-håndhevelse: Task 7s roller og policyer er ikke rullet ut mot noen
+database ennå, så både denne GRANT-en og selve policy-oppførselen må
+verifiseres mot staging når rollene faktisk finnes.
 
 Relatert, og løst: kodebasen har **~66 lat-opprettende DDL-setninger**
 (`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN IF NOT EXISTS`),
@@ -316,3 +323,26 @@ Fikset i det ene punktet de alle går gjennom i stedet for på 66 kallsteder:
 og ruter den til system-tilkoblingen selv når det finnes en ALS-kontekst.
 Setningene er idempotente, så det er også riktig at de ikke rulles tilbake med
 requestens transaksjon. Dekker både dagens 66 og alle framtidige.
+
+**Forbehold — dette er dempet, ikke eliminert.** Fordi DDL-en nå kjører på en
+ANNEN backend enn requestens egen åpne transaksjon, kan den havne i en
+låskonflikt med requesten selv. Konkret eksempel som ligger i koden:
+`POST /api/company/users` (`server/smartTimingRoutes.ts`) gjør
+`INSERT INTO company_users` på request-clienten (`ROW EXCLUSIVE`) og deretter
+`ALTER TABLE company_users ADD COLUMN IF NOT EXISTS institution`
+(`ACCESS EXCLUSIVE`). System-tilkoblingen venter på requestens transaksjon,
+som ikke kan committe før DDL-kallet returnerer. Postgres oppdager det ikke
+som en deadlock — det finnes ingen sirkel i låsegrafen; den ene backenden er
+`idle in transaction` og venter på applikasjonen. (`ADD COLUMN IF NOT EXISTS`
+tar låsen FØR den sjekker om kolonnen finnes, så dette gjelder også når
+kolonnen for lengst er lagt til.)
+
+`systemPool` har derfor `lock_timeout = 3000` (satt i en `connect`-lytter i
+`server/db.ts`). Det gjør scenariet til en tydelig feil etter ~3 sekunder —
+`canceling statement due to lock timeout` — som kallstedene allerede fanger i
+sine `try { … } catch (_) {}`-blokker, i stedet for en request som henger for
+alltid. Verifisert mot ekte Postgres i begge retninger.
+
+Den varige løsningen er å flytte den late DDL-en ut av forretningsrutene og
+inn i ordinære migrasjonsfiler; da forsvinner både låskonflikten og
+CREATE-privilegie-problemet. Det er utenfor Task 9s omfang.
