@@ -19,6 +19,7 @@ import { eq, and } from 'drizzle-orm';
 import { vendorIntegrations, logRow } from '@shared/schema';
 import { call, PowerOfficeApiError } from './poweroffice';
 import { getMapping, ensurePowerOfficeMappingsTable } from './poweroffice-mappings';
+import { decryptSecret } from './secret-crypto';
 
 export interface PushResult {
   month: string;
@@ -180,7 +181,7 @@ export async function pushTimesheetToPowerOffice(args: {
         continue;
       }
       try {
-        await call(integration.clientKey, {
+        await call(decryptSecret(integration.clientKey), {
           method: 'POST',
           path: '/HourRegistrations',
           body: payload,
