@@ -9,14 +9,18 @@ const sslDisabled = process.env.DATABASE_SSL === "false" || process.env.PGSSLMOD
 const isLocal = connectionString
   ? /localhost|127\.0\.0\.1/.test(connectionString)
   : false;
-const useSsl = !sslDisabled && !isLocal;
+
+export function buildSslConfig(): { rejectUnauthorized: true } | false {
+  if (sslDisabled || isLocal) return false;
+  return { rejectUnauthorized: true };
+}
 
 const pool = new Pool({
   connectionString,
   max: 20,
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 10000,
-  ssl: useSsl ? { rejectUnauthorized: false } : false,
+  ssl: buildSslConfig(),
 });
 
 pool.on('error', (err) => {
