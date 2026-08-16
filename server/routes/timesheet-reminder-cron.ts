@@ -19,6 +19,7 @@
 import type { Express, Request, Response } from 'express';
 import cron from 'node-cron';
 import { db, pool } from '../db';
+import { requestDbStorage } from '../lib/request-db-context';
 import { and, eq, inArray } from 'drizzle-orm';
 import { vendors, users } from '@shared/schema';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
@@ -93,7 +94,14 @@ export interface ReminderResult {
   notifiedTiltaksleder?: boolean;
 }
 
+// TVERS-VENDOR MED VILJE — se runRapportReminders i rapport-reminder-cron.ts.
+// Batch-jobb over alle vendorer, også nåbar via POST /api/timesheet-reminders/run
+// (autentisert). Guarden ligger på batch-funksjonen, ikke på ruten.
 export async function runTimesheetReminders(now: Date = new Date()): Promise<ReminderResult[]> {
+  return requestDbStorage.exit(() => runTimesheetRemindersUnscoped(now));
+}
+
+async function runTimesheetRemindersUnscoped(now: Date = new Date()): Promise<ReminderResult[]> {
   const results: ReminderResult[] = [];
   const vendorRows = await db.select().from(vendors).where(eq(vendors.status, 'active'));
   const month = previousMonth(now);

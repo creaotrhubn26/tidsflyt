@@ -16,7 +16,6 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import { pool } from '../db';
-import { requestDbStorage } from '../lib/request-db-context';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
 
 const LEAVE_UPLOAD_DIR = path.join(process.cwd(), 'uploads', 'leave');
@@ -50,11 +49,9 @@ const upload = multer({
 });
 
 let ensured = false;
-// DDL via requestDbStorage.exit() — se ensureLogRowAuditTable i
-// server/lib/log-row-audit.ts for begrunnelsen (tidum_app har ikke CREATE).
 async function ensureTable(): Promise<void> {
   if (ensured) return;
-  await requestDbStorage.exit(() => pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS leave_attachments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       leave_request_id INTEGER NOT NULL,
@@ -66,7 +63,7 @@ async function ensureTable(): Promise<void> {
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE INDEX IF NOT EXISTS idx_leave_attachments_request ON leave_attachments(leave_request_id);
-  `));
+  `);
   ensured = true;
 }
 

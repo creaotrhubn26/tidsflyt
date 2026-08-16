@@ -63,9 +63,15 @@ function withSavepointTransaction(scopedDb: NodePgDatabase<typeof schema>, clien
   scopedDb.transaction = savepointTransaction;
 }
 
-export async function withVendorScopedDb(req: Request, res: Response, next: NextFunction) {
-  if (!req.user) return next(); // ingen etablert bruker ennå -> proxy faller til tidum_system
-  const user = req.user as AuthUser;
+// Kjernen, delt av begge autentiseringssporene. Tar vendor-scopet EKSPLISITT
+// i stedet for å lese req.user selv, slik at API-nøkkel-sporet (som aldri
+// setter req.user, kun req.vendorId) kan bruke nøyaktig samme transaksjons- og
+// opprydningslogikk.
+async function runWithScopedDb(
+  scope: { vendorId: number | null; isSuperAdmin: boolean },
+  res: Response,
+  next: NextFunction,
+) {
   const client = await appPool.connect();
   let settled = false;
   const finish = async (commit: boolean) => {
@@ -86,10 +92,10 @@ export async function withVendorScopedDb(req: Request, res: Response, next: Next
     // være tekst — app.vendor_id leses senere med en ::int-cast i
     // RLS-policyen, så det er trygt å lagre den som tekst her.
     await client.query("SELECT set_config('app.vendor_id', $1, true)", [
-      String(user.vendorId ?? -1),
+      String(scope.vendorId ?? -1),
     ]);
     await client.query("SELECT set_config('app.is_super_admin', $1, true)", [
-      user.role === "super_admin" ? "true" : "false",
+      scope.isSuperAdmin ? "true" : "false",
     ]);
     const scopedDb = drizzle(client, { schema });
     withSavepointTransaction(scopedDb, client);
@@ -100,4 +106,32 @@ export async function withVendorScopedDb(req: Request, res: Response, next: Next
     await finish(false);
     next(err);
   }
+}
+
+// Sesjons-/Bearer-sporet. Uten req.user settes ingen kontekst, og db/pool
+// faller til tidum_system — det gjelder både pre-auth-ruter og alle
+// API-nøkkel-requests (apiKeyAuth setter aldri req.user), se withApiKeyScopedDb.
+export async function withVendorScopedDb(req: Request, res: Response, next: NextFunction) {
+  if (!req.user) return next();
+  const user = req.user as AuthUser;
+  return runWithScopedDb(
+    { vendorId: user.vendorId ?? null, isSuperAdmin: user.role === "super_admin" },
+    res,
+    next,
+  );
+}
+
+// API-nøkkel-sporet (/api/v1/vendor/*). apiKeyAuth setter req.vendorId, aldri
+// req.user, så den globalt monterte withVendorScopedDb returnerer tidlig for
+// disse requestene. Og fordi apiKeyAuth er montert PER RUTE ville en global
+// middleware uansett kjørt før req.vendorId fantes. Denne må derfor monteres
+// per rute, rett etter apiKeyAuth. API-nøkler har aldri super_admin-rettigheter.
+export async function withApiKeyScopedDb(req: Request, res: Response, next: NextFunction) {
+  const vendorId = (req as Request & { vendorId?: number }).vendorId;
+  if (typeof vendorId !== "number") {
+    // apiKeyAuth har ikke kjørt (eller slapp gjennom uten vendor) — fail
+    // closed i stedet for å kjøre ufiltrert på tidum_system.
+    return next(new Error("withApiKeyScopedDb: req.vendorId mangler — apiKeyAuth må kjøre først"));
+  }
+  return runWithScopedDb({ vendorId, isSuperAdmin: false }, res, next);
 }

@@ -79,7 +79,7 @@ De 26 vendor-scopede tabellene med policy er de i
 
 | Fil | Kat. | Tilkobling | Begrunnelse |
 |---|---|---|---|
-| `server/api-middleware.ts` | (a) | `db` | API-nøkkel-autentisering: slår opp `api_keys` på nøkkelhash før noen bruker er etablert. API-nøkkel-requests har aldri sesjon, og `resolveBearerUser` avviser nøkkelen som JWT, så `req.user` forblir usatt → `tidum_system`. Skriver `api_usage_log` i samme kontekst. |
+| `server/api-middleware.ts` | (a) | `db` | API-nøkkel-autentisering: slår opp `api_keys` på nøkkelhash før noen vendor er etablert — må kjøre uscopet. Setter `req.vendorId`, ALDRI `req.user`. `logApiUsage` (`res.on("finish")`) registreres før scopingen og skriver derfor `api_usage_log` på system-tilkoblingen — riktig, loggen skal skrives selv om requestens transaksjon rulles tilbake. |
 | `server/crawler-engine.ts` | (c) | `pool` | Kun `crawler_jobs`/`crawler_results` (SEO-crawler). Jobben fortsetter å kjøre etter at responsen er sendt — MÅ bli på rå `pool`, den ALS-scopede transaksjonen commit-es på `res.finish`. |
 | `server/custom-auth.ts` | (a) | `db` | `resolveAuthorizedUserByEmail` slår opp `users`/`admin_users` på e-post ved innlogging. Se advarsel om re-innlogging under. |
 | `server/eid-auth.ts` | (a) | `db` | BankID-innlogging/-kobling. `resolveUserByEidIdentity` er nå eksplisitt kjørt via `requestDbStorage.exit()` — se "Kjente, bevisste unntak". |
@@ -107,7 +107,7 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/routes/avvik-routes.ts` | (d) | `db` | `rapport_avvik`, `saker`, `users`. |
 | `server/routes/dashboard-kpis-routes.ts` | (d) | `db` | `log_row`, `saker`. |
 | `server/routes/email-composer-routes.ts` | (d) | `db` + `pool` | `log_row`/`users` via `db`; rå `pool` kun mot `email_drafts` (ikke policy-dekket). |
-| `server/routes/employee-import-routes.ts` | (d) | `db` + `pool` | `company_users`, `imports`, `access_requests` via `db`; rå `pool` treffer ingen policy-dekket tabell. |
+| `server/routes/employee-import-routes.ts` | (d!) | `db` + `pool` | `company_users`, `imports`, `access_requests` via `db`. Bruker i tillegg `pool.connect()` + egen transaksjon på to ruter, med rå `INSERT INTO company_users`, `DELETE FROM company_users` og `UPDATE imports` — begge tabeller er policy-dekket. Krever ingen kodeendring (savepoint-shimmen i `server/db.ts` håndterer transaksjonen), men står på røyktest-listen. |
 | `server/routes/export-routes.ts` | (d) | `db` | `log_row`. |
 | `server/routes/forward-routes.ts` | (d) | `db` + `pool` | `log_row`/`users` via `db`; rå `pool` kun mot `forward_log`. |
 | `server/routes/gdpr-routes.ts` | (d) | `db` | `log_row`, `users`. |
@@ -115,21 +115,21 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/routes/invite-link-routes.ts` | (d) | `db` | `vendor_invite_links`, `saker`, `users`. **Tvers-vendor-risiko ved innløsing — se advarsel under.** |
 | `server/routes/invoice-routes.ts` | (d) | `db` | `log_row`. |
 | `server/routes/leave-attachments-routes.ts` | (c) | `pool` | **Manuelt lest.** `leave_attachments` (lat opprettet) og `leave_requests` — ingen av dem har `vendor_id` eller policy. Tilgangskontroll er ren applikasjonslogikk (eier eller admin/tiltaksleder). |
-| `server/routes/leave-rollover-cron.ts` | (b) | `db` | Nattlig rullering av feriesaldo. |
+| `server/routes/leave-rollover-cron.ts` | (b) + unntak | `db` | Nattlig rullering av feriesaldo på tvers av alle vendorer. Registrerer OGSÅ `POST /api/leave/rollover/run` (`requireAuth`), så batch-jobben kan kjøre i request-kontekst — `runLeaveRollover` er derfor unntatt via `requestDbStorage.exit()`. |
 | `server/routes/leave-routes.ts` | (c) | `db` | `leave_requests`/`leave_types`/`leave_balances`, ingen `vendor_id`. |
 | `server/routes/notification-routes.ts` | (d!) | `pool` | Rå `pool.query` mot `users`. |
 | `server/routes/overtime-routes.ts` | (d) | `db` | `log_row`, `overtime_entries`. |
 | `server/routes/payroll-export-routes.ts` | (d) | `db` | `log_row`, `users`. |
 | `server/routes/poweroffice-routes.ts` | (d) | `db` | `vendor_integrations`, `users`. |
 | `server/routes/pricing-routes.ts` | (d!) | `db` + `pool` | Rå `pool.query` mot `access_requests`. |
-| `server/routes/rapport-reminder-cron.ts` | (b) | `db` | Cron; leser `saker`/`users`/`vendor_institutions` på tvers av vendorer med vilje. |
+| `server/routes/rapport-reminder-cron.ts` | (b) + unntak | `db` | Leser `saker`/`users`/`vendor_institutions` på tvers av alle vendorer med vilje. Registrerer OGSÅ `POST /api/rapport-reminders/run` (`requireAuth`) — `runRapportReminders` er unntatt via `requestDbStorage.exit()`. |
 | `server/routes/rapport-template-routes.ts` | (d) | `db` | `rapport_templates`. |
 | `server/routes/recurring-routes.ts` | (d) | `db` | `log_row`, `recurring_entries`. |
 | `server/routes/stripe-routes.ts` | (d!) | `db` + `pool` | Rå `pool.query` mot `access_requests`. Webhook-ruten har uansett ingen `req.user` → `tidum_system`. |
 | `server/routes/tester-feedback-routes.ts` | (c) | `db` | `tester_feedback`, ikke vendor-scopet. |
 | `server/routes/tiltaksleder-dashboard-routes.ts` | (d) | `db` | `saker`, `users`, `rapport_templates`, `vendor_institutions`. |
 | `server/routes/tiltaksleder-rates-routes.ts` | (d!) | `pool` | Rå `pool.query` mot `saker` og `company_users`. |
-| `server/routes/timesheet-reminder-cron.ts` | (b) | `db` + `pool` | Cron mot `timesheet_submissions`/`users` på tvers av vendorer med vilje. |
+| `server/routes/timesheet-reminder-cron.ts` | (b) + unntak | `db` + `pool` | Batch mot `timesheet_submissions`/`users` på tvers av alle vendorer. Registrerer OGSÅ `POST /api/timesheet-reminders/run` og `PATCH /api/vendor/timesheet-deadline` (begge `requireAuth`) — `runTimesheetReminders` er unntatt via `requestDbStorage.exit()`. Deadline-ruten er IKKE unntatt: den er ordinær, vendor-scopet forretningslogikk. |
 | `server/routes/totp-routes.ts` | (c) | `db` | `admin_totp_credentials`. |
 | `server/sakerRapportRoutes.ts` | (d) | `db` | `saker`, `log_row`, `rapport_templates`, `vendor_templates`, `vendor_institutions`, `users`. |
 | `server/seed/rapport-templates.ts` | (b) | `db` | Seed av standardmaler. |
@@ -137,14 +137,18 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/smartTimingRoutes.ts` | (d!) | `pool` | **Størst eksponering.** Rå `pool.query` mot 13 policy-dekkede tabeller: `companies`, `company_users`, `project_info`, `log_row`, `case_reports`, `feedback_requests`, `feedback_responses`, `timesheet_submissions`, `users`, `admin_users`, `access_requests`, `report_templates`, `vendor_integrations`. |
 | `server/storage.ts` | (d) | `db` + `pool` | `company_users`, `log_row`, `users` via `db`; rå `pool` kun mot `company_audit_log`. |
 | `server/userStateRoutes.ts` | (c) | `db` | `user_settings`, `user_drafts`, `user_task_prefs`. |
-| `server/vendor-api.ts` | (d) | `db` | Offentlig vendor-API: `company_users`, `project_info`, `log_row`, `api_keys`, `api_usage_log`, `case_reports`, `users`. |
+| `server/vendor-api.ts` | (d) | `db` | Offentlig vendor-API (`/api/v1/vendor/*`, API-nøkkel): `company_users`, `project_info`, `log_row`, `api_keys`, `api_usage_log`, `case_reports`, `users`. **Fikk aldri ALS-kontekst før fix-runde 2** — `apiKeyAuth` setter `req.vendorId`, ikke `req.user`, så `withVendorScopedDb` hoppet over disse. Nå har alle 8 API-nøkkel-rutene `withApiKeyScopedDb` montert rett etter `apiKeyAuth`. `/health` (uten `apiKeyAuth`) er bevisst ikke scopet. |
 
 Oppsummert: (a) 5 · (b) 8 · (c) 14 · (d) 20 · (d!) 12.
 
 ## Filer som krevde manuell gjennomgang
 
-Førstepasset flagget 10 filer «MANUELL GJENNOMGANG PÅKREVD». Alle er lest i
-sin helhet:
+Førstepasset i `scripts/audit-db-consumers.ts` flagget 10 filer for
+manuell-gjennomgang. Alle 10 er lest i sin helhet og avklart — det står **null
+uavklarte flagg igjen** i denne tabellen, som er forutsetningen Task 10s
+gate-sjekk verifiserer. (Selve flagg-strengen skrives kun av skriptet; den
+gjentas bevisst ikke i denne prosaen, slik at Task 10s `grep` kun treffer
+eventuelle GJENVÆRENDE flagg.)
 
 | Fil | Konklusjon |
 |---|---|
@@ -232,6 +236,20 @@ Unntaket er lagt på funksjonen selv (én guard, tre kallsteder: Google via
 `findOrCreateUser`, `/api/auth/email/request-link` og `/api/auth/email/verify`),
 ikke på hvert kallsted.
 
+### Tre batch-jobber som også er nåbare fra autentiserte ruter
+
+`runRapportReminders`, `runTimesheetReminders` og `runLeaveRollover` skanner
+ALLE vendorer med vilje. De kjører normalt fra cron (ingen ALS-kontekst), men
+hver av dem har også en manuell trigger-rute bak `requireAuth`
+(`POST /api/rapport-reminders/run`, `POST /api/timesheet-reminders/run`,
+`POST /api/leave/rollover/run`). Uten unntak ville en admin som trigger dem
+manuelt stille fått behandlet KUN sin egen vendor, uten feilmelding — en
+lukket, men usynlig feil. Guarden ligger på selve batch-funksjonen, slik at den
+dekker begge kallveiene.
+
+`PATCH /api/vendor/timesheet-deadline` i samme fil er bevisst IKKE unntatt —
+den er ordinær, vendor-scopet forretningslogikk.
+
 ## Gjenstående funn og risiko for Task 10
 
 ### 1. Policyene mangler eksplisitt `WITH CHECK`
@@ -286,9 +304,15 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 kjører kommandoen, så den må kjøres som samme rolle som migrasjonene bruker.
 Ikke verifiserbart i denne sandboxen (ingen database), derfor kun dokumentert.
 
-Relatert: de tre `CREATE TABLE IF NOT EXISTS`-stiene
-(`ensureLogRowAuditTable`, `ensurePowerOfficeMappingsTable`, `ensureTable` i
-`leave-attachments-routes.ts`) kjører nå eksplisitt via
-`requestDbStorage.exit()`. `tidum_app` har kun `USAGE`, ikke `CREATE`, på
-schema `public`, så DDL må uansett gå på system-tilkoblingen — og
-schemaendringer hører hjemme der uavhengig av RLS.
+Relatert, og løst: kodebasen har **~66 lat-opprettende DDL-setninger**
+(`CREATE TABLE IF NOT EXISTS` / `ALTER TABLE … ADD COLUMN IF NOT EXISTS`),
+fordelt på `server/routes.ts` (24), `server/smartTimingRoutes.ts` (42) og fem
+lib-/rutefiler — og de kalles fra vanlige forretningsruter, ikke bare fra
+oppsettsruter. `tidum_app` har kun `USAGE`, ikke `CREATE`, på schema `public`,
+så alle ville feilet inne i en autentisert request.
+
+Fikset i det ene punktet de alle går gjennom i stedet for på 66 kallsteder:
+`pool`-proxyen i `server/db.ts` kjenner igjen DDL (`/^\s*(CREATE|ALTER|DROP)\s/i`)
+og ruter den til system-tilkoblingen selv når det finnes en ALS-kontekst.
+Setningene er idempotente, så det er også riktig at de ikke rulles tilbake med
+requestens transaksjon. Dekker både dagens 66 og alle framtidige.

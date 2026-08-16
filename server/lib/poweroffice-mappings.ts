@@ -8,7 +8,6 @@
  */
 
 import { pool } from '../db';
-import { requestDbStorage } from './request-db-context';
 
 export interface PowerOfficeEmployeeMapping {
   vendorId: number;
@@ -19,11 +18,9 @@ export interface PowerOfficeEmployeeMapping {
 }
 
 let ensured = false;
-// DDL via requestDbStorage.exit() — se ensureLogRowAuditTable i
-// server/lib/log-row-audit.ts for begrunnelsen (tidum_app har ikke CREATE).
 export async function ensurePowerOfficeMappingsTable(): Promise<void> {
   if (ensured) return;
-  await requestDbStorage.exit(() => pool.query(`
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS poweroffice_employee_mappings (
       vendor_id INTEGER NOT NULL,
       tidum_user_id TEXT NOT NULL,
@@ -33,7 +30,7 @@ export async function ensurePowerOfficeMappingsTable(): Promise<void> {
       PRIMARY KEY (vendor_id, tidum_user_id)
     );
     CREATE INDEX IF NOT EXISTS idx_po_empmap_vendor ON poweroffice_employee_mappings(vendor_id);
-  `));
+  `);
   ensured = true;
 }
 

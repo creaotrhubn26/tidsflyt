@@ -69,7 +69,17 @@ function scopedClient(client: PoolClient): PoolClient {
             savepoint = `sp_pool_${++savepointCounter}_${Date.now()}`;
             return target.query(`SAVEPOINT ${savepoint}`);
           }
-          if (savepoint && (verb === "COMMIT" || verb === "ROLLBACK")) {
+          if (verb === "COMMIT" || verb === "ROLLBACK") {
+            // Umatchet COMMIT/ROLLBACK må ALDRI falle gjennom til den ekte
+            // clienten — det er nøyaktig feilmodusen shimmen finnes for å
+            // hindre (den ville avsluttet middlewarens ytre transaksjon og
+            // droppet set_config-verdiene for resten av requesten).
+            if (!savepoint) {
+              throw new Error(
+                `${verb} uten forutgående BEGIN på en request-scopet pool.connect()-client. ` +
+                  `Dette ville avsluttet den RLS-scopede transaksjonen for hele requesten.`,
+              );
+            }
             const sp = savepoint;
             savepoint = null;
             return target.query(
@@ -89,12 +99,47 @@ function scopedClient(client: PoolClient): PoolClient {
 // rå-SQL-forbrukere importerer `pool`, så det er den eksporten som må være
 // ALS-bevisst — ellers kjører de på tidum_system (BYPASSRLS) og RLS får ingen
 // effekt for dem, uansett FORCE. Se docs/security/rls-file-classification.md.
+// Metodene MÅ bindes til objektet de faktisk hører til, og Reflect.get må få
+// det objektet som receiver — ikke proxyen. `pg` sin Client MUTERER `this`
+// under en spørring (bl.a. `this.activeQuery`). Med receiver = proxy ville
+// LESING av slike felt gå via get-trappen til riktig client, mens SKRIVING
+// gikk via proxyens standard [[Set]] og landet på proxyens target
+// (systemPool). Spørringen forsvinner da fra clientens kø og promise-en løses
+// aldri — altså en stille hengning på HVER rå spørring inne i en autentisert
+// request. Verifisert mot ekte pg 8.16.3: uten bindingen henger
+// `pool.query("SELECT 42")` inne i en ALS-kontekst.
+// DDL må ALDRI kjøre på request-tilkoblingen: tidum_app har kun USAGE, ikke
+// CREATE, på schema public (migrasjon 052), så et lat `CREATE TABLE IF NOT
+// EXISTS` inne i en autentisert request ville feilet. Kodebasen har ~66 slike
+// lat-opprettende DDL-setninger spredt over server/routes.ts,
+// server/smartTimingRoutes.ts og fem lib-/rutefiler, og de kalles fra vanlige
+// forretningsruter, ikke bare fra oppsett. Å wrappe hvert kallsted for seg er
+// både 66 endringer og noe neste utvikler garantert glemmer — regelen hører
+// hjemme her, i det ene punktet alle går gjennom. Schemaendringer hører uansett
+// hjemme på system-tilkoblingen, og disse setningene er idempotente
+// (IF NOT EXISTS), så det er riktig at de ikke rulles tilbake med requesten.
+const DDL = /^\s*(CREATE|ALTER|DROP)\s/i;
+function isDdl(args: unknown[]): boolean {
+  const text = typeof args[0] === "string" ? args[0] : (args[0] as { text?: string } | undefined)?.text;
+  return typeof text === "string" && DDL.test(text);
+}
+
 export const pool: InstanceType<typeof Pool> = new Proxy(systemPool, {
-  get(target, prop, receiver) {
+  get(target, prop) {
     const ctx = requestDbStorage.getStore();
-    if (!ctx) return Reflect.get(target as object, prop, receiver);
+    if (!ctx) {
+      const value = Reflect.get(target as object, prop, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    }
     if (prop === "connect") return async () => scopedClient(ctx.client);
-    return Reflect.get(ctx.client as object, prop, receiver);
+    if (prop === "query") {
+      return (...args: unknown[]) =>
+        isDdl(args)
+          ? (target.query as (...a: unknown[]) => unknown)(...args)
+          : (ctx.client.query as (...a: unknown[]) => unknown)(...args);
+    }
+    const value = Reflect.get(ctx.client as object, prop, ctx.client);
+    return typeof value === "function" ? value.bind(ctx.client) : value;
   },
 }) as unknown as InstanceType<typeof Pool>;
 

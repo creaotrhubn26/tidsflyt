@@ -9,6 +9,7 @@
 import type { Express, Request, Response } from 'express';
 import cron from 'node-cron';
 import { db } from '../db';
+import { requestDbStorage } from '../lib/request-db-context';
 import { and, eq, between, inArray } from 'drizzle-orm';
 import {
   vendorInstitutions, saker, rapporter, users,
@@ -28,7 +29,18 @@ function isAdminRole(req: Request): boolean {
  * This is idempotent-safe for a single day — if called twice on the same day,
  * the same emails will be sent again (simple implementation for now).
  */
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// Dette er en batch-jobb som skanner ALLE vendorers institusjoner/saker. Den
+// kjører normalt fra cron (ingen ALS-kontekst), men kan også trigges manuelt
+// via POST /api/rapport-reminders/run, som ER autentisert — da ville den med
+// FORCE ROW LEVEL SECURITY stille bare behandlet den innloggede adminens egen
+// vendor, uten feilmelding. Guarden ligger på selve batch-funksjonen slik at
+// den dekker begge kallveiene.
 export async function runRapportReminders(): Promise<Array<{ institutionId: string; instName: string; remindersSent: number }>> {
+  return requestDbStorage.exit(() => runRapportRemindersUnscoped());
+}
+
+async function runRapportRemindersUnscoped(): Promise<Array<{ institutionId: string; instName: string; remindersSent: number }>> {
   const results: Array<{ institutionId: string; instName: string; remindersSent: number }> = [];
   const monthStart = format(startOfMonth(new Date()), 'yyyy-MM-dd');
   const monthEnd = format(endOfMonth(new Date()), 'yyyy-MM-dd');
