@@ -10,16 +10,24 @@
 
 import type { Request } from 'express';
 import { pool } from '../db';
+import { requestDbStorage } from './request-db-context';
 
 export type AuditAction = 'create' | 'update' | 'delete';
 
 let ensured = false;
 
-/** Idempotent — creates the audit table and its index if missing. */
+/**
+ * Idempotent — creates the audit table and its index if missing.
+ *
+ * DDL kjører alltid via requestDbStorage.exit(): `pool` er ALS-bevisst (se
+ * server/db.ts), og inne i en autentisert request ville dette ellers kjøre som
+ * tidum_app, som kun har USAGE — ikke CREATE — på schema public (migrasjon
+ * 052). Schemaendringer hører hjemme på system-tilkoblingen uansett.
+ */
 export async function ensureLogRowAuditTable(): Promise<void> {
   if (ensured) return;
   try {
-    await pool.query(`
+    await requestDbStorage.exit(() => pool.query(`
       CREATE TABLE IF NOT EXISTS log_row_audit (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         log_row_id UUID NOT NULL,
@@ -34,7 +42,7 @@ export async function ensureLogRowAuditTable(): Promise<void> {
       );
       CREATE INDEX IF NOT EXISTS idx_log_row_audit_row_id ON log_row_audit(log_row_id);
       CREATE INDEX IF NOT EXISTS idx_log_row_audit_changed_at ON log_row_audit(changed_at DESC);
-    `);
+    `));
     ensured = true;
   } catch (err) {
     console.error('Failed to ensure log_row_audit table:', err);

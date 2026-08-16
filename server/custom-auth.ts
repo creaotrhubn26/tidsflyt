@@ -17,6 +17,7 @@ import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
 import { csrfProtection, generateCsrfToken } from "./lib/csrf";
 import { withVendorScopedDb } from "./middleware/vendor-scoped-db";
+import { requestDbStorage } from "./lib/request-db-context";
 import { hasTotpEnrolled } from "./lib/totp";
 
 type EmailIdentityInput = {
@@ -155,7 +156,24 @@ function deriveDisplayName(firstName?: string | null, lastName?: string | null, 
   return [firstName, lastName].filter(Boolean).join(" ").trim() || fallback || "";
 }
 
-async function resolveAuthorizedUserByEmail({
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// Oppslaget "hvilken bruker/admin eier denne e-postadressen" er selve
+// autentiseringssteget — vendoren er svaret, ikke et filter, så den kan ikke
+// være kjent på forhånd. En FERSK innlogging er upåvirket (req.user er usatt
+// når withVendorScopedDb kjører, så ingen ALS-kontekst settes), men
+// middlewaren er montert FØR Google-callbacken og e-postverifiseringen, så en
+// ALREDE innlogget bruker som treffer disse handlerne igjen (re-autentisering,
+// eller et gammelt magic-link-klikk mens de er innlogget) ville med FORCE ROW
+// LEVEL SECURITY få oppslaget for den NYE identiteten scopet til den GAMLE
+// sesjonens vendor -> innlogging feiler. I tillegg skriver funksjonen users
+// med en annen vendorId, som ville bli avvist av policyens implisitte
+// WITH CHECK. Én guard her dekker alle tre kallstedene (Google via
+// findOrCreateUser, request-link og verify).
+async function resolveAuthorizedUserByEmail(input: EmailIdentityInput): Promise<AuthUser | null> {
+  return requestDbStorage.exit(() => resolveAuthorizedUserByEmailUnscoped(input));
+}
+
+async function resolveAuthorizedUserByEmailUnscoped({
   email,
   provider,
   displayName,

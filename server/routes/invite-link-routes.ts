@@ -21,6 +21,7 @@ import { db } from "../db";
 import { vendorInviteLinks, vendors, users, saker } from "@shared/schema";
 import { and, eq, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
+import { requestDbStorage } from "../lib/request-db-context";
 import { randomBytes } from "crypto";
 import { emailService } from "../lib/email-service";
 import { buildEmailLoginUrl } from "../custom-auth";
@@ -45,11 +46,29 @@ function genToken(): string {
   return randomBytes(24).toString("base64url");
 }
 
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// De to offentlige invite-rutene er per definisjon tvers-vendor: en invitasjon
+// knytter en bruker til en ANNEN vendor enn den de eventuelt allerede tilhører.
+// Rutene krever ikke requireAuth, men en ALLEREDE innlogget bruker (vendor A)
+// som løser inn en lenke til vendor B kjører inni withVendorScopedDb sin
+// ALS-kontekst for vendor A. Med FORCE ROW LEVEL SECURITY ville da (1)
+// oppslaget på vendor_invite_links bli filtrert bort -> 404, og (2)
+// insert/update av users med vendorId = vendor B bli avvist av policyens
+// implisitte WITH CHECK (migrasjon 052 har ingen eksplisitt WITH CHECK, så
+// USING-uttrykket gjenbrukes for skriving). Hele handleren må derfor kjøre
+// utenfor konteksten, ikke bare ett enkelt kall — både lesingen og skrivingen
+// er tvers-vendor her. Autorisasjonen ligger i selve token-hemmeligheten
+// (24 tilfeldige bytes) pluss domene-/utløps-/bruksbegrensningene under.
+const crossVendor =
+  (handler: (req: Request, res: Response) => Promise<unknown>) =>
+  (req: Request, res: Response) =>
+    requestDbStorage.exit(() => handler(req, res));
+
 export function registerInviteLinkRoutes(app: Express) {
 
   // ── PUBLIC: preview ──────────────────────────────────────────────────────
 
-  app.get("/api/invite/:token", async (req: Request, res: Response) => {
+  app.get("/api/invite/:token", crossVendor(async (req: Request, res: Response) => {
     try {
       const [link] = await db
         .select()
@@ -78,11 +97,11 @@ export function registerInviteLinkRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
-  });
+  }));
 
   // ── PUBLIC: accept ───────────────────────────────────────────────────────
 
-  app.post("/api/invite/:token/accept", async (req: Request, res: Response) => {
+  app.post("/api/invite/:token/accept", crossVendor(async (req: Request, res: Response) => {
     try {
       const { email, firstName, lastName } = req.body ?? {};
       if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email))) {
@@ -183,7 +202,7 @@ export function registerInviteLinkRoutes(app: Express) {
     } catch (e: any) {
       res.status(500).json({ error: e.message });
     }
-  });
+  }));
 
   // ── ADMIN: list ──────────────────────────────────────────────────────────
 

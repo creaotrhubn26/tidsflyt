@@ -22,29 +22,40 @@ Med AsyncLocalStorage-proxyen (Task 8) trenger de FLESTE filene under INGEN
 kodeendring — klassifiseringen avgjør kun om filen FORVENTES å kjøre inni
 eller utenfor `withVendorScopedDb` sin ALS-kontekst, og om det stemmer.
 
-## LES DETTE FØRST: `db` er proxyet, `pool` er det IKKE
-
-`server/db.ts` eksporterer tre ting:
+## LES DETTE FØRST: alle tre eksportene fra `server/db.ts` er ALS-bevisste
 
 | Eksport | Hva den er | RLS |
 |---|---|---|
 | `db` | Proxy → request-scopet drizzle (`tidum_app`) når ALS-kontekst finnes, ellers `systemDb` | Håndheves i request-kontekst |
-| `dbPool` | Proxy → request-scopet `PoolClient` når ALS-kontekst finnes | Håndheves i request-kontekst — **null konsumenter i dag** |
-| `pool` | `systemPool` **uendret, uten proxy** — alltid `tidum_system` (BYPASSRLS) | Håndheves ALDRI |
+| `pool` | Proxy → request-scopet `PoolClient` når ALS-kontekst finnes, ellers `systemPool` | Håndheves i request-kontekst |
+| `dbPool` | Alias for `pool` — **samme proxy-objekt** | Som `pool` |
 
-Dette er bevisst fra Task 8 ("`pool`: re-exported unchanged … these stay on
-`tidum_system` until Task 9's classification pass moves them"), men det betyr
-at **24 av de 59 filene importerer `pool` og dermed omgår RLS fullstendig** —
-uavhengig av om `FORCE ROW LEVEL SECURITY` slås på i Task 10. `FORCE` påvirker
-kun tabelleieren; `tidum_system` har `BYPASSRLS` og berøres ikke av noen av
-delene.
+Fram til fix-runde 1 i Task 9 var `pool` eksportert som `systemPool` UTEN
+proxy (`export { systemPool as pool }`). Alle 24 rå-SQL-forbrukere importerer
+`pool`, ikke `dbPool`, så de kjørte i praksis på `tidum_system` (BYPASSRLS) og
+RLS hadde ingen effekt for dem — uavhengig av `FORCE`, siden `FORCE` kun
+binder tabelleieren og `tidum_system` har `BYPASSRLS`. Det er rettet: `pool`
+er nå den samme proxyen som `dbPool`, og alle 24 filene ble RLS-bevisste uten
+kodeendring i seg selv, slik designet opprinnelig var ment.
 
-Konsekvens for Task 10: å slå på `FORCE` gir ekte vendor-isolasjon for
-`db`-baserte spørringer, men de rå `pool.query`-spørringene under (§ "Rå
-pool.query mot RLS-dekkede tabeller") er fortsatt ufiltrerte. Det er ingen
-regresjon (det er dagens tilstand), men det må ikke fremstilles som «RLS
-dekker hele applikasjonen» i anbudsdokumentasjon før disse er migrert til
-`dbPool`.
+`(d!)`-radene under er derfor historikk, ikke en gjenstående mangel — de er
+merket for å vise hvilke filer som gikk fra ufiltrerte til RLS-håndhevede i
+fix-runde 1, og hvilke som derfor bør røykes ekstra godt ved første kjøring
+mot en ekte `tidum_app`-tilkobling.
+
+### `pool.connect()` er savepoint-oversatt
+
+`pool.connect()` inne i en request kan ikke bare videresendes til
+request-clienten: den er allerede tilkoblet, middlewaren eier `release()`, og
+et rått `BEGIN`/`COMMIT` ville avsluttet middlewarens ytre transaksjon midt i
+requesten og lydløst droppet `set_config`-verdiene (transaksjonslokale) for
+resten av den. Proxyen oversetter derfor `BEGIN`/`COMMIT`/`ROLLBACK` til
+`SAVEPOINT`/`RELEASE SAVEPOINT`/`ROLLBACK TO SAVEPOINT` og gjør `release()` til
+en no-op — nøyaktig samme grep som `withSavepointTransaction` i
+`server/middleware/vendor-scoped-db.ts` gjør for drizzles `db.transaction()`.
+Eneste kallsteder i dag: `server/routes/employee-import-routes.ts` (to ruter,
+begge med `BEGIN … COMMIT/ROLLBACK` + `client.release()`), som dermed ikke
+trengte kodeendring.
 
 ## Kategorier
 
@@ -55,9 +66,10 @@ dekker hele applikasjonen» i anbudsdokumentasjon før disse er migrert til
 - **(c)** ingen vendor-scopet tabell — RLS er irrelevant for filen.
 - **(d)** ekte forretningslogikk mot vendor-scopet tabell via `db` — blir
   automatisk RLS-håndhevet, ingen kodeendring.
-- **(d!)** forretningslogikk mot vendor-scopet tabell, men via rå `pool` —
-  **RLS gir ingen beskyttelse**. Ingen kodeendring i denne oppgaven; se
-  gjenstående arbeid nederst.
+- **(d!)** forretningslogikk mot vendor-scopet tabell via rå `pool`. Var
+  ubeskyttet før fix-runde 1; nå RLS-håndhevet på lik linje med (d) fordi
+  `pool`-eksporten er gjort ALS-bevisst. Merkingen beholdes fordi disse
+  spørringene aldri har kjørt under RLS før og bør verifiseres først.
 
 De 26 vendor-scopede tabellene med policy er de i
 `migrations/052_rls_roles_and_policies.sql` (22 i løkken + `users`,
@@ -180,52 +192,60 @@ bare det første synkrone steget — og at den gjenopprettes etterpå.
 
 Samme fiks må gjøres i `server/buypass-auth.ts` når den branchen merges.
 
+### `server/routes/invite-link-routes.ts` — innløsing av invitasjonslenke
+
+`GET /api/invite/:token` og `POST /api/invite/:token/accept` er tvers-vendor by
+design: en invitasjon knytter en bruker til en ANNEN vendor enn den de
+eventuelt allerede tilhører (koden håndterer eksplisitt vendorbytte,
+`existing.vendorId !== link.vendorId`). Rutene krever ikke `requireAuth`, men
+en allerede innlogget vendor-A-bruker som løser inn en vendor-B-lenke kjører
+inni ALS-konteksten for vendor A: oppslaget mot `vendor_invite_links` ville
+blitt filtrert bort (404), og `insert`/`update` av `users` med vendor B ville
+blitt avvist av policyens implisitte `WITH CHECK`.
+
+Hele handleren er unntatt, ikke ett enkelt kall — både lesingen (lenken,
+brukeren, `saker`) og skrivingen (bruker-tilknytning, `used_count`) er
+tvers-vendor. Grensen er en liten `crossVendor()`-wrapper rundt de to
+offentlige rutene; admin-rutene (`/api/company/invite-links*`) er IKKE unntatt
+— de er ordinær, vendor-scopet forretningslogikk. Autorisasjonen ligger i
+selve token-hemmeligheten (24 tilfeldige bytes) pluss domene-, utløps- og
+bruksbegrensningene.
+
+Testet i `client/src/test/server/invite-cross-vendor-exemption.test.ts`, som
+kjører de ekte, registrerte handlerne inni en aktiv ALS-kontekst og verifiserer
+at spørringen faktisk utføres med tom kontekst.
+
+### `server/custom-auth.ts` — innlogging med aktiv sesjon
+
+`resolveAuthorizedUserByEmail` slår opp «hvilken bruker/admin eier denne
+e-postadressen» — selve autentiseringssteget, der vendoren er svaret og ikke et
+filter. En FERSK innlogging er upåvirket (`req.user` er usatt når
+`withVendorScopedDb` kjører, så ingen kontekst settes), men middlewaren er
+montert på linje 380, FØR Google-callbacken (458) og e-postverifiseringen
+(573). En allerede innlogget bruker som treffer disse handlerne igjen
+(re-autentisering, eller et gammelt magic-link-klikk) ville med FORCE fått
+oppslaget for den NYE identiteten scopet til den GAMLE sesjonens vendor →
+innlogging feiler. Funksjonen skriver dessuten `users` med en annen `vendorId`,
+som ville brutt `WITH CHECK`.
+
+Unntaket er lagt på funksjonen selv (én guard, tre kallsteder: Google via
+`findOrCreateUser`, `/api/auth/email/request-link` og `/api/auth/email/verify`),
+ikke på hvert kallsted.
+
 ## Gjenstående funn og risiko for Task 10
 
-### 1. Rå `pool.query` mot RLS-dekkede tabeller (12 filer)
+### 1. Policyene mangler eksplisitt `WITH CHECK`
 
-Disse kjører på `tidum_system` (BYPASSRLS) og påvirkes ikke av `FORCE`:
+Migrasjon 052 definerer policyene med kun `USING`. Postgres gjenbruker da
+`USING`-uttrykket som `WITH CHECK` for `INSERT`/`UPDATE`, altså kan ingen rad
+skrives med en annen `vendor_id` enn den aktive. Det er riktig for ordinær
+forretningslogikk, men det er nettopp derfor invite-innløsning og innlogging
+(som med vilje skriver en rad tilhørende en ANNEN vendor) måtte unntas via
+`requestDbStorage.exit()`. Task 10 bør bevisst bestemme om `WITH CHECK (true)`
+skal legges til for å skille lese- fra skrivehåndheving, eller om
+`.exit()`-unntakene er den ønskede modellen (anbefalt — de er få og eksplisitte).
 
-`server/smartTimingRoutes.ts` (13 tabeller), `server/routes.ts` (7),
-`server/lib/gdpr.ts`, `server/lib/poweroffice-push.ts`,
-`server/lib/arbeidstidsloven.ts`, `server/lib/timesheet-lock.ts`,
-`server/routes/tiltaksleder-rates-routes.ts`,
-`server/routes/notification-routes.ts`, `server/routes/pricing-routes.ts`,
-`server/routes/stripe-routes.ts`, `server/routes/analytics-routes.ts`
-(bevisst global), `server/routes/timesheet-reminder-cron.ts` (cron, forventet).
-
-Ingen regresjon — dette er dagens tilstand — men RLS-dekningen er delvis
-inntil de bytter `pool` → `dbPool`.
-
-### 2. Tvers-vendor-mønstre som `FORCE` kan brekke funksjonelt
-
-Begge feiler lukket (nekter tilgang), ikke åpent, men de er reelle
-funksjonsbrudd som bør verifiseres før/ved Task 10. Ingen av dem er endret i
-denne oppgaven (utenfor Task 9s filomfang).
-
-- **`server/routes/invite-link-routes.ts` — innløsing av invitasjonslenke.**
-  `/api/invite/:token` og `/api/invite/:token/accept` krever ikke `requireAuth`,
-  men en allerede innlogget bruker (vendor A) som innløser en lenke til vendor
-  B kjører med ALS-kontekst satt til vendor A. Oppslaget mot
-  `vendor_invite_links` ville da bli filtrert bort (404), og
-  `INSERT`/`UPDATE` av `users` med `vendorId: link.vendorId` ville brytes av
-  policyens `WITH CHECK` (policyer uten eksplisitt `WITH CHECK` bruker
-  `USING`-uttrykket også for skriving). Koden håndterer eksplisitt
-  vendorbytte (`existing.vendorId !== link.vendorId`), så mønsteret er
-  tilsiktet. Trenger `requestDbStorage.exit()` rundt token-oppslaget og
-  bruker-opprettelsen/-oppdateringen.
-- **`server/custom-auth.ts` — re-innlogging med aktiv sesjon.**
-  `app.use(withVendorScopedDb)` står på linje 379, FØR alle innloggingsruter
-  (Google-callback linje 457, e-postverifisering linje 572). Innlogging som en
-  konto i en annen vendor mens man er innlogget gir ALS-kontekst fra den
-  GAMLE brukeren, og `resolveAuthorizedUserByEmail`s oppslag mot
-  `users`/`admin_users` på e-post ville bli filtrert til gammel vendor →
-  innlogging feiler. `db.update(users).set({ vendorId: … })` og
-  `db.insert(users)` med en annen `vendorId` ville i tillegg brytes av
-  `WITH CHECK`. Samme fiks (`.exit()`) gjelder. `super_admin` er upåvirket
-  (`app.is_super_admin = 'true'`).
-
-### 3. Vendor-scopede tabeller uten policy
+### 2. Vendor-scopede tabeller uten policy
 
 - `poweroffice_employee_mappings` (`server/lib/poweroffice-mappings.ts`) har
   `vendor_id NOT NULL` og er ekte vendor-data, men mangler policy i migrasjon
@@ -241,12 +261,34 @@ generiske `vendor_isolation`-policyen uten en subquery. `log_row_audit`,
 `leave_attachments` og `travel_legs` er i samme kategori. Ingen endring i
 migrasjon 052 er gjort i denne oppgaven.
 
-### 4. Lat opprettede tabeller vs. `tidum_app`-privilegier
+### 3. BLOKKERENDE FOR TASK 10: `tidum_app` mangler grants på nyere tabeller
 
-`log-row-audit.ts`, `poweroffice-mappings.ts` og `leave-attachments-routes.ts`
-kjører `CREATE TABLE IF NOT EXISTS` ved kjøretid. Migrasjon 052 gir
-`tidum_app` kun `USAGE` på schema `public` (ikke `CREATE`), og
-`GRANT … ON ALL TABLES` dekker bare tabeller som fantes da migrasjonen kjørte.
-Alle tre bruker rå `pool` (`tidum_system`) i dag, så det går bra — men de kan
-ikke migreres til `dbPool` uten enten en `ALTER DEFAULT PRIVILEGES` eller at
-tabellene flyttes inn i en ordinær migrasjonsfil.
+Migrasjon 052 kjører `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN
+SCHEMA public TO tidum_app` — et **øyeblikksbilde**. Tabeller som opprettes
+etter at 052 har kjørt får ingen grant, og `tidum_app` får `permission denied`
+på dem. Før fix-runde 1 var det ufarlig fordi rå `pool` alltid var
+`tidum_system`; nå som `pool` er ALS-bevisst gjelder det alle rå-SQL-stier
+inne i en autentisert request.
+
+Dette må håndteres FØR Task 10 slår på FORCE (eller egentlig før `tidum_app`
+i det hele tatt tas i bruk mot produksjon):
+
+```sql
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO tidum_app;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public
+  GRANT USAGE, SELECT ON SEQUENCES TO tidum_app;
+-- pluss en ny GRANT ... ON ALL TABLES for tabeller som allerede er opprettet
+-- etter at 052 kjørte.
+```
+
+`ALTER DEFAULT PRIVILEGES` gjelder kun tabeller opprettet av den rollen som
+kjører kommandoen, så den må kjøres som samme rolle som migrasjonene bruker.
+Ikke verifiserbart i denne sandboxen (ingen database), derfor kun dokumentert.
+
+Relatert: de tre `CREATE TABLE IF NOT EXISTS`-stiene
+(`ensureLogRowAuditTable`, `ensurePowerOfficeMappingsTable`, `ensureTable` i
+`leave-attachments-routes.ts`) kjører nå eksplisitt via
+`requestDbStorage.exit()`. `tidum_app` har kun `USAGE`, ikke `CREATE`, på
+schema `public`, så DDL må uansett gå på system-tilkoblingen — og
+schemaendringer hører hjemme der uavhengig av RLS.
