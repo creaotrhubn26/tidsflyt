@@ -15,6 +15,7 @@ import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
+import { csrfProtection, generateCsrfToken } from "./lib/csrf";
 
 type EmailIdentityInput = {
   email: string;
@@ -329,6 +330,23 @@ export async function setupCustomAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
   app.use(resolveBearerUser);
+
+  app.get("/api/csrf-token", (req, res) => {
+    res.json({ token: generateCsrfToken(req, res) });
+  });
+
+  // Montert som en betinget middleware: kun håndhevet når requesten faktisk
+  // er sesjons-cookie-autentisert (req.isAuthenticated()), aldri på
+  // Bearer-token-ruter (mobilappen sender aldri denne cookien/dette
+  // headeret) og aldri på GET (kun tilstandsendrende metoder).
+  app.use((req, res, next) => {
+    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
+    const isSessionAuthed = req.isAuthenticated?.() === true;
+    if (isStateChanging && isSessionAuthed) {
+      return csrfProtection(req, res, next);
+    }
+    next();
+  });
 
   // DEV MODE: inject a mock user so all API routes work without OAuth —
   // krever eksplisitt ALLOW_DEV_AUTH_BYPASS=true i tillegg til NODE_ENV,
