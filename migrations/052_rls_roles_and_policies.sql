@@ -22,6 +22,11 @@
 -- det privilegiet kunne ikke verifiseres i denne sandboxen (ingen DB-
 -- tilkobling tilgjengelig). Verifiser privilegiet før kjøring; kjør deretter
 -- manuelt mot staging/produksjon via administrasjonsgrensesnittet.
+--
+-- IKKE TRYGG Å KJØRE PÅ NYTT: Postgres støtter ikke `CREATE POLICY IF NOT
+-- EXISTS`. Rolle-opprettelsen (første DO $$-blokk) er idempotent, men den
+-- andre DO $$-blokken (policy-løkken) vil feile på første CREATE POLICY
+-- dersom filen kjøres en gang til. Kjør denne filen kun én gang per database.
 
 DO $$
 BEGIN
@@ -56,7 +61,8 @@ BEGIN
     'vendor_institutions', 'vendor_integrations', 'imports', 'vendor_seat_log',
     'api_keys', 'api_usage_log', 'case_reports', 'feedback_requests',
     'feedback_responses', 'timesheet_submissions', 'vendor_invite_links',
-    'rapport_avvik', 'vendor_avvik_protokoller', 'vendor_templates', 'saker'
+    'rapport_avvik', 'vendor_avvik_protokoller', 'vendor_templates', 'saker',
+    'integration_interest_primary', 'integration_interest_signals'
   ]
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
@@ -74,5 +80,41 @@ ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 CREATE POLICY vendor_isolation ON users
   USING (
     vendor_id = current_setting('app.vendor_id', true)::int
+    OR current_setting('app.is_super_admin', true) = 'true'
+  );
+
+-- admin_users: vendor_id er nullable (null for super_admin, kommentar i
+-- schema.ts). Samme mønster som users — en NULL-rad her betyr "ingen
+-- vendor-tilknytning", ikke "global", så den skal KUN være synlig for
+-- super_admin. Mest sensitive tabellen i listen (inneholder passwordHash).
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+CREATE POLICY vendor_isolation ON admin_users
+  USING (
+    vendor_id = current_setting('app.vendor_id', true)::int
+    OR current_setting('app.is_super_admin', true) = 'true'
+  );
+
+-- access_requests: vendor_id er nullable ("assigned when approved" ifølge
+-- schema.ts). Før godkjenning er raden ikke tildelt noen vendor ennå, så
+-- samme users-mønster er korrekt: NULL skal kun være synlig for
+-- super_admin, ikke for alle vendor_admins/brukere.
+ALTER TABLE access_requests ENABLE ROW LEVEL SECURITY;
+CREATE POLICY vendor_isolation ON access_requests
+  USING (
+    vendor_id = current_setting('app.vendor_id', true)::int
+    OR current_setting('app.is_super_admin', true) = 'true'
+  );
+
+-- report_templates: vendor_id er nullable, men her betyr NULL "global
+-- mal, synlig for alle" (schema.ts: "null = global template, otherwise
+-- vendor-specific") — IKKE "utildelt" som i users/admin_users/
+-- access_requests over. Policyen må derfor eksplisitt slippe gjennom
+-- NULL-rader for alle, ikke bare super_admin, ellers blir globale maler
+-- usynlige for vanlige vendor_admins/brukere.
+ALTER TABLE report_templates ENABLE ROW LEVEL SECURITY;
+CREATE POLICY vendor_isolation ON report_templates
+  USING (
+    vendor_id = current_setting('app.vendor_id', true)::int
+    OR vendor_id IS NULL
     OR current_setting('app.is_super_admin', true) = 'true'
   );
