@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import crypto from "crypto";
 import { db } from "./db";
+import { requestDbStorage } from "./lib/request-db-context";
 import { apiKeys, apiUsageLog, vendors } from "@shared/schema";
 import { eq, and, isNull } from "drizzle-orm";
 
@@ -124,9 +125,19 @@ export async function apiKeyAuth(req: ApiRequest, res: Response, next: NextFunct
     req.apiKeyId = keyRecord.id;
     req.apiKeyPermissions = keyRecord.permissions || [];
 
-    res.on("finish", async () => {
+    // `finish` fyrer synkront inne i res.end(), altså INNI den ALS-scopede
+    // konteksten, men ETTER at request-middlewarens COMMIT allerede har kjørt.
+    // INSERT-en ville da gått på request-clienten i autocommit, med
+    // app.vendor_id tilbakestilt til tom streng — enten "invalid input syntax
+    // for type integer" eller (under FORCE RLS) null rader skrevet, i begge
+    // tilfeller svelget av try/catch-en i logApiUsage. `.exit()` tar den ut av
+    // konteksten og over på tidum_system, som er intensjonen: loggen skal
+    // skrives selv om requestens transaksjon rulles tilbake.
+    res.on("finish", () => {
       const responseTime = Date.now() - startTime;
-      await logApiUsage(keyRecord.id, keyRecord.vendorId, req, res.statusCode, responseTime);
+      void requestDbStorage.exit(() =>
+        logApiUsage(keyRecord.id, keyRecord.vendorId, req, res.statusCode, responseTime),
+      );
     });
 
     next();

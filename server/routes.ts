@@ -54,7 +54,8 @@ import sharp from "sharp";
 import { z } from "zod";
 import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
-import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
+import { registerTotpRoutes } from "./routes/totp-routes";
+import { requireAdminRole, ADMIN_ROLES, isTotpStepUpPending } from "./middleware/auth";
 import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
@@ -1554,6 +1555,7 @@ export async function registerRoutes(
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
   await setupEidAuth(app);
+  registerTotpRoutes(app);
 
   // Never seed data automatically in production.
   if (shouldSeedLocalData) {
@@ -2272,9 +2274,20 @@ export async function registerRoutes(
 
     // Check if user has vendor admin or super admin role
     if (!canAccessVendorApiAdmin(user.role)) {
-      return res.status(403).json({ 
-        error: "Forbidden", 
-        message: "You do not have admin access. Contact your administrator." 
+      return res.status(403).json({
+        error: "Forbidden",
+        message: "You do not have admin access. Contact your administrator."
+      });
+    }
+
+    // Task 6s step-up-gate. Denne lokale vakten er beholdt (den setter
+    // req.vendorId/isSuperAdmin/userId/userRole som rutene under er avhengige
+    // av, noe custom-auth.ts sine varianter ikke gjør), men selve TOTP-
+    // avgjørelsen er delt med dem via isTotpStepUpPending — ikke duplisert.
+    if (isTotpStepUpPending(req)) {
+      return res.status(401).json({
+        error: "Unauthorized",
+        message: "TOTP-verifisering påkrevd",
       });
     }
 

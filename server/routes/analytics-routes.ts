@@ -1,6 +1,23 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, RequestHandler, Response } from "express";
 import { pool } from "../db";
 import { requireSuperAdmin } from "../custom-auth";
+
+/**
+ * Strengere enn `requireSuperAdmin`, som via `isSuperAdminLikeRole` også
+ * slipper inn `hovedadmin`. `hovedadmin` er en PER-VENDOR-rolle (opprettes ved
+ * godkjenning av en tilgangsforespørsel) og får derfor ikke `is_super_admin`
+ * satt i RLS-konteksten (`server/middleware/vendor-scoped-db.ts` matcher
+ * eksakt på `super_admin`). Endepunktene her aggregerer plattformomspennende
+ * salgs-/omsetningstall på tvers av ALLE vendorer, og skal uansett ikke være
+ * synlige for en vendors egen hovedadmin — så vi strammer inn ruten i stedet
+ * for å utvide RLS-scopet. Se docs/security/rls-file-classification.md.
+ */
+const requirePlatformSuperAdmin: RequestHandler = (req, res, next) => {
+  if ((req.user as any)?.role !== "super_admin") {
+    return res.status(403).json({ error: "Krever super_admin rolle" });
+  }
+  next();
+};
 
 // Helper: parse from/to ISO date params; default to last 90 days.
 function getDateRange(req: Request): { from: string; to: string } {
@@ -34,7 +51,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // Summary KPIs (top-row of analytics dashboard)
   // ============================================================
-  app.get("/api/admin/analytics/summary", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/summary", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
 
@@ -103,7 +120,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // ARR / pipeline grouped BY tier
   // ============================================================
-  app.get("/api/admin/analytics/by-tier", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/by-tier", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(
@@ -138,7 +155,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // BY source (utm_source / referrer / direct)
   // ============================================================
-  app.get("/api/admin/analytics/by-source", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/by-source", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(
@@ -173,7 +190,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // BY institution type
   // ============================================================
-  app.get("/api/admin/analytics/by-institution", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/by-institution", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(
@@ -206,7 +223,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // BY assignee (sales-rep leaderboard)
   // ============================================================
-  app.get("/api/admin/analytics/by-assignee", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/by-assignee", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(
@@ -241,7 +258,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // Funnel — count and conversion per stage
   // ============================================================
-  app.get("/api/admin/analytics/funnel", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/funnel", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(
@@ -284,7 +301,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // MRR timeline (month-by-month, summed from revenue_events)
   // ============================================================
-  app.get("/api/admin/analytics/mrr-timeline", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/mrr-timeline", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const months = Math.min(60, Math.max(1, Number(req.query.months) || 12));
       const { rows } = await pool.query(
@@ -343,7 +360,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // Top customers by ARR
   // ============================================================
-  app.get("/api/admin/analytics/top-customers", requireSuperAdmin, async (_req, res) => {
+  app.get("/api/admin/analytics/top-customers", requireSuperAdmin, requirePlatformSuperAdmin, async (_req, res) => {
     try {
       const { rows } = await pool.query(
         `SELECT
@@ -378,7 +395,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   // ============================================================
   // CSV export
   // ============================================================
-  app.get("/api/admin/analytics/export.csv", requireSuperAdmin, async (req, res) => {
+  app.get("/api/admin/analytics/export.csv", requireSuperAdmin, requirePlatformSuperAdmin, async (req, res) => {
     try {
       const { from, to } = getDateRange(req);
       const { rows } = await pool.query(

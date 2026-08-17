@@ -14,6 +14,7 @@
 import type { Express, Request, Response } from 'express';
 import cron from 'node-cron';
 import { db } from '../db';
+import { requestDbStorage } from '../lib/request-db-context';
 import { and, eq } from 'drizzle-orm';
 import { leaveBalances, leaveTypes } from '@shared/schema';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
@@ -56,9 +57,19 @@ export interface RolloverResult {
  * Run a rollover pass for the given target year. `fromYear` defaults to
  * targetYear-1. Idempotent: skips users who already have a balance for targetYear.
  */
+// TVERS-VENDOR MED VILJE — se runRapportReminders i rapport-reminder-cron.ts.
+// Batch-jobb over alle vendorers feriesaldoer, også nåbar via
+// POST /api/leave/rollover/run (autentisert).
 export async function runLeaveRollover(
   targetYear: number = new Date().getFullYear(),
   fromYear: number = targetYear - 1,
+): Promise<RolloverResult[]> {
+  return requestDbStorage.exit(() => runLeaveRolloverUnscoped(targetYear, fromYear));
+}
+
+async function runLeaveRolloverUnscoped(
+  targetYear: number,
+  fromYear: number,
 ): Promise<RolloverResult[]> {
   const results: RolloverResult[] = [];
 

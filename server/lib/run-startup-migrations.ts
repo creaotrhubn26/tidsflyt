@@ -21,6 +21,7 @@ const STARTUP_MIGRATIONS: string[] = [
   "049_sak_locations.sql",
   "050_eid_identities.sql",
   "051_mobile_refresh_tokens.sql",
+  "053_admin_totp_credentials.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

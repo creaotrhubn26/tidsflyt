@@ -5,6 +5,7 @@ import { eq, and, lte, gte, or, isNull } from 'drizzle-orm';
 import { format } from 'date-fns';
 import cron from 'node-cron';
 import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
+import { requestDbStorage } from '../lib/request-db-context';
 
 // ───────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -232,7 +233,20 @@ export function registerRecurringRoutes(app: Express) {
  * Generate time entries from active recurring entries for today.
  * If userIdFilter is provided, only that user's entries are considered.
  */
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// Uten userIdFilter skanner denne ALLE vendorers recurring_entries og skriver
+// log_row for hver av dem. Den kjører normalt fra cron (ingen ALS-kontekst),
+// men POST /api/recurring/generate sender null for admin-roller — da ville den
+// under FORCE ROW LEVEL SECURITY stille bare behandlet den innloggede adminens
+// egen vendor. Samme behandling som de tre cron-batchene i
+// rapport-reminder-cron.ts / timesheet-reminder-cron.ts / leave-rollover-cron.ts:
+// guarden ligger på batch-funksjonen, ikke på ruten, slik at den dekker begge
+// kallveiene.
 export async function generateRecurringEntries(userIdFilter?: string | null): Promise<number> {
+  return requestDbStorage.exit(() => generateRecurringEntriesUnscoped(userIdFilter));
+}
+
+async function generateRecurringEntriesUnscoped(userIdFilter?: string | null): Promise<number> {
   try {
     const today = format(new Date(), 'yyyy-MM-dd');
     let generatedCount = 0;

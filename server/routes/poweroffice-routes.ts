@@ -32,6 +32,7 @@ import {
   getPowerOfficeVisibility,
   setPowerOfficeVisibility,
 } from '../lib/poweroffice-visibility';
+import { encryptSecret, decryptSecret } from '../lib/secret-crypto';
 
 const ADMIN_ROLES = ['vendor_admin', 'tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
 const PROVIDER = 'poweroffice';
@@ -175,6 +176,7 @@ export function registerPowerOfficeRoutes(app: Express) {
 
       const now = new Date();
       const createdBy = currentUser(req)?.email || null;
+      const encryptedClientKey = encryptSecret(clientKey);
 
       const [existing] = await db
         .select()
@@ -187,7 +189,7 @@ export function registerPowerOfficeRoutes(app: Express) {
         [row] = await db
           .update(vendorIntegrations)
           .set({
-            clientKey,
+            clientKey: encryptedClientKey,
             label,
             status: 'active',
             lastVerifiedAt: now,
@@ -202,7 +204,7 @@ export function registerPowerOfficeRoutes(app: Express) {
           .values({
             vendorId,
             provider: PROVIDER,
-            clientKey,
+            clientKey: encryptedClientKey,
             label,
             status: 'active',
             lastVerifiedAt: now,
@@ -400,7 +402,7 @@ export function registerPowerOfficeRoutes(app: Express) {
         .limit(1);
       if (!row) return res.status(409).json({ error: 'Ikke tilkoblet PowerOffice' });
 
-      const ok = await verifyClientKey(row.clientKey);
+      const ok = await verifyClientKey(decryptSecret(row.clientKey));
       const now = new Date();
       if (ok) {
         await db

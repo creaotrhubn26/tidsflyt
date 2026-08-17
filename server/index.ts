@@ -1,5 +1,6 @@
 import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
+import helmet from "helmet";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runStartupMigrations } from "./lib/run-startup-migrations";
@@ -29,6 +30,25 @@ app.use((_req, res, next) => {
   res.setHeader("Access-Control-Allow-Private-Network", "true");
   next();
 });
+
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        // Vite/React-buildet bruker i dag inline <style>/<script> enkelte
+        // steder — dette unntaket er kjent og midlertidig, strammes inn når
+        // de er kartlagt og fjernet (egen oppfølgingsoppgave, ikke del av
+        // G-10). Fjern IKKE dette unntaket uten å verifisere at appen
+        // fortsatt fungerer i en nettleser først.
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:", "https:"],
+      },
+    },
+    hsts: { maxAge: 31536000, includeSubDomains: true },
+  }),
+);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

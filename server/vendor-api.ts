@@ -1,6 +1,10 @@
 import { Router } from "express";
 import { db } from "./db";
 import { apiKeyAuth, requirePermission, ApiRequest } from "./api-middleware";
+// Må stå rett etter apiKeyAuth på HVER rute: apiKeyAuth setter req.vendorId
+// (aldri req.user), så den globalt monterte withVendorScopedDb hopper over
+// disse requestene. Uten denne kjører /api/v1/vendor/* helt uten RLS.
+import { withApiKeyScopedDb } from "./middleware/vendor-scoped-db";
 import { 
   logRow, 
   companyUsers, 
@@ -22,7 +26,7 @@ const dateRangeSchema = z.object({
   limit: z.coerce.number().min(1).max(100).default(50),
 });
 
-router.get("/time-entries", apiKeyAuth, requirePermission("read:time_entries"), async (req: ApiRequest, res) => {
+router.get("/time-entries", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:time_entries"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
     const vendorId = req.vendorId!;
@@ -76,7 +80,7 @@ router.get("/time-entries", apiKeyAuth, requirePermission("read:time_entries"), 
   }
 });
 
-router.get("/time-entries/:id", apiKeyAuth, requirePermission("read:time_entries"), async (req: ApiRequest, res) => {
+router.get("/time-entries/:id", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:time_entries"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
     const vendorId = req.vendorId!;
@@ -101,7 +105,7 @@ router.get("/time-entries/:id", apiKeyAuth, requirePermission("read:time_entries
   }
 });
 
-router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: ApiRequest, res) => {
+router.get("/users", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:users"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
     const vendorId = req.vendorId!;
@@ -142,7 +146,7 @@ router.get("/users", apiKeyAuth, requirePermission("read:users"), async (req: Ap
   }
 });
 
-router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req: ApiRequest, res) => {
+router.get("/users/:id", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:users"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
     const vendorId = req.vendorId!;
@@ -175,7 +179,7 @@ router.get("/users/:id", apiKeyAuth, requirePermission("read:users"), async (req
   }
 });
 
-router.get("/reports", apiKeyAuth, requirePermission("read:reports"), async (req: ApiRequest, res) => {
+router.get("/reports", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:reports"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
     const vendorId = req.vendorId!;
@@ -217,7 +221,7 @@ router.get("/reports", apiKeyAuth, requirePermission("read:reports"), async (req
   }
 });
 
-router.get("/reports/:id", apiKeyAuth, requirePermission("read:reports"), async (req: ApiRequest, res) => {
+router.get("/reports/:id", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:reports"), async (req: ApiRequest, res) => {
   try {
     const { id } = req.params;
     const vendorId = req.vendorId!;
@@ -242,7 +246,7 @@ router.get("/reports/:id", apiKeyAuth, requirePermission("read:reports"), async 
   }
 });
 
-router.get("/projects", apiKeyAuth, requirePermission("read:projects"), async (req: ApiRequest, res) => {
+router.get("/projects", apiKeyAuth, withApiKeyScopedDb, requirePermission("read:projects"), async (req: ApiRequest, res) => {
   try {
     const params = dateRangeSchema.parse(req.query);
     const vendorId = req.vendorId!;
@@ -285,7 +289,7 @@ router.get("/projects", apiKeyAuth, requirePermission("read:projects"), async (r
   }
 });
 
-router.get("/usage", apiKeyAuth, async (req: ApiRequest, res) => {
+router.get("/usage", apiKeyAuth, withApiKeyScopedDb, async (req: ApiRequest, res) => {
   try {
     const vendorId = req.vendorId!;
 

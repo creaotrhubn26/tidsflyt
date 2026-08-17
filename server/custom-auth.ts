@@ -15,6 +15,11 @@ import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
+import { csrfProtection, generateCsrfToken } from "./lib/csrf";
+import { withVendorScopedDb } from "./middleware/vendor-scoped-db";
+import { requestDbStorage } from "./lib/request-db-context";
+import { hasTotpEnrolled } from "./lib/totp";
+import { isTotpStepUpPending } from "./middleware/auth";
 
 type EmailIdentityInput = {
   email: string;
@@ -43,13 +48,16 @@ function isSuperAdminEmail(email: string): boolean {
   return getSuperAdminEmails().has(email.trim().toLowerCase());
 }
 
-function getEmailLoginSecret(): string {
-  return (
-    process.env.EMAIL_MAGIC_LINK_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.SESSION_SECRET ||
-    ""
-  );
+// Egen hemmelighet for magic-link-tokens, ikke delt med mobil-JWT (se
+// server/lib/mobile-auth.ts) eller Bearer-JWT-verifisering (se
+// server/middleware/auth.ts) — samme isolasjonsprinsipp: en kompromittert
+// hemmelighet av én tokentype skal aldri kunne forfalske en annen.
+export function requireEmailLoginSecret(): string {
+  const secret = process.env.EMAIL_MAGIC_LINK_SECRET;
+  if (!secret) {
+    throw new Error("EMAIL_MAGIC_LINK_SECRET er ikke konfigurert");
+  }
+  return secret;
 }
 
 function sanitizeReturnTo(value: unknown): string | null {
@@ -79,12 +87,56 @@ function getPostAuthRedirect(req: Request, fallback?: unknown): string {
   return sessionReturnTo ?? sanitizeReturnTo(fallback) ?? DEFAULT_POST_AUTH_REDIRECT;
 }
 
+// Datoen G-10-utrullingen skjedde — 30-dagersvinduet regnes herfra.
+const TOTP_ROLLOUT_DATE = new Date("2026-08-15T00:00:00Z");
+
+async function checkTotpRequirement(user: AuthUser): Promise<"not_required" | "grace_period" | "required_missing" | "satisfied"> {
+  if (!canAccessVendorApiAdmin(user.role)) return "not_required";
+  const enrolled = await hasTotpEnrolled(user.id);
+  if (enrolled) return "satisfied";
+  const daysSinceRollout = (Date.now() - TOTP_ROLLOUT_DATE.getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceRollout < 30 ? "grace_period" : "required_missing";
+}
+
+// Kalles rett etter en vellykket req.logIn for de web-sesjonsbaserte
+// innloggingsflytene (Google-callback, magic-link, BankID/eID-innlogging i
+// server/eid-auth.ts — eksportert herfra og importert der for det) —
+// mobilappens Bearer-token-flyt bruker aldri req.logIn/sesjon og har derfor
+// ingen dashbord-redirect å avskjære her (se totp-routes.ts for API-siden av
+// håndhevelsen, evt. senere oppgave for mobil).
+// "required_missing": sesjonen er opprettet, men klienten skal ikke vise
+// dashbordet før TOTP er satt opp, så vi sender til oppsettsiden i stedet.
+// "grace_period": sett et sesjonsflagg klienten kan lese for et varsel, men
+// fortsett til dashbordet som normalt.
+// "satisfied": brukeren HAR en registrert TOTP-credential, men det betyr
+// bare at raden finnes — ikke at DENNE innloggingen ble utfordret (spec §7:
+// TOTP kreves ved hver innlogging etter enrollment, ikke bare én gang ved
+// oppsett). totpVerified initialiseres eksplisitt til false her — ikke
+// videreført fra en tidligere sesjon — og requireVendorAuth/requireSuperAdmin
+// avviser til /api/totp/verify setter den til true.
+export async function redirectAfterLogin(req: Request, res: any, user: AuthUser, fallback?: unknown): Promise<void> {
+  const totpStatus = await checkTotpRequirement(user);
+  if (totpStatus === "required_missing") {
+    res.redirect("/totp-setup");
+    return;
+  }
+  if (totpStatus === "grace_period") {
+    (req.session as any).totpGracePeriod = true;
+  }
+  if (totpStatus === "satisfied") {
+    (req.session as any).totpVerified = false;
+    res.redirect("/totp-challenge");
+    return;
+  }
+  res.redirect(getPostAuthRedirect(req, fallback));
+}
+
 export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
   const normalizedEmail = email.trim().toLowerCase();
-  const secret = getEmailLoginSecret();
+  const secret = requireEmailLoginSecret();
   const sanitizedReturnTo = sanitizeReturnTo(returnTo);
 
-  if (!normalizedEmail || !secret) {
+  if (!normalizedEmail) {
     throw new Error("Email magic link is not configured.");
   }
 
@@ -105,7 +157,24 @@ function deriveDisplayName(firstName?: string | null, lastName?: string | null, 
   return [firstName, lastName].filter(Boolean).join(" ").trim() || fallback || "";
 }
 
-async function resolveAuthorizedUserByEmail({
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// Oppslaget "hvilken bruker/admin eier denne e-postadressen" er selve
+// autentiseringssteget — vendoren er svaret, ikke et filter, så den kan ikke
+// være kjent på forhånd. En FERSK innlogging er upåvirket (req.user er usatt
+// når withVendorScopedDb kjører, så ingen ALS-kontekst settes), men
+// middlewaren er montert FØR Google-callbacken og e-postverifiseringen, så en
+// ALREDE innlogget bruker som treffer disse handlerne igjen (re-autentisering,
+// eller et gammelt magic-link-klikk mens de er innlogget) ville med FORCE ROW
+// LEVEL SECURITY få oppslaget for den NYE identiteten scopet til den GAMLE
+// sesjonens vendor -> innlogging feiler. I tillegg skriver funksjonen users
+// med en annen vendorId, som ville bli avvist av policyens implisitte
+// WITH CHECK. Én guard her dekker alle tre kallstedene (Google via
+// findOrCreateUser, request-link og verify).
+async function resolveAuthorizedUserByEmail(input: EmailIdentityInput): Promise<AuthUser | null> {
+  return requestDbStorage.exit(() => resolveAuthorizedUserByEmailUnscoped(input));
+}
+
+async function resolveAuthorizedUserByEmailUnscoped({
   email,
   provider,
   displayName,
@@ -274,6 +343,10 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
 
 const isDev = process.env.NODE_ENV !== "production";
 
+function isDevAuthBypassAllowed(): boolean {
+  return isDev && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
+}
+
 const DEV_USER: AuthUser = {
   id: "1",
   email: "dev@tidum.no",
@@ -322,9 +395,29 @@ export async function setupCustomAuth(app: Express) {
   app.use(passport.initialize());
   app.use(passport.session());
   app.use(resolveBearerUser);
+  app.use(withVendorScopedDb);
 
-  // DEV MODE: inject a mock user so all API routes work without OAuth
-  if (isDev) {
+  app.get("/api/csrf-token", (req, res) => {
+    res.json({ token: generateCsrfToken(req, res) });
+  });
+
+  // Montert som en betinget middleware: kun håndhevet når requesten faktisk
+  // er sesjons-cookie-autentisert (req.isAuthenticated()), aldri på
+  // Bearer-token-ruter (mobilappen sender aldri denne cookien/dette
+  // headeret) og aldri på GET (kun tilstandsendrende metoder).
+  app.use((req, res, next) => {
+    const isStateChanging = ["POST", "PUT", "PATCH", "DELETE"].includes(req.method);
+    const isSessionAuthed = req.isAuthenticated?.() === true;
+    if (isStateChanging && isSessionAuthed) {
+      return csrfProtection(req, res, next);
+    }
+    next();
+  });
+
+  // DEV MODE: inject a mock user so all API routes work without OAuth —
+  // krever eksplisitt ALLOW_DEV_AUTH_BYPASS=true i tillegg til NODE_ENV,
+  // slik at ingen utvikler kan bli logget inn som super_admin ved et uhell.
+  if (isDevAuthBypassAllowed()) {
     app.use((req, _res, next) => {
       if (!req.user) {
         req.user = DEV_USER;
@@ -404,7 +497,7 @@ export async function setupCustomAuth(app: Express) {
               if (loginError) {
                 return next(loginError);
               }
-              return res.redirect(getPostAuthRedirect(req));
+              redirectAfterLogin(req, res, user).catch(next);
             });
           })
           .catch(next);
@@ -498,9 +591,9 @@ export async function setupCustomAuth(app: Express) {
   app.get("/api/auth/email/verify", async (req, res, next) => {
     try {
       const token = typeof req.query?.token === "string" ? req.query.token : "";
-      const secret = getEmailLoginSecret();
+      const secret = requireEmailLoginSecret();
 
-      if (!token || !secret) {
+      if (!token) {
         return res.redirect("/?error=magic_link_invalid");
       }
 
@@ -527,7 +620,7 @@ export async function setupCustomAuth(app: Express) {
         if (loginError) {
           return next(loginError);
         }
-        return res.redirect(getPostAuthRedirect(req, payload?.returnTo));
+        redirectAfterLogin(req, res, user, payload?.returnTo).catch(next);
       });
     } catch (error) {
       console.error("Email login verify error:", error);
@@ -543,7 +636,7 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.user) {
+    if (isDevAuthBypassAllowed() && !req.user) {
       return res.json(DEV_USER);
     }
     if (req.user) {
@@ -594,7 +687,7 @@ export function hasSessionAuth(req: Request): boolean {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (hasSessionAuth(req) && req.user) {
     return next();
   }
@@ -633,35 +726,44 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
 };
 
 export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (req.user) return next();
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
+
   const user = req.user as AuthUser;
   if (!canAccessVendorApiAdmin(user.role)) {
     return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
   }
-  
+
+  // Se isTotpStepUpPending i server/middleware/auth.ts for semantikken.
+  if (isTotpStepUpPending(req)) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
+  }
+
   next();
 };
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
+
   const user = req.user as AuthUser;
   if (!isSuperAdminLikeRole(user.role)) {
     return res.status(403).json({ message: "Krever super_admin rolle" });
   }
-  
+
+  if (isTotpStepUpPending(req)) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
+  }
+
   next();
 };

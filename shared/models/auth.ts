@@ -91,3 +91,14 @@ export const authLoginEvents = pgTable(
 
 export type AuthLoginEvent = typeof authLoginEvents.$inferSelect;
 export type NewAuthLoginEvent = typeof authLoginEvents.$inferInsert;
+
+export const adminTotpCredentials = pgTable("admin_totp_credentials", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  totpSecretEncrypted: text("totp_secret_encrypted").notNull(),
+  recoveryCodesHashed: jsonb("recovery_codes_hashed").notNull().default([]),
+  enrolledAt: timestamp("enrolled_at").notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at"),
+});
+
+export type AdminTotpCredential = typeof adminTotpCredentials.$inferSelect;

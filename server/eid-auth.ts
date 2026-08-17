@@ -8,8 +8,9 @@ import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
-import { hasSessionAuth } from "./custom-auth";
+import { hasSessionAuth, redirectAfterLogin } from "./custom-auth";
 import { issueMobileTokens } from "./lib/mobile-auth";
+import { requestDbStorage } from "./lib/request-db-context";
 import { authRateLimit } from "./rate-limit";
 
 declare global {
@@ -55,27 +56,42 @@ export async function hasLinkedEid(userId: string): Promise<boolean> {
   }
 }
 
+// TVERS-VENDOR MED VILJE (RLS-unntak, se docs/security/rls-file-classification.md).
+// Oppslaget "hvilken bruker eier denne fnr-hashen" er per definisjon
+// vendor-agnostisk: identiteten avgjør HVEM som logger inn, så vi kan ikke
+// først vite hvilken vendor svaret hører til. Vanligvis kjører dette uten
+// ALS-kontekst (innlogging skjer før req.user finnes), men ikke alltid — en
+// mobil-request med gyldig Bearer-token får req.user satt av
+// resolveBearerUser, og da har withVendorScopedDb allerede åpnet en
+// RLS-scopet transaksjon mot den ALLEREDE innloggede brukerens vendor. Med
+// FORCE ROW LEVEL SECURITY (Task 10) ville users-oppslaget under da bli
+// filtrert til den vendoren, og en ekte kobling i en annen vendor ville se
+// ut som "ingen kobling" -> feilaktig eid_not_linked. requestDbStorage.exit()
+// kjører hele oppslaget mot tidum_system (BYPASSRLS) for nøyaktig dette ene
+// kallet; resten av requesten forblir RLS-scopet.
 async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | null> {
-  const [identity] = await db
-    .select()
-    .from(eidIdentities)
-    .where(and(eq(eidIdentities.provider, "bankid"), eq(eidIdentities.ssnHash, ssnHash)))
-    .limit(1);
+  return requestDbStorage.exit(async () => {
+    const [identity] = await db
+      .select()
+      .from(eidIdentities)
+      .where(and(eq(eidIdentities.provider, "bankid"), eq(eidIdentities.ssnHash, ssnHash)))
+      .limit(1);
 
-  if (!identity) return null;
+    if (!identity) return null;
 
-  const [user] = await db.select().from(users).where(eq(users.id, identity.userId)).limit(1);
-  if (!user) return null;
+    const [user] = await db.select().from(users).where(eq(users.id, identity.userId)).limit(1);
+    if (!user) return null;
 
-  return {
-    id: user.id,
-    email: user.email || "",
-    name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
-    profileImageUrl: user.profileImageUrl,
-    provider: "bankid",
-    role: user.role || "member",
-    vendorId: user.vendorId,
-  };
+    return {
+      id: user.id,
+      email: user.email || "",
+      name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
+      profileImageUrl: user.profileImageUrl,
+      provider: "bankid",
+      role: user.role || "member",
+      vendorId: user.vendorId,
+    };
+  });
 }
 
 async function upsertEidIdentity(params: {
@@ -265,7 +281,10 @@ export async function setupEidAuth(app: Express): Promise<void> {
 
         req.logIn(resolvedUser, (loginError) => {
           if (loginError) return next(loginError);
-          return res.redirect("/dashboard");
+          // .catch(next) som i de to tilsvarende kallstedene i
+          // server/custom-auth.ts — uten den ville en kastet feil i
+          // redirectAfterLogin/checkTotpRequirement etterlate requesten hengende.
+          redirectAfterLogin(req, res, resolvedUser).catch(next);
         });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {
