@@ -12,7 +12,12 @@ import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
 import crypto from "crypto";
 import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
-import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
+import {
+  requireAuth as sharedRequireAuth,
+  requireAdminRole as sharedRequireAdminRole,
+  isDevAuthBypassAllowed,
+  requireAuthJwtSecret,
+} from "./middleware/auth";
 import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
 import { enforceAtl, handleAtlError } from "./lib/arbeidstidsloven";
 import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/log-row-audit";
@@ -37,10 +42,11 @@ import {
 } from "@shared/brand";
 import { eq } from "drizzle-orm";
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  console.warn('[SECURITY] JWT_SECRET not set in production! Set JWT_SECRET env var.');
-}
+// Bearer-tokens i denne filen signeres/verifiseres med SAMME hemmelighet som
+// server/middleware/auth.ts (AUTH_JWT_SECRET, via requireAuthJwtSecret()) —
+// filen hadde tidligere sin egen `JWT_SECRET`-konstant med fallback til
+// SESSION_SECRET og til slutt en hardkodet streng. Se Task 2 i
+// docs/superpowers/plans/2026-08-15-g10-sikkerhetsherding.md.
 
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -136,8 +142,6 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
   return normalizeRole(actorRoleResult.rows[0].role);
 }
 
-const isDevMode = process.env.NODE_ENV !== 'production';
-
 const DEFAULT_ANALYTICS_EXCLUDED_PATHS = [
   "/dashboard",
   "/time-tracking",
@@ -194,8 +198,9 @@ function buildDefaultAnalyticsSettings() {
 }
 
 function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  // DEV MODE: bypass auth
-  if (isDevMode) {
+  // DEV MODE: bypass auth — krever eksplisitt ALLOW_DEV_AUTH_BYPASS=true i
+  // tillegg til non-production (samme guard som resten av kodebasen).
+  if (isDevAuthBypassAllowed()) {
     req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
     return next();
   }
@@ -204,7 +209,7 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
   if (authHeader?.startsWith('Bearer ')) {
     try {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const decoded = jwt.verify(token, requireAuthJwtSecret()) as any;
       req.admin = decoded;
       return next();
     } catch (err) {
@@ -222,8 +227,8 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
 
 // Middleware: require any authenticated user (session or JWT)
 function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  // DEV MODE: bypass auth
-  if (isDevMode) {
+  // DEV MODE: bypass auth — se authenticateAdmin over.
+  if (isDevAuthBypassAllowed()) {
     req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
     return next();
   }
@@ -236,7 +241,7 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   if (authHeader?.startsWith('Bearer ')) {
     try {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const decoded = jwt.verify(token, requireAuthJwtSecret()) as any;
       req.admin = decoded;
       return next();
     } catch (err) {
@@ -967,7 +972,7 @@ export function registerSmartTimingRoutes(app: Express) {
           vendorName: admin.vendor_name,
           vendorSlug: admin.vendor_slug
         },
-        JWT_SECRET,
+        requireAuthJwtSecret(),
         { expiresIn: '24h' }
       );
       
@@ -1021,7 +1026,7 @@ export function registerSmartTimingRoutes(app: Express) {
         vendorName,
         vendorSlug,
       },
-      JWT_SECRET,
+      requireAuthJwtSecret(),
       { expiresIn: '24h' }
     );
     res.json({ token, role, email: sessionUser.email, vendorId: sessionUser.vendorId ?? null });
