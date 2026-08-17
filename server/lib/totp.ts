@@ -38,7 +38,18 @@ export async function verifyTotpOrRecoveryCode(userId: string, code: string): Pr
     .limit(1);
   if (!row) return false;
 
-  if (verifyTotpCode(row.totpSecretEncrypted, code)) {
+  // En kastet feil her (typisk dekrypteringsfeil fordi SECRETS_ENCRYPTION_KEY
+  // er rotert/mangler) må IKKE hoppe over gjenopprettingskodene under —
+  // nøyaktig det scenarioet er grunnen til at de finnes. Behandles som
+  // "koden matchet ikke".
+  let totpMatched = false;
+  try {
+    totpMatched = verifyTotpCode(row.totpSecretEncrypted, code);
+  } catch (err) {
+    console.error("[totp] kunne ikke verifisere TOTP-koden, faller tilbake til gjenopprettingskode:", err);
+  }
+
+  if (totpMatched) {
     await db
       .update(adminTotpCredentials)
       .set({ lastUsedAt: new Date() })

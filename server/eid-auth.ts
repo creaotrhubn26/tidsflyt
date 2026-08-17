@@ -279,9 +279,12 @@ export async function setupEidAuth(app: Express): Promise<void> {
           userAgent: req.get("user-agent") || undefined,
         });
 
-        req.logIn(resolvedUser, async (loginError) => {
+        req.logIn(resolvedUser, (loginError) => {
           if (loginError) return next(loginError);
-          await redirectAfterLogin(req, res, resolvedUser);
+          // .catch(next) som i de to tilsvarende kallstedene i
+          // server/custom-auth.ts — uten den ville en kastet feil i
+          // redirectAfterLogin/checkTotpRequirement etterlate requesten hengende.
+          redirectAfterLogin(req, res, resolvedUser).catch(next);
         });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {

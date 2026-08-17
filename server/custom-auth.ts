@@ -19,6 +19,7 @@ import { csrfProtection, generateCsrfToken } from "./lib/csrf";
 import { withVendorScopedDb } from "./middleware/vendor-scoped-db";
 import { requestDbStorage } from "./lib/request-db-context";
 import { hasTotpEnrolled } from "./lib/totp";
+import { isTotpStepUpPending } from "./middleware/auth";
 
 type EmailIdentityInput = {
   email: string;
@@ -741,11 +742,8 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
     return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
   }
 
-  // totpVerified === false betyr: denne innloggingen ble flagget som
-  // "krever step-up" (redirectAfterLogin i denne filen, satisfied-grenen),
-  // og /api/totp/verify har ikke satt den til true ennå. undefined (aldri
-  // satt — not_required/grace_period/required_missing) slipper gjennom.
-  if ((req.session as any)?.totpVerified === false) {
+  // Se isTotpStepUpPending i server/middleware/auth.ts for semantikken.
+  if (isTotpStepUpPending(req)) {
     return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
   }
 
@@ -763,7 +761,7 @@ export const requireSuperAdmin: RequestHandler = (req, res, next) => {
     return res.status(403).json({ message: "Krever super_admin rolle" });
   }
 
-  if ((req.session as any)?.totpVerified === false) {
+  if (isTotpStepUpPending(req)) {
     return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
   }
 

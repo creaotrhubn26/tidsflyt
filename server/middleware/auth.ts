@@ -19,6 +19,20 @@ export function isDevAuthBypassAllowed(): boolean {
   return process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
 }
 
+/**
+ * Task 6s step-up-gate, delt av alle vaktfunksjonene som beskytter
+ * admin-ruter (`requireAdminRole` her, `requireVendorAuth`/`requireSuperAdmin`
+ * i server/custom-auth.ts, og den lokale vendor-vakten i server/routes.ts).
+ *
+ * `totpVerified === false` betyr: denne innloggingen ble flagget som «krever
+ * step-up» av `redirectAfterLogin` (custom-auth.ts), og `/api/totp/verify` har
+ * ikke satt den til true ennå. `undefined` (aldri satt — not_required/
+ * grace_period/required_missing) slipper gjennom.
+ */
+export function isTotpStepUpPending(req: Request): boolean {
+  return (req as any).session?.totpVerified === false;
+}
+
 /** Roles considered "admin-level" (can approve, manage users, etc.) */
 export const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
 
@@ -77,6 +91,9 @@ export function requireAdminRole(req: Request, res: Response, next: NextFunction
   const role = normalizeRoleName((req as any).authUser?.role);
   if (!ADMIN_ROLES.includes(role)) {
     return res.status(403).json({ error: 'Kun tiltaksleder eller admin kan utføre denne handlingen' });
+  }
+  if (isTotpStepUpPending(req)) {
+    return res.status(401).json({ error: 'TOTP-verifisering påkrevd' });
   }
   next();
 }
