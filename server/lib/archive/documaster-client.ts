@@ -33,6 +33,7 @@
  * opp (refEksternId.eksternID = @id) før opprettelse.
  */
 
+import { createHash } from "crypto";
 import type { ArchiveDocumentFile, JournalpostSpec, SaksmappeSpec } from "./noark";
 
 export interface ArchiveProviderConfig {
@@ -76,7 +77,17 @@ export class DocumasterError extends Error {
 
 interface CachedToken { accessToken: string; expiresAt: number }
 
-// Token-cache per clientId — Documaster-tokens er kortlevde.
+// Token-cache per (baseUrl, clientId, secret). Secreten hashes (SHA-256) i
+// nøkkelen i stedet for å lagres i klartekst der — samme prinsipp som
+// resten av kodebasen bruker for sensitive verdier den bare trenger å
+// SAMMENLIGNE, ikke lese tilbake (jf. server/lib/totp.ts sine
+// gjenopprettingskoder). Uten secreten i nøkkelen ville to providere med
+// samme baseUrl+clientId men ulik secret dele cachet token — én gyldig
+// innlogging ville da maskere at en ANNEN secret er ugyldig.
+function hashSecret(secret: string): string {
+  return createHash("sha256").update(secret).digest("hex").slice(0, 16);
+}
+
 const tokenCache = new Map<string, CachedToken>();
 
 const VARIANTFORMAT_CODES: Record<ArchiveDocumentFile["variantformat"], string> = {
@@ -99,7 +110,7 @@ export class DocumasterProvider implements ArchiveProvider {
   }
 
   private async getToken(): Promise<string> {
-    const cacheKey = `${this.cfg.baseUrl}:${this.cfg.clientId}`;
+    const cacheKey = `${this.cfg.baseUrl}:${this.cfg.clientId}:${hashSecret(this.cfg.clientSecret)}`;
     const cached = tokenCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.accessToken;
 

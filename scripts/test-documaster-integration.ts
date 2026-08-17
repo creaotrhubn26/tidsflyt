@@ -5,11 +5,16 @@
  * Kjøring:
  *   DOCUMASTER_BASE_URL=... DOCUMASTER_CLIENT_ID=... \
  *   DOCUMASTER_CLIENT_SECRET=... DOCUMASTER_ARKIVDEL_ID=... \
- *   [DOCUMASTER_KLASSE_ID=...] \
+ *   [DOCUMASTER_KLASSE_ID=...] [DOCUMASTER_TOKEN_URL=...] \
  *   npx tsx scripts/test-documaster-integration.ts
  *
  * DOCUMASTER_KLASSE_ID er valgfri — settes hvis instansen krever
  * primærklasse på saksmapper.
+ *
+ * DOCUMASTER_TOKEN_URL er valgfri — Documasters IdP kjører ofte på en
+ * annen host/port enn selve arkiv-API-et (f.eks. Integration Test-
+ * miljøet: IdP uten port, RMS-API på :8083). Sett denne til den
+ * absolutte token-URL-en hvis DOCUMASTER_BASE_URL peker på RMS-hosten.
  *
  * Testene:
  * 1. OAuth2 token-flow + verify()
@@ -54,12 +59,21 @@ async function main() {
   }
 
   const klasseId = process.env.DOCUMASTER_KLASSE_ID || undefined;
+  const tokenUrl = process.env.DOCUMASTER_TOKEN_URL || undefined;
 
   ok(`Base URL: ${baseUrl}`);
   ok(`Arkivdel: ${arkivdelId}`);
   if (klasseId) ok(`Primærklasse: ${klasseId}`);
+  if (tokenUrl) ok(`Token-URL (overstyrt): ${tokenUrl}`);
 
-  const provider = createArchiveProvider("documaster", { baseUrl, clientId, clientSecret, arkivdelId, klasseId });
+  const provider = createArchiveProvider("documaster", {
+    baseUrl,
+    clientId,
+    clientSecret,
+    arkivdelId,
+    klasseId,
+    ...(tokenUrl ? { apiPaths: { token: tokenUrl } } : {}),
+  });
 
   // En unik test-sak per kjøring, så gjentatte kjøringer ikke kolliderer.
   const runId = Date.now().toString(36);
@@ -94,6 +108,8 @@ async function main() {
     fail(`ensureSaksmappe feilet: ${err.message}`);
     if (err.status === 400) hint("Sjekk arkivdelId og feltnavn (refArkivdel)");
     if (err.status === 422) hint("Skjermingsverdiene godtas kanskje ikke — spør Documaster om gyldige koder");
+    if (err.status === 422 || err.status === 400)
+      hint("Kan også skyldes at instansen krever refSekundaerKlasse (sekundær klassifisering) — se test-bootstrap.http steg 2.0/2.1. Denne klienten setter i dag kun refPrimaerKlasse.");
     if (err.body) console.error("   Respons:", err.body);
     process.exit(1);
   }
@@ -140,6 +156,7 @@ async function main() {
     clientId,
     clientSecret: "feil-secret",
     arkivdelId,
+    ...(tokenUrl ? { apiPaths: { token: tokenUrl } } : {}),
   });
   try {
     await badProvider.verify();
