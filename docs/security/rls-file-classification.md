@@ -79,7 +79,7 @@ De 26 vendor-scopede tabellene med policy er de i
 
 | Fil | Kat. | Tilkobling | Begrunnelse |
 |---|---|---|---|
-| `server/api-middleware.ts` | (a) | `db` | API-nøkkel-autentisering: slår opp `api_keys` på nøkkelhash før noen vendor er etablert — må kjøre uscopet. Setter `req.vendorId`, ALDRI `req.user`. `logApiUsage` (`res.on("finish")`) registreres før scopingen og skriver derfor `api_usage_log` på system-tilkoblingen — riktig, loggen skal skrives selv om requestens transaksjon rulles tilbake. |
+| `server/api-middleware.ts` | (a) + unntak | `db` | API-nøkkel-autentisering: slår opp `api_keys` på nøkkelhash før noen vendor er etablert — må kjøre uscopet. Setter `req.vendorId`, ALDRI `req.user`. `logApiUsage` (`res.on("finish")`) er nå eksplisitt unntatt via `requestDbStorage.exit()` — se "Kjente, bevisste unntak". |
 | `server/crawler-engine.ts` | (c) | `pool` | Kun `crawler_jobs`/`crawler_results` (SEO-crawler). Jobben fortsetter å kjøre etter at responsen er sendt — MÅ bli på rå `pool`, den ALS-scopede transaksjonen commit-es på `res.finish`. |
 | `server/custom-auth.ts` | (a) | `db` | `resolveAuthorizedUserByEmail` slår opp `users`/`admin_users` på e-post ved innlogging. Se advarsel om re-innlogging under. |
 | `server/eid-auth.ts` | (a) | `db` | BankID-innlogging/-kobling. `resolveUserByEidIdentity` er nå eksplisitt kjørt via `requestDbStorage.exit()` — se "Kjente, bevisste unntak". |
@@ -103,7 +103,7 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/middleware/vendor-scoped-db.ts` | (b) | egen `appPool` | Selve mekanismen: åpner `tidum_app`-transaksjonen og setter `app.vendor_id`/`app.is_super_admin`. |
 | `server/replit_integrations/auth/storage.ts` | (a) | `db` | Sesjons-/brukeroppslag i auth-laget. |
 | `server/routes.ts` | (d) + (d!) | `db` + `pool` | Hovedrutefilen. `db`-delen RLS-håndheves. Rå `pool.query` treffer `users`, `admin_users`, `company_users`, `saker`, `case_reports`, `integration_interest_primary`, `integration_interest_signals`. |
-| `server/routes/analytics-routes.ts` | (d!) | `pool` | **Manuelt lest.** Alle endepunkter er `requireSuperAdmin` og aggregerer `access_requests`/`revenue_events` på tvers av ALLE vendorer med vilje (salgs-/CRM-analyse). Trenger IKKE `.exit()`: policyen slipper `app.is_super_admin = 'true'` gjennom, og filen kjører uansett på `tidum_system`. |
+| `server/routes/analytics-routes.ts` | (d!) | `pool` | **Manuelt lest.** Aggregerer `access_requests`/`revenue_events` på tvers av ALLE vendorer med vilje (salgs-/CRM-analyse). Rutene har fått en ekstra `requirePlatformSuperAdmin`-vakt som krever rollen `super_admin` EKSAKT — se korreksjonen under. |
 | `server/routes/avvik-routes.ts` | (d) | `db` | `rapport_avvik`, `saker`, `users`. |
 | `server/routes/dashboard-kpis-routes.ts` | (d) | `db` | `log_row`, `saker`. |
 | `server/routes/email-composer-routes.ts` | (d) | `db` + `pool` | `log_row`/`users` via `db`; rå `pool` kun mot `email_drafts` (ikke policy-dekket). |
@@ -124,7 +124,7 @@ De 26 vendor-scopede tabellene med policy er de i
 | `server/routes/pricing-routes.ts` | (d!) | `db` + `pool` | Rå `pool.query` mot `access_requests`. |
 | `server/routes/rapport-reminder-cron.ts` | (b) + unntak | `db` | Leser `saker`/`users`/`vendor_institutions` på tvers av alle vendorer med vilje. Registrerer OGSÅ `POST /api/rapport-reminders/run` (`requireAuth`) — `runRapportReminders` er unntatt via `requestDbStorage.exit()`. |
 | `server/routes/rapport-template-routes.ts` | (d) | `db` | `rapport_templates`. |
-| `server/routes/recurring-routes.ts` | (d) | `db` | `log_row`, `recurring_entries`. |
+| `server/routes/recurring-routes.ts` | (d) + unntak | `db` | `log_row`, `recurring_entries`. `generateRecurringEntries` er en tvers-vendor-batch når den kalles uten `userIdFilter` — unntatt via `requestDbStorage.exit()`, se under. |
 | `server/routes/stripe-routes.ts` | (d!) | `db` + `pool` | Rå `pool.query` mot `access_requests`. Webhook-ruten har uansett ingen `req.user` → `tidum_system`. |
 | `server/routes/tester-feedback-routes.ts` | (c) | `db` | `tester_feedback`, ikke vendor-scopet. |
 | `server/routes/tiltaksleder-dashboard-routes.ts` | (d) | `db` | `saker`, `users`, `rapport_templates`, `vendor_institutions`. |
@@ -142,6 +142,11 @@ De 26 vendor-scopede tabellene med policy er de i
 Oppsummert, 59 filer: (a) 5 · (b) 7 (hvorav 3 med dokumentert tvers-vendor-unntak)
 · (c) 14 · (d) 21 · (d!) 11 · 1 som er begge deler (`server/routes.ts`, som
 bruker både `db` og rå `pool` mot policy-dekkede tabeller).
+
+Sluttreviewen av branchen la til to unntak til, utenfor cron-kategorien:
+`server/routes/recurring-routes.ts` (fjerde batch-jobb) og
+`server/api-middleware.ts` (`logApiUsage`). Begge er dokumentert under
+"Kjente, bevisste unntak".
 
 ## Filer som krevde manuell gjennomgang
 
@@ -162,7 +167,7 @@ eventuelle GJENVÆRENDE flagg.)
 | `server/lib/run-startup-migrations.ts` | (b). DDL ved oppstart. |
 | `server/lib/timesheet-lock.ts` | **(d!)**. Rå `pool.query` mot `timesheet_submissions`. |
 | `server/middleware/vendor-scoped-db.ts` | (b)/infrastruktur. Selve RLS-mekanismen. |
-| `server/routes/analytics-routes.ts` | (d!) men bevisst global; `requireSuperAdmin` + `app.is_super_admin`-grenen i policyen dekker den. Ingen `.exit()` nødvendig. |
+| `server/routes/analytics-routes.ts` | (d!) men bevisst global. Se korreksjonen under "Kjente, bevisste unntak" — den opprinnelige begrunnelsen («filen kjører uansett på `tidum_system`») var feil etter Task 9s fix-runde 1. |
 | `server/routes/leave-attachments-routes.ts` | (c). `leave_attachments`/`leave_requests` har ingen `vendor_id`. |
 
 ## Kjente, bevisste unntak (krevde faktisk kodeendring)
@@ -251,6 +256,67 @@ dekker begge kallveiene.
 
 `PATCH /api/vendor/timesheet-deadline` i samme fil er bevisst IKKE unntatt —
 den er ordinær, vendor-scopet forretningslogikk.
+
+### En fjerde batch-jobb: `generateRecurringEntries` (recurring-routes.ts)
+
+Funnet i sluttreviewen av branchen. Strukturelt identisk med de tre over, men
+oversett fordi cron-triggeren ligger INNE i rutefilen (`setupRecurringEntriesCron`
+i `server/routes/recurring-routes.ts`) og ikke i en egen `*-cron.ts`-fil, så
+sveipet etter cron-navngitte filer traff den ikke.
+
+`POST /api/recurring/generate` setter `forUserId = null` for alle admin-roller
+(`isAdmin(req)` → `ADMIN_ROLES`, altså også `tiltaksleder`/`teamleder`), og
+`generateRecurringEntries(null)` skanner da ALLE vendorers `recurring_entries`
+og skriver `log_row` for hver av dem. Samme behandling som de tre søsknene:
+guarden ligger på batch-funksjonen (`generateRecurringEntries` →
+`requestDbStorage.exit(() => generateRecurringEntriesUnscoped(...))`), ikke på
+ruten, slik at både cron-veien og den manuelle ruten dekkes.
+
+Merk at unntaket er ubetinget, også når `userIdFilter` er satt (en vanlig
+bruker som genererer for seg selv). Det er bevisst — samme form som søsknene,
+ett kodepunkt å resonnere om — og ufarlig, siden spørringen da uansett er
+filtrert på `user_id`.
+
+### `server/api-middleware.ts` — `logApiUsage` i `res.on("finish")`
+
+**Korreksjon av tidligere begrunnelse.** Denne tabellraden sa før at loggingen
+var trygg fordi lytteren «registreres før scopingen». Det stemmer ikke:
+rekkefølgen lytteren REGISTRERES i er irrelevant. `finish` fyrer synkront inne
+i `res.end()`, altså INNE i den ALS-scopede konteksten — men ETTER at
+request-middlewarens egen `COMMIT` allerede har kjørt. INSERT-en havnet dermed
+på requestens `tidum_app`-client i autocommit, med den transaksjonslokale
+`app.vendor_id` tilbakestilt (til tom streng, ikke NULL — se migrasjon 056).
+Resultatet var enten en hard SQL-feil (`invalid input syntax for type integer:
+""`) eller null rader skrevet under FORCE — i begge tilfeller svelget av
+`try/catch`-en i `logApiUsage`, altså et STILLE, totalt tap av API-bruksloggen.
+
+Fikset ved å kjøre selve skrivingen via `requestDbStorage.exit()`, samme
+mønster som `eid-auth.ts`, `invite-link-routes.ts` og de tre cron-unntakene.
+Det gjør den opprinnelig uttalte intensjonen — «loggen skal skrives selv om
+requestens transaksjon rulles tilbake» — faktisk sann.
+
+### `server/routes/analytics-routes.ts` — korreksjon, og innstramming i stedet for unntak
+
+**Den tidligere begrunnelsen var faktisk feil.** Den sa at filen «kjører uansett
+på `tidum_system`». Det var sant før Task 9s fix-runde 1, men ikke etterpå:
+`pool`-eksporten i `server/db.ts` er nå den ALS-bevisste proxyen, så filen
+kjører på `tidum_app` inne i en autentisert request.
+
+Den gjenværende avhengigheten var altså `app.is_super_admin = 'true'`-grenen i
+policyen. Men `server/middleware/vendor-scoped-db.ts` setter
+`isSuperAdmin: user.role === "super_admin"` (eksakt match), mens
+`requireSuperAdmin`/`isSuperAdminLikeRole` i `shared/roles.ts` slipper inn BÅDE
+`super_admin` OG `hovedadmin`. En `hovedadmin` kom altså gjennom autorisasjonen,
+men ble stille vendor-scopet i RLS-konteksten — og fikk dermed feil
+(vendor-filtrerte) tall ut av en plattformomspennende salgsrapport.
+
+Valget er å STRAMME INN ruten, ikke utvide RLS-scopet: `hovedadmin` er en
+per-vendor-rolle (opprettes ved godkjenning av en tilgangsforespørsel), og
+plattformomspennende salgs-/omsetningstall skal uansett ikke være synlige for
+den. Alle ni endepunktene har fått en ekstra `requirePlatformSuperAdmin`-vakt
+som krever rollen `super_admin` eksakt. `hovedadmin` får nå 403 i stedet for
+stille feil tall, og de gjenværende kallerne er nøyaktig de som FÅR
+`is_super_admin = 'true'` i RLS-konteksten. Ingen `.exit()` er nødvendig.
 
 ## Gjenstående funn og risiko for Task 10
 
