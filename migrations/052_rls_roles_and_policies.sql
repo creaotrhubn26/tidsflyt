@@ -49,9 +49,20 @@ GRANT USAGE ON SCHEMA public TO tidum_system;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO tidum_system;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO tidum_system;
 
--- Policy-mønsteret, ett per vendor-scopet tabell. fail-closed: en spørring
--- uten satt app.vendor_id matcher INGEN rader (current_setting(..., true)
--- returnerer NULL, og "vendor_id = NULL" er aldri sann i SQL).
+-- Policy-mønsteret, ett per vendor-scopet tabell. Ment som fail-closed: en
+-- spørring uten satt app.vendor_id skal matche INGEN rader.
+--
+-- KORRIGERING (funnet i sluttreview av branchen, se migrasjon 056): det
+-- stemmer bare på en tilkobling som ALDRI har hatt GUC-en satt. Etter at
+-- set_config('app.vendor_id', ..., true) har kjørt én gang på en gjenbrukt,
+-- pooled tilkobling, tilbakestilles innstillingen ved transaksjonsslutt til
+-- TOM STRENG — ikke NULL. Uttrykket ''::int gir da en hard SQL-feil
+-- ("invalid input syntax for type integer") i stedet for null rader.
+-- Fortsatt fail-closed i praksis (spørringen lykkes ikke), men som en
+-- uventet 500 i stedet for et tomt resultat. migrations/056_hardened_
+-- vendor_isolation_policy.sql erstatter uttrykket med
+-- NULLIF(current_setting('app.vendor_id', true), '')::int, som gir ekte
+-- NULL-semantikk i begge tilfeller.
 DO $$
 DECLARE
   t TEXT;
