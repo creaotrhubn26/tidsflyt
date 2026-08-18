@@ -1,6 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { CriiptoVerifyExpressRedirect } from "@criipto/verify-express";
-import type { JWTPayload } from "jose";
+import { SignJWT, importPKCS8, createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { randomBytes, createHash } from "crypto";
 import { db } from "./db";
 import { authLoginEvents, eidIdentities, users } from "@shared/schema";
 import { eq } from "drizzle-orm";
@@ -20,6 +21,18 @@ declare global {
   }
 }
 
+declare module "express-session" {
+  interface SessionData {
+    // Kortlevd PKCE/CSRF-tilstand for Buypass sin authorization_code-flyt.
+    // Slettes (one-shot) idet callback-steget leser den.
+    buypassOAuth?: {
+      state: string;
+      nonce: string;
+      codeVerifier: string;
+    };
+  }
+}
+
 // Idura (tidligere Criipto) er brokeren for BankID — én OIDC-klient for hele
 // appen, BankID velges via acr_values på autoriser-kallet. Idura støtter ikke
 // Buypass, så Buypass er en egen, direkte OIDC-klient mot Buypass ID lenger
@@ -31,16 +44,54 @@ const IDURA_SSN_CLAIM_KEY = "socialno";
 
 // Buypass ID — direkte OIDC, ikke via Idura. Fødselsnummer krever scopet
 // `bpnnin` og kommer tilbake i claimet `bp_nnin_sub` (IKKE `socialno` som hos
-// BankID/Idura). Uavklart ennå om Buypass i tillegg krever klientsertifikat
-// (.p12) for token-utveksling utover client_secret — verifiser mot Buypass
-// sitt dashbord/kontaktperson før første ekte test. Hvis ja, må
-// token-utvekslingen bygges om fra @criipto/verify-express (som kun
-// støtter client_secret) til en egen fetch-basert utveksling med
-// sertifikatet.
+// BankID/Idura).
+//
+// Bekreftet mot Buypass sin egen OIDC-discovery (auth.tsp.buypass.no/auth/
+// realms/buypassid/.well-known/openid-configuration) at BuypassID kun
+// autentiserer klienten med `private_key_jwt` — IKKE client_secret og IKKE
+// mTLS på selve TLS-forbindelsen. Certifikatet brukes til å SIGNERE en
+// client assertion-JWT som sendes i selve token-kallet, matcher Keycloaks
+// «Signed JWT with Client Certificate»-autentikator (derav at Buypass krever
+// nettopp et sertifikat, ikke bare et nøkkelpar). @criipto/verify-express
+// støtter kun client_secret, så hele Buypass-flyten (authorize-redirect,
+// PKCE, token-utveksling, id_token-verifisering) er bygget for hånd her,
+// ikke via biblioteket BankID bruker.
 const BUYPASS_LOGIN_PATH = "/api/auth/buypass/login";
 const BUYPASS_CALLBACK_PATH = "/api/auth/buypass/callback";
 const BUYPASS_SSN_CLAIM_KEY = "bp_nnin_sub";
 const BUYPASS_SCOPE = "openid profile bpid bpnnin";
+const BUYPASS_AUTHORIZE_PATH = "protocol/openid-connect/auth";
+const BUYPASS_TOKEN_PATH = "protocol/openid-connect/token";
+const BUYPASS_JWKS_PATH = "protocol/openid-connect/certs";
+
+// Bygger og signerer en RFC 7523 client assertion-JWT for Buypass sin
+// private_key_jwt-autentisering. `x5t#S256`-header-claimet (SHA-256-
+// fingeravtrykk av selve sertifikatet, ikke nøkkelen) er det Keycloak bruker
+// til å slå opp hvilket registrert sertifikat JWT-en skal verifiseres mot —
+// uten dette matcher Buypass ikke signaturen mot riktig klient-credential.
+async function buildBuypassClientAssertion(params: {
+  clientId: string;
+  tokenEndpoint: string;
+  certPem: string;
+  keyPem: string;
+}): Promise<string> {
+  const privateKey = await importPKCS8(params.keyPem, "RS256");
+  const certDer = Buffer.from(
+    params.certPem.replace(/-----BEGIN CERTIFICATE-----|-----END CERTIFICATE-----|\s+/g, ""),
+    "base64",
+  );
+  const x5tS256 = createHash("sha256").update(certDer).digest("base64url");
+
+  return new SignJWT({})
+    .setProtectedHeader({ alg: "RS256", "x5t#S256": x5tS256 })
+    .setIssuer(params.clientId)
+    .setSubject(params.clientId)
+    .setAudience(params.tokenEndpoint)
+    .setJti(randomBytes(16).toString("hex"))
+    .setIssuedAt()
+    .setExpirationTime("60s")
+    .sign(privateKey);
+}
 
 export function requiresEidLogin(role: string | null | undefined): boolean {
   return !canAccessVendorApiAdmin(role);
@@ -393,38 +444,109 @@ export async function setupEidAuth(app: Express): Promise<void> {
   }
 
   // Buypass ID — direkte OIDC, egen klient, ikke via Idura. Samme
-  // deaktiver-hvis-ukonfigurert-filosofi som BankID over: mangler
-  // BUYPASS_DOMAIN/BUYPASS_CLIENT_ID/BUYPASS_CLIENT_SECRET, deaktiveres kun
-  // Buypass-innlogging, resten av appen (inkl. BankID) upåvirket.
+  // deaktiver-hvis-ukonfigurert-filosofi som BankID over: mangler noe av
+  // dette, deaktiveres kun Buypass-innlogging, resten av appen (inkl.
+  // BankID) upåvirket. PEM-ene settes som miljøvariabler (multiline er
+  // greit i Render), aldri som filer sjekket inn i repoet.
   const buypassDomain = process.env.BUYPASS_DOMAIN;
   const buypassClientId = process.env.BUYPASS_CLIENT_ID;
-  const buypassClientSecret = process.env.BUYPASS_CLIENT_SECRET;
+  const buypassCertPem = process.env.BUYPASS_CLIENT_CERT_PEM;
+  const buypassKeyPem = process.env.BUYPASS_CLIENT_KEY_PEM;
 
-  if (!buypassDomain || !buypassClientId || !buypassClientSecret) {
+  if (!buypassDomain || !buypassClientId || !buypassCertPem || !buypassKeyPem) {
     console.warn(
-      "[eid] BUYPASS_DOMAIN/BUYPASS_CLIENT_ID/BUYPASS_CLIENT_SECRET er ikke konfigurert — Buypass er deaktivert",
+      "[eid] BUYPASS_DOMAIN/BUYPASS_CLIENT_ID/BUYPASS_CLIENT_CERT_PEM/BUYPASS_CLIENT_KEY_PEM er ikke konfigurert — Buypass er deaktivert",
     );
   } else {
-    // NB: uverifisert om Buypass i tillegg krever klientsertifikat (.p12) for
-    // token-utveksling — se kommentaren ved BUYPASS_SSN_CLAIM_KEY øverst i
-    // filen. Hvis @criipto/verify-express sin client_secret-utveksling feiler
-    // mot Buypass i praksis, er det her det må erstattes med en fetch-basert
-    // utveksling som sender med sertifikatet.
-    const buypass = new CriiptoVerifyExpressRedirect({
-      domain: buypassDomain,
-      clientID: buypassClientId,
-      clientSecret: buypassClientSecret,
-      redirectUri: `${getAppBaseUrl()}${BUYPASS_CALLBACK_PATH}`,
-      beforeAuthorize: (_req, options) => ({
-        ...options,
-        scope: BUYPASS_SCOPE,
-      }),
-    });
-    const buypassMiddleware = buypass.middleware({ force: true, failureRedirect: "/" }) as unknown as RequestHandler;
-    const handleBuypassCallback = createEidCallbackHandler("buypass", BUYPASS_SSN_CLAIM_KEY);
+    const buypassAuthorizeEndpoint = `https://${buypassDomain}/${BUYPASS_AUTHORIZE_PATH}`;
+    const buypassTokenEndpoint = `https://${buypassDomain}/${BUYPASS_TOKEN_PATH}`;
+    const buypassJwks = createRemoteJWKSet(new URL(`https://${buypassDomain}/${BUYPASS_JWKS_PATH}`));
+    const buypassRedirectUri = `${getAppBaseUrl()}${BUYPASS_CALLBACK_PATH}`;
+    const handleBuypassIdentity = createEidCallbackHandler("buypass", BUYPASS_SSN_CLAIM_KEY);
 
-    app.get(BUYPASS_LOGIN_PATH, buypassMiddleware, handleBuypassCallback);
-    app.get(BUYPASS_CALLBACK_PATH, buypassMiddleware, handleBuypassCallback);
+    app.get(BUYPASS_LOGIN_PATH, (req, res) => {
+      const state = randomBytes(24).toString("base64url");
+      const nonce = randomBytes(24).toString("base64url");
+      const codeVerifier = randomBytes(32).toString("base64url");
+      const codeChallenge = createHash("sha256").update(codeVerifier).digest("base64url");
+
+      req.session.buypassOAuth = { state, nonce, codeVerifier };
+
+      const url = new URL(buypassAuthorizeEndpoint);
+      url.searchParams.set("response_type", "code");
+      url.searchParams.set("client_id", buypassClientId);
+      url.searchParams.set("redirect_uri", buypassRedirectUri);
+      url.searchParams.set("scope", BUYPASS_SCOPE);
+      url.searchParams.set("state", state);
+      url.searchParams.set("nonce", nonce);
+      url.searchParams.set("code_challenge", codeChallenge);
+      url.searchParams.set("code_challenge_method", "S256");
+
+      res.redirect(url.toString());
+    });
+
+    app.get(BUYPASS_CALLBACK_PATH, async (req, res, next) => {
+      try {
+        const { code, state } = req.query;
+        const stored = req.session.buypassOAuth;
+        delete req.session.buypassOAuth; // one-shot — hindrer replay av samme state
+
+        if (typeof code !== "string" || typeof state !== "string" || !stored || state !== stored.state) {
+          return res.redirect("/?error=eid_failed");
+        }
+
+        const clientAssertion = await buildBuypassClientAssertion({
+          clientId: buypassClientId,
+          tokenEndpoint: buypassTokenEndpoint,
+          certPem: buypassCertPem,
+          keyPem: buypassKeyPem,
+        });
+
+        const tokenRes = await fetch(buypassTokenEndpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: buypassRedirectUri,
+            client_id: buypassClientId,
+            code_verifier: stored.codeVerifier,
+            client_assertion_type: "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+            client_assertion: clientAssertion,
+          }),
+        });
+
+        if (!tokenRes.ok) {
+          // Kroppen inneholder Buypass sin faktiske feilforklaring — logg
+          // den, den er nøkkelen til å diagnostisere feil client-oppsett
+          // (f.eks. feil x5t#S256 eller ikke-registrert sertifikat).
+          const errBody = await tokenRes.text().catch(() => "");
+          console.error("[eid] Buypass token-utveksling feilet", tokenRes.status, errBody);
+          return res.redirect("/?error=eid_failed");
+        }
+
+        const tokens = (await tokenRes.json()) as { id_token?: string };
+        if (!tokens.id_token) {
+          console.error("[eid] Buypass token-respons mangler id_token");
+          return res.redirect("/?error=eid_failed");
+        }
+
+        const { payload: claims } = await jwtVerify(tokens.id_token, buypassJwks, {
+          issuer: `https://${buypassDomain}`,
+          audience: buypassClientId,
+        });
+
+        if (stored.nonce && claims.nonce !== stored.nonce) {
+          return res.redirect("/?error=eid_failed");
+        }
+
+        req.claims = claims;
+        return handleBuypassIdentity(req, res, next);
+      } catch (err) {
+        console.error("[eid] Buypass callback feilet", err);
+        return res.redirect("/?error=eid_failed");
+      }
+    });
   }
 
   app.get("/api/auth/eid/status", async (req, res) => {
