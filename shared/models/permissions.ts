@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { boolean, integer, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from "drizzle-orm/pg-core";
 
-export const permissions = pgTable("permissions", {
+export const permissions = pgTable("tidum_permissions", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   key: varchar("key").notNull().unique(),
   label: text("label").notNull(),
@@ -10,7 +10,7 @@ export const permissions = pgTable("permissions", {
 });
 
 export const roles = pgTable(
-  "roles",
+  "tidum_roles",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     name: varchar("name").notNull(),
@@ -25,18 +25,18 @@ export const roles = pgTable(
     // COALESCE(vendor_id, -1) for NULL-handling; this Drizzle index is a typed
     // descriptor for query-building only. migrations/*.sql is the source of truth for
     // actual schema (see also role backfill UPDATE statement that relies on this).
-    uniqueIndex("roles_scope_vendor_name_key").on(table.scope, table.vendorId, table.name),
+    uniqueIndex("tidum_roles_scope_vendor_name_key").on(table.scope, table.vendorId, table.name),
   ],
 );
 
 export const rolePermissions = pgTable(
-  "role_permissions",
+  "tidum_role_permissions",
   {
     roleId: uuid("role_id").notNull().references(() => roles.id, { onDelete: "cascade" }),
     permissionId: uuid("permission_id").notNull().references(() => permissions.id, { onDelete: "cascade" }),
   },
   (table) => [
-    uniqueIndex("role_permissions_role_permission_key").on(table.roleId, table.permissionId),
+    uniqueIndex("tidum_role_permissions_role_permission_key").on(table.roleId, table.permissionId),
   ],
 );
 
