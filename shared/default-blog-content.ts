@@ -1498,7 +1498,7 @@ function renderIntegrationArticleContent(article: IntegrationArticleDraft) {
 
 const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
   {
-    title: "BankID i Tidum: hvorfor nivå høy-innlogging betyr noe for barnevern",
+    title: "BankID i Tidum: hvorfor sikker innlogging betyr noe for barnevern",
     slug: "bankid-innlogging-tidum-sikkerhet",
     excerpt:
       "Tidum støtter innlogging med BankID på sikkerhetsnivå høy. Her er hva det faktisk betyr, og hvorfor det er mer enn en avkrysningsboks for virksomheter som jobber med sårbare barn og familier.",
