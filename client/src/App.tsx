@@ -56,6 +56,7 @@ const InteractiveGuide = lazy(() => import("@/pages/interactive-guide"));
 const BuilderPage = lazy(() => import("@/pages/builder-page"));
 const Blog = lazy(() => import("@/pages/blog"));
 const BlogPostPage = lazy(() => import("@/pages/blog-post"));
+const IntegrasjonerPage = lazy(() => import("@/pages/integrasjoner"));
 const RapportListePage = lazy(() => import("@/pages/rapporter/RapportListePage"));
 const RapportSkrivePage = lazy(() => import("@/pages/rapporter/RapportSkrivePage"));
 const TiltakslederPage = lazy(() => import("@/pages/rapporter/TiltakslederPage"));
@@ -142,6 +143,7 @@ function Router() {
         <Route path="/guide" component={InteractiveGuide} />
         <Route path="/blog" component={Blog} />
         <Route path="/blog/:slug" component={BlogPostPage} />
+        <Route path="/integrasjoner" component={IntegrasjonerPage} />
         <Route path="/p/:slug" component={BuilderPage} />
         <Route path="/invite/:token" component={InviteAcceptPage} />
         <Route path="/logg-inn/koble-bankid" component={KobleBankId} />
