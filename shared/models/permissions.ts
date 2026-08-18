@@ -21,6 +21,10 @@ export const roles = pgTable(
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
   (table) => [
+    // NB: actual unique constraint in migrations/054_role_permission_system.sql uses
+    // COALESCE(vendor_id, -1) for NULL-handling; this Drizzle index is a typed
+    // descriptor for query-building only. migrations/*.sql is the source of truth for
+    // actual schema (see also role backfill UPDATE statement that relies on this).
     uniqueIndex("roles_scope_vendor_name_key").on(table.scope, table.vendorId, table.name),
   ],
 );
