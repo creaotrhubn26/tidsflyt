@@ -24,6 +24,7 @@ import { vendorIntegrations } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { db } from "./db";
 import { processVendorSeatOverrun } from "./lib/seat-overrun";
+import { hasPermission } from "./lib/permissions";
 import {
   getBlogCoverOgUrl,
   getBlogCoverPath,
@@ -1130,8 +1131,8 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/vendors", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      // Only super_admin can create vendors
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "vendor.create"))) {
         return res.status(403).json({ error: 'Only super admin can create vendors' });
       }
 
@@ -1242,8 +1243,10 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const vendorId = parseInt(req.params.id);
 
-      // Only super_admin or vendor_admin of this vendor can create admins
-      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      const allowed = (await hasPermission(req.admin.roleId, "vendor.admin.create"))
+        || req.admin.vendorId === vendorId;
+      if (!allowed) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
