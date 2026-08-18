@@ -73,7 +73,7 @@ const upload = multer({
 });
 
 interface AuthRequest extends Request {
-  admin?: any;
+  admin?: any & { roleId?: string };
   companyUser?: any;
 }
 
@@ -194,10 +194,39 @@ function buildDefaultAnalyticsSettings() {
   };
 }
 
-function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+// Resolves the migrated super_admin system role's real UUID (Task 1's
+// roles table), cached at module scope — looked up once per server
+// process, not per request. If super_admin is ever renamed or
+// deleted/recreated after startup, this cache needs a restart to catch
+// up; acceptable for fase 1, revisit if role admin (Task 6) makes it a
+// real problem.
+let cachedSuperAdminRoleId: string | null = null;
+
+async function resolveSuperAdminRoleId(): Promise<string | null> {
+  if (cachedSuperAdminRoleId) return cachedSuperAdminRoleId;
+  try {
+    const result = await pool.query(
+      `SELECT id FROM roles WHERE scope = 'global' AND name = 'super_admin' LIMIT 1`,
+    );
+    cachedSuperAdminRoleId = result.rows[0]?.id ?? null;
+  } catch (err) {
+    // Fail closed (no roleId) rather than hang the request — matches
+    // hasPermission's fail-closed behavior in server/lib/permissions.ts.
+    console.error('[authenticateAdmin] failed to resolve super_admin role id', err);
+    cachedSuperAdminRoleId = null;
+  }
+  return cachedSuperAdminRoleId;
+}
+
+async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // DEV MODE: bypass auth
   if (isDevMode) {
-    req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
+    req.admin = {
+      id: '1',
+      email: 'dev@tidum.no',
+      role: 'super_admin',
+      roleId: (await resolveSuperAdminRoleId()) ?? undefined,
+    };
     return next();
   }
   // Try JWT Bearer token first
@@ -207,6 +236,10 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
       const token = authHeader.split(' ')[1];
       const decoded = jwt.verify(token, JWT_SECRET) as any;
       req.admin = decoded;
+      if (!req.admin.roleId) {
+        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [req.admin.id]);
+        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
+      }
       return next();
     } catch (err) {
       return res.status(401).json({ error: 'Invalid token' });
@@ -215,7 +248,7 @@ function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) 
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
-    req.admin = { id: user.id, email: user.email, role: user.role };
+    req.admin = { id: user.id, email: user.email, role: user.role, roleId: user.roleId ?? undefined };
     return next();
   }
   return res.status(401).json({ error: 'Authentication required' });
