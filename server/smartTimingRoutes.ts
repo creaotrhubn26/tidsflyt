@@ -1331,7 +1331,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // sendes aldri tilbake i noe API-svar eller logges.
   app.patch("/api/admin/users/expected-ssn", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "user.expected_ssn.set"))) {
         return res.status(403).json({ error: 'Kun super admin kan forhåndsregistrere fødselsnummer' });
       }
 
@@ -1370,7 +1371,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // List all prototype testers (super_admin only)
   app.get("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
         return res.status(403).json({ error: 'Only super admin can list prototype testers' });
       }
       const result = await pool.query(
@@ -1388,7 +1390,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // Invite a prototype tester — creates a portal user + sends magic link
   app.post("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "prototype_tester.invite"))) {
         return res.status(403).json({ error: 'Only super admin can invite prototype testers' });
       }
       const { email, fullName, sendInvite = true } = req.body;
@@ -1436,7 +1439,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // Convert prototype tester → vendor admin (moves role + sets vendor)
   app.post("/api/prototype-testers/:id/convert-to-vendor-admin", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "prototype_tester.convert"))) {
         return res.status(403).json({ error: 'Only super admin can convert' });
       }
       const userId = req.params.id;
