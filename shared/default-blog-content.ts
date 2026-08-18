@@ -1458,6 +1458,12 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
 // primitiver (escapeHtml, renderParagraphs, renderList, renderSources) for
 // samme sikkerhet, med fritt navngitte seksjoner i stedet.
 
+type IntegrationLogo = {
+  src: string;
+  alt: string;
+  width: number;
+};
+
 type IntegrationArticleDraft = {
   title: string;
   slug: string;
@@ -1466,6 +1472,7 @@ type IntegrationArticleDraft = {
   metaTitle: string;
   metaDescription: string;
   tags: string[];
+  logo: IntegrationLogo;
   intro: string[];
   leadFigure?: BlogFigure;
   sections: { heading: string; section: BlogSection }[];
@@ -1473,8 +1480,13 @@ type IntegrationArticleDraft = {
   publishedAt: string;
 };
 
+function renderIntegrationLogo(logo: IntegrationLogo) {
+  return `<img src="${escapeHtml(logo.src)}" alt="${escapeHtml(logo.alt)}" width="${logo.width}" class="integration-logo" />`;
+}
+
 function renderIntegrationArticleContent(article: IntegrationArticleDraft) {
   return [
+    renderIntegrationLogo(article.logo),
     renderParagraphs(article.intro),
     renderFigure(article.leadFigure),
     ...article.sections.map(({ heading, section }) => renderSection(heading, section)),
@@ -1495,6 +1507,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     metaDescription:
       "Tidum tilbyr BankID-innlogging på sikkerhetsnivå høy. Se hvordan det er bygget, hvorfor identitet aldri lagres i klartekst, og hva det betyr for barnevern og andre sensitive sektorer.",
     tags: ["BankID", "eID", "sikkerhet", "barnevern", "personvern"],
+    logo: { src: "/logos/bankid-logo.svg", alt: "BankID", width: 160 },
     intro: [
       "Et passord beviser bare at noen kjenner riktig tegnkombinasjon. BankID beviser hvem de faktisk er. For en tiltaksbedrift som fører timer og skriver rapporter om barn i barnevernet, er det ikke en detalj: det er selve grunnlaget for at dokumentasjonen skal kunne stoles på i etterkant.",
       "Tidum støtter innlogging med BankID på sikkerhetsnivå høy, det strengeste nivået i den norske eID-modellen og nivået offentlig sektor krever for tilgang til sensitive personopplysninger.",
@@ -1552,6 +1565,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     metaDescription:
       "Tidum utvider eID-innloggingen med Buypass, på samme sikkerhetsnivå som BankID. Se hvordan én person gjenkjennes som samme konto uansett hvilken eID de logger inn med.",
     tags: ["Buypass", "eID", "sikkerhet", "innlogging"],
+    logo: { src: "/logos/buypass-logo.svg", alt: "Buypass", width: 160 },
     intro: [
       "Ikke alle har BankID. Noen foretrekker eller bruker i praksis Buypass som sin elektroniske ID, og en virksomhet som skal la ansatte, tiltaksledere og samarbeidspartnere logge inn trygt, kan ikke basere hele sikkerheten på at alle har nøyaktig samme leverandør.",
       "Derfor bygger Tidum eID-innlogging med Buypass som et likestilt alternativ til BankID, med samme sikkerhetsnivå og samme prinsipper. Viktigst: samme evne til å kjenne igjen at det er den samme personen som logger inn, uansett hvilken av de to de velger.",
@@ -1600,6 +1614,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     metaDescription:
       "Tidum arkiverer godkjente rapporter automatisk som journalposter i Documaster etter Noark 5-standarden, med skjerming, sporbarhet og idempotent, feiltolerant arkivering.",
     tags: ["Documaster", "Noark 5", "arkivering", "barnevern", "sporbarhet"],
+    logo: { src: "/logos/documaster-logo.svg", alt: "Documaster", width: 200 },
     intro: [
       "En rapport som er godkjent, men bare ligger i en database inne i et fagsystem, er ikke arkivert i lovens forstand. Offentlig sektor i Norge er bundet av Noark 5, standarden for hvordan saksdokumenter skal struktureres, skjermes og bevares slik at de kan gjenfinnes og etterprøves i årevis fremover.",
       "Tidum arkiverer nå godkjente rapporter automatisk som journalposter i en ekstern, Noark 5-kompatibel arkivkjerne. Først ute er Documaster.",

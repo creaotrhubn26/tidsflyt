@@ -7,14 +7,11 @@ import { usePublicLightTheme } from "@/hooks/use-public-light-theme";
 import {
   ArrowRight,
   ShieldCheck,
-  KeyRound,
-  Archive,
   CheckCircle,
   CheckCircle2,
   ChevronRight,
   ClipboardList,
   Newspaper,
-  LucideIcon,
 } from "lucide-react";
 import tidumWordmark from "@assets/tidum-wordmark.png";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
@@ -22,7 +19,8 @@ import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
 const INTEGRASJONER_OG_IMAGE = "https://tidum.no/screenshots/time-tracking.png";
 
 interface IntegrationCard {
-  icon: LucideIcon;
+  logoSrc: string;
+  logoAlt: string;
   name: string;
   tagline: string;
   description: string;
@@ -32,7 +30,8 @@ interface IntegrationCard {
 
 const integrations: IntegrationCard[] = [
   {
-    icon: KeyRound,
+    logoSrc: "/logos/bankid-logo.svg",
+    logoAlt: "BankID",
     name: "BankID",
     tagline: "Innlogging på sikkerhetsnivå høy",
     description:
@@ -45,7 +44,8 @@ const integrations: IntegrationCard[] = [
     href: "/blog/bankid-innlogging-tidum-sikkerhet",
   },
   {
-    icon: ShieldCheck,
+    logoSrc: "/logos/buypass-logo.svg",
+    logoAlt: "Buypass",
     name: "Buypass",
     tagline: "Ett eID-valg til, samme sikkerhet",
     description:
@@ -58,7 +58,8 @@ const integrations: IntegrationCard[] = [
     href: "/blog/buypass-innlogging-tidum",
   },
   {
-    icon: Archive,
+    logoSrc: "/logos/documaster-logo.svg",
+    logoAlt: "Documaster",
     name: "Documaster",
     tagline: "Noark 5-arkivering",
     description:
@@ -147,17 +148,19 @@ export default function Integrasjoner() {
         {/* ── Integration Cards ── */}
         <section className="tidum-fade-up mt-12">
           <div className="grid gap-5 md:grid-cols-3">
-            {integrations.map((integration) => {
-              const Icon = integration.icon;
-              return (
+            {integrations.map((integration) => (
                 <Card
                   key={integration.name}
                   className="h-full rounded-2xl border-[var(--color-border)] bg-white/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]"
                   data-testid={`card-integration-${integration.name.toLowerCase()}`}
                 >
                   <CardContent className="flex h-full flex-col p-6 sm:p-7">
-                    <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-[#E7F3EE]">
-                      <Icon className="h-6 w-6 text-[#3A8B73]" />
+                    <div className="mb-4 flex h-11 items-center">
+                      <img
+                        src={integration.logoSrc}
+                        alt={integration.logoAlt}
+                        className="h-7 w-auto object-contain"
+                      />
                     </div>
                     <h2 className="text-xl font-semibold text-[#1D2C31]">{integration.name}</h2>
                     <p className="mt-1 text-sm font-medium text-[var(--color-primary)]">{integration.tagline}</p>
@@ -184,8 +187,7 @@ export default function Integrasjoner() {
                     </div>
                   </CardContent>
                 </Card>
-              );
-            })}
+            ))}
           </div>
         </section>
 
