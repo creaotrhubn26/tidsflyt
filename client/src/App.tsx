@@ -21,6 +21,7 @@ import { TesterFeedbackButton } from "@/components/tester/tester-feedback-button
 
 const Landing = lazy(() => import("@/pages/landing"));
 const KobleBankId = lazy(() => import("@/pages/koble-bankid"));
+const KobleBuypass = lazy(() => import("@/pages/koble-buypass"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const TimeTracking = lazy(() => import("@/pages/time-tracking"));
 const Reports = lazy(() => import("@/pages/reports"));
@@ -147,6 +148,7 @@ function Router() {
         <Route path="/p/:slug" component={BuilderPage} />
         <Route path="/invite/:token" component={InviteAcceptPage} />
         <Route path="/logg-inn/koble-bankid" component={KobleBankId} />
+        <Route path="/logg-inn/koble-buypass" component={KobleBuypass} />
 
         {/* Protected routes */}
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>

@@ -7,6 +7,7 @@ import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
+import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
 import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
 import crypto from "crypto";
@@ -1269,6 +1270,48 @@ export function registerSmartTimingRoutes(app: Express) {
     } catch (err: any) {
       if (String(err?.code) === '23505') {
         return res.status(409).json({ error: 'Brukernavn eller e-post finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  // Forhåndsregistrer fødselsnummeret en konto skal kobles til, FØR
+  // personen har logget inn med eID (migrations/053). Kun super_admin —
+  // fødselsnummer er sensitivt, og feilkobling (feil person) er alvorlig.
+  // Fødselsnummeret hashes med en gang og lagres aldri i klartekst; det
+  // sendes aldri tilbake i noe API-svar eller logges.
+  app.patch("/api/admin/users/expected-ssn", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Kun super admin kan forhåndsregistrere fødselsnummer' });
+      }
+
+      const { email, personnummer } = req.body as { email?: string; personnummer?: string };
+      if (!email?.trim() || !personnummer?.trim()) {
+        return res.status(400).json({ error: 'E-post og personnummer er påkrevd' });
+      }
+
+      let ssnHash: string;
+      try {
+        ssnHash = hashSsn(personnummer);
+      } catch {
+        return res.status(503).json({ error: 'eID er ikke konfigurert (EID_SSN_HASH_PEPPER mangler)' });
+      }
+
+      const result = await pool.query(
+        `UPDATE users SET expected_ssn_hash = $1, updated_at = NOW()
+         WHERE email = $2 RETURNING id, email`,
+        [ssnHash, email.toLowerCase().trim()],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Fant ingen bruker med denne e-postadressen' });
+      }
+
+      res.json({ id: result.rows[0].id, email: result.rows[0].email, expectedSsnSet: true });
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Dette personnummeret er allerede forhåndsregistrert på en annen konto' });
       }
       res.status(400).json({ error: err.message });
     }
