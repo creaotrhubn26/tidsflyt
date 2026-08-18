@@ -62,10 +62,10 @@ const integrations: IntegrationCard[] = [
     name: "Documaster",
     tagline: "Noark 5-arkivering",
     description:
-      "Godkjente rapporter arkiveres automatisk som journalposter etter Noark 5-standarden — lovkravet for offentlig sektors saksbehandling.",
+      "Godkjente rapporter arkiveres automatisk som journalposter etter Noark 5-standarden, lovkravet for offentlig sektors saksbehandling.",
     points: [
       "Automatisk saksmappe- og journalpost-opprettelse",
-      "Idempotent — ingen dobbeltarkivering",
+      "Idempotent, ingen dobbeltarkivering",
       "Testet mot en ekte Documaster-instans",
     ],
     href: "/blog/documaster-noark5-arkivering-tidum",
@@ -77,9 +77,9 @@ export default function Integrasjoner() {
   const [, setLocation] = useLocation();
 
   useSEO({
-    title: "Tidum sine integrasjoner – BankID, Buypass og Documaster",
+    title: "Tidum sine integrasjoner: BankID, Buypass og Documaster",
     description:
-      "Se hvordan Tidum kobles til BankID, Buypass og Documaster — og hva det betyr for sikkerhet, sporbarhet og dokumentasjonsplikt for sensitive sektorer som barnevern.",
+      "Se hvordan Tidum kobles til BankID, Buypass og Documaster, og hva det betyr for sikkerhet, sporbarhet og dokumentasjonsplikt for sensitive sektorer som barnevern.",
     ogDescription:
       "Tidum sine integrasjoner: eID-innlogging med BankID og Buypass, og Noark 5-arkivering med Documaster.",
     ogImage: INTEGRASJONER_OG_IMAGE,
@@ -200,7 +200,7 @@ export default function Integrasjoner() {
               <p className="mt-4 text-[var(--color-text-muted)]">
                 Barnevernsloven og forvaltningsloven stiller strenge krav til hvem som får tilgang til hva,
                 og til at det kan dokumenteres i etterkant. Verifisert identitet ved innlogging og
-                lovpålagt arkivering av rapporter er ikke tilleggsfunksjoner hos Tidum — de er en del av
+                lovpålagt arkivering av rapporter er ikke tilleggsfunksjoner hos Tidum. De er en del av
                 grunnmuren.
               </p>
             </div>

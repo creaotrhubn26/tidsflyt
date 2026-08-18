@@ -165,7 +165,7 @@ export const DEFAULT_BLOG_CATEGORIES: DefaultBlogCategorySeed[] = [
     name: "Integrasjoner",
     slug: "integrasjoner",
     description:
-      "Hvordan Tidum kobles til BankID, Buypass, Documaster og andre systemer — og hva det faktisk betyr for sikkerhet, sporbarhet og dokumentasjonsplikt.",
+      "Hvordan Tidum kobles til BankID, Buypass, Documaster og andre systemer, og hva det faktisk betyr for sikkerhet, sporbarhet og dokumentasjonsplikt.",
   },
 ];
 
@@ -1467,6 +1467,7 @@ type IntegrationArticleDraft = {
   metaDescription: string;
   tags: string[];
   intro: string[];
+  leadFigure?: BlogFigure;
   sections: { heading: string; section: BlogSection }[];
   sources?: BlogSource[];
   publishedAt: string;
@@ -1475,6 +1476,7 @@ type IntegrationArticleDraft = {
 function renderIntegrationArticleContent(article: IntegrationArticleDraft) {
   return [
     renderParagraphs(article.intro),
+    renderFigure(article.leadFigure),
     ...article.sections.map(({ heading, section }) => renderSection(heading, section)),
     renderSources(article.sources),
   ]
@@ -1487,23 +1489,28 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     title: "BankID i Tidum: hvorfor nivå høy-innlogging betyr noe for barnevern",
     slug: "bankid-innlogging-tidum-sikkerhet",
     excerpt:
-      "Tidum støtter innlogging med BankID på sikkerhetsnivå høy. Her er hva det faktisk betyr — og hvorfor det er mer enn en avkrysningsboks for virksomheter som jobber med sårbare barn og familier.",
+      "Tidum støtter innlogging med BankID på sikkerhetsnivå høy. Her er hva det faktisk betyr, og hvorfor det er mer enn en avkrysningsboks for virksomheter som jobber med sårbare barn og familier.",
     categorySlug: "integrasjoner",
-    metaTitle: "BankID-innlogging i Tidum — sikkerhetsnivå høy forklart",
+    metaTitle: "BankID-innlogging i Tidum: sikkerhetsnivå høy forklart",
     metaDescription:
       "Tidum tilbyr BankID-innlogging på sikkerhetsnivå høy. Se hvordan det er bygget, hvorfor identitet aldri lagres i klartekst, og hva det betyr for barnevern og andre sensitive sektorer.",
     tags: ["BankID", "eID", "sikkerhet", "barnevern", "personvern"],
     intro: [
-      "Et passord beviser at noen kjenner en streng tegn. BankID beviser hvem de faktisk er. For en tiltaksbedrift som fører timer og skriver rapporter om barn i barnevernet, er det ikke en detalj — det er selve grunnlaget for at dokumentasjonen skal kunne stoles på i etterkant.",
-      "Tidum støtter innlogging med BankID på sikkerhetsnivå høy — det strengeste nivået i den norske eID-modellen, og det nivået offentlig sektor krever for tilgang til sensitive personopplysninger.",
+      "Et passord beviser bare at noen kjenner riktig tegnkombinasjon. BankID beviser hvem de faktisk er. For en tiltaksbedrift som fører timer og skriver rapporter om barn i barnevernet, er det ikke en detalj: det er selve grunnlaget for at dokumentasjonen skal kunne stoles på i etterkant.",
+      "Tidum støtter innlogging med BankID på sikkerhetsnivå høy, det strengeste nivået i den norske eID-modellen og nivået offentlig sektor krever for tilgang til sensitive personopplysninger.",
     ],
+    leadFigure: {
+      src: "/screenshots/blog/tidum-bankid-innlogging.png",
+      alt: "Logg inn med BankID-knappen på Tidums innloggingsside",
+      caption: "Innlogging med BankID er tilgjengelig direkte fra Tidums forside.",
+    },
     sections: [
       {
         heading: "Hva «nivå høy» faktisk krever",
         section: {
           paragraphs: [
-            "Sikkerhetsnivåene for elektronisk ID i Norge er ikke Tidum sin oppfinnelse — de er fastsatt av Digdir og brukes som felles språk mellom alle offentlige og private tjenester som håndterer sensitive data. Nivå høy krever to-faktor-autentisering med en eID som er personlig utstedt og verifisert mot folkeregisteret, ikke bare en e-postadresse og et selvvalgt passord.",
-            "For Tidum betyr det at når en miljøarbeider eller tiltaksleder logger inn med BankID, er identiteten deres bekreftet av en uavhengig tredjepart — ikke bare av at de kjenner riktig passord til akkurat denne appen.",
+            "Sikkerhetsnivåene for elektronisk ID i Norge er ikke Tidum sin oppfinnelse. De er fastsatt av Digdir og brukes som felles språk mellom alle offentlige og private tjenester som håndterer sensitive data. Nivå høy krever to-faktor-autentisering med en eID som er personlig utstedt og verifisert mot folkeregisteret, ikke bare en e-postadresse og et selvvalgt passord.",
+            "For Tidum betyr det at når en miljøarbeider eller tiltaksleder logger inn med BankID, er identiteten deres bekreftet av en uavhengig tredjepart, ikke bare av at de kjenner riktig passord til akkurat denne appen.",
           ],
         },
       },
@@ -1511,7 +1518,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Vi bygger aldri nye brukere fra en eID-innlogging",
         section: {
           paragraphs: [
-            "En vanlig feil i eID-integrasjoner er å la selve innloggingen opprette kontoer automatisk. Det gjør vi bevisst ikke. BankID i Tidum brukes til å koble en verifisert identitet til en konto som allerede finnes — opprettet og godkjent av en administrator på forhånd. Innlogging beviser hvem du er; den gir deg aldri tilgang du ikke allerede var tiltenkt.",
+            "En vanlig feil i eID-integrasjoner er å la selve innloggingen opprette kontoer automatisk. Det gjør vi bevisst ikke. BankID i Tidum brukes til å koble en verifisert identitet til en konto som allerede finnes, opprettet og godkjent av en administrator på forhånd. Innlogging beviser hvem du er; den gir deg aldri tilgang du ikke allerede var tiltenkt.",
           ],
         },
       },
@@ -1519,8 +1526,8 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Fødselsnummeret lagres aldri i klartekst",
         section: {
           paragraphs: [
-            "Når BankID bekrefter en identitet, får Tidum et fødselsnummer tilbake fra eID-leverandøren. Det lagres aldri rått i databasen. I stedet regnes det om til en énveis kryptografisk hash (HMAC-SHA256 med en hemmelig salt) — en verdi som kan brukes til å GJENKJENNE at «dette er samme person som sist», men som ikke kan regnes tilbake til et faktisk fødselsnummer hvis databasen noensinne skulle komme på avveie.",
-            "Hver innlogging logges i et hash-kjedet revisjonsspor — samme mønster som resten av Tidums sensitive handlinger — slik at dere kan dokumentere i ettertid nøyaktig når og på hvilket sikkerhetsnivå en person fikk tilgang.",
+            "Når BankID bekrefter en identitet, får Tidum et fødselsnummer tilbake fra eID-leverandøren. Det lagres aldri rått i databasen. I stedet regnes det om til en énveis kryptografisk hash (HMAC-SHA256 med en hemmelig salt), en verdi som kan brukes til å gjenkjenne at «dette er samme person som sist», men som ikke kan regnes tilbake til et faktisk fødselsnummer hvis databasen noensinne skulle komme på avveie.",
+            "Hver innlogging logges i et hash-kjedet revisjonsspor, samme mønster som resten av Tidums sensitive handlinger, slik at dere kan dokumentere i ettertid nøyaktig når og på hvilket sikkerhetsnivå en person fikk tilgang.",
           ],
         },
       },
@@ -1539,23 +1546,28 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     title: "Buypass i Tidum: samme sikkerhet, ett valg til",
     slug: "buypass-innlogging-tidum",
     excerpt:
-      "Tidum bygger innlogging med Buypass på samme sikkerhetsnivå som BankID — og med samme evne til å gjenkjenne én person uansett hvilken eID de velger. Slik henger de sammen under panseret.",
+      "Tidum bygger innlogging med Buypass på samme sikkerhetsnivå som BankID, og med samme evne til å gjenkjenne én person uansett hvilken eID de velger. Slik henger de sammen under panseret.",
     categorySlug: "integrasjoner",
-    metaTitle: "Buypass-innlogging i Tidum — samme identitet, ett eID-valg til",
+    metaTitle: "Buypass-innlogging i Tidum: samme identitet, ett eID-valg til",
     metaDescription:
       "Tidum utvider eID-innloggingen med Buypass, på samme sikkerhetsnivå som BankID. Se hvordan én person gjenkjennes som samme konto uansett hvilken eID de logger inn med.",
     tags: ["Buypass", "eID", "sikkerhet", "innlogging"],
     intro: [
-      "Ikke alle har BankID. Noen foretrekker eller bruker i praksis Buypass som sin elektroniske ID — og en virksomhet som skal la ansatte, tiltaksledere og samarbeidspartnere logge inn trygt, kan ikke basere hele sikkerheten på at alle har nøyaktig samme leverandør.",
-      "Derfor bygger Tidum eID-innlogging med Buypass som et likestilt alternativ til BankID — samme sikkerhetsnivå, samme prinsipper, og viktigst: samme evne til å kjenne igjen at det er den samme personen som logger inn, uansett hvilken av de to de velger.",
+      "Ikke alle har BankID. Noen foretrekker eller bruker i praksis Buypass som sin elektroniske ID, og en virksomhet som skal la ansatte, tiltaksledere og samarbeidspartnere logge inn trygt, kan ikke basere hele sikkerheten på at alle har nøyaktig samme leverandør.",
+      "Derfor bygger Tidum eID-innlogging med Buypass som et likestilt alternativ til BankID, med samme sikkerhetsnivå og samme prinsipper. Viktigst: samme evne til å kjenne igjen at det er den samme personen som logger inn, uansett hvilken av de to de velger.",
     ],
+    leadFigure: {
+      src: screenshotDesktop,
+      alt: "Tidum desktop med dagens timeregistrering og saksoversikt",
+      caption: "Uansett hvilken eID du logger inn med, møtes du av samme Tidum-arbeidsflate.",
+    },
     sections: [
       {
-        heading: "Én person, én konto — uansett hvilken eID",
+        heading: "Én person, én konto uansett hvilken eID",
         section: {
           paragraphs: [
-            "Det viktigste designvalget i denne integrasjonen er usynlig for brukeren: en person som er koblet til Tidum med BankID skal gjenkjennes som nøyaktig samme konto hvis de en annen dag logger inn med Buypass. Det oppnås ved at begge eID-leverandørene regner ut den samme énveis-hashen av fødselsnummeret — kontoen slås opp på hashen, ikke på hvilken leverandør som beviste identiteten akkurat denne gangen.",
-            "Det betyr at «hvilken eID har du» aldri blir en begrensning på hvem som kan logge inn trygt — bare et valg brukeren gjør der og da.",
+            "Det viktigste designvalget i denne integrasjonen er usynlig for brukeren: en person som er koblet til Tidum med BankID skal gjenkjennes som nøyaktig samme konto hvis de en annen dag logger inn med Buypass. Det oppnås ved at begge eID-leverandørene regner ut den samme énveis-hashen av fødselsnummeret, og kontoen slås opp på hashen, ikke på hvilken leverandør som beviste identiteten akkurat denne gangen.",
+            "Det betyr at «hvilken eID har du» aldri blir en begrensning på hvem som kan logge inn trygt, bare et valg brukeren gjør der og da.",
           ],
         },
       },
@@ -1571,7 +1583,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Samme forsiktighet som med BankID",
         section: {
           paragraphs: [
-            "De samme grunnprinsippene gjelder uforandret: ingen ny bruker opprettes automatisk fra en eID-innlogging — den kobles kun til en konto som allerede finnes. Fødselsnummeret lagres aldri i klartekst. Hver innlogging logges i det samme hash-kjedede revisjonssporet som resten av Tidums sensitive handlinger.",
+            "De samme grunnprinsippene gjelder uforandret: ingen ny bruker opprettes automatisk fra en eID-innlogging. Den kobles kun til en konto som allerede finnes. Fødselsnummeret lagres aldri i klartekst. Hver innlogging logges i det samme hash-kjedede revisjonssporet som resten av Tidums sensitive handlinger.",
           ],
         },
       },
@@ -1582,39 +1594,44 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     title: "Noark 5-arkivering med Documaster: sporbarhet som ikke er valgfritt",
     slug: "documaster-noark5-arkivering-tidum",
     excerpt:
-      "Godkjente rapporter i Tidum kan nå arkiveres automatisk som journalposter i Documaster, etter Noark 5-standarden. Det er ikke en funksjon lagt til for moro skyld — det er et lovkrav for offentlig sektor.",
+      "Godkjente rapporter i Tidum kan nå arkiveres automatisk som journalposter i Documaster, etter Noark 5-standarden. Det er ikke en funksjon lagt til for moro skyld. Det er et lovkrav for offentlig sektor.",
     categorySlug: "integrasjoner",
     metaTitle: "Noark 5-arkivering via Documaster i Tidum",
     metaDescription:
-      "Tidum arkiverer godkjente rapporter automatisk som journalposter i Documaster etter Noark 5-standarden — med skjerming, sporbarhet og idempotent, feiltolerant arkivering.",
+      "Tidum arkiverer godkjente rapporter automatisk som journalposter i Documaster etter Noark 5-standarden, med skjerming, sporbarhet og idempotent, feiltolerant arkivering.",
     tags: ["Documaster", "Noark 5", "arkivering", "barnevern", "sporbarhet"],
     intro: [
-      "En rapport som er godkjent, men bare ligger i en database inne i et fagsystem, er ikke arkivert i lovens forstand. Offentlig sektor i Norge er bundet av Noark 5 — standarden for hvordan saksdokumenter skal struktureres, skjermes og bevares slik at de kan gjenfinnes og etterprøves i årevis fremover.",
-      "Tidum arkiverer nå godkjente rapporter automatisk som journalposter i en ekstern, Noark 5-kompatibel arkivkjerne — først ute er Documaster.",
+      "En rapport som er godkjent, men bare ligger i en database inne i et fagsystem, er ikke arkivert i lovens forstand. Offentlig sektor i Norge er bundet av Noark 5, standarden for hvordan saksdokumenter skal struktureres, skjermes og bevares slik at de kan gjenfinnes og etterprøves i årevis fremover.",
+      "Tidum arkiverer nå godkjente rapporter automatisk som journalposter i en ekstern, Noark 5-kompatibel arkivkjerne. Først ute er Documaster.",
     ],
+    leadFigure: {
+      src: screenshotDesktop,
+      alt: "Tidum desktop med rapporter klare for godkjenning",
+      caption: "Arkiveringen kjører i bakgrunnen fra samme rapporter dere allerede skriver i Tidum.",
+    },
     sections: [
       {
         heading: "Hvordan det henger sammen",
         section: {
           paragraphs: [
-            "Når en rapport godkjennes i Tidum, legges den i en arkiveringskø. En egen jobb finner eller oppretter riktig saksmappe hos Documaster for saken, genererer PDF-en på samme måte som ved videresending, og oppretter en journalpost med dokumentet lagret i arkivformat — komplett med den skjermingskoden saken krever (standard: unntatt offentlighet, konfigurerbart per virksomhet).",
-            "Alt dette skjer i bakgrunnen. Godkjenning av en rapport blokkeres aldri av at arkiveringen tar tid eller feiler — men feilede forsøk følges opp automatisk med økende ventetid, og gis alltid opp til manuell oppfølging fremfor å forsvinne stille.",
+            "Når en rapport godkjennes i Tidum, legges den i en arkiveringskø. En egen jobb finner eller oppretter riktig saksmappe hos Documaster for saken, genererer PDF-en på samme måte som ved videresending, og oppretter en journalpost med dokumentet lagret i arkivformat, komplett med den skjermingskoden saken krever (standard: unntatt offentlighet, konfigurerbart per virksomhet).",
+            "Alt dette skjer i bakgrunnen. Godkjenning av en rapport blokkeres aldri av at arkiveringen tar tid eller feiler. Feilede forsøk følges opp automatisk med økende ventetid, og gis til slutt opp til manuell oppfølging fremfor å forsvinne stille.",
           ],
         },
       },
       {
-        heading: "Idempotent — ingen dobbeltarkivering",
+        heading: "Idempotent: ingen dobbeltarkivering",
         section: {
           paragraphs: [
-            "Hver sak og hver rapport merkes med en unik, ekstern identifikator når den arkiveres. Skulle noe kjøres på nytt — en tidsavbrutt forespørsel, en omstart midt i en jobb — slår systemet opp om objektet allerede finnes i arkivet før det oppretter noe nytt. Samme sak havner alltid i samme saksmappe; samme rapport arkiveres aldri to ganger.",
+            "Hver sak og hver rapport merkes med en unik, ekstern identifikator når den arkiveres. Skulle noe kjøres på nytt (en tidsavbrutt forespørsel, en omstart midt i en jobb), slår systemet opp om objektet allerede finnes i arkivet før det oppretter noe nytt. Samme sak havner alltid i samme saksmappe; samme rapport arkiveres aldri to ganger.",
           ],
         },
       },
       {
-        heading: "Verifisert mot en ekte arkivkjerne — ikke bare på papiret",
+        heading: "Testet mot en ekte arkivkjerne, ikke bare beskrevet på papiret",
         section: {
           paragraphs: [
-            "Klientkoden er skrevet direkte mot Documasters offisielle Noark 5-spesifikasjon for eksterne fagsystemer, og er testet mot en reell Documaster-instans: opprette saksmappe, laste opp dokument, opprette journalpost — med de samme kravene til referanser, dokumentversjoner og kodelister som spesifikasjonen selv beskriver. Det er forskjellen mellom kode som ser riktig ut, og kode som faktisk snakker korrekt med arkivet den skal levere til.",
+            "Klientkoden er skrevet direkte mot Documasters offisielle Noark 5-spesifikasjon for eksterne fagsystemer, og er testet mot en reell Documaster-instans: opprette saksmappe, laste opp dokument, opprette journalpost, med de samme kravene til referanser, dokumentversjoner og kodelister som spesifikasjonen selv beskriver. Det er forskjellen mellom kode som ser riktig ut, og kode som faktisk snakker korrekt med arkivet den skal levere til.",
           ],
         },
       },
