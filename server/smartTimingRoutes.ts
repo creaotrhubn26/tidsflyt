@@ -195,18 +195,19 @@ function buildDefaultAnalyticsSettings() {
 }
 
 // Resolves the migrated super_admin system role's real UUID (Task 1's
-// roles table), cached at module scope — looked up once per server
-// process, not per request. If super_admin is ever renamed or
-// deleted/recreated after startup, this cache needs a restart to catch
-// up; acceptable for fase 1, revisit if role admin (Task 6) makes it a
-// real problem.
+// tidum_roles table — renamed from the bare "roles" to avoid a collision
+// with an unrelated project's tables sharing this database), cached at
+// module scope — looked up once per server process, not per request. If
+// super_admin is ever renamed or deleted/recreated after startup, this
+// cache needs a restart to catch up; acceptable for fase 1, revisit if
+// role admin (Task 6) makes it a real problem.
 let cachedSuperAdminRoleId: string | null = null;
 
 async function resolveSuperAdminRoleId(): Promise<string | null> {
   if (cachedSuperAdminRoleId) return cachedSuperAdminRoleId;
   try {
     const result = await pool.query(
-      `SELECT id FROM roles WHERE scope = 'global' AND name = 'super_admin' LIMIT 1`,
+      `SELECT id FROM tidum_roles WHERE scope = 'global' AND name = 'super_admin' LIMIT 1`,
     );
     cachedSuperAdminRoleId = result.rows[0]?.id ?? null;
   } catch (err) {
@@ -249,6 +250,18 @@ async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunc
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
     req.admin = { id: user.id, email: user.email, role: user.role, roleId: user.roleId ?? undefined };
+    // AuthUser (server/lib/auth-types.ts) doesn't carry roleId today, so
+    // look it up the same way the JWT branch does rather than touching
+    // custom-auth.ts. Fail closed on a DB error instead of hanging the
+    // request, same as resolveSuperAdminRoleId above.
+    if (!req.admin.roleId) {
+      try {
+        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [user.id]);
+        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
+      } catch (err) {
+        console.error('[authenticateAdmin] failed to resolve session user roleId', err);
+      }
+    }
     return next();
   }
   return res.status(401).json({ error: 'Authentication required' });
