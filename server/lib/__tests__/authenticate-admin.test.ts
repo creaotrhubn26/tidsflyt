@@ -4,7 +4,7 @@ import { roles } from "@shared/models/permissions";
 import { eq } from "drizzle-orm";
 import request from "supertest";
 import express from "express";
-import { registerSmartTimingRoutes } from "../../smartTimingRoutes";
+import { registerSmartTimingRoutes, authenticateAdmin } from "../../smartTimingRoutes";
 
 describe("authenticateAdmin sets req.admin.roleId", () => {
   afterEach(async () => {
@@ -22,12 +22,27 @@ describe("authenticateAdmin sets req.admin.roleId", () => {
 
   it("dev-mode branch resolves the migrated super_admin role's real id", async () => {
     process.env.NODE_ENV = "development";
+
+    // Real super_admin id, read fresh from the DB rather than hardcoded —
+    // it can differ across environments/reseeds.
+    const [superAdmin] = await db
+      .select()
+      .from(roles)
+      .where(eq(roles.name, "super_admin"));
+    expect(superAdmin?.id).toBeTruthy();
+
     const app = express();
+    // Test-only route that runs the real authenticateAdmin middleware and
+    // echoes what it set — proves actual roleId resolution, not just that
+    // some unrelated route didn't 403 (that route only checks the legacy
+    // `role` string, so it would pass regardless of roleId).
+    app.get("/__test/roleId", authenticateAdmin, (req: any, res) => {
+      res.json({ roleId: req.admin.roleId });
+    });
     registerSmartTimingRoutes(app);
 
-    const res = await request(app).get("/api/prototype-testers");
-    // isDevMode-grenen skal ikke gi 403 lenger nå at role_id er satt —
-    // dette er akkurat regresjonen fallgruve 1 i skillen advarer mot.
-    expect(res.status).not.toBe(403);
+    const res = await request(app).get("/__test/roleId");
+    expect(res.status).toBe(200);
+    expect(res.body.roleId).toBe(superAdmin.id);
   });
 });

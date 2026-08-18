@@ -219,7 +219,7 @@ async function resolveSuperAdminRoleId(): Promise<string | null> {
   return cachedSuperAdminRoleId;
 }
 
-async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // DEV MODE: bypass auth
   if (isDevMode) {
     req.admin = {
