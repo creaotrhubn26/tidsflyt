@@ -28,6 +28,14 @@ interface RoleRow {
   user_count: number | string;
 }
 
+interface UserRow {
+  id: string;
+  email: string;
+  first_name: string | null;
+  last_name: string | null;
+  role_id?: string | null;
+}
+
 async function getOrMintAdminToken(): Promise<string | null> {
   const existing = sessionStorage.getItem('cms_admin_token');
   if (existing) return existing;
@@ -94,6 +102,20 @@ export default function AdminRollerPage() {
     return groups;
   }, [permissions]);
 
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
+
+  const { data: members = [] } = useQuery<UserRow[]>({
+    queryKey: ['/api/admin/roles', editingRole?.id, 'members'],
+    queryFn: () => authenticatedApiRequest(`/api/admin/roles/${editingRole!.id}/members`),
+    enabled: !!editingRole,
+  });
+
+  const { data: searchResults = [] } = useQuery<UserRow[]>({
+    queryKey: ['/api/admin/users/search', memberSearchQuery],
+    queryFn: () => authenticatedApiRequest(`/api/admin/users/search?q=${encodeURIComponent(memberSearchQuery)}`),
+    enabled: memberSearchQuery.trim().length >= 2,
+  });
+
   const createRoleMutation = useMutation({
     mutationFn: (name: string) =>
       authenticatedApiRequest('/api/admin/roles', {
@@ -121,6 +143,22 @@ export default function AdminRollerPage() {
       toast({ title: 'Lagret', description: 'Tillatelser er oppdatert' });
       queryClient.invalidateQueries({ queryKey: ['/api/admin/roles'] });
       setEditingRole(null);
+    },
+    onError: (error: any) => {
+      toast({ title: 'Feil', description: error.message, variant: 'destructive' });
+    },
+  });
+
+  const assignRoleMutation = useMutation({
+    mutationFn: ({ userId, roleId }: { userId: string; roleId: string | null }) =>
+      authenticatedApiRequest(`/api/admin/users/${userId}/role`, {
+        method: 'PATCH',
+        body: JSON.stringify({ roleId }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/roles', editingRole?.id, 'members'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/admin/roles'] });
+      setMemberSearchQuery("");
     },
     onError: (error: any) => {
       toast({ title: 'Feil', description: error.message, variant: 'destructive' });
@@ -285,6 +323,55 @@ export default function AdminRollerPage() {
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="space-y-2 border-t pt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Medlemmer
+              </h4>
+              <div className="space-y-1.5">
+                {members.length === 0 && (
+                  <p className="text-sm text-muted-foreground">Ingen brukere har denne rollen ennå.</p>
+                )}
+                {members.map((member) => (
+                  <div key={member.id} className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm">
+                    <span>{member.first_name || member.last_name ? `${member.first_name ?? ''} ${member.last_name ?? ''}`.trim() : member.email}</span>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => assignRoleMutation.mutate({ userId: member.id, roleId: null })}
+                      disabled={assignRoleMutation.isPending}
+                      data-testid={`button-remove-member-${member.id}`}
+                    >
+                      Fjern
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1.5 pt-2">
+                <Input
+                  value={memberSearchQuery}
+                  onChange={(e) => setMemberSearchQuery(e.target.value)}
+                  placeholder="Søk e-post for å legge til medlem..."
+                  data-testid="input-member-search"
+                />
+                {searchResults.length > 0 && (
+                  <div className="space-y-1 rounded-md border p-1">
+                    {searchResults.map((user) => (
+                      <button
+                        key={user.id}
+                        type="button"
+                        className="flex w-full items-center justify-between gap-2 rounded-sm p-1.5 text-left text-sm hover:bg-muted/60"
+                        onClick={() => editingRole && assignRoleMutation.mutate({ userId: user.id, roleId: editingRole.id })}
+                        disabled={assignRoleMutation.isPending}
+                        data-testid={`button-add-member-${user.id}`}
+                      >
+                        <span>{user.email}</span>
+                        {user.role_id === editingRole?.id && <Badge variant="secondary" className="text-xs">Allerede medlem</Badge>}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
               <Button variant="outline" onClick={() => setEditingRole(null)}>Avbryt</Button>
