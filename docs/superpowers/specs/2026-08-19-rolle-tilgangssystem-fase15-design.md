@@ -89,15 +89,27 @@ korrekt — denne migreringen (055) er et sikkerhetsnett for fremtidig drift
 (nye admin_users-rader opprettet før denne fasens routes-endring rekker å
 deploye), ikke en reell datamigrering i dag.
 
+(`legacy.users` — et annet, avstengt skjema med enda et eldre sett kolonner
+fra samme urelaterte produkt — bekreftet IKKE i bruk av live-koden, dette
+er `public.users`, og `SHOW search_path` bekrefter appen alltid treffer
+`public.users` uskalifisert. `public.users` har i tillegg en `password TEXT
+NOT NULL`-kolonne, samme urelaterte produkts autentiseringskolonne som
+`username` — samme håndtering: en plassholderverdi som aldri leses av
+Tidums egen kode, samme mønster `role-management-routes.test.ts` sin
+`createDisposableUser()`-hjelper allerede bruker for testdata.)
+
 ```sql
 -- Opprett users-rad for admin_users-rader uten paret users-rad.
 -- username avledes fra admin_users.username (allerede unik på sin egen
--- tabell) — den delte users.username-constrainten krever en verdi.
-INSERT INTO users (id, email, username, role, role_id, created_at, updated_at)
+-- tabell); password får en fast plassholderverdi — begge er NOT NULL-
+-- kolonner tilhørende det urelaterte produktet som deler public.users,
+-- og leses aldri av Tidums egen kode (som bruker email/role/role_id).
+INSERT INTO users (id, email, username, password, role, role_id, created_at, updated_at)
 SELECT
   gen_random_uuid(),
   a.email,
   a.username,
+  'unused-admin-users-pairing',
   a.role,
   (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true),
   a.created_at,
