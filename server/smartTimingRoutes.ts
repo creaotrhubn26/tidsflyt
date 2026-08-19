@@ -204,20 +204,68 @@ function buildDefaultAnalyticsSettings() {
 // role admin (Task 6) makes it a real problem.
 let cachedSuperAdminRoleId: string | null = null;
 
-async function resolveSuperAdminRoleId(): Promise<string | null> {
-  if (cachedSuperAdminRoleId) return cachedSuperAdminRoleId;
+// Cache of system role name -> real DB row id. Generalizes
+// cachedSuperAdminRoleId so the JWT-branch admin_users legacy fallback
+// (below, in authenticateAdmin) can resolve any system role by name, not
+// just super_admin — admin_users.role defaults to 'vendor_admin', it is
+// NOT always super_admin, so that fallback must look up the actual role.
+const cachedSystemRoleIdsByName = new Map<string, string | null>();
+
+async function resolveSystemRoleIdByName(name: string): Promise<string | null> {
+  if (cachedSystemRoleIdsByName.has(name)) return cachedSystemRoleIdsByName.get(name)!;
+  let id: string | null = null;
   try {
     const result = await pool.query(
-      `SELECT id FROM tidum_roles WHERE scope = 'global' AND name = 'super_admin' LIMIT 1`,
+      `SELECT id FROM tidum_roles WHERE scope = 'global' AND name = $1 AND is_system_default = true LIMIT 1`,
+      [name],
     );
-    cachedSuperAdminRoleId = result.rows[0]?.id ?? null;
+    id = result.rows[0]?.id ?? null;
   } catch (err) {
     // Fail closed (no roleId) rather than hang the request — matches
     // hasPermission's fail-closed behavior in server/lib/permissions.ts.
-    console.error('[authenticateAdmin] failed to resolve super_admin role id', err);
-    cachedSuperAdminRoleId = null;
+    console.error('[authenticateAdmin] failed to resolve system role id', name, err);
+    id = null;
   }
+  cachedSystemRoleIdsByName.set(name, id);
+  return id;
+}
+
+async function resolveSuperAdminRoleId(): Promise<string | null> {
+  if (cachedSuperAdminRoleId) return cachedSuperAdminRoleId;
+  cachedSuperAdminRoleId = await resolveSystemRoleIdByName('super_admin');
   return cachedSuperAdminRoleId;
+}
+
+// JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
+// different `id` spaces (see authenticateAdmin below):
+//  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
+//  2. /api/admin/login signs `id: admin_users.id` (a separate serial id
+//     space) and carries no email in the payload, so the direct users.id
+//     lookup matches zero rows for these tokens. Join through admin_users
+//     -> users on email (the only field verified to be shared between the
+//     two tables — both declare it `unique`) to find the linked users row.
+//  3. If no linked users row exists at all (a pure admin_users-only
+//     account), fall back to resolving the system role by the JWT's own
+//     `role` string. NOT assumed to be super_admin — admin_users.role
+//     defaults to 'vendor_admin' in the schema, so this must look up
+//     whichever role name is actually on the token.
+// Fails closed (undefined) on DB error, same as resolveSuperAdminRoleId —
+// hasPermission() then denies rather than this rejecting the whole request.
+async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Promise<string | undefined> {
+  try {
+    const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
+    if (byUsersId.rows[0]?.role_id) return byUsersId.rows[0].role_id;
+
+    const byAdminUsersEmail = await pool.query(
+      `SELECT u.role_id FROM admin_users a JOIN users u ON u.email = a.email WHERE a.id = $1`,
+      [admin.id],
+    );
+    if (byAdminUsersEmail.rows[0]?.role_id) return byAdminUsersEmail.rows[0].role_id;
+  } catch (err) {
+    console.error('[authenticateAdmin] failed to resolve JWT admin roleId', err);
+    return undefined;
+  }
+  return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
 }
 
 export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
@@ -234,18 +282,22 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
   // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
+    let decoded: any;
     try {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-      req.admin = decoded;
-      if (!req.admin.roleId) {
-        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [req.admin.id]);
-        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
-      }
-      return next();
+      decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (err) {
       return res.status(401).json({ error: 'Invalid token' });
     }
+    req.admin = decoded;
+    // Deliberately outside the jwt.verify try/catch above — a transient DB
+    // error resolving roleId must not be reported as "Invalid token" (401,
+    // logging the admin out). resolveJwtAdminRoleId fails closed to
+    // undefined on error, matching hasPermission's fail-closed behavior.
+    if (!req.admin.roleId) {
+      req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
+    }
+    return next();
   }
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
