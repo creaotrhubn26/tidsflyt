@@ -102,4 +102,13 @@ describe("role management routes", () => {
 
     expect(res.status).toBe(409);
   });
+
+  it("DELETE /api/admin/roles/:id returns 404 for a role that doesn't exist", async () => {
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .delete(`/api/admin/roles/00000000-0000-0000-0000-000000000000`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+  });
 });

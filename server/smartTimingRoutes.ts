@@ -1578,12 +1578,12 @@ export function registerSmartTimingRoutes(app: Express) {
     if (!Array.isArray(permissionIds)) {
       return res.status(400).json({ error: "permissionIds må være en liste" });
     }
-    const roleCheck = await pool.query(`SELECT is_system_default FROM tidum_roles WHERE id = $1`, [req.params.id]);
-    if (roleCheck.rows[0]?.is_system_default) {
-      return res.status(409).json({ error: "Tillatelsene til en systemrolle kan ikke endres" });
-    }
     const client = await pool.connect();
     try {
+      const roleCheck = await client.query(`SELECT is_system_default FROM tidum_roles WHERE id = $1`, [req.params.id]);
+      if (roleCheck.rows[0]?.is_system_default) {
+        return res.status(409).json({ error: "Tillatelsene til en systemrolle kan ikke endres" });
+      }
       await client.query("BEGIN");
       await client.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [req.params.id]);
       for (const permissionId of permissionIds) {
@@ -1595,7 +1595,7 @@ export function registerSmartTimingRoutes(app: Express) {
       await client.query("COMMIT");
       res.json({ ok: true });
     } catch (err: any) {
-      await client.query("ROLLBACK");
+      await client.query("ROLLBACK").catch(() => {});
       res.status(400).json({ error: err.message });
     } finally {
       client.release();
@@ -1607,16 +1607,20 @@ export function registerSmartTimingRoutes(app: Express) {
       if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
         return res.status(403).json({ error: "Ingen tilgang" });
       }
+      const roleCheck = await pool.query(`SELECT is_system_default FROM tidum_roles WHERE id = $1`, [req.params.id]);
+      if (roleCheck.rows.length === 0) {
+        return res.status(404).json({ error: "Rollen finnes ikke" });
+      }
+      if (roleCheck.rows[0].is_system_default) {
+        return res.status(409).json({ error: "Systemroller kan ikke slettes" });
+      }
       const userCount = await pool.query(`SELECT COUNT(*) FROM users WHERE role_id = $1`, [req.params.id]);
       if (Number(userCount.rows[0].count) > 0) {
         return res.status(409).json({
           error: `${userCount.rows[0].count} bruker(e) har denne rollen — flytt dem til en annen rolle først`,
         });
       }
-      const result = await pool.query(`DELETE FROM tidum_roles WHERE id = $1 AND is_system_default = FALSE`, [req.params.id]);
-      if (result.rowCount === 0) {
-        return res.status(409).json({ error: "Systemroller kan ikke slettes" });
-      }
+      await pool.query(`DELETE FROM tidum_roles WHERE id = $1 AND is_system_default = FALSE`, [req.params.id]);
       res.json({ ok: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
