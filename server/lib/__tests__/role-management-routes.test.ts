@@ -1,27 +1,38 @@
-import { describe, it, expect, beforeAll, afterAll, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest";
 import request from "supertest";
 import express from "express";
 import jwt from "jsonwebtoken";
-import { registerSmartTimingRoutes } from "../../smartTimingRoutes";
-import { db, pool } from "../../db";
+import type { db as DbType, pool as PoolType } from "../../db";
 import { roles } from "@shared/models/permissions";
 import { eq } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
 
-async function signSuperAdminToken() {
-  const [role] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
-  return jwt.sign({ id: "test-super-admin", email: "sa@example.com", role: "super_admin", roleId: role.id }, JWT_SECRET);
-}
-
 describe("role management routes", () => {
-  // Same shared-app/shared-pool shape as prototype-tester-permissions.test.ts —
-  // registerSmartTimingRoutes() kicks off fire-and-forget bootstrap side effects
-  // against the pool, so one app/one pool for the whole file avoids racing
-  // "Cannot use a pool after calling end on the pool" from a closed-too-early pool.
+  // smartTimingRoutes.ts's isDevMode (`NODE_ENV !== 'production'`) is a
+  // module-load-time constant, and Vitest's default NODE_ENV is "test" —
+  // which trips the dev-mode bypass in authenticateAdmin and hands every
+  // request the real super_admin roleId, ignoring the crafted JWTs this file
+  // signs entirely. Force NODE_ENV to "production" and re-import the module
+  // fresh (once, in beforeAll — not per test/per import) so these tests
+  // actually exercise the JWT + hasPermission() role.manage gate, matching
+  // vendor-routes-permissions.test.ts / prototype-tester-permissions.test.ts.
+  // Same shared-app/shared-pool shape as those files — registerSmartTimingRoutes()
+  // kicks off fire-and-forget bootstrap side effects against the pool, so one
+  // app/one pool for the whole file avoids racing "Cannot use a pool after
+  // calling end on the pool" from a closed-too-early pool.
   let app: express.Express;
+  let db: typeof DbType;
+  let pool: typeof PoolType;
 
-  beforeAll(() => {
+  beforeAll(async () => {
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    ({ db, pool } = await import("../../db"));
+    process.env.NODE_ENV = prevNodeEnv;
+
     app = express();
     app.use(express.json());
     registerSmartTimingRoutes(app);
@@ -41,6 +52,19 @@ describe("role management routes", () => {
     await new Promise((resolve) => setTimeout(resolve, 2000));
     await pool.end();
   });
+
+  async function signSuperAdminToken() {
+    const [role] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    return jwt.sign({ id: "test-super-admin", email: "sa@example.com", role: "super_admin", roleId: role.id }, JWT_SECRET);
+  }
+
+  // vendor_admin's real (migrated) system role — per
+  // server/lib/permission-catalog.ts VENDOR_ADMIN_PERMISSION_KEYS it only
+  // ever gets vendor.poweroffice_visibility.toggle, never role.manage.
+  async function signVendorAdminToken() {
+    const [role] = await db.select().from(roles).where(eq(roles.name, "vendor_admin")).limit(1);
+    return jwt.sign({ id: "test-vendor-admin", email: "va@example.com", role: "vendor_admin", roleId: role.id }, JWT_SECRET);
+  }
 
   it("GET /api/admin/permissions returns the full catalog", async () => {
     const token = await signSuperAdminToken();
@@ -110,5 +134,24 @@ describe("role management routes", () => {
       .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(404);
+  });
+
+  it("rejects role-management routes for a role without role.manage (vendor_admin)", async () => {
+    const token = await signVendorAdminToken();
+
+    const postRes = await request(app)
+      .post("/api/admin/roles")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ name: "should_not_be_created_by_vendor_admin", scope: "global" });
+    expect(postRes.status).toBe(403);
+
+    // The role.manage check runs before the route touches :id, so a
+    // syntactically valid but nonexistent UUID is enough to prove the gate
+    // fires — no real role needs to exist at this id.
+    const putRes = await request(app)
+      .put(`/api/admin/roles/00000000-0000-0000-0000-000000000000/permissions`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ permissionIds: [] });
+    expect(putRes.status).toBe(403);
   });
 });
