@@ -236,6 +236,28 @@ async function resolveSuperAdminRoleId(): Promise<string | null> {
   return cachedSuperAdminRoleId;
 }
 
+// Pare en admin_users-konto med en users-rad (fase 1.5). Delt av
+// /api/admin/create-super, /api/admin/bootstrap og /api/cms/setup slik at
+// paringslogikken (rolle-oppslag + upsert) finnes ett sted.
+// username/password er NOT NULL-kolonner fra et urelatert produkt som deler
+// public.users, aldri lest av Tidums egen kode.
+async function pairAdminUserWithUsersTable(params: {
+  username: string;
+  email: string;
+  role: 'super_admin' | 'vendor_admin';
+}): Promise<void> {
+  const roleId = (await pool.query(
+    `SELECT id FROM tidum_roles WHERE name = $1 AND scope = 'global' AND is_system_default = true`,
+    [params.role],
+  )).rows[0]?.id ?? null;
+  await pool.query(
+    `INSERT INTO users (username, password, email, role, role_id)
+     VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4)
+     ON CONFLICT (email) DO UPDATE SET role = $3, role_id = $4, updated_at = NOW()`,
+    [params.username, params.email, params.role, roleId],
+  );
+}
+
 // JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
 // different `id` spaces (see authenticateAdmin below):
 //  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
@@ -1701,17 +1723,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
       // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
       // samme mønster som POST /api/vendors/:id/admins allerede bruker.
-      // username/password er NOT NULL-kolonner fra et urelatert produkt
-      // som deler public.users, aldri lest av Tidums egen kode.
-      const superAdminRoleId = (await pool.query(
-        `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
-      )).rows[0]?.id ?? null;
-      await pool.query(
-        `INSERT INTO users (username, password, email, role, role_id)
-         VALUES ($1, 'unused-admin-users-pairing', $2, 'super_admin', $3)
-         ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $3, updated_at = NOW()`,
-        [username, email, superAdminRoleId],
-      );
+      await pairAdminUserWithUsersTable({ username, email, role: 'super_admin' });
 
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -1738,17 +1750,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
       // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
       // samme mønster som POST /api/vendors/:id/admins allerede bruker.
-      // username/password er NOT NULL-kolonner fra et urelatert produkt
-      // som deler public.users, aldri lest av Tidums egen kode.
-      const superAdminRoleId = (await pool.query(
-        `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
-      )).rows[0]?.id ?? null;
-      await pool.query(
-        `INSERT INTO users (username, password, email, role, role_id)
-         VALUES ($1, 'unused-admin-users-pairing', $2, 'super_admin', $3)
-         ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $3, updated_at = NOW()`,
-        [username, email, superAdminRoleId],
-      );
+      await pairAdminUserWithUsersTable({ username, email, role: 'super_admin' });
 
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -2416,15 +2418,11 @@ export function registerSmartTimingRoutes(app: Express) {
           ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
         );
         // Pare med users-tabellen, samme mønster som create-super/bootstrap.
-        const superAdminRoleId = (await pool.query(
-          `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
-        )).rows[0]?.id ?? null;
-        await pool.query(
-          `INSERT INTO users (username, password, email, role, role_id)
-           VALUES ('admin', 'unused-admin-users-pairing', 'admin@smarttiming.no', 'super_admin', $1)
-           ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $1, updated_at = NOW()`,
-          [superAdminRoleId],
-        );
+        await pairAdminUserWithUsersTable({
+          username: 'admin',
+          email: 'admin@smarttiming.no',
+          role: 'super_admin',
+        });
       } else {
         await pool.query(
           `UPDATE admin_users SET password_hash = $1 WHERE username = $2`,

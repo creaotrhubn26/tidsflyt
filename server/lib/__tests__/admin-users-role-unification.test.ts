@@ -45,9 +45,9 @@ describe("admin_users/users role_id unification (migration 055)", () => {
        WHERE u.email = $1`,
       [adminUser.email],
     );
+    createdUserIds.push(pairedUser.id);
     expect(pairedUser).toBeDefined();
     expect(pairedUser.role_name).toBe("super_admin");
-    createdUserIds.push(pairedUser.id);
   });
 
   it("backfills role_id on an existing paired users row that lacks one, without duplicating", async () => {
