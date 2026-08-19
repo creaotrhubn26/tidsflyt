@@ -4,16 +4,15 @@ import { readFileSync } from "fs";
 import { join } from "path";
 
 describe("admin_users/users role_id unification (migration 055)", () => {
-  const createdUserIds: string[] = [];
-  const createdAdminUserIds: number[] = [];
-
+  // Pattern-based cleanup, not id-array-based: an id array is skipped
+  // whenever a preceding assertion (or a destructure like `pairedUser.id`
+  // on a query result that came back empty — exactly the regression this
+  // suite exists to catch) throws before the push runs, leaking the row
+  // into the real shared production `users`/`admin_users` tables. Deleting
+  // by the test_unif_ username prefix is immune to that whole bug class.
   afterEach(async () => {
-    for (const id of createdUserIds.splice(0)) {
-      await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
-    }
-    for (const id of createdAdminUserIds.splice(0)) {
-      await pool.query(`DELETE FROM admin_users WHERE id = $1`, [id]);
-    }
+    await pool.query(`DELETE FROM admin_users WHERE username LIKE 'test_unif_%'`);
+    await pool.query(`DELETE FROM users WHERE username LIKE 'test_unif_%'`);
   });
 
   async function runMigration() {
@@ -33,7 +32,6 @@ describe("admin_users/users role_id unification (migration 055)", () => {
        VALUES ($1, $2, 'x', 'super_admin', NULL) RETURNING id, email`,
       [`test_unif_admin_${suffix}`, `test-unif-${suffix}@example.com`],
     );
-    createdAdminUserIds.push(adminUser.id);
 
     await runMigration();
 
@@ -45,7 +43,6 @@ describe("admin_users/users role_id unification (migration 055)", () => {
        WHERE u.email = $1`,
       [adminUser.email],
     );
-    createdUserIds.push(pairedUser.id);
     expect(pairedUser).toBeDefined();
     expect(pairedUser.role_name).toBe("super_admin");
   });
@@ -60,7 +57,6 @@ describe("admin_users/users role_id unification (migration 055)", () => {
        VALUES ($1, $2, 'x', 'vendor_admin', NULL) RETURNING id`,
       [`test_unif_paired_admin_${suffix}`, email],
     );
-    createdAdminUserIds.push(adminUser.id);
     const {
       rows: [existingUser],
     } = await pool.query(
@@ -68,7 +64,6 @@ describe("admin_users/users role_id unification (migration 055)", () => {
        VALUES ($1, 'x', $2, 'vendor_admin', NULL) RETURNING id`,
       [`test_unif_paired_user_${suffix}`, email],
     );
-    createdUserIds.push(existingUser.id);
 
     await runMigration();
 
