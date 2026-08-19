@@ -63,10 +63,7 @@ describe("role management routes", () => {
 
   it("DELETE /api/admin/roles/:id blocks deletion when users are attached", async () => {
     const [role] = await db.insert(roles).values({ name: "test_role_task6", scope: "global" }).returning();
-    // Raw SQL, not the drizzle `users` select — the live users table is
-    // missing columns the ORM schema declares (e.g. expected_ssn_hash from
-    // migrations/053, not yet applied here), so a full `db.select().from(users)`
-    // 500s. Only `id` is needed for this test.
+    // Raw SQL — only `id` is needed here, no reason to pull a full users row via drizzle.
     const { rows: [testUser] } = await pool.query(`SELECT id FROM users LIMIT 1`);
     await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [role.id, testUser.id]);
 
@@ -78,5 +75,31 @@ describe("role management routes", () => {
     expect(res.status).toBe(409);
 
     await pool.query(`UPDATE users SET role_id = NULL WHERE id = $1`, [testUser.id]);
+  });
+
+  it("DELETE /api/admin/roles/:id blocks deletion of a system role", async () => {
+    const [role] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .delete(`/api/admin/roles/${role.id}`)
+      .set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(409);
+
+    const stillThere = await db.select().from(roles).where(eq(roles.id, role.id)).limit(1);
+    expect(stillThere.length).toBe(1);
+  });
+
+  it("PUT /api/admin/roles/:id/permissions blocks editing a system role's permissions", async () => {
+    const [role] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .put(`/api/admin/roles/${role.id}/permissions`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ permissionIds: [] });
+
+    expect(res.status).toBe(409);
   });
 });
