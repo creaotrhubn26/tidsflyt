@@ -47,12 +47,18 @@ describe("admin_users/users role_id unification (migration 055)", () => {
     expect(pairedUser.role_name).toBe("super_admin");
   });
 
-  it("backfills role_id on an existing paired users row that lacks one, without duplicating", async () => {
+  it("does NOT backfill role_id on an existing paired users row that has it set to NULL, and does not duplicate the row", async () => {
+    // This migration used to also backfill role_id on already-paired rows
+    // whenever it was NULL — removed in fase 1.5's final review: role_id
+    // becomes NULL both for "never assigned" AND for a deliberate
+    // unassignment via PATCH /api/admin/users/:id/role, and the migration
+    // (which reruns on every server startup) couldn't tell those apart,
+    // silently re-granting a role an admin had just intentionally removed.
+    // The only remaining job for a paired-but-NULL row is: don't touch it,
+    // and don't create a duplicate users row for the same email.
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const email = `test-unif-paired-${suffix}@example.com`;
-    const {
-      rows: [adminUser],
-    } = await pool.query(
+    await pool.query(
       `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
        VALUES ($1, $2, 'x', 'vendor_admin', NULL) RETURNING id`,
       [`test_unif_paired_admin_${suffix}`, email],
@@ -68,12 +74,12 @@ describe("admin_users/users role_id unification (migration 055)", () => {
     await runMigration();
 
     const { rows } = await pool.query(
-      `SELECT u.id, r.name as role_name FROM users u JOIN tidum_roles r ON r.id = u.role_id WHERE u.email = $1`,
+      `SELECT id, role_id FROM users WHERE email = $1`,
       [email],
     );
     expect(rows.length).toBe(1);
     expect(rows[0].id).toBe(existingUser.id);
-    expect(rows[0].role_name).toBe("vendor_admin");
+    expect(rows[0].role_id).toBeNull();
   });
 
   it("is idempotent — running twice produces no duplicates or errors", async () => {

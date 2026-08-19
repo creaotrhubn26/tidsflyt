@@ -297,8 +297,14 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
   }
 
   try {
+    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
+    // to lowercase when writing users.email, but admin_users.email keeps
+    // whatever case the caller supplied — an exact-case join would miss
+    // the pairing for any mixed-case admin email and fall through to the
+    // (correct but less precise) name-based fallback below. Found in
+    // fase 1.5's final review.
     const byAdminUsersEmail = await pool.query(
-      `SELECT u.role_id FROM admin_users a JOIN users u ON u.email = a.email WHERE a.id = $1`,
+      `SELECT u.role_id FROM admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
       [admin.id],
     );
     if (byAdminUsersEmail.rows.length > 0) {
@@ -1773,6 +1779,34 @@ export function registerSmartTimingRoutes(app: Express) {
           error: `${userCount.rows[0].count} bruker(e) har denne rollen — flytt dem til en annen rolle først`,
         });
       }
+
+      // Samme uforbetingede role.manage-golv som PUT .../permissions —
+      // en ikke-systemrolle med 0 medlemmer kan fortsatt holde role.manage
+      // (f.eks. nyopprettet, tildelt, aldri brukt), og sletting av den er
+      // like reell en vei til total utestengelse som å fjerne tillatelsen
+      // via redigering. Funnet i fase 1.5s sluttgjennomgang.
+      const roleManagePermissionForDelete = await pool.query(
+        `SELECT id FROM tidum_permissions WHERE key = 'role.manage'`,
+      );
+      const roleManagePermissionIdForDelete = roleManagePermissionForDelete.rows[0]?.id;
+      if (roleManagePermissionIdForDelete) {
+        const thisRoleHasRoleManage = await pool.query(
+          `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+          [req.params.id, roleManagePermissionIdForDelete],
+        );
+        if (thisRoleHasRoleManage.rows.length > 0) {
+          const anyOtherRoleHasIt = await pool.query(
+            `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
+            [roleManagePermissionIdForDelete, req.params.id],
+          );
+          if (anyOtherRoleHasIt.rows.length === 0) {
+            return res.status(409).json({
+              error: "Kan ikke slette denne rollen — ingen andre roller har role.manage i det hele tatt. Gi en annen rolle role.manage først.",
+            });
+          }
+        }
+      }
+
       await pool.query(`DELETE FROM tidum_roles WHERE id = $1 AND is_system_default = FALSE`, [req.params.id]);
       res.json({ ok: true });
     } catch (err: any) {
@@ -1829,19 +1863,15 @@ export function registerSmartTimingRoutes(app: Express) {
         const removingRoleManage = currentRoleHasRoleManage && !newRoleHasRoleManage;
 
         if (removingRoleManage) {
-          // Uforbetinget golv, speiler PUT .../permissions sin — se
-          // kommentaren der for hvorfor dette må kjøre uansett antall
-          // tildelte brukere.
-          const anyOtherRoleHasIt = await pool.query(
-            `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
-            [roleManagePermissionId, currentRoleId],
-          );
-          if (anyOtherRoleHasIt.rows.length === 0) {
-            return res.status(409).json({
-              error: "Kan ikke endre denne brukerens rolle — ingen andre roller har role.manage i det hele tatt. Gi en annen rolle role.manage først.",
-            });
-          }
-
+          // PUT .../permissions sitt uforbetingede rolle-golv (finalgjennomgang
+          // fase 1.5, "role_id <> denne rollen") gir IKKE mening her: PATCH
+          // fjerner aldri role.manage FRA en rolle, den flytter en BRUKER
+          // vekk fra rollen som har den — role_id <> currentRoleId ekskluderer
+          // dermed alltid rollen som faktisk holder tildelingen i live, og
+          // slo ut som falsk positiv på enhver avtildeling i standardoppsettet
+          // (alle på én rolle) — funnet og fjernet i samme sluttgjennomgang.
+          // otherHolderExists (ekskluderer BRUKEREN, ikke rollen) er riktig
+          // golv for denne ruten alene.
           const otherHolderExists = await pool.query(
             `SELECT EXISTS (
                SELECT 1 FROM users u

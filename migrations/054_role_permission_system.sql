@@ -41,6 +41,17 @@ INSERT INTO tidum_permissions (key, label, module) VALUES
   ('role.manage', 'Administrere roller og tillatelser', 'systemadministrasjon')
 ON CONFLICT (key) DO UPDATE SET label = EXCLUDED.label, module = EXCLUDED.module;
 
+-- Fanger "er dette en ekte fresh install" (hele tidum_role_permissions
+-- tabellen tom) FØR noen av seedingen under kjører, i en
+-- transaksjonslokal innstilling (set_config med is_local=true — hele
+-- denne migrasjonsfilen kjører som én multi-statement-streng på én
+-- tilkobling, implisitt én transaksjon). Nødvendig fordi super_admins
+-- INSERT under ellers ville gjort vendor_admins tabellbrede NOT
+-- EXISTS-sjekk falsk innad i SAMME skriptkjøring (vendor_admins sjekk
+-- ville sett super_admins nylig innsatte rader og trodd tabellen ikke
+-- lenger var tom, og feilaktig hoppet over en ekte fresh install).
+SELECT set_config('tidum.fresh_install_054', (NOT EXISTS (SELECT 1 FROM tidum_role_permissions))::text, true);
+
 -- Seed: systemrollen super_admin får ALLE tillatelser
 INSERT INTO tidum_roles (name, scope, is_system_default)
 VALUES ('super_admin', 'global', TRUE)
@@ -49,17 +60,19 @@ ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
 -- NOT EXISTS-vakt: denne migrasjonen kjører på HVER oppstart (se
 -- STARTUP_MIGRATIONS). Uten vakten ville en super_admin som fjerner en
 -- tillatelse via UI-et (Task 3) fått den stille lagt tilbake på neste
--- deploy. Vakten gjør seedingen ren-installasjon-only: kjører kun når
--- rollen har NULL tillatelsesrader fra før (ekte fresh install), hopper
--- over enhver rolle som allerede er seedet/tilpasset.
+-- deploy. Vakten gjør seedingen ren-installasjon-only.
+--
+-- Bevisst TABELLBRED sjekk (ikke per-rolle, via snapshotten over) —
+-- fase 1.5s sluttgjennomgang fant at en per-rolle NOT EXISTS ikke kan
+-- skille "ekte fresh install" fra "en super admin tømte akkurat DENNE
+-- ene rollen for tillatelser via UI-et" (0 rader igjen ser identisk ut i
+-- begge tilfeller for én rolle alene). Siden en ekte fresh install har 0
+-- rader i HELE tabellen, mens en tømt enkeltrolle alltid etterlater den
+-- andre rollens rader urørt, er tabellbred eksistens riktig skille.
 INSERT INTO tidum_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM tidum_roles r, tidum_permissions p
 WHERE r.name = 'super_admin' AND r.scope = 'global'
-  AND NOT EXISTS (
-    SELECT 1 FROM tidum_role_permissions rp
-    JOIN tidum_roles r2 ON r2.id = rp.role_id
-    WHERE r2.name = 'super_admin' AND r2.scope = 'global'
-  )
+  AND current_setting('tidum.fresh_install_054')::boolean
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Seed: systemrollen vendor_admin får kun leverandør-relaterte tillatelser
@@ -71,17 +84,15 @@ INSERT INTO tidum_roles (name, scope, is_system_default)
 VALUES ('vendor_admin', 'global', TRUE)
 ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
 
--- Samme NOT EXISTS-vakt som super_admin over — hopper over seeding når
--- vendor_admin allerede har tillatelsesrader (uansett hvilke).
+-- Samme snapshottede tabellbrede vakt som super_admin over (samme
+-- transaksjonslokale innstilling, satt FØR super_admins INSERT over —
+-- speiler ikke tabellens live-tilstand nå, som allerede inneholder
+-- super_admins nettopp innsatte rader på en ekte fresh install).
 INSERT INTO tidum_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM tidum_roles r, tidum_permissions p
 WHERE r.name = 'vendor_admin' AND r.scope = 'global'
   AND p.key IN ('vendor.poweroffice_visibility.toggle')
-  AND NOT EXISTS (
-    SELECT 1 FROM tidum_role_permissions rp
-    JOIN tidum_roles r2 ON r2.id = rp.role_id
-    WHERE r2.name = 'vendor_admin' AND r2.scope = 'global'
-  )
+  AND current_setting('tidum.fresh_install_054')::boolean
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Denne migrasjonen kjørte allerede en gang mot prod med vendor.admin.create
@@ -93,9 +104,15 @@ DELETE FROM tidum_role_permissions
 WHERE role_id = (SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND is_system_default = true)
   AND permission_id = (SELECT id FROM tidum_permissions WHERE key = 'vendor.admin.create');
 
--- Koble eksisterende kontoer til de migrerte rollene automatisk.
-UPDATE users u
-SET role_id = r.id
-FROM tidum_roles r
-WHERE r.scope = 'global' AND r.name = u.role AND u.role IN ('super_admin', 'vendor_admin')
-  AND u.role_id IS NULL;
+-- Koble eksisterende kontoer til de migrerte rollene automatisk. Kun
+-- meningsfullt som engangs-bootstrap ved lansering (verifisert: null
+-- gjenværende NULL-rader etter migrering 055 kjørte for første gang) —
+-- fjernet permanent kjøring her fordi den, som skrevet
+-- (`u.role_id IS NULL`), kjørte på HVERT oppstart og dermed re-tildelte
+-- role_id til enhver konto en super admin bevisst hadde fjernet rollen
+-- fra via PATCH /api/admin/users/:id/role (fase 1.5) — role_id blir NULL
+-- ved bevisst fjerning, users.role-strengen røres bevisst ikke (se
+-- migrations/055 sin kommentar), så denne WHERE-klausulen kunne ikke
+-- skille "aldri tildelt" fra "bevisst fjernet". Funnet i fase 1.5s
+-- sluttgjennomgang, fikset direkte siden fjerning er den eneste korrekte
+-- oppførselen nå som Task 1s ruter alltid setter role_id ved opprettelse.

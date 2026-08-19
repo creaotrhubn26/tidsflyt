@@ -24,10 +24,13 @@ WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
   AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
   AND a.role IN ('super_admin', 'vendor_admin');
 
--- Backfill role_id på users-rader som allerede er paret på e-post men mangler role_id
-UPDATE users u
-SET role_id = (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true)
-FROM admin_users a
-WHERE u.email = a.email
-  AND u.role_id IS NULL
-  AND a.role IN ('super_admin', 'vendor_admin');
+-- Backfill role_id på users-rader som allerede er paret på e-post men
+-- mangler role_id — kun meningsfullt som engangs-bootstrap. Fjernet
+-- permanent kjøring her (samme grunn som i migrations/054, se dens
+-- kommentar): som skrevet kjørte dette på HVERT oppstart og re-tildelte
+-- role_id til enhver konto en super admin bevisst hadde fjernet rollen
+-- fra via fase 1.5s tildelings-API, siden WHERE u.role_id IS NULL ikke
+-- kan skille "aldri paret" fra "bevisst fjernet". Funnet i fase 1.5s
+-- sluttgjennomgang. Ingen gjenværende NULL-rader å bootstrap'e — Task 1s
+-- egen verifisering mot ekte prod (før denne migreringen først kjørte)
+-- fant null parede rader med role_id NULL.
