@@ -127,6 +127,66 @@ describe("role assignment routes", () => {
     expect(res.status).toBe(404);
   });
 
+  it("PATCH /api/admin/users/:id/role blocks unassigning the only user holding a role with role.manage", async () => {
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    const userId = await createDisposableUser();
+    createdUserIds.push(userId);
+    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [superAdminRole.id, userId]);
+
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .patch(`/api/admin/users/${userId}/role`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ roleId: null });
+
+    expect(res.status).toBe(409);
+  });
+
+  it("PATCH /api/admin/users/:id/role allows unassigning role.manage from a user when another role with an assigned member still has it", async () => {
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    const [newRole] = await db.insert(roles).values({ name: "test_assign_lockout_role", scope: "global" }).returning();
+    createdRoleIds.push(newRole.id);
+    await pool.query(
+      `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+      [newRole.id, roleManagePermission.id],
+    );
+    const userOnNewRole = await createDisposableUser();
+    createdUserIds.push(userOnNewRole);
+    const userOnSuperAdmin = await createDisposableUser();
+    createdUserIds.push(userOnSuperAdmin);
+    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [newRole.id, userOnNewRole]);
+    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [superAdminRole.id, userOnSuperAdmin]);
+
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .patch(`/api/admin/users/${userOnSuperAdmin}/role`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ roleId: null });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("PATCH /api/admin/users/:id/role allows routine reassignment for a user who never had role.manage", async () => {
+    const [roleA] = await db.insert(roles).values({ name: "test_assign_lockout_role_a", scope: "global" }).returning();
+    createdRoleIds.push(roleA.id);
+    const [roleB] = await db.insert(roles).values({ name: "test_assign_lockout_role_b", scope: "global" }).returning();
+    createdRoleIds.push(roleB.id);
+    const userId = await createDisposableUser();
+    createdUserIds.push(userId);
+    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [roleA.id, userId]);
+
+    const token = await signSuperAdminToken();
+    const res = await request(app)
+      .patch(`/api/admin/users/${userId}/role`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ roleId: roleB.id });
+
+    expect(res.status).toBe(200);
+  });
+
   it("PATCH /api/admin/users/:id/role rejects a caller without role.manage", async () => {
     const userId = await createDisposableUser();
     createdUserIds.push(userId);

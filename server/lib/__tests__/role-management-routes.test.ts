@@ -243,15 +243,23 @@ describe("role management routes", () => {
       [role.id, roleManagePermission.id],
     );
 
-    const token = await signSuperAdminToken();
-    const res = await request(app)
-      .put(`/api/admin/roles/${role.id}/permissions`)
-      .set("Authorization", `Bearer ${token}`)
-      .send({ permissionIds: [] });
+    try {
+      const token = await signSuperAdminToken();
+      const res = await request(app)
+        .put(`/api/admin/roles/${role.id}/permissions`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ permissionIds: [] });
 
-    expect(res.status).toBe(200);
-
-    await db.delete(roles).where(eq(roles.id, role.id));
+      expect(res.status).toBe(200);
+    } finally {
+      // The route's own DELETE FROM tidum_role_permissions only runs if the
+      // request reached its success path — if the assertion above throws
+      // (or the route returns non-200 before its own cleanup), the row
+      // inserted above is still there. Clean it up explicitly first so the
+      // role delete below doesn't FK-fail.
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [role.id]);
+      await db.delete(roles).where(eq(roles.id, role.id));
+    }
   });
 
   it("DELETE /api/admin/roles/:id returns 404 for a role that doesn't exist", async () => {

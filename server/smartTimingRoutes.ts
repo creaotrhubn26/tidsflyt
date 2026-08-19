@@ -1671,8 +1671,16 @@ export function registerSmartTimingRoutes(app: Express) {
         `SELECT id FROM tidum_permissions WHERE key = 'role.manage'`,
       );
       const roleManagePermissionId = roleManagePermission.rows[0]?.id;
+      const roleCurrentlyHasRoleManage = roleManagePermissionId
+        ? (
+            await client.query(
+              `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+              [req.params.id, roleManagePermissionId],
+            )
+          ).rows.length > 0
+        : false;
       const removingRoleManage = roleManagePermissionId
-        ? !permissionIds.includes(roleManagePermissionId)
+        ? roleCurrentlyHasRoleManage && !permissionIds.includes(roleManagePermissionId)
         : false;
 
       if (removingRoleManage) {
@@ -1752,6 +1760,59 @@ export function registerSmartTimingRoutes(app: Express) {
           return res.status(404).json({ error: "Rolle ikke funnet" });
         }
       }
+
+      // Selvlås-guard (samme prinsipp som PUT .../permissions sin, men her
+      // for enkelt-bruker-tildeling): denne ruten kan flytte den siste
+      // role.manage-innehaveren vekk fra role.manage helt utenom guarden i
+      // PUT .../permissions, som aldri berøres av en tildelingsendring.
+      // Kjører KUN når denne konkrete endringen faktisk fjerner role.manage
+      // fra en bruker som har den i dag (speiler roleCurrentlyHasRoleManage
+      // i PUT .../permissions) — IKKE ved enhver endring når systemet
+      // allerede (av andre, urelaterte grunner) har 0 role.manage-holdere,
+      // for da ville denne guarden blokkere all fremtidig rolletildeling
+      // permanent i stedet for bare å forhindre at DENNE handlingen skaper
+      // låsingen.
+      const roleManagePermissionId = (
+        await pool.query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      ).rows[0]?.id;
+      if (roleManagePermissionId) {
+        const currentUser = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [req.params.id]);
+        const currentRoleId = currentUser.rows[0]?.role_id ?? null;
+        const currentRoleHasRoleManage = currentRoleId
+          ? (
+              await pool.query(
+                `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+                [currentRoleId, roleManagePermissionId],
+              )
+            ).rows.length > 0
+          : false;
+        const newRoleHasRoleManage = roleId
+          ? (
+              await pool.query(
+                `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+                [roleId, roleManagePermissionId],
+              )
+            ).rows.length > 0
+          : false;
+        const removingRoleManage = currentRoleHasRoleManage && !newRoleHasRoleManage;
+
+        if (removingRoleManage) {
+          const otherHolderExists = await pool.query(
+            `SELECT EXISTS (
+               SELECT 1 FROM users u
+               JOIN tidum_role_permissions rp ON rp.role_id = u.role_id
+               WHERE rp.permission_id = $1 AND u.id <> $2
+             ) AS exists`,
+            [roleManagePermissionId, req.params.id],
+          );
+          if (!otherHolderExists.rows[0].exists) {
+            return res.status(409).json({
+              error: "Kan ikke endre denne brukerens rolle — ingen andre brukere ville hatt role.manage etter endringen. Tildel en annen bruker role.manage først.",
+            });
+          }
+        }
+      }
+
       const result = await pool.query(
         `UPDATE users SET role_id = $1, updated_at = NOW() WHERE id = $2
          RETURNING id, email, role_id`,
