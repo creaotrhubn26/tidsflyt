@@ -246,16 +246,25 @@ async function pairAdminUserWithUsersTable(params: {
   email: string;
   role: 'super_admin' | 'vendor_admin';
 }): Promise<void> {
+  const normalizedEmail = params.email.toLowerCase().trim();
   const roleId = (await pool.query(
     `SELECT id FROM tidum_roles WHERE name = $1 AND scope = 'global' AND is_system_default = true`,
     [params.role],
   )).rows[0]?.id ?? null;
-  await pool.query(
-    `INSERT INTO users (username, password, email, role, role_id)
-     VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4)
-     ON CONFLICT (email) DO UPDATE SET role = $3, role_id = $4, updated_at = NOW()`,
-    [params.username, params.email, params.role, roleId],
-  );
+  try {
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, role_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4)
+       ON CONFLICT (email) DO UPDATE SET role = COALESCE(users.role, $3), role_id = $4, updated_at = NOW()`,
+      [params.username, normalizedEmail, params.role, roleId],
+    );
+  } catch (err: any) {
+    if (String(err?.code) === "23505") {
+      console.error(`[pairAdminUserWithUsersTable] username collision for ${params.username}/${normalizedEmail}, account remains unpaired`, err);
+      return;
+    }
+    throw err;
+  }
 }
 
 // JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
