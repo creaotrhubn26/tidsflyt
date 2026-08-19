@@ -158,4 +158,41 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
     }
   });
+
+  it("admin_users-shaped JWT whose paired users row has role_id = NULL (explicitly unassigned via 'Fjern') resolves to undefined, not the name-based fallback", async () => {
+    const email = `jwt-unassigned-${Date.now()}@example.com`;
+    let adminUserId: number | undefined;
+    let userId: string | undefined;
+
+    try {
+      const {
+        rows: [adminUserRow],
+      } = await dynamicDbPool.query(
+        `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
+        [`jwt_unassigned_${Date.now()}`, email],
+      );
+      adminUserId = adminUserRow.id;
+
+      // A paired users row exists (matched on email) but role_id is
+      // explicitly NULL — this is what PATCH /api/admin/users/:id/role
+      // {roleId: null} ("Fjern") produces. The row's existence, not its
+      // role_id value, must stop the fallthrough to the name-based fallback.
+      const {
+        rows: [userRow],
+      } = await dynamicDbPool.query(
+        `INSERT INTO users (username, password, email, role_id) VALUES ($1, 'x', $2, NULL) RETURNING id`,
+        [`jwt_unassigned_user_${Date.now()}`, email],
+      );
+      userId = userRow.id;
+
+      const token = jwt.sign({ id: adminUserId, username: "x", role: "vendor_admin" }, JWT_SECRET);
+      const res = await request(app).get("/__test/roleId").set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBeUndefined();
+    } finally {
+      if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+    }
+  });
 });

@@ -276,7 +276,13 @@ async function pairAdminUserWithUsersTable(params: {
 async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Promise<string | undefined> {
   try {
     const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
-    if (byUsersId.rows[0]?.role_id) return byUsersId.rows[0].role_id;
+    if (byUsersId.rows.length > 0) {
+      // En matchende rad finnes — stol på den selv om role_id er NULL (en
+      // eksplisitt, tilsiktet fjerning via "Fjern"-knappen). Ikke fall
+      // gjennom til navnefallbacket under, som stille ville reversert
+      // fjerningen.
+      return byUsersId.rows[0].role_id ?? undefined;
+    }
   } catch (err) {
     console.error('[authenticateAdmin] failed users.id roleId lookup', err);
   }
@@ -286,7 +292,9 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
       `SELECT u.role_id FROM admin_users a JOIN users u ON u.email = a.email WHERE a.id = $1`,
       [admin.id],
     );
-    if (byAdminUsersEmail.rows[0]?.role_id) return byAdminUsersEmail.rows[0].role_id;
+    if (byAdminUsersEmail.rows.length > 0) {
+      return byAdminUsersEmail.rows[0].role_id ?? undefined;
+    }
   } catch (err) {
     console.error('[authenticateAdmin] failed admin_users email-join roleId lookup', err);
   }
