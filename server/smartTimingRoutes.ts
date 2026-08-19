@@ -1513,6 +1513,97 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ── Rolleadministrasjon (fase 1) ──────────────────────────────────
+  // NB: tabellene heter tidum_permissions/tidum_roles/tidum_role_permissions
+  // (omdøpt for å unngå kollisjon med et urelatert prosjekt på samme database).
+  app.get("/api/admin/permissions", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const result = await pool.query(`SELECT id, key, label, module FROM tidum_permissions ORDER BY module, key`);
+    res.json(result.rows);
+  });
+
+  app.get("/api/admin/roles", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const result = await pool.query(`
+      SELECT r.id, r.name, r.scope, r.is_system_default,
+             COALESCE(array_agg(rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permission_ids,
+             (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) AS user_count
+      FROM tidum_roles r
+      LEFT JOIN tidum_role_permissions rp ON rp.role_id = r.id
+      WHERE r.scope = 'global'
+      GROUP BY r.id ORDER BY r.name
+    `);
+    res.json(result.rows);
+  });
+
+  app.post("/api/admin/roles", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const { name, scope } = req.body as { name?: string; scope?: string };
+    if (!name?.trim() || scope !== "global") {
+      return res.status(400).json({ error: "Navn er påkrevd. Kun 'global' scope støttes i fase 1." });
+    }
+    try {
+      const result = await pool.query(
+        `INSERT INTO tidum_roles (name, scope) VALUES ($1, 'global') RETURNING id, name, scope, is_system_default`,
+        [name.trim()],
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      if (String(err?.code) === "23505") {
+        return res.status(409).json({ error: "En rolle med dette navnet finnes allerede" });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/admin/roles/:id/permissions", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const { permissionIds } = req.body as { permissionIds?: string[] };
+    if (!Array.isArray(permissionIds)) {
+      return res.status(400).json({ error: "permissionIds må være en liste" });
+    }
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [req.params.id]);
+      for (const permissionId of permissionIds) {
+        await client.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+          [req.params.id, permissionId],
+        );
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (err: any) {
+      await client.query("ROLLBACK");
+      res.status(400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.delete("/api/admin/roles/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const userCount = await pool.query(`SELECT COUNT(*) FROM users WHERE role_id = $1`, [req.params.id]);
+    if (Number(userCount.rows[0].count) > 0) {
+      return res.status(409).json({
+        error: `${userCount.rows[0].count} bruker(e) har denne rollen — flytt dem til en annen rolle først`,
+      });
+    }
+    await pool.query(`DELETE FROM tidum_roles WHERE id = $1 AND is_system_default = FALSE`, [req.params.id]);
+    res.json({ ok: true });
+  });
+
   // Create super admin (only existing super_admin)
   app.post("/api/admin/create-super", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
