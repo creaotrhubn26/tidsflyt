@@ -1705,6 +1705,67 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  app.patch("/api/admin/users/:id/role", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const { roleId } = req.body as { roleId: string | null };
+      if (roleId !== null && roleId !== undefined) {
+        const roleCheck = await pool.query(`SELECT id FROM tidum_roles WHERE id = $1`, [roleId]);
+        if (roleCheck.rows.length === 0) {
+          return res.status(404).json({ error: "Rolle ikke funnet" });
+        }
+      }
+      const result = await pool.query(
+        `UPDATE users SET role_id = $1, updated_at = NOW() WHERE id = $2
+         RETURNING id, email, role_id`,
+        [roleId ?? null, req.params.id],
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Bruker ikke funnet" });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/roles/:id/members", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name FROM users WHERE role_id = $1 ORDER BY email`,
+        [req.params.id],
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/users/search", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const q = String(req.query.q || "").trim();
+      if (q.length < 2) {
+        return res.json([]);
+      }
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, role_id
+         FROM users WHERE email ILIKE $1 ORDER BY email LIMIT 20`,
+        [`%${q}%`],
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Create super admin (only existing super_admin)
   app.post("/api/admin/create-super", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
