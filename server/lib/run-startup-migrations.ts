@@ -37,11 +37,22 @@ export async function runStartupMigrations(): Promise<void> {
       const sql = await readFile(join(migrationsDir, filename), "utf8");
       await pool.query(sql);
       console.log(`[migration] applied ${filename}`);
+    } catch (err: any) {
+      // Don't crash startup — log and continue. Schema mismatches will
+      // show up on first query against the affected table.
+      console.error(`[migration] FAILED ${filename}:`, err?.message || err);
+      continue;
+    }
 
-      // Spec (fase 1.5, seksjon A) krever at username-kollisjonshopp i denne
-      // migrasjonen ikke logges stille — tell og varsl om rader migrasjonens
-      // WHERE NOT EXISTS (u2.username = a.username) hoppet over.
-      if (filename === "055_admin_users_role_id_unification.sql") {
+    // Spec (fase 1.5, seksjon A) krever at username-kollisjonshopp i denne
+    // migrasjonen ikke logges stille — tell og varsl om rader migrasjonens
+    // WHERE NOT EXISTS (u2.username = a.username) hoppet over. Egen
+    // try/catch, utenfor migrasjonens egen: 055 har allerede committet på
+    // dette punktet, så en feil her er en separat, mindre alvorlig hendelse
+    // — skal ALDRI logges som "[migration] FAILED 055", som ville antydet
+    // at selve migreringen mislyktes.
+    if (filename === "055_admin_users_role_id_unification.sql") {
+      try {
         const skipped = await pool.query(`
           SELECT COUNT(*) FROM admin_users a
           WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
@@ -51,11 +62,9 @@ export async function runStartupMigrations(): Promise<void> {
         if (Number(skipped.rows[0].count) > 0) {
           console.warn(`[migration 055] ${skipped.rows[0].count} admin_users row(s) skipped pairing due to username collision — remain on name-based role resolution fallback`);
         }
+      } catch (err: any) {
+        console.error(`[migration 055] failed to check for skipped username-collision rows (055 itself already applied successfully):`, err?.message || err);
       }
-    } catch (err: any) {
-      // Don't crash startup — log and continue. Schema mismatches will
-      // show up on first query against the affected table.
-      console.error(`[migration] FAILED ${filename}:`, err?.message || err);
     }
   }
 }

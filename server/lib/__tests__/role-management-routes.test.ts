@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeAll, afterAll, afterEach } from "vitest
 import request from "supertest";
 import express from "express";
 import jwt from "jsonwebtoken";
+import { readFileSync } from "fs";
+import { join } from "path";
 import type { db as DbType, pool as PoolType } from "../../db";
 import { roles } from "@shared/models/permissions";
 import { eq } from "drizzle-orm";
@@ -272,6 +274,122 @@ describe("role management routes", () => {
       // role delete below doesn't FK-fail.
       await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [role.id]);
       await db.delete(roles).where(eq(roles.id, role.id));
+    }
+  });
+
+  it("DELETE /api/admin/roles/:id blocks deleting a 0-member role that is the sole holder of role.manage", async () => {
+    // super_admin holds role.manage by default in this environment, so
+    // newRole can't be the SOLE holder unless super_admin's grant is
+    // temporarily removed too — snapshot/restore, same pattern as the PUT
+    // self-lockout tests above. Caller authenticates AS the role being
+    // deleted (not as super_admin), since super_admin's role.manage is
+    // gone for the duration of this test.
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    const beforeSuperAdmin = await pool.query(
+      `SELECT permission_id FROM tidum_role_permissions WHERE role_id = $1`,
+      [superAdminRole.id],
+    );
+    const originalSuperAdminPermissionIds = beforeSuperAdmin.rows.map((r) => r.permission_id);
+    const [newRole] = await db.insert(roles).values({ name: "test_delete_floor_role", scope: "global" }).returning();
+
+    try {
+      await pool.query(
+        `DELETE FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+        [superAdminRole.id, roleManagePermission.id],
+      );
+      await pool.query(
+        `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+        [newRole.id, roleManagePermission.id],
+      );
+      const token = jwt.sign(
+        { id: "test-delete-floor", email: "df@example.com", role: newRole.name, roleId: newRole.id },
+        JWT_SECRET,
+      );
+
+      const res = await request(app)
+        .delete(`/api/admin/roles/${newRole.id}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(409);
+      const stillThere = await db.select().from(roles).where(eq(roles.id, newRole.id)).limit(1);
+      expect(stillThere.length).toBe(1);
+    } finally {
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [newRole.id]);
+      await db.delete(roles).where(eq(roles.id, newRole.id));
+      // Gjenopprett super_admins eksakte snapshot fra før testen kjørte.
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [superAdminRole.id]);
+      for (const permissionId of originalSuperAdminPermissionIds) {
+        await pool.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT (role_id, permission_id) DO NOTHING`,
+          [superAdminRole.id, permissionId],
+        );
+      }
+    }
+  });
+
+  it("DELETE /api/admin/roles/:id allows deleting a 0-member role.manage-holding role when another role still has it", async () => {
+    // super_admin already holds role.manage and is untouched by this test —
+    // that's the "another role" that lets deletion of newRole proceed.
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    const [newRole] = await db.insert(roles).values({ name: "test_delete_floor_role2", scope: "global" }).returning();
+
+    try {
+      await pool.query(
+        `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+        [newRole.id, roleManagePermission.id],
+      );
+      const token = await signSuperAdminToken();
+
+      const res = await request(app)
+        .delete(`/api/admin/roles/${newRole.id}`)
+        .set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      const stillThere = await db.select().from(roles).where(eq(roles.id, newRole.id)).limit(1);
+      expect(stillThere.length).toBe(0);
+    } finally {
+      // The route's DELETE FROM tidum_roles cascades tidum_role_permissions
+      // via FK, but only on the success path — clean up explicitly first in
+      // case the request failed before reaching it.
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [newRole.id]);
+      await db.delete(roles).where(eq(roles.id, newRole.id));
+    }
+  });
+
+  it("migration 054's role-permission seed is fresh-install-only — doesn't re-seed a role emptied via the API", async () => {
+    const [vendorAdminRole] = await db.select().from(roles).where(eq(roles.name, "vendor_admin")).limit(1);
+    const before = await pool.query(
+      `SELECT permission_id FROM tidum_role_permissions WHERE role_id = $1`,
+      [vendorAdminRole.id],
+    );
+    const originalPermissionIds = before.rows.map((r) => r.permission_id);
+
+    try {
+      // Tøm vendor_admin for tillatelser (samme sluttresultat som en super
+      // admin ville fått via PUT .../permissions med permissionIds: []).
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [vendorAdminRole.id]);
+
+      // Re-kjør migrasjon 054 — simulerer neste server-oppstart/deploy.
+      const sql054 = readFileSync(join(process.cwd(), "migrations", "054_role_permission_system.sql"), "utf8");
+      await pool.query(sql054);
+
+      const after = await pool.query(
+        `SELECT permission_id FROM tidum_role_permissions WHERE role_id = $1`,
+        [vendorAdminRole.id],
+      );
+      expect(after.rows.length).toBe(0);
+    } finally {
+      for (const permissionId of originalPermissionIds) {
+        await pool.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2) ON CONFLICT (role_id, permission_id) DO NOTHING`,
+          [vendorAdminRole.id, permissionId],
+        );
+      }
     }
   });
 

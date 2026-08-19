@@ -130,6 +130,51 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     }
   });
 
+  it("admin_users-shaped JWT resolves via the email join even when admin_users and users store the email with different casing", async () => {
+    // pairAdminUserWithUsersTable normalizes email to lowercase when
+    // writing users.email, but admin_users.email keeps whatever case the
+    // caller originally supplied (e.g. Ola.Nordmann@Firma.no) — the join
+    // must not miss this pairing just because the two sides disagree on
+    // case. Found in fase 1.5's final review.
+    const [role] = await dynamicDb
+      .insert(roles)
+      .values({ name: "test_role_jwt_case_insensitive_join", scope: "global" })
+      .returning();
+    const mixedCaseEmail = `Mixed.Case.${Date.now()}@Example.COM`;
+    let adminUserId: number | undefined;
+    let userId: string | undefined;
+
+    try {
+      const {
+        rows: [adminUserRow],
+      } = await dynamicDbPool.query(
+        `INSERT INTO admin_users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
+        [`jwt_case_join_${Date.now()}`, mixedCaseEmail],
+      );
+      adminUserId = adminUserRow.id;
+
+      // users.email stored lowercase, matching pairAdminUserWithUsersTable's
+      // actual write behavior — admin_users keeps the original mixed case.
+      const {
+        rows: [userRow],
+      } = await dynamicDbPool.query(
+        `INSERT INTO users (username, password, email, role_id) VALUES ($1, 'x', $2, $3) RETURNING id`,
+        [`jwt_case_join_user_${Date.now()}`, mixedCaseEmail.toLowerCase(), role.id],
+      );
+      userId = userRow.id;
+
+      const token = jwt.sign({ id: adminUserId, username: "x", role: "vendor_admin" }, JWT_SECRET);
+      const res = await request(app).get("/__test/roleId").set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBe(role.id);
+    } finally {
+      if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+      await dynamicDb.delete(roles).where(eq(roles.id, role.id));
+    }
+  });
+
   it("admin_users-shaped JWT with no linked users row falls back to the real system role by name (not undefined, not blindly super_admin)", async () => {
     const email = `jwt-fallback-noname-${Date.now()}@example.com`;
     let adminUserId: number | undefined;
