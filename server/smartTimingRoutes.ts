@@ -1684,6 +1684,21 @@ export function registerSmartTimingRoutes(app: Express) {
         : false;
 
       if (removingRoleManage) {
+        // Uforbetinget golv: kjører uansett medlemsantall. Verifisert mot
+        // ekte prod-DB at 0 users-rader har role_id satt i det hele tatt —
+        // medlemstellingen under er derfor blind for enhver ekte admin, som
+        // alle autentiserer via JWT-navnefallback. Uten dette golvet ville
+        // memberCount alltid være 0 og guarden under alltid hoppes over.
+        const anyOtherRoleHasIt = await client.query(
+          `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
+          [roleManagePermissionId, req.params.id],
+        );
+        if (anyOtherRoleHasIt.rows.length === 0) {
+          return res.status(409).json({
+            error: "Kan ikke fjerne role.manage — ingen andre roller har den i det hele tatt. Gi en annen rolle role.manage først.",
+          });
+        }
+
         const memberCount = await client.query(
           `SELECT COUNT(*) FROM users WHERE role_id = $1`,
           [req.params.id],
@@ -1797,6 +1812,19 @@ export function registerSmartTimingRoutes(app: Express) {
         const removingRoleManage = currentRoleHasRoleManage && !newRoleHasRoleManage;
 
         if (removingRoleManage) {
+          // Uforbetinget golv, speiler PUT .../permissions sin — se
+          // kommentaren der for hvorfor dette må kjøre uansett antall
+          // tildelte brukere.
+          const anyOtherRoleHasIt = await pool.query(
+            `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
+            [roleManagePermissionId, currentRoleId],
+          );
+          if (anyOtherRoleHasIt.rows.length === 0) {
+            return res.status(409).json({
+              error: "Kan ikke endre denne brukerens rolle — ingen andre roller har role.manage i det hele tatt. Gi en annen rolle role.manage først.",
+            });
+          }
+
           const otherHolderExists = await pool.query(
             `SELECT EXISTS (
                SELECT 1 FROM users u

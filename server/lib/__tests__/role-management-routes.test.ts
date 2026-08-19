@@ -203,6 +203,16 @@ describe("role management routes", () => {
     const [newRole] = await db.insert(roles).values({ name: "test_lockout_guard_role", scope: "global" }).returning();
     const userOnNewRole = await createDisposableUser();
     const userOnSuperAdmin = await createDisposableUser();
+    // Snapshot super_admin's ACTUAL current permission set before mutating —
+    // don't assume it's "all of tidum_permissions" (that assumption could
+    // silently overwrite a legitimately customized prod super_admin role
+    // that didn't have all 7 permissions before this test ran). Mirrors the
+    // vendor_admin snapshot/restore pattern above.
+    const beforeSuperAdmin = await pool.query(
+      `SELECT permission_id FROM tidum_role_permissions WHERE role_id = $1`,
+      [superAdminRole.id],
+    );
+    const originalSuperAdminPermissionIds = beforeSuperAdmin.rows.map((r) => r.permission_id);
 
     try {
       await pool.query(
@@ -223,11 +233,14 @@ describe("role management routes", () => {
       await pool.query(`UPDATE users SET role_id = NULL WHERE id IN ($1, $2)`, [userOnNewRole, userOnSuperAdmin]);
       await pool.query(`DELETE FROM users WHERE id IN ($1, $2)`, [userOnNewRole, userOnSuperAdmin]);
       await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [superAdminRole.id]);
-      // Gjenopprett super_admins fulle tillatelsessett (alle 7) — testen fjernet dem.
-      await pool.query(
-        `INSERT INTO tidum_role_permissions (role_id, permission_id) SELECT $1, id FROM tidum_permissions`,
-        [superAdminRole.id],
-      );
+      // Gjenopprett super_admins EKSAKTE snapshot fra før testen kjørte —
+      // ikke anta at rollen hadde alle 7 tillatelser.
+      for (const permissionId of originalSuperAdminPermissionIds) {
+        await pool.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+          [superAdminRole.id, permissionId],
+        );
+      }
       await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [newRole.id]);
       await db.delete(roles).where(eq(roles.id, newRole.id));
     }

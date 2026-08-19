@@ -46,9 +46,20 @@ INSERT INTO tidum_roles (name, scope, is_system_default)
 VALUES ('super_admin', 'global', TRUE)
 ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
 
+-- NOT EXISTS-vakt: denne migrasjonen kjører på HVER oppstart (se
+-- STARTUP_MIGRATIONS). Uten vakten ville en super_admin som fjerner en
+-- tillatelse via UI-et (Task 3) fått den stille lagt tilbake på neste
+-- deploy. Vakten gjør seedingen ren-installasjon-only: kjører kun når
+-- rollen har NULL tillatelsesrader fra før (ekte fresh install), hopper
+-- over enhver rolle som allerede er seedet/tilpasset.
 INSERT INTO tidum_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM tidum_roles r, tidum_permissions p
 WHERE r.name = 'super_admin' AND r.scope = 'global'
+  AND NOT EXISTS (
+    SELECT 1 FROM tidum_role_permissions rp
+    JOIN tidum_roles r2 ON r2.id = rp.role_id
+    WHERE r2.name = 'super_admin' AND r2.scope = 'global'
+  )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Seed: systemrollen vendor_admin får kun leverandør-relaterte tillatelser
@@ -60,10 +71,17 @@ INSERT INTO tidum_roles (name, scope, is_system_default)
 VALUES ('vendor_admin', 'global', TRUE)
 ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
 
+-- Samme NOT EXISTS-vakt som super_admin over — hopper over seeding når
+-- vendor_admin allerede har tillatelsesrader (uansett hvilke).
 INSERT INTO tidum_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM tidum_roles r, tidum_permissions p
 WHERE r.name = 'vendor_admin' AND r.scope = 'global'
   AND p.key IN ('vendor.poweroffice_visibility.toggle')
+  AND NOT EXISTS (
+    SELECT 1 FROM tidum_role_permissions rp
+    JOIN tidum_roles r2 ON r2.id = rp.role_id
+    WHERE r2.name = 'vendor_admin' AND r2.scope = 'global'
+  )
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Denne migrasjonen kjørte allerede en gang mot prod med vendor.admin.create
