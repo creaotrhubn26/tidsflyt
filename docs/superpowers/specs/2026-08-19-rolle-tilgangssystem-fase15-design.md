@@ -69,18 +69,42 @@ opprett en ny `users`-rad med `role` kopiert fra `admin_users.role`, og
 matchende `users`-rad som mangler `role_id`: sett `role_id` på den
 eksisterende raden i stedet for å opprette en duplikat.
 
+**`users.username` — skjult, delt kolonne:** direkte databaseinspeksjon
+(utenfor Drizzle-skjemaet, som ikke kjenner denne kolonnen i det hele tatt)
+viser at `users` har en `username TEXT NOT NULL UNIQUE`-kolonne lagt til av
+et annet prosjekt som deler samme database (ekte rader som
+`demo-agency@theroleroom.com` / `username: "demo-agency"` bekrefter dette —
+sannsynligvis Replit Auth-mønsteret et tredje, urelatert produkt bruker på
+samme tabell). Enhver `INSERT INTO users` MÅ oppgi `username`, ellers feiler
+innsettingen — dette er trolig årsaken til to forhåndseksisterende, urelaterte
+testfeil (`mobile-auth.test.ts`/`mobile-bearer-auth.test.ts`) som ikke
+oppgir `username`.
+
+Verifisert direkte mot produksjonsdatabasen før denne spec-en ble skrevet:
+**null** `admin_users`-rader mangler i dag en paret `users`-rad, **null**
+`username`-kollisjoner mellom `admin_users.username` og eksisterende
+`users.username`-verdier, og **null** parede rader med `role_id IS NULL`.
+Fase 1s migrering 054 dekket altså allerede alle reelle produksjonskontoer
+korrekt — denne migreringen (055) er et sikkerhetsnett for fremtidig drift
+(nye admin_users-rader opprettet før denne fasens routes-endring rekker å
+deploye), ikke en reell datamigrering i dag.
+
 ```sql
--- Opprett users-rad for admin_users-rader uten paret users-rad
-INSERT INTO users (id, email, role, role_id, created_at, updated_at)
+-- Opprett users-rad for admin_users-rader uten paret users-rad.
+-- username avledes fra admin_users.username (allerede unik på sin egen
+-- tabell) — den delte users.username-constrainten krever en verdi.
+INSERT INTO users (id, email, username, role, role_id, created_at, updated_at)
 SELECT
   gen_random_uuid(),
   a.email,
+  a.username,
   a.role,
   (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true),
   a.created_at,
   now()
 FROM admin_users a
 WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
+  AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
   AND a.role IN ('super_admin', 'vendor_admin');
 
 -- Backfill role_id på users-rader som allerede er paret på e-post men mangler role_id
@@ -91,6 +115,14 @@ WHERE u.email = a.email
   AND u.role_id IS NULL
   AND a.role IN ('super_admin', 'vendor_admin');
 ```
+
+`WHERE NOT EXISTS (... u2.username = a.username)`-vaktklausulen hopper
+eksplisitt over enhver rad som ville kollidert med et annet prosjekts
+eksisterende brukernavn i stedet for å feile hele migreringen — en slik rad
+blir liggende uparet (samme oppførsel som i dag, ikke en regresjon) og
+logges IKKE stille: migreringsscriptet må selv telle og logge antall
+hoppet-over rader ved oppstart (`console.warn`), slik at et fremtidig
+avvik oppdages i loggene i stedet for å forsvinne sporløst.
 
 E-post er unik på begge tabeller (`admin_users.email` og `users.email` har
 begge DB-nivå `UNIQUE`-constraints — verifisert i fase 1s sluttgjennomgang),
@@ -105,11 +137,18 @@ uendret oppførsel).
 **Fremtidige kontoopprettinger** — tre ruter i `server/smartTimingRoutes.ts`
 endres til å alltid opprette/oppdatere en paret `users`-rad samtidig med
 `admin_users`-raden, samme mønster `POST /api/vendors/:id/admins` allerede
-bruker (innsetting/upsert på e-post):
+bruker (innsetting/upsert på e-post), MEN med `username` inkludert (fra
+samme `username`-verdi ruten allerede setter på `admin_users`-raden, siden
+den delte `users.username`-constrainten krever det):
 
-- `POST /api/admin/create-super` (`:1687`)
-- `POST /api/admin/bootstrap` (`:1708`)
-- `POST /api/cms/setup` (`:2154`)
+- `POST /api/admin/create-super` (`:1687`) — `username`/`email` kommer
+  allerede fra request body.
+- `POST /api/admin/bootstrap` (`:1708`) — samme.
+- `POST /api/cms/setup` (`:2154`) — hardkodet default-admin
+  (`username: 'admin'`, `email: 'admin@smarttiming.no'`) — kun IF-grenen
+  (fersk innsetting) trenger den parede `users`-raden; ELSE-grenen
+  (passord-reset på eksisterende) rører ingen tabell utover
+  `admin_users.password_hash`.
 
 **`resolveJwtAdminRoleId`** (`smartTimingRoutes.ts:254`) endres ikke i
 denne fasen — steg 2 (e-post-join) fungerer allerede riktig og vil nå
