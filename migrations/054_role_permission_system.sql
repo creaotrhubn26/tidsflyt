@@ -52,7 +52,10 @@ WHERE r.name = 'super_admin' AND r.scope = 'global'
 ON CONFLICT (role_id, permission_id) DO NOTHING;
 
 -- Seed: systemrollen vendor_admin får kun leverandør-relaterte tillatelser
--- (IKKE vendor.create eller role.manage — matcher dagens super_admin-only-sjekker)
+-- (IKKE vendor.create, vendor.admin.create eller role.manage — vendor.admin.create
+-- er UNSCOPED (ingen vendor-sjekk), så å gi den til vendor_admin ville la enhver
+-- vendor_admin opprette admin-brukere på ANDRE sine tenants og kortslutte
+-- eierskaps-sjekken i POST /api/vendors/:id/admins. Kun super_admin skal ha den.)
 INSERT INTO tidum_roles (name, scope, is_system_default)
 VALUES ('vendor_admin', 'global', TRUE)
 ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
@@ -60,8 +63,17 @@ ON CONFLICT (scope, COALESCE(vendor_id, -1), name) DO NOTHING;
 INSERT INTO tidum_role_permissions (role_id, permission_id)
 SELECT r.id, p.id FROM tidum_roles r, tidum_permissions p
 WHERE r.name = 'vendor_admin' AND r.scope = 'global'
-  AND p.key IN ('vendor.admin.create', 'vendor.poweroffice_visibility.toggle')
+  AND p.key IN ('vendor.poweroffice_visibility.toggle')
 ON CONFLICT (role_id, permission_id) DO NOTHING;
+
+-- Denne migrasjonen kjørte allerede en gang mot prod med vendor.admin.create
+-- feilaktig inkludert over (se commit-historikk) — CREATE TABLE IF NOT EXISTS +
+-- ON CONFLICT DO NOTHING over gjør INSERT-fiksen alene utilstrekkelig for
+-- installasjoner der raden allerede finnes. Fjern den eksplisitt (idempotent,
+-- trygg å kjøre uansett om raden finnes eller ikke).
+DELETE FROM tidum_role_permissions
+WHERE role_id = (SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND is_system_default = true)
+  AND permission_id = (SELECT id FROM tidum_permissions WHERE key = 'vendor.admin.create');
 
 -- Koble eksisterende kontoer til de migrerte rollene automatisk.
 UPDATE users u

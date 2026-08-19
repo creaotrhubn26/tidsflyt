@@ -11,6 +11,5 @@ export const PERMISSION_CATALOG = [
 export type PermissionKey = typeof PERMISSION_CATALOG[number]["key"];
 
 export const VENDOR_ADMIN_PERMISSION_KEYS: PermissionKey[] = [
-  "vendor.admin.create",
   "vendor.poweroffice_visibility.toggle",
 ];
