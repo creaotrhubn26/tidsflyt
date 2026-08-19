@@ -66,6 +66,21 @@ describe("role management routes", () => {
     return jwt.sign({ id: "test-vendor-admin", email: "va@example.com", role: "vendor_admin", roleId: role.id }, JWT_SECRET);
   }
 
+  // Disposable users.id for tests that need a controllable role_id without
+  // touching a real (possibly production) account. username/password are
+  // legacy NOT NULL columns on this shared public.users table, unrelated to
+  // what these tests exercise — filled with disposable values.
+  async function createDisposableUser(): Promise<string> {
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const {
+      rows: [row],
+    } = await pool.query(
+      `INSERT INTO users (username, password, email) VALUES ($1, 'x', $2) RETURNING id, role_id`,
+      [`test_role_mgmt_user_${suffix}`, `test-role-mgmt-${suffix}@example.com`],
+    );
+    return row.id;
+  }
+
   it("GET /api/admin/permissions returns the full catalog", async () => {
     const token = await signSuperAdminToken();
     const res = await request(app)
@@ -87,18 +102,30 @@ describe("role management routes", () => {
 
   it("DELETE /api/admin/roles/:id blocks deletion when users are attached", async () => {
     const [role] = await db.insert(roles).values({ name: "test_role_task6", scope: "global" }).returning();
-    // Raw SQL — only `id` is needed here, no reason to pull a full users row via drizzle.
-    const { rows: [testUser] } = await pool.query(`SELECT id FROM users LIMIT 1`);
-    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [role.id, testUser.id]);
+    const userId = await createDisposableUser();
+    // Freshly created disposable user, so this is NULL — captured rather
+    // than assumed, and restored exactly (not hardcoded) below.
+    const {
+      rows: [before],
+    } = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [userId]);
+    const originalRoleId = before.role_id;
 
-    const token = await signSuperAdminToken();
-    const res = await request(app)
-      .delete(`/api/admin/roles/${role.id}`)
-      .set("Authorization", `Bearer ${token}`);
+    try {
+      await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [role.id, userId]);
 
-    expect(res.status).toBe(409);
+      const token = await signSuperAdminToken();
+      const res = await request(app)
+        .delete(`/api/admin/roles/${role.id}`)
+        .set("Authorization", `Bearer ${token}`);
 
-    await pool.query(`UPDATE users SET role_id = NULL WHERE id = $1`, [testUser.id]);
+      expect(res.status).toBe(409);
+    } finally {
+      // Runs even if the assertion above throws, so a failed run never
+      // leaves the mutation in place (which would also cascade into
+      // afterEach's `DELETE FROM tidum_roles` failing on an FK violation).
+      await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [originalRoleId, userId]);
+      await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    }
   });
 
   it("DELETE /api/admin/roles/:id blocks deletion of a system role", async () => {
