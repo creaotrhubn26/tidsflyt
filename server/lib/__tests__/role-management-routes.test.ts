@@ -142,8 +142,106 @@ describe("role management routes", () => {
     expect(stillThere.length).toBe(1);
   });
 
-  it("PUT /api/admin/roles/:id/permissions blocks editing a system role's permissions", async () => {
-    const [role] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+  it("PUT /api/admin/roles/:id/permissions allows editing a system role's permissions when it doesn't remove the last role.manage", async () => {
+    const [vendorAdminRole] = await db.select().from(roles).where(eq(roles.name, "vendor_admin")).limit(1);
+    const before = await pool.query(
+      `SELECT permission_id FROM tidum_role_permissions WHERE role_id = $1`,
+      [vendorAdminRole.id],
+    );
+    const originalPermissionIds = before.rows.map((r) => r.permission_id);
+
+    try {
+      const token = await signSuperAdminToken();
+      const res = await request(app)
+        .put(`/api/admin/roles/${vendorAdminRole.id}/permissions`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ permissionIds: [] });
+
+      // vendor_admin never had role.manage (only super_admin does), so
+      // removing everything from it can never trip the self-lockout guard.
+      expect(res.status).toBe(200);
+    } finally {
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [vendorAdminRole.id]);
+      for (const permissionId of originalPermissionIds) {
+        await pool.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+          [vendorAdminRole.id, permissionId],
+        );
+      }
+    }
+  });
+
+  it("PUT .../permissions blocks removing role.manage from the only role with assigned members that has it", async () => {
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    const userId = await createDisposableUser();
+
+    try {
+      await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [superAdminRole.id, userId]);
+
+      const token = await signSuperAdminToken();
+      const res = await request(app)
+        .put(`/api/admin/roles/${superAdminRole.id}/permissions`)
+        .set("Authorization", `Bearer ${token}`)
+        // Empty set — removes ALL permissions from super_admin, including
+        // role.manage, which is exactly what the self-lockout guard exists
+        // to catch (super_admin is the only role with an assigned member
+        // that has role.manage at this point in the test).
+        .send({ permissionIds: [] });
+
+      expect(res.status).toBe(409);
+    } finally {
+      await pool.query(`UPDATE users SET role_id = NULL WHERE id = $1`, [userId]);
+      await pool.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    }
+  });
+
+  it("PUT .../permissions allows removing role.manage from a role when another role with assigned members still has it", async () => {
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    const [newRole] = await db.insert(roles).values({ name: "test_lockout_guard_role", scope: "global" }).returning();
+    const userOnNewRole = await createDisposableUser();
+    const userOnSuperAdmin = await createDisposableUser();
+
+    try {
+      await pool.query(
+        `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+        [newRole.id, roleManagePermission.id],
+      );
+      await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [newRole.id, userOnNewRole]);
+      await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [superAdminRole.id, userOnSuperAdmin]);
+
+      const token = await signSuperAdminToken();
+      const res = await request(app)
+        .put(`/api/admin/roles/${superAdminRole.id}/permissions`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ permissionIds: [] });
+
+      expect(res.status).toBe(200);
+    } finally {
+      await pool.query(`UPDATE users SET role_id = NULL WHERE id IN ($1, $2)`, [userOnNewRole, userOnSuperAdmin]);
+      await pool.query(`DELETE FROM users WHERE id IN ($1, $2)`, [userOnNewRole, userOnSuperAdmin]);
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [superAdminRole.id]);
+      // Gjenopprett super_admins fulle tillatelsessett (alle 7) — testen fjernet dem.
+      await pool.query(
+        `INSERT INTO tidum_role_permissions (role_id, permission_id) SELECT $1, id FROM tidum_permissions`,
+        [superAdminRole.id],
+      );
+      await pool.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [newRole.id]);
+      await db.delete(roles).where(eq(roles.id, newRole.id));
+    }
+  });
+
+  it("PUT .../permissions never runs the self-lockout check for a role with 0 assigned members", async () => {
+    const [role] = await db.insert(roles).values({ name: "test_no_members_role", scope: "global" }).returning();
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    await pool.query(
+      `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+      [role.id, roleManagePermission.id],
+    );
 
     const token = await signSuperAdminToken();
     const res = await request(app)
@@ -151,7 +249,9 @@ describe("role management routes", () => {
       .set("Authorization", `Bearer ${token}`)
       .send({ permissionIds: [] });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
+
+    await db.delete(roles).where(eq(roles.id, role.id));
   });
 
   it("DELETE /api/admin/roles/:id returns 404 for a role that doesn't exist", async () => {

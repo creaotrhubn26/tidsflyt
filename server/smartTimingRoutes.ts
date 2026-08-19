@@ -1658,10 +1658,45 @@ export function registerSmartTimingRoutes(app: Express) {
     }
     const client = await pool.connect();
     try {
-      const roleCheck = await client.query(`SELECT is_system_default FROM tidum_roles WHERE id = $1`, [req.params.id]);
-      if (roleCheck.rows[0]?.is_system_default) {
-        return res.status(409).json({ error: "Tillatelsene til en systemrolle kan ikke endres" });
+      const roleCheck = await client.query(`SELECT id FROM tidum_roles WHERE id = $1`, [req.params.id]);
+      if (roleCheck.rows.length === 0) {
+        return res.status(404).json({ error: "Rollen finnes ikke" });
       }
+
+      // Selvlås-guard: hindre at role.manage forsvinner fra ALLE roller
+      // med tildelte brukere. Kjører kun når role.manage faktisk fjernes
+      // OG denne rollen har ≥1 tildelt bruker — uendret rolle uten
+      // medlemmer, eller endringer som ikke berører role.manage, er upåvirket.
+      const roleManagePermission = await client.query(
+        `SELECT id FROM tidum_permissions WHERE key = 'role.manage'`,
+      );
+      const roleManagePermissionId = roleManagePermission.rows[0]?.id;
+      const removingRoleManage = roleManagePermissionId
+        ? !permissionIds.includes(roleManagePermissionId)
+        : false;
+
+      if (removingRoleManage) {
+        const memberCount = await client.query(
+          `SELECT COUNT(*) FROM users WHERE role_id = $1`,
+          [req.params.id],
+        );
+        if (Number(memberCount.rows[0].count) > 0) {
+          const otherRoleWithRoleManage = await client.query(
+            `SELECT DISTINCT u.role_id
+             FROM users u
+             JOIN tidum_role_permissions rp ON rp.role_id = u.role_id
+             WHERE rp.permission_id = $1 AND u.role_id <> $2
+             LIMIT 1`,
+            [roleManagePermissionId, req.params.id],
+          );
+          if (otherRoleWithRoleManage.rows.length === 0) {
+            return res.status(409).json({
+              error: "Kan ikke fjerne role.manage — ingen andre roller med tildelte brukere har den. Tildel en annen bruker først.",
+            });
+          }
+        }
+      }
+
       await client.query("BEGIN");
       await client.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [req.params.id]);
       for (const permissionId of permissionIds) {
