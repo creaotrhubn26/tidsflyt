@@ -255,16 +255,20 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
   try {
     const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
     if (byUsersId.rows[0]?.role_id) return byUsersId.rows[0].role_id;
+  } catch (err) {
+    console.error('[authenticateAdmin] failed users.id roleId lookup', err);
+  }
 
+  try {
     const byAdminUsersEmail = await pool.query(
       `SELECT u.role_id FROM admin_users a JOIN users u ON u.email = a.email WHERE a.id = $1`,
       [admin.id],
     );
     if (byAdminUsersEmail.rows[0]?.role_id) return byAdminUsersEmail.rows[0].role_id;
   } catch (err) {
-    console.error('[authenticateAdmin] failed to resolve JWT admin roleId', err);
-    return undefined;
+    console.error('[authenticateAdmin] failed admin_users email-join roleId lookup', err);
   }
+
   return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
 }
 
