@@ -37,6 +37,21 @@ export async function runStartupMigrations(): Promise<void> {
       const sql = await readFile(join(migrationsDir, filename), "utf8");
       await pool.query(sql);
       console.log(`[migration] applied ${filename}`);
+
+      // Spec (fase 1.5, seksjon A) krever at username-kollisjonshopp i denne
+      // migrasjonen ikke logges stille — tell og varsl om rader migrasjonens
+      // WHERE NOT EXISTS (u2.username = a.username) hoppet over.
+      if (filename === "055_admin_users_role_id_unification.sql") {
+        const skipped = await pool.query(`
+          SELECT COUNT(*) FROM admin_users a
+          WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
+            AND EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
+            AND a.role IN ('super_admin', 'vendor_admin')
+        `);
+        if (Number(skipped.rows[0].count) > 0) {
+          console.warn(`[migration 055] ${skipped.rows[0].count} admin_users row(s) skipped pairing due to username collision — remain on name-based role resolution fallback`);
+        }
+      }
     } catch (err: any) {
       // Don't crash startup — log and continue. Schema mismatches will
       // show up on first query against the affected table.
