@@ -1698,6 +1698,21 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
+
+      // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
+      // samme mønster som POST /api/vendors/:id/admins allerede bruker.
+      // username/password er NOT NULL-kolonner fra et urelatert produkt
+      // som deler public.users, aldri lest av Tidums egen kode.
+      const superAdminRoleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
+      )).rows[0]?.id ?? null;
+      await pool.query(
+        `INSERT INTO users (username, password, email, role, role_id)
+         VALUES ($1, 'unused-admin-users-pairing', $2, 'super_admin', $3)
+         ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $3, updated_at = NOW()`,
+        [username, email, superAdminRoleId],
+      );
+
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -1720,6 +1735,21 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
+
+      // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
+      // samme mønster som POST /api/vendors/:id/admins allerede bruker.
+      // username/password er NOT NULL-kolonner fra et urelatert produkt
+      // som deler public.users, aldri lest av Tidums egen kode.
+      const superAdminRoleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
+      )).rows[0]?.id ?? null;
+      await pool.query(
+        `INSERT INTO users (username, password, email, role, role_id)
+         VALUES ($1, 'unused-admin-users-pairing', $2, 'super_admin', $3)
+         ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $3, updated_at = NOW()`,
+        [username, email, superAdminRoleId],
+      );
+
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -2384,6 +2414,16 @@ export function registerSmartTimingRoutes(app: Express) {
         await pool.query(
           `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
           ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
+        );
+        // Pare med users-tabellen, samme mønster som create-super/bootstrap.
+        const superAdminRoleId = (await pool.query(
+          `SELECT id FROM tidum_roles WHERE name = 'super_admin' AND scope = 'global' AND is_system_default = true`,
+        )).rows[0]?.id ?? null;
+        await pool.query(
+          `INSERT INTO users (username, password, email, role, role_id)
+           VALUES ('admin', 'unused-admin-users-pairing', 'admin@smarttiming.no', 'super_admin', $1)
+           ON CONFLICT (email) DO UPDATE SET role = 'super_admin', role_id = $1, updated_at = NOW()`,
+          [superAdminRoleId],
         );
       } else {
         await pool.query(
