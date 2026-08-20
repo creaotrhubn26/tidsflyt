@@ -73,12 +73,26 @@ describe("admin activity log routes", () => {
 
   it("a mutation through an unrelated authenticateAdmin route logs a mutation row with the real status code", async () => {
     const token = await signVendorAdminToken();
-    // vendor_admin has no role.manage, so this 403s — the log should still
-    // record the attempt, with status_code 403, not just successes.
-    const res = await request(app)
-      .post("/api/admin/roles")
-      .set("Authorization", `Bearer ${token}`)
-      .send({ name: "should_not_be_created", scope: "global" });
+    // attachActivityLogging() skips writing when NODE_ENV === "test" (fix
+    // for stray rows from unrelated test files that don't know this table
+    // exists — see server/smartTimingRoutes.ts). Vitest sets NODE_ENV to
+    // "test" for the whole run, including this file, so this test — whose
+    // entire point is to prove attachActivityLogging DOES write — must
+    // temporarily flip it for the duration of this one request, same
+    // pattern beforeAll already uses around the module import.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    let res: request.Response;
+    try {
+      // vendor_admin has no role.manage, so this 403s — the log should still
+      // record the attempt, with status_code 403, not just successes.
+      res = await request(app)
+        .post("/api/admin/roles")
+        .set("Authorization", `Bearer ${token}`)
+        .send({ name: "should_not_be_created", scope: "global" });
+    } finally {
+      process.env.NODE_ENV = prevNodeEnv;
+    }
     expect(res.status).toBe(403);
 
     // res.on('finish') fires asynchronously after the response is sent —

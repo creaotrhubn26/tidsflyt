@@ -325,21 +325,31 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
 // prøvde denne brukeren å gjøre". Best-effort: skriver aldri feil videre til
 // den faktiske handlingen.
 function attachActivityLogging(req: AuthRequest, res: Response): void {
+  // Every other pre-existing test file routes requests through
+  // authenticateAdmin without knowing this table exists, so without this
+  // guard they'd all silently write stray rows into the shared production
+  // table. Kept as the very first check.
+  if (process.env.NODE_ENV === "test") return;
   if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return;
   const userId = req.admin?.id;
   if (!userId) return;
   // The page-view endpoint below is itself a POST and logs its own
   // 'page_view' row — skip it here to avoid double-logging every page-view
-  // call as a spurious 'mutation' row too.
-  if (req.path === "/api/admin/activity/page-view") return;
+  // call as a spurious 'mutation' row too. Normalize a trailing slash first
+  // since Express's default non-strict routing matches both.
+  if (req.path.replace(/\/$/, "") === "/api/admin/activity/page-view") return;
   res.on("finish", () => {
-    pool
-      .query(
-        `INSERT INTO tidum_admin_activity_log (user_id, event_type, method, path, status_code)
-         VALUES ($1, 'mutation', $2, $3, $4)`,
-        [userId, req.method, req.path, res.statusCode],
-      )
-      .catch((err) => console.error("[activity-log] failed to write mutation entry", err));
+    try {
+      pool
+        .query(
+          `INSERT INTO tidum_admin_activity_log (user_id, event_type, method, path, status_code)
+           VALUES ($1, 'mutation', $2, $3, $4)`,
+          [userId, req.method, req.path, res.statusCode],
+        )
+        .catch((err) => console.error("[activity-log] failed to write mutation entry", err));
+    } catch (err) {
+      console.error("[activity-log] unexpected error in finish listener", err);
+    }
   });
 }
 
@@ -1985,8 +1995,8 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/admin/activity/page-view", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { path } = req.body as { path?: string };
-      if (typeof path !== "string" || !path.startsWith("/admin")) {
-        return res.status(400).json({ error: "path må starte med /admin" });
+      if (typeof path !== "string" || !path.startsWith("/admin") || path.length > 512) {
+        return res.status(400).json({ error: "path må starte med /admin og være under 512 tegn" });
       }
       await pool.query(
         `INSERT INTO tidum_admin_activity_log (user_id, event_type, path)
@@ -2004,8 +2014,10 @@ export function registerSmartTimingRoutes(app: Express) {
       if (!(await hasPermission(req.admin.roleId, "activity_log.view"))) {
         return res.status(403).json({ error: "Ingen tilgang" });
       }
-      const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 200);
-      const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10) || 0, 0);
+      const rawLimit = parseInt(String(req.query.limit ?? "50"), 10);
+      const limit = Math.min(Math.max(Number.isInteger(rawLimit) ? rawLimit : 50, 0), 200);
+      const rawOffset = parseInt(String(req.query.offset ?? "0"), 10);
+      const offset = Math.max(Number.isInteger(rawOffset) ? rawOffset : 0, 0);
       const conditions: string[] = [];
       const params: any[] = [];
       if (req.query.userId) {
@@ -2013,10 +2025,16 @@ export function registerSmartTimingRoutes(app: Express) {
         conditions.push(`al.user_id = $${params.length}`);
       }
       if (req.query.since) {
+        if (isNaN(Date.parse(String(req.query.since)))) {
+          return res.status(400).json({ error: "since må være en gyldig dato" });
+        }
         params.push(req.query.since);
         conditions.push(`al.created_at >= $${params.length}`);
       }
       if (req.query.until) {
+        if (isNaN(Date.parse(String(req.query.until)))) {
+          return res.status(400).json({ error: "until må være en gyldig dato" });
+        }
         params.push(req.query.until);
         conditions.push(`al.created_at <= $${params.length}`);
       }
