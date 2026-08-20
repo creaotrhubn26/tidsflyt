@@ -6,6 +6,7 @@ export const PERMISSION_CATALOG = [
   { key: "prototype_tester.convert", label: "Konvertere tester til leverandøradmin", module: "prototype_testere" },
   { key: "user.expected_ssn.set", label: "Forhåndsregistrere fødselsnummer på konto", module: "eid" },
   { key: "role.manage", label: "Administrere roller og tillatelser", module: "systemadministrasjon" },
+  { key: "activity_log.view", label: "Se aktivitetslogg", module: "systemadministrasjon" },
 ] as const;
 
 export type PermissionKey = typeof PERMISSION_CATALOG[number]["key"];
