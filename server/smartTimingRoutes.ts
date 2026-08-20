@@ -1369,14 +1369,30 @@ export function registerSmartTimingRoutes(app: Express) {
         [username, email, passwordHash, vendorId]
       );
 
-      // 2. Portal user (users table) — magic-link logs in against this
+      // 2. Portal user (users table) — magic-link logs in against this.
+      // username/password are NOT NULL columns on the shared public.users
+      // table (owned by an unrelated product, see
+      // .claude/skills/rolle-tilgangssystem/references/fallgruver.md) —
+      // omitting them made a fresh invite's INSERT fail; only the
+      // ON CONFLICT UPDATE path (an email that already had a users row)
+      // ever worked. Also sets role_id now (fase 1.5's tildelings-system)
+      // so this route stops being the one place that changes users.role
+      // without keeping role_id in sync. Deliberately NOT reusing
+      // pairAdminUserWithUsersTable here — that helper preserves an
+      // existing users.role on conflict (COALESCE), but this route's whole
+      // point is to deliberately overwrite it: a vendor explicitly invites
+      // this person as vendor_admin, same intent as the company_users
+      // insert right below.
       const normalizedEmail = email.toLowerCase().trim();
+      const vendorAdminRoleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND scope = 'global' AND is_system_default = true`,
+      )).rows[0]?.id ?? null;
       await pool.query(
-        `INSERT INTO users (email, role, vendor_id)
-         VALUES ($1, 'vendor_admin', $2)
+        `INSERT INTO users (username, password, email, role, role_id, vendor_id)
+         VALUES ($1, 'unused-admin-users-pairing', $2, 'vendor_admin', $3, $4)
          ON CONFLICT (email) DO UPDATE
-         SET role = 'vendor_admin', vendor_id = $2, updated_at = NOW()`,
-        [normalizedEmail, vendorId]
+         SET role = 'vendor_admin', role_id = $3, vendor_id = $4, updated_at = NOW()`,
+        [username, normalizedEmail, vendorAdminRoleId, vendorId]
       );
 
       // 3. company_users entry so the user appears in the vendor's user list
