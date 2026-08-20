@@ -21,6 +21,7 @@ import { TesterFeedbackButton } from "@/components/tester/tester-feedback-button
 
 const Landing = lazy(() => import("@/pages/landing"));
 const KobleBankId = lazy(() => import("@/pages/koble-bankid"));
+const KobleBuypass = lazy(() => import("@/pages/koble-buypass"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const TimeTracking = lazy(() => import("@/pages/time-tracking"));
 const Reports = lazy(() => import("@/pages/reports"));
@@ -33,6 +34,7 @@ const CMSPageLegacy = lazy(() =>
   import("@/pages/cms").then((module) => ({ default: module.CMSPageLegacy })),
 );
 const Vendors = lazy(() => import("@/pages/vendors"));
+const AdminRoller = lazy(() => import("@/pages/admin-roller"));
 const Contact = lazy(() => import("@/pages/contact"));
 const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
@@ -147,6 +149,7 @@ function Router() {
         <Route path="/p/:slug" component={BuilderPage} />
         <Route path="/invite/:token" component={InviteAcceptPage} />
         <Route path="/logg-inn/koble-bankid" component={KobleBankId} />
+        <Route path="/logg-inn/koble-buypass" component={KobleBuypass} />
 
         {/* Protected routes */}
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
@@ -188,6 +191,7 @@ function Router() {
         <Route path="/admin/rapport-maler">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminRapportTemplatesPage /></AuthGuard>}</Route>
         <Route path="/admin/rapport-maler/:id">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminRapportTemplateEditPage /></AuthGuard>}</Route>
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
+        <Route path="/admin/roller">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminRoller /></AuthGuard>}</Route>
         <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>

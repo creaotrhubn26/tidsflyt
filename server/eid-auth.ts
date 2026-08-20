@@ -146,6 +146,27 @@ async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | nul
   };
 }
 
+// Fallback når ingen eid_identities-rad finnes ennå: super admin kan
+// forhåndsregistrere hvilket fødselsnummer en konto skal kobles til, FØR
+// personen noensinne har logget inn med eID (se migrations/053). Denne
+// slår opp den forventede hashen på users direkte — brukes kun av
+// createEidCallbackHandler, som skriver selve eid_identities-raden og
+// nullstiller feltet idet koblingen er gjort (one-shot, ikke gjenbrukbar).
+async function resolveUserByExpectedSsnHash(ssnHash: string): Promise<AuthUser | null> {
+  const [user] = await db.select().from(users).where(eq(users.expectedSsnHash, ssnHash)).limit(1);
+  if (!user) return null;
+
+  return {
+    id: user.id,
+    email: user.email || "",
+    name: [user.firstName, user.lastName].filter(Boolean).join(" ").trim() || user.email || "",
+    profileImageUrl: user.profileImageUrl,
+    provider: "",
+    role: user.role || "member",
+    vendorId: user.vendorId,
+  };
+}
+
 async function upsertEidIdentity(params: {
   userId: string;
   provider: string;
@@ -267,7 +288,33 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
 
       // Innlogging: slå opp eksisterende kobling på tvers av leverandører
       // (fnr-hash er nøkkelen). Opprett ALDRI ny bruker.
-      const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+      let resolvedUser = await resolveUserByEidIdentity(ssnHash);
+
+      if (!resolvedUser) {
+        // Ingen eid_identities ennå — men kanskje super admin har
+        // forhåndsregistrert nettopp dette fødselsnummeret på en konto
+        // (migrations/053). Første ekte eID-innlogging fullfører da
+        // koblingen automatisk, uten en mellomliggende Google/e-post-økt.
+        const expectedUser = await resolveUserByExpectedSsnHash(ssnHash);
+        if (expectedUser) {
+          await upsertEidIdentity({
+            userId: expectedUser.id,
+            provider,
+            sub,
+            ssnHash,
+            givenName,
+            familyName,
+            fullName,
+            rawClaims,
+          });
+          await db
+            .update(users)
+            .set({ expectedSsnHash: null, updatedAt: new Date() })
+            .where(eq(users.id, expectedUser.id));
+          resolvedUser = { ...expectedUser, provider };
+        }
+      }
+
       if (!resolvedUser) {
         await logAuthEvent({
           provider,

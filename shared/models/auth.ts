@@ -33,6 +33,9 @@ export const users = pgTable("users", {
   notificationEmail: boolean("notification_email").notNull().default(true),
   notificationPush: boolean("notification_push").notNull().default(false),
   notificationWeekly: boolean("notification_weekly").notNull().default(true),
+  // Forhåndsregistrert av super admin FØR personen har logget inn med eID —
+  // samme hash-funksjon som eid_identities.ssn_hash. Se migrations/053.
+  expectedSsnHash: text("expected_ssn_hash"),
 });
 
 export type UpsertUser = typeof users.$inferInsert;

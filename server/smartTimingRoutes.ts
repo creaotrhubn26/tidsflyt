@@ -7,6 +7,7 @@ import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
 import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
+import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
 import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
 import crypto from "crypto";
@@ -23,6 +24,7 @@ import { vendorIntegrations } from "@shared/schema";
 import { and } from "drizzle-orm";
 import { db } from "./db";
 import { processVendorSeatOverrun } from "./lib/seat-overrun";
+import { hasPermission } from "./lib/permissions";
 import {
   getBlogCoverOgUrl,
   getBlogCoverPath,
@@ -72,7 +74,7 @@ const upload = multer({
 });
 
 interface AuthRequest extends Request {
-  admin?: any;
+  admin?: any & { roleId?: string };
   companyUser?: any;
 }
 
@@ -193,28 +195,175 @@ function buildDefaultAnalyticsSettings() {
   };
 }
 
-function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
+// Resolves the migrated super_admin system role's real UUID (Task 1's
+// tidum_roles table — renamed from the bare "roles" to avoid a collision
+// with an unrelated project's tables sharing this database), cached at
+// module scope — looked up once per server process, not per request. If
+// super_admin is ever renamed or deleted/recreated after startup, this
+// cache needs a restart to catch up; acceptable for fase 1, revisit if
+// role admin (Task 6) makes it a real problem.
+let cachedSuperAdminRoleId: string | null = null;
+
+// Cache of system role name -> real DB row id. Generalizes
+// cachedSuperAdminRoleId so the JWT-branch admin_users legacy fallback
+// (below, in authenticateAdmin) can resolve any system role by name, not
+// just super_admin — admin_users.role defaults to 'vendor_admin', it is
+// NOT always super_admin, so that fallback must look up the actual role.
+const cachedSystemRoleIdsByName = new Map<string, string | null>();
+
+async function resolveSystemRoleIdByName(name: string): Promise<string | null> {
+  if (cachedSystemRoleIdsByName.has(name)) return cachedSystemRoleIdsByName.get(name)!;
+  let id: string | null = null;
+  try {
+    const result = await pool.query(
+      `SELECT id FROM tidum_roles WHERE scope = 'global' AND name = $1 AND is_system_default = true LIMIT 1`,
+      [name],
+    );
+    id = result.rows[0]?.id ?? null;
+  } catch (err) {
+    // Fail closed (no roleId) rather than hang the request — matches
+    // hasPermission's fail-closed behavior in server/lib/permissions.ts.
+    console.error('[authenticateAdmin] failed to resolve system role id', name, err);
+    id = null;
+  }
+  cachedSystemRoleIdsByName.set(name, id);
+  return id;
+}
+
+async function resolveSuperAdminRoleId(): Promise<string | null> {
+  if (cachedSuperAdminRoleId) return cachedSuperAdminRoleId;
+  cachedSuperAdminRoleId = await resolveSystemRoleIdByName('super_admin');
+  return cachedSuperAdminRoleId;
+}
+
+// Pare en admin_users-konto med en users-rad (fase 1.5). Delt av
+// /api/admin/create-super, /api/admin/bootstrap og /api/cms/setup slik at
+// paringslogikken (rolle-oppslag + upsert) finnes ett sted.
+// username/password er NOT NULL-kolonner fra et urelatert produkt som deler
+// public.users, aldri lest av Tidums egen kode.
+async function pairAdminUserWithUsersTable(params: {
+  username: string;
+  email: string;
+  role: 'super_admin' | 'vendor_admin';
+}): Promise<void> {
+  const normalizedEmail = params.email.toLowerCase().trim();
+  const roleId = (await pool.query(
+    `SELECT id FROM tidum_roles WHERE name = $1 AND scope = 'global' AND is_system_default = true`,
+    [params.role],
+  )).rows[0]?.id ?? null;
+  try {
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, role_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4)
+       ON CONFLICT (email) DO UPDATE SET role = COALESCE(users.role, $3), role_id = $4, updated_at = NOW()`,
+      [params.username, normalizedEmail, params.role, roleId],
+    );
+  } catch (err: any) {
+    if (String(err?.code) === "23505") {
+      console.error(`[pairAdminUserWithUsersTable] username collision for ${params.username}/${normalizedEmail}, account remains unpaired`, err);
+      return;
+    }
+    throw err;
+  }
+}
+
+// JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
+// different `id` spaces (see authenticateAdmin below):
+//  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
+//  2. /api/admin/login signs `id: admin_users.id` (a separate serial id
+//     space) and carries no email in the payload, so the direct users.id
+//     lookup matches zero rows for these tokens. Join through admin_users
+//     -> users on email (the only field verified to be shared between the
+//     two tables — both declare it `unique`) to find the linked users row.
+//  3. If no linked users row exists at all (a pure admin_users-only
+//     account), fall back to resolving the system role by the JWT's own
+//     `role` string. NOT assumed to be super_admin — admin_users.role
+//     defaults to 'vendor_admin' in the schema, so this must look up
+//     whichever role name is actually on the token.
+// Fails closed (undefined) on DB error, same as resolveSuperAdminRoleId —
+// hasPermission() then denies rather than this rejecting the whole request.
+async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Promise<string | undefined> {
+  try {
+    const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
+    if (byUsersId.rows.length > 0) {
+      // En matchende rad finnes — stol på den selv om role_id er NULL (en
+      // eksplisitt, tilsiktet fjerning via "Fjern"-knappen). Ikke fall
+      // gjennom til navnefallbacket under, som stille ville reversert
+      // fjerningen.
+      return byUsersId.rows[0].role_id ?? undefined;
+    }
+  } catch (err) {
+    console.error('[authenticateAdmin] failed users.id roleId lookup', err);
+  }
+
+  try {
+    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
+    // to lowercase when writing users.email, but admin_users.email keeps
+    // whatever case the caller supplied — an exact-case join would miss
+    // the pairing for any mixed-case admin email and fall through to the
+    // (correct but less precise) name-based fallback below. Found in
+    // fase 1.5's final review.
+    const byAdminUsersEmail = await pool.query(
+      `SELECT u.role_id FROM admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
+      [admin.id],
+    );
+    if (byAdminUsersEmail.rows.length > 0) {
+      return byAdminUsersEmail.rows[0].role_id ?? undefined;
+    }
+  } catch (err) {
+    console.error('[authenticateAdmin] failed admin_users email-join roleId lookup', err);
+  }
+
+  return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
+}
+
+export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // DEV MODE: bypass auth
   if (isDevMode) {
-    req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
+    req.admin = {
+      id: '1',
+      email: 'dev@tidum.no',
+      role: 'super_admin',
+      roleId: (await resolveSuperAdminRoleId()) ?? undefined,
+    };
     return next();
   }
   // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
+    let decoded: any;
     try {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
-      req.admin = decoded;
-      return next();
+      decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (err) {
       return res.status(401).json({ error: 'Invalid token' });
     }
+    req.admin = decoded;
+    // Deliberately outside the jwt.verify try/catch above — a transient DB
+    // error resolving roleId must not be reported as "Invalid token" (401,
+    // logging the admin out). resolveJwtAdminRoleId fails closed to
+    // undefined on error, matching hasPermission's fail-closed behavior.
+    if (!req.admin.roleId) {
+      req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
+    }
+    return next();
   }
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
-    req.admin = { id: user.id, email: user.email, role: user.role };
+    req.admin = { id: user.id, email: user.email, role: user.role, roleId: user.roleId ?? undefined };
+    // AuthUser (server/lib/auth-types.ts) doesn't carry roleId today, so
+    // look it up the same way the JWT branch does rather than touching
+    // custom-auth.ts. Fail closed on a DB error instead of hanging the
+    // request, same as resolveSuperAdminRoleId above.
+    if (!req.admin.roleId) {
+      try {
+        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [user.id]);
+        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
+      } catch (err) {
+        console.error('[authenticateAdmin] failed to resolve session user roleId', err);
+      }
+    }
     return next();
   }
   return res.status(401).json({ error: 'Authentication required' });
@@ -1083,8 +1232,8 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/vendors", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      // Only super_admin can create vendors
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "vendor.create"))) {
         return res.status(403).json({ error: 'Only super admin can create vendors' });
       }
 
@@ -1195,8 +1344,10 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const vendorId = parseInt(req.params.id);
 
-      // Only super_admin or vendor_admin of this vendor can create admins
-      if (req.admin.role !== 'super_admin' && req.admin.vendorId !== vendorId) {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      const allowed = (await hasPermission(req.admin.roleId, "vendor.admin.create"))
+        || req.admin.vendorId === vendorId;
+      if (!allowed) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
@@ -1218,14 +1369,30 @@ export function registerSmartTimingRoutes(app: Express) {
         [username, email, passwordHash, vendorId]
       );
 
-      // 2. Portal user (users table) — magic-link logs in against this
+      // 2. Portal user (users table) — magic-link logs in against this.
+      // username/password are NOT NULL columns on the shared public.users
+      // table (owned by an unrelated product, see
+      // .claude/skills/rolle-tilgangssystem/references/fallgruver.md) —
+      // omitting them made a fresh invite's INSERT fail; only the
+      // ON CONFLICT UPDATE path (an email that already had a users row)
+      // ever worked. Also sets role_id now (fase 1.5's tildelings-system)
+      // so this route stops being the one place that changes users.role
+      // without keeping role_id in sync. Deliberately NOT reusing
+      // pairAdminUserWithUsersTable here — that helper preserves an
+      // existing users.role on conflict (COALESCE), but this route's whole
+      // point is to deliberately overwrite it: a vendor explicitly invites
+      // this person as vendor_admin, same intent as the company_users
+      // insert right below.
       const normalizedEmail = email.toLowerCase().trim();
+      const vendorAdminRoleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND scope = 'global' AND is_system_default = true`,
+      )).rows[0]?.id ?? null;
       await pool.query(
-        `INSERT INTO users (email, role, vendor_id)
-         VALUES ($1, 'vendor_admin', $2)
+        `INSERT INTO users (username, password, email, role, role_id, vendor_id)
+         VALUES ($1, 'unused-admin-users-pairing', $2, 'vendor_admin', $3, $4)
          ON CONFLICT (email) DO UPDATE
-         SET role = 'vendor_admin', vendor_id = $2, updated_at = NOW()`,
-        [normalizedEmail, vendorId]
+         SET role = 'vendor_admin', role_id = $3, vendor_id = $4, updated_at = NOW()`,
+        [username, normalizedEmail, vendorAdminRoleId, vendorId]
       );
 
       // 3. company_users entry so the user appears in the vendor's user list
@@ -1274,11 +1441,55 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // Forhåndsregistrer fødselsnummeret en konto skal kobles til, FØR
+  // personen har logget inn med eID (migrations/053). Kun super_admin —
+  // fødselsnummer er sensitivt, og feilkobling (feil person) er alvorlig.
+  // Fødselsnummeret hashes med en gang og lagres aldri i klartekst; det
+  // sendes aldri tilbake i noe API-svar eller logges.
+  app.patch("/api/admin/users/expected-ssn", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "user.expected_ssn.set"))) {
+        return res.status(403).json({ error: 'Kun super admin kan forhåndsregistrere fødselsnummer' });
+      }
+
+      const { email, personnummer } = req.body as { email?: string; personnummer?: string };
+      if (!email?.trim() || !personnummer?.trim()) {
+        return res.status(400).json({ error: 'E-post og personnummer er påkrevd' });
+      }
+
+      let ssnHash: string;
+      try {
+        ssnHash = hashSsn(personnummer);
+      } catch {
+        return res.status(503).json({ error: 'eID er ikke konfigurert (EID_SSN_HASH_PEPPER mangler)' });
+      }
+
+      const result = await pool.query(
+        `UPDATE users SET expected_ssn_hash = $1, updated_at = NOW()
+         WHERE email = $2 RETURNING id, email`,
+        [ssnHash, email.toLowerCase().trim()],
+      );
+
+      if (result.rowCount === 0) {
+        return res.status(404).json({ error: 'Fant ingen bruker med denne e-postadressen' });
+      }
+
+      res.json({ id: result.rows[0].id, email: result.rows[0].email, expectedSsnSet: true });
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Dette personnummeret er allerede forhåndsregistrert på en annen konto' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
   // ─── Prototype testers ─────────────────────────────────────────────
   // List all prototype testers (super_admin only)
   app.get("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
         return res.status(403).json({ error: 'Only super admin can list prototype testers' });
       }
       const result = await pool.query(
@@ -1296,7 +1507,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // Invite a prototype tester — creates a portal user + sends magic link
   app.post("/api/prototype-testers", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "prototype_tester.invite"))) {
         return res.status(403).json({ error: 'Only super admin can invite prototype testers' });
       }
       const { email, fullName, sendInvite = true } = req.body;
@@ -1344,7 +1556,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // Convert prototype tester → vendor admin (moves role + sets vendor)
   app.post("/api/prototype-testers/:id/convert-to-vendor-admin", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      if (req.admin.role !== 'super_admin') {
+      // Migrert til det dynamiske tilgangssystemet — se .claude/skills/rolle-tilgangssystem
+      if (!(await hasPermission(req.admin.roleId, "prototype_tester.convert"))) {
         return res.status(403).json({ error: 'Only super admin can convert' });
       }
       const userId = req.params.id;
@@ -1417,6 +1630,329 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
+  // ── Rolleadministrasjon (fase 1) ──────────────────────────────────
+  // NB: tabellene heter tidum_permissions/tidum_roles/tidum_role_permissions
+  // (omdøpt for å unngå kollisjon med et urelatert prosjekt på samme database).
+  app.get("/api/admin/permissions", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const result = await pool.query(`SELECT id, key, label, module FROM tidum_permissions ORDER BY module, key`);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/roles", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const result = await pool.query(`
+        SELECT r.id, r.name, r.scope, r.is_system_default,
+               COALESCE(array_agg(rp.permission_id) FILTER (WHERE rp.permission_id IS NOT NULL), '{}') AS permission_ids,
+               (SELECT COUNT(*) FROM users u WHERE u.role_id = r.id) AS user_count
+        FROM tidum_roles r
+        LEFT JOIN tidum_role_permissions rp ON rp.role_id = r.id
+        WHERE r.scope = 'global'
+        GROUP BY r.id ORDER BY r.name
+      `);
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/roles", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const { name, scope } = req.body as { name?: string; scope?: string };
+    if (!name?.trim() || scope !== "global") {
+      return res.status(400).json({ error: "Navn er påkrevd. Kun 'global' scope støttes i fase 1." });
+    }
+    try {
+      const result = await pool.query(
+        `INSERT INTO tidum_roles (name, scope) VALUES ($1, 'global') RETURNING id, name, scope, is_system_default`,
+        [name.trim()],
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      if (String(err?.code) === "23505") {
+        return res.status(409).json({ error: "En rolle med dette navnet finnes allerede" });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/admin/roles/:id/permissions", authenticateAdmin, async (req: AuthRequest, res) => {
+    if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+      return res.status(403).json({ error: "Ingen tilgang" });
+    }
+    const { permissionIds } = req.body as { permissionIds?: string[] };
+    if (!Array.isArray(permissionIds)) {
+      return res.status(400).json({ error: "permissionIds må være en liste" });
+    }
+    const client = await pool.connect();
+    try {
+      const roleCheck = await client.query(`SELECT id FROM tidum_roles WHERE id = $1`, [req.params.id]);
+      if (roleCheck.rows.length === 0) {
+        return res.status(404).json({ error: "Rollen finnes ikke" });
+      }
+
+      // Selvlås-guard: hindre at role.manage forsvinner fra ALLE roller
+      // med tildelte brukere. Kjører kun når role.manage faktisk fjernes
+      // OG denne rollen har ≥1 tildelt bruker — uendret rolle uten
+      // medlemmer, eller endringer som ikke berører role.manage, er upåvirket.
+      const roleManagePermission = await client.query(
+        `SELECT id FROM tidum_permissions WHERE key = 'role.manage'`,
+      );
+      const roleManagePermissionId = roleManagePermission.rows[0]?.id;
+      const roleCurrentlyHasRoleManage = roleManagePermissionId
+        ? (
+            await client.query(
+              `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+              [req.params.id, roleManagePermissionId],
+            )
+          ).rows.length > 0
+        : false;
+      const removingRoleManage = roleManagePermissionId
+        ? roleCurrentlyHasRoleManage && !permissionIds.includes(roleManagePermissionId)
+        : false;
+
+      if (removingRoleManage) {
+        // Uforbetinget golv: kjører uansett medlemsantall. Verifisert mot
+        // ekte prod-DB at 0 users-rader har role_id satt i det hele tatt —
+        // medlemstellingen under er derfor blind for enhver ekte admin, som
+        // alle autentiserer via JWT-navnefallback. Uten dette golvet ville
+        // memberCount alltid være 0 og guarden under alltid hoppes over.
+        const anyOtherRoleHasIt = await client.query(
+          `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
+          [roleManagePermissionId, req.params.id],
+        );
+        if (anyOtherRoleHasIt.rows.length === 0) {
+          return res.status(409).json({
+            error: "Kan ikke fjerne role.manage — ingen andre roller har den i det hele tatt. Gi en annen rolle role.manage først.",
+          });
+        }
+
+        const memberCount = await client.query(
+          `SELECT COUNT(*) FROM users WHERE role_id = $1`,
+          [req.params.id],
+        );
+        if (Number(memberCount.rows[0].count) > 0) {
+          const otherRoleWithRoleManage = await client.query(
+            `SELECT DISTINCT u.role_id
+             FROM users u
+             JOIN tidum_role_permissions rp ON rp.role_id = u.role_id
+             WHERE rp.permission_id = $1 AND u.role_id <> $2
+             LIMIT 1`,
+            [roleManagePermissionId, req.params.id],
+          );
+          if (otherRoleWithRoleManage.rows.length === 0) {
+            return res.status(409).json({
+              error: "Kan ikke fjerne role.manage — ingen andre roller med tildelte brukere har den. Tildel en annen bruker først.",
+            });
+          }
+        }
+      }
+
+      await client.query("BEGIN");
+      await client.query(`DELETE FROM tidum_role_permissions WHERE role_id = $1`, [req.params.id]);
+      for (const permissionId of permissionIds) {
+        await client.query(
+          `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+          [req.params.id, permissionId],
+        );
+      }
+      await client.query("COMMIT");
+      res.json({ ok: true });
+    } catch (err: any) {
+      await client.query("ROLLBACK").catch(() => {});
+      res.status(400).json({ error: err.message });
+    } finally {
+      client.release();
+    }
+  });
+
+  app.delete("/api/admin/roles/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const roleCheck = await pool.query(`SELECT is_system_default FROM tidum_roles WHERE id = $1`, [req.params.id]);
+      if (roleCheck.rows.length === 0) {
+        return res.status(404).json({ error: "Rollen finnes ikke" });
+      }
+      if (roleCheck.rows[0].is_system_default) {
+        return res.status(409).json({ error: "Systemroller kan ikke slettes" });
+      }
+      const userCount = await pool.query(`SELECT COUNT(*) FROM users WHERE role_id = $1`, [req.params.id]);
+      if (Number(userCount.rows[0].count) > 0) {
+        return res.status(409).json({
+          error: `${userCount.rows[0].count} bruker(e) har denne rollen — flytt dem til en annen rolle først`,
+        });
+      }
+
+      // Samme uforbetingede role.manage-golv som PUT .../permissions —
+      // en ikke-systemrolle med 0 medlemmer kan fortsatt holde role.manage
+      // (f.eks. nyopprettet, tildelt, aldri brukt), og sletting av den er
+      // like reell en vei til total utestengelse som å fjerne tillatelsen
+      // via redigering. Funnet i fase 1.5s sluttgjennomgang.
+      const roleManagePermissionForDelete = await pool.query(
+        `SELECT id FROM tidum_permissions WHERE key = 'role.manage'`,
+      );
+      const roleManagePermissionIdForDelete = roleManagePermissionForDelete.rows[0]?.id;
+      if (roleManagePermissionIdForDelete) {
+        const thisRoleHasRoleManage = await pool.query(
+          `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+          [req.params.id, roleManagePermissionIdForDelete],
+        );
+        if (thisRoleHasRoleManage.rows.length > 0) {
+          const anyOtherRoleHasIt = await pool.query(
+            `SELECT 1 FROM tidum_role_permissions WHERE permission_id = $1 AND role_id <> $2 LIMIT 1`,
+            [roleManagePermissionIdForDelete, req.params.id],
+          );
+          if (anyOtherRoleHasIt.rows.length === 0) {
+            return res.status(409).json({
+              error: "Kan ikke slette denne rollen — ingen andre roller har role.manage i det hele tatt. Gi en annen rolle role.manage først.",
+            });
+          }
+        }
+      }
+
+      await pool.query(`DELETE FROM tidum_roles WHERE id = $1 AND is_system_default = FALSE`, [req.params.id]);
+      res.json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/role", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const { roleId } = req.body as { roleId: string | null };
+      if (roleId !== null && roleId !== undefined) {
+        const roleCheck = await pool.query(`SELECT id FROM tidum_roles WHERE id = $1`, [roleId]);
+        if (roleCheck.rows.length === 0) {
+          return res.status(404).json({ error: "Rolle ikke funnet" });
+        }
+      }
+
+      // Selvlås-guard (samme prinsipp som PUT .../permissions sin, men her
+      // for enkelt-bruker-tildeling): denne ruten kan flytte den siste
+      // role.manage-innehaveren vekk fra role.manage helt utenom guarden i
+      // PUT .../permissions, som aldri berøres av en tildelingsendring.
+      // Kjører KUN når denne konkrete endringen faktisk fjerner role.manage
+      // fra en bruker som har den i dag (speiler roleCurrentlyHasRoleManage
+      // i PUT .../permissions) — IKKE ved enhver endring når systemet
+      // allerede (av andre, urelaterte grunner) har 0 role.manage-holdere,
+      // for da ville denne guarden blokkere all fremtidig rolletildeling
+      // permanent i stedet for bare å forhindre at DENNE handlingen skaper
+      // låsingen.
+      const roleManagePermissionId = (
+        await pool.query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      ).rows[0]?.id;
+      if (roleManagePermissionId) {
+        const currentUser = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [req.params.id]);
+        const currentRoleId = currentUser.rows[0]?.role_id ?? null;
+        const currentRoleHasRoleManage = currentRoleId
+          ? (
+              await pool.query(
+                `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+                [currentRoleId, roleManagePermissionId],
+              )
+            ).rows.length > 0
+          : false;
+        const newRoleHasRoleManage = roleId
+          ? (
+              await pool.query(
+                `SELECT 1 FROM tidum_role_permissions WHERE role_id = $1 AND permission_id = $2`,
+                [roleId, roleManagePermissionId],
+              )
+            ).rows.length > 0
+          : false;
+        const removingRoleManage = currentRoleHasRoleManage && !newRoleHasRoleManage;
+
+        if (removingRoleManage) {
+          // PUT .../permissions sitt uforbetingede rolle-golv (finalgjennomgang
+          // fase 1.5, "role_id <> denne rollen") gir IKKE mening her: PATCH
+          // fjerner aldri role.manage FRA en rolle, den flytter en BRUKER
+          // vekk fra rollen som har den — role_id <> currentRoleId ekskluderer
+          // dermed alltid rollen som faktisk holder tildelingen i live, og
+          // slo ut som falsk positiv på enhver avtildeling i standardoppsettet
+          // (alle på én rolle) — funnet og fjernet i samme sluttgjennomgang.
+          // otherHolderExists (ekskluderer BRUKEREN, ikke rollen) er riktig
+          // golv for denne ruten alene.
+          const otherHolderExists = await pool.query(
+            `SELECT EXISTS (
+               SELECT 1 FROM users u
+               JOIN tidum_role_permissions rp ON rp.role_id = u.role_id
+               WHERE rp.permission_id = $1 AND u.id <> $2
+             ) AS exists`,
+            [roleManagePermissionId, req.params.id],
+          );
+          if (!otherHolderExists.rows[0].exists) {
+            return res.status(409).json({
+              error: "Kan ikke endre denne brukerens rolle — ingen andre brukere ville hatt role.manage etter endringen. Tildel en annen bruker role.manage først.",
+            });
+          }
+        }
+      }
+
+      const result = await pool.query(
+        `UPDATE users SET role_id = $1, updated_at = NOW() WHERE id = $2
+         RETURNING id, email, role_id`,
+        [roleId ?? null, req.params.id],
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Bruker ikke funnet" });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/roles/:id/members", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name FROM users WHERE role_id = $1 ORDER BY email`,
+        [req.params.id],
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/users/search", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "role.manage"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const q = String(req.query.q || "").trim();
+      if (q.length < 2) {
+        return res.json([]);
+      }
+      const result = await pool.query(
+        `SELECT id, email, first_name, last_name, role_id
+         FROM users WHERE email ILIKE $1 ORDER BY email LIMIT 20`,
+        [`%${q}%`],
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // Create super admin (only existing super_admin)
   app.post("/api/admin/create-super", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
@@ -1432,6 +1968,11 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
+
+      // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
+      // samme mønster som POST /api/vendors/:id/admins allerede bruker.
+      await pairAdminUserWithUsersTable({ username, email, role: 'super_admin' });
+
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -1454,6 +1995,11 @@ export function registerSmartTimingRoutes(app: Express) {
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
+
+      // Pare med users-tabellen slik at role_id kan tildeles (fase 1.5) —
+      // samme mønster som POST /api/vendors/:id/admins allerede bruker.
+      await pairAdminUserWithUsersTable({ username, email, role: 'super_admin' });
+
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -2119,6 +2665,12 @@ export function registerSmartTimingRoutes(app: Express) {
           `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
           ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
         );
+        // Pare med users-tabellen, samme mønster som create-super/bootstrap.
+        await pairAdminUserWithUsersTable({
+          username: 'admin',
+          email: 'admin@smarttiming.no',
+          role: 'super_admin',
+        });
       } else {
         await pool.query(
           `UPDATE admin_users SET password_hash = $1 WHERE username = $2`,

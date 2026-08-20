@@ -21,6 +21,9 @@ const STARTUP_MIGRATIONS: string[] = [
   "049_sak_locations.sql",
   "050_eid_identities.sql",
   "051_mobile_refresh_tokens.sql",
+  "053_expected_ssn_hash.sql",
+  "054_role_permission_system.sql",
+  "055_admin_users_role_id_unification.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -38,6 +41,30 @@ export async function runStartupMigrations(): Promise<void> {
       // Don't crash startup — log and continue. Schema mismatches will
       // show up on first query against the affected table.
       console.error(`[migration] FAILED ${filename}:`, err?.message || err);
+      continue;
+    }
+
+    // Spec (fase 1.5, seksjon A) krever at username-kollisjonshopp i denne
+    // migrasjonen ikke logges stille — tell og varsl om rader migrasjonens
+    // WHERE NOT EXISTS (u2.username = a.username) hoppet over. Egen
+    // try/catch, utenfor migrasjonens egen: 055 har allerede committet på
+    // dette punktet, så en feil her er en separat, mindre alvorlig hendelse
+    // — skal ALDRI logges som "[migration] FAILED 055", som ville antydet
+    // at selve migreringen mislyktes.
+    if (filename === "055_admin_users_role_id_unification.sql") {
+      try {
+        const skipped = await pool.query(`
+          SELECT COUNT(*) FROM admin_users a
+          WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
+            AND EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
+            AND a.role IN ('super_admin', 'vendor_admin')
+        `);
+        if (Number(skipped.rows[0].count) > 0) {
+          console.warn(`[migration 055] ${skipped.rows[0].count} admin_users row(s) skipped pairing due to username collision — remain on name-based role resolution fallback`);
+        }
+      } catch (err: any) {
+        console.error(`[migration 055] failed to check for skipped username-collision rows (055 itself already applied successfully):`, err?.message || err);
+      }
     }
   }
 }

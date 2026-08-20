@@ -134,6 +134,7 @@ export default function UsersPage() {
   const [inviteRole, setInviteRole] = useState<string>("miljoarbeider");
   const [inviteInstitution, setInviteInstitution] = useState("");
   const [inviteCaseTitle, setInviteCaseTitle] = useState("");
+  const [invitePersonnummer, setInvitePersonnummer] = useState("");
   const [filterRole, setFilterRole] = useState<string>("all");
   const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
@@ -156,8 +157,18 @@ export default function UsersPage() {
   });
 
   const inviteMutation = useMutation({
-    mutationFn: async (data: { user_email: string; role: string; institution?: string; case_title?: string }) => {
-      return apiRequest('POST', '/api/company/users', { company_id: companyId, ...data });
+    mutationFn: async (data: { user_email: string; role: string; institution?: string; case_title?: string; personnummer?: string }) => {
+      const { personnummer, ...companyUserData } = data;
+      await apiRequest('POST', '/api/company/users', { company_id: companyId, ...companyUserData });
+      // Forhåndsregistrering av fødselsnummer er et eget, super_admin-only
+      // steg — se PATCH /api/admin/users/expected-ssn. Best-effort etter at
+      // kontoen finnes; hashingen skjer server-side, aldri i klartekst her.
+      if (personnummer?.trim()) {
+        await apiRequest('PATCH', '/api/admin/users/expected-ssn', {
+          email: data.user_email,
+          personnummer: personnummer.trim(),
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
@@ -166,6 +177,7 @@ export default function UsersPage() {
       setInviteRole("miljoarbeider");
       setInviteInstitution("");
       setInviteCaseTitle("");
+      setInvitePersonnummer("");
       toast({ title: "Invitasjon sendt", description: "Brukeren har blitt lagt til og e-post sendt." });
     },
     onError: (error: any) => {
@@ -428,18 +440,36 @@ export default function UsersPage() {
                   />
                   <p className="text-xs text-muted-foreground">Tilordne en sak ved invitasjon (valgfritt).</p>
                 </div>
+                {effectiveRole === "super_admin" && (
+                  <div className="space-y-2">
+                    <Label htmlFor="personnummer" className="text-sm font-medium">Personnummer</Label>
+                    <Input
+                      id="personnummer"
+                      placeholder="11 siffer"
+                      inputMode="numeric"
+                      value={invitePersonnummer}
+                      onChange={(e) => setInvitePersonnummer(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                      data-testid="invite-personnummer-input"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Kobler kontoen automatisk til dette fødselsnummeret ved første BankID/Buypass-innlogging.
+                      Hashes med en gang, lagres aldri i klartekst. Kun synlig for super admin.
+                    </p>
+                  </div>
+                )}
               </div>
               <DialogFooter className="mt-2">
                 <Button variant="outline" onClick={() => setInviteDialogOpen(false)}>
                   Avbryt
                 </Button>
                 <Button 
-                  onClick={() => inviteMutation.mutate({ 
-                    user_email: inviteEmail, 
+                  onClick={() => inviteMutation.mutate({
+                    user_email: inviteEmail,
                     role: inviteRole,
                     institution: inviteInstitution || undefined,
                     case_title: inviteCaseTitle || undefined,
-                  })} 
+                    personnummer: effectiveRole === "super_admin" ? (invitePersonnummer || undefined) : undefined,
+                  })}
                   disabled={!inviteEmail || inviteMutation.isPending || allowedInviteRoles.length === 0}
                   data-testid="send-invite-button"
                   className="gap-2"
