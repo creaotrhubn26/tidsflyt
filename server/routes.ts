@@ -26,6 +26,7 @@ import { registerDashboardKpisRoutes } from "./routes/dashboard-kpis-routes";
 import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
 import { registerInviteLinkRoutes } from "./routes/invite-link-routes";
 import { registerGdprRoutes, setupGdprCron } from "./routes/gdpr-routes";
+import { setupActivityLogCron } from "./routes/activity-log-cron";
 import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
 import { registerAvvikRoutes } from "./routes/avvik-routes";
 import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
@@ -6562,6 +6563,7 @@ export async function registerRoutes(
     setupLeaveRolloverCron();
     setupTimesheetReminderCron();
     setupGdprCron();
+    setupActivityLogCron();
     setupSeatOverrunCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)
