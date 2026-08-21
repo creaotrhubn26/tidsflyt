@@ -10,7 +10,7 @@
     "check": "tsc",
     "check:design": "node scripts/check-design-tokens.mjs",
     "guide:snapshots": "tsx scripts/capture-guide-screenshots.ts",
-    "db:push": "drizzle-kit push",
+    "db:push": "drizzle-kit push --strict",
     "test:e2e": "playwright test"
   },
   "dependencies": {
