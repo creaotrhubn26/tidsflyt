@@ -102,7 +102,7 @@ describe("vendor routes use hasPermission()", () => {
     // another product's table sharing the name — found while writing this
     // test, out of scope here). Safe to skip: this route only reads
     // `vendors` inside the `sendInvite`-gated invite-email block (we pass
-    // `sendInvite: false`), and admin_users/users/company_users.vendor_id
+    // `sendInvite: false`), and tidum_admin_users/users/tidum_company_users.vendor_id
     // are plain integer columns with no FK to vendors.id (which is a uuid
     // in the real table — a FK between those types couldn't exist), so an
     // arbitrary integer vendor_id exercises the exact same insert path.
@@ -130,9 +130,9 @@ describe("vendor routes use hasPermission()", () => {
       expect(userRow.role).toBe("vendor_admin");
       expect(userRow.role_id).toBe(vendorAdminRole.id);
     } finally {
-      await pool.query(`DELETE FROM company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
       await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
-      await pool.query(`DELETE FROM admin_users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
     }
   });
 });

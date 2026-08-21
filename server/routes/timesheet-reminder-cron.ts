@@ -118,7 +118,7 @@ export async function runTimesheetReminders(now: Date = new Date()): Promise<Rem
 
     // Look up each worker's submission status for this month
     const subs = await pool.query(
-      `SELECT user_id, status FROM timesheet_submissions
+      `SELECT user_id, status FROM tidum_timesheet_submissions
        WHERE vendor_id = $1 AND month = $2 AND user_id = ANY($3::text[])`,
       [vendor.id, month, workerIds],
     ).catch(() => ({ rows: [] as Array<{ user_id: string; status: string }> }));

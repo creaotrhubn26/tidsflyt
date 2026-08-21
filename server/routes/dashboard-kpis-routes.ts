@@ -228,7 +228,7 @@ async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Pro
   // Hard last-resort fallback when no sak has a budget AND the user has no personal target.
   const HARDCODED_MONTHLY_FALLBACK = 150;
 
-  // Per-user fallback from user_settings.dashboardPrefs.monthlyHoursTarget.
+  // Per-user fallback from tidum_user_settings.dashboardPrefs.monthlyHoursTarget.
   // Used when no sak in the portfolio has a monthly budget set.
   const [settingsRow] = await db
     .select({ dashboardPrefs: userSettings.dashboardPrefs })
@@ -239,8 +239,8 @@ async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Pro
   const userMonthlyTarget = Number(userPrefs.monthlyHoursTarget);
   const hasUserMonthlyTarget = Number.isFinite(userMonthlyTarget) && userMonthlyTarget > 0;
 
-  // Mine timer denne måneden — sum log_row for this user.
-  // log_row.user_id is text, so filter by the string user id; rapporter/saker use the integer id.
+  // Mine timer denne måneden — sum tidum_log_row for this user.
+  // tidum_log_row.user_id is text, so filter by the string user id; rapporter/saker use the integer id.
   const monthEntries = await db
     .select()
     .from(logRow)

@@ -6,7 +6,7 @@
  *   POST   /api/imports/employees                  — upload + parse + stage
  *   GET    /api/imports/:id                        — preview-data (rader + summary)
  *   PATCH  /api/imports/:id/rows/:rowId            — endre rolle-tildeling per rad
- *   POST   /api/imports/:id/confirm                — transaksjonell commit til company_users
+ *   POST   /api/imports/:id/confirm                — transaksjonell commit til tidum_company_users
  *   DELETE /api/imports/:id                        — rollback innen 7 dager
  *
  * Tilgang: hovedadmin, vendor_admin, super_admin (ikke tiltaksleder/teamleder —
@@ -179,7 +179,7 @@ export function registerEmployeeImportRoutes(app: Express) {
 
         const summary = summarizeRows(parsedRows);
 
-        // Sjekk hvilke e-poster som allerede finnes i company_users for denne vendoren
+        // Sjekk hvilke e-poster som allerede finnes i tidum_company_users for denne vendoren
         const emails = parsedRows
           .filter((r) => r.parsed?.email)
           .map((r) => r.parsed!.email!.toLowerCase());
@@ -196,7 +196,7 @@ export function registerEmployeeImportRoutes(app: Express) {
           for (const r of existing) existingEmails.add(r.email.toLowerCase());
         }
 
-        // Lagre imports + import_rows i en transaksjon
+        // Lagre imports + tidum_import_rows i en transaksjon
         const importedById = userEmail(req) || 'unknown';
 
         // Seat-warning: regn ut om vendor går over max_users etter denne importen.
@@ -333,7 +333,7 @@ export function registerEmployeeImportRoutes(app: Express) {
 
   /**
    * POST /api/imports/:id/confirm
-   * Transaksjonell commit. INSERT i company_users for alle valid-rader.
+   * Transaksjonell commit. INSERT i tidum_company_users for alle valid-rader.
    * Idempotent via UNIQUE (vendor_id, lower(user_email)) — hvis e-post finnes
    * markeres raden som duplicate i stedet for å feile.
    */
@@ -415,7 +415,7 @@ export function registerEmployeeImportRoutes(app: Express) {
 
             // INSERT med ON CONFLICT for å være tolerant mot race conditions
             const insertRes = await client.query(
-              `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+              `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
                VALUES ($1, $1, $2, $3, true)
                ON CONFLICT (COALESCE(vendor_id, 0), lower(user_email)) DO NOTHING
                RETURNING id`,
@@ -425,14 +425,14 @@ export function registerEmployeeImportRoutes(app: Express) {
             if (insertRes.rows.length > 0) {
               const newId = Number(insertRes.rows[0].id);
               await client.query(
-                `UPDATE import_rows SET status='imported', target_user_id=$1 WHERE id=$2`,
+                `UPDATE tidum_import_rows SET status='imported', target_user_id=$1 WHERE id=$2`,
                 [newId, r.id],
               );
               imported++;
               if (role === 'vendor_admin') adminGrants.push(parsed.email);
             } else {
               await client.query(
-                `UPDATE import_rows SET status='duplicate' WHERE id=$1`,
+                `UPDATE tidum_import_rows SET status='duplicate' WHERE id=$1`,
                 [r.id],
               );
               skipped++;
@@ -515,7 +515,7 @@ export function registerEmployeeImportRoutes(app: Express) {
           }
 
           await client.query(
-            `UPDATE imports
+            `UPDATE tidum_imports
                 SET status='confirmed', confirmed_at=NOW(), summary_jsonb=$1
               WHERE id=$2`,
             [finalSummary, id],
@@ -644,7 +644,7 @@ export function registerEmployeeImportRoutes(app: Express) {
 
   /**
    * DELETE /api/imports/:id
-   * Rollback en bekreftet import innen 7 dager. Sletter company_users-radene
+   * Rollback en bekreftet import innen 7 dager. Sletter tidum_company_users-radene
    * som ble opprettet, markerer importen rolled_back.
    */
   app.delete('/api/imports/:id', requireAuth, async (req: Request, res: Response) => {
@@ -659,7 +659,7 @@ export function registerEmployeeImportRoutes(app: Express) {
         return res.status(403).json({ error: 'Forbidden' });
       }
       if (imp.status === 'staged') {
-        // Bare slett — ingenting commit-et til company_users
+        // Bare slett — ingenting commit-et til tidum_company_users
         await db.delete(imports).where(eq(imports.id, id));
         return res.json({ ok: true, deleted: 'staged' });
       }
@@ -682,17 +682,17 @@ export function registerEmployeeImportRoutes(app: Express) {
       try {
         if (targetIds.length > 0) {
           await client.query(
-            `DELETE FROM company_users WHERE id = ANY($1::int[])`,
+            `DELETE FROM tidum_company_users WHERE id = ANY($1::int[])`,
             [targetIds],
           );
         }
         await client.query(
-          `UPDATE import_rows SET status='valid', target_user_id=NULL
+          `UPDATE tidum_import_rows SET status='valid', target_user_id=NULL
              WHERE import_id=$1 AND status='imported'`,
           [id],
         );
         await client.query(
-          `UPDATE imports SET status='rolled_back', rolled_back_at=NOW() WHERE id=$1`,
+          `UPDATE tidum_imports SET status='rolled_back', rolled_back_at=NOW() WHERE id=$1`,
           [id],
         );
         await client.query('COMMIT');
@@ -741,7 +741,7 @@ export function registerEmployeeImportRoutes(app: Express) {
    * POST /api/imports/:id/feedback
    *
    * Tideman-feedback etter en bekreftet import. Skriver til den eksisterende
-   * tester_feedback-tabellen (kontekst lagres i extra_context) og sender
+   * tidum_tester_feedback-tabellen (kontekst lagres i extra_context) og sender
    * e-post til TIDUM_SUPPORT_EMAIL med Tideman-branding.
    *
    * Idempotens: vi tillater flere feedback-rader fra samme bruker per import
@@ -777,7 +777,7 @@ export function registerEmployeeImportRoutes(app: Express) {
         .where(eq(vendors.id, imp.vendorId)).limit(1);
       const vendorName = vendor?.name || `vendor #${imp.vendorId}`;
 
-      // Map rating → category (kobler eksisterende tester_feedback-pipeline)
+      // Map rating → category (kobler eksisterende tidum_tester_feedback-pipeline)
       const category = rating >= 4 ? 'praise' : rating <= 2 ? 'bug' : 'other';
       const summary = imp.summaryJsonb as { imported?: number } | null;
       const messageText = comment || `Rating ${rating}/5 uten kommentar.`;

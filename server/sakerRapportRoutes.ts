@@ -1117,8 +1117,8 @@ rapportRouter.delete(
  * POST /api/rapporter/:id/import-time-entries
  * Body: { dryRun?: boolean, overwrite?: boolean }
  *
- * Hent log_row-oppføringer som faller innenfor rapportens periode for innlogget
- * bruker og opprett rapport_aktiviteter fra dem. Duplikater (samme dato+startTid)
+ * Hent tidum_log_row-oppføringer som faller innenfor rapportens periode for innlogget
+ * bruker og opprett tidum_rapport_aktiviteter fra dem. Duplikater (samme dato+startTid)
  * hoppes over med mindre overwrite=true. Returnerer antall importert + preview.
  */
 rapportRouter.post("/:id/import-time-entries", requireAuth, async (req: any, res) => {
@@ -1134,7 +1134,7 @@ rapportRouter.post("/:id/import-time-entries", requireAuth, async (req: any, res
       return res.status(400).json({ error: "Rapport mangler periode" });
     }
 
-    // log_row.userId er TEXT; rapporter.userId er INTEGER. Støtt begge-matching.
+    // tidum_log_row.userId er TEXT; rapporter.userId er INTEGER. Støtt begge-matching.
     const entries = await db
       .select()
       .from(logRow)

@@ -1273,7 +1273,7 @@ export class EmailService {
 
   /**
    * Notify the assigned segment owner (SDR/AE/Founder) about a new lead.
-   * Routing rule + assignee email come from sales_routing_rules (DB).
+   * Routing rule + assignee email come from tidum_sales_routing_rules (DB).
    */
   async sendLeadAssignmentEmail({
     to, assigneeLabel, lead, tierLabel, userCount, responseTimeHours,

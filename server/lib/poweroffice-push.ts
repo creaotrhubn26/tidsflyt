@@ -1,7 +1,7 @@
 /**
  * server/lib/poweroffice-push.ts
  *
- * Push an approved timesheet (log_row entries for one user × one month) to
+ * Push an approved timesheet (tidum_log_row entries for one user × one month) to
  * PowerOffice Go as HourRegistration records.
  *
  * Payload shape targets PowerOffice Go API v2:
@@ -86,9 +86,9 @@ async function persistResult(
  *
  * Behaviour:
  *   1. Resolve active PowerOffice integration for the vendor.
- *   2. Find approved timesheet_submissions for the month (filter by userId).
+ *   2. Find approved tidum_timesheet_submissions for the month (filter by userId).
  *   3. For each user: look up PO employee mapping. Missing → skipped.
- *   4. For each log_row in that user's month: POST /HourRegistrations.
+ *   4. For each tidum_log_row in that user's month: POST /HourRegistrations.
  *   5. Persist lastUsedAt. On any PO 401/403, flip status='invalid'.
  */
 export async function pushTimesheetToPowerOffice(args: {
@@ -125,7 +125,7 @@ export async function pushTimesheetToPowerOffice(args: {
 
   // Approved timesheets for the month
   const subs = await pool.query(
-    `SELECT user_id FROM timesheet_submissions
+    `SELECT user_id FROM tidum_timesheet_submissions
      WHERE vendor_id = $1 AND month = $2 AND status = 'approved'
        ${args.userIdFilter ? 'AND user_id = $3' : ''}`,
     args.userIdFilter
@@ -139,7 +139,7 @@ export async function pushTimesheetToPowerOffice(args: {
     return result;
   }
 
-  // Compute month bounds for log_row lookup
+  // Compute month bounds for tidum_log_row lookup
   const [y, m] = args.month.split('-').map(Number);
   if (!Number.isFinite(y) || !Number.isFinite(m)) {
     result.errors.push({ userId: '-', reason: 'Ugyldig månedsformat (forventer YYYY-MM)' });
@@ -163,11 +163,11 @@ export async function pushTimesheetToPowerOffice(args: {
       continue;
     }
 
-    // Fetch log_row entries for this user × month
+    // Fetch tidum_log_row entries for this user × month
     const entries = await pool.query(
       `SELECT id, date::text AS date, start_time::text AS start_time, end_time::text AS end_time,
               break_hours::text AS break_hours, project, title, activity, notes
-       FROM log_row
+       FROM tidum_log_row
        WHERE user_id = $1 AND date >= $2 AND date <= $3
        ORDER BY date ASC, start_time ASC`,
       [tidumUserId, firstDay, lastDay],

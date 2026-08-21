@@ -4,7 +4,7 @@ import { isAuthenticated } from "../custom-auth";
 
 /**
  * Notification helper — create a notification for a user
- * Uses the existing notifications table schema:
+ * Uses the existing tidum_notifications table schema:
  *   id (varchar, uuid), recipient_type, recipient_id, type, title, body, payload,
  *   related_entity_type, related_entity_id, actor_type, actor_id, actor_name, read_at, sent_via, created_at
  */
@@ -20,7 +20,7 @@ export async function createNotification(opts: {
   try {
     const payload = JSON.stringify({ ...(opts.metadata || {}), link: opts.link || null });
     await pool.query(
-      `INSERT INTO notifications (id, recipient_type, recipient_id, type, title, body, payload, actor_id, created_at)
+      `INSERT INTO tidum_notifications (id, recipient_type, recipient_id, type, title, body, payload, actor_id, created_at)
        VALUES (gen_random_uuid(), 'user', $1, $2, $3, $4, $5, $6, NOW())`,
       [
         opts.userId,
@@ -75,7 +75,7 @@ export function registerNotificationRoutes(app: Express) {
         `SELECT id, recipient_id as user_id, type, title, body as message, payload, 
                 read_at, actor_id as created_by, created_at,
                 CASE WHEN read_at IS NULL THEN false ELSE true END as is_read
-         FROM notifications ${whereClause}
+         FROM tidum_notifications ${whereClause}
          ORDER BY CASE WHEN read_at IS NULL THEN 0 ELSE 1 END, created_at DESC
          LIMIT $2`,
         [userId, limit]
@@ -105,7 +105,7 @@ export function registerNotificationRoutes(app: Express) {
       if (!userId) return res.status(401).json({ error: "Ikke autentisert" });
 
       const result = await pool.query(
-        "SELECT COUNT(*) as count FROM notifications WHERE recipient_id = $1 AND read_at IS NULL",
+        "SELECT COUNT(*) as count FROM tidum_notifications WHERE recipient_id = $1 AND read_at IS NULL",
         [userId]
       );
 
@@ -122,7 +122,7 @@ export function registerNotificationRoutes(app: Express) {
       if (!userId) return res.status(401).json({ error: "Ikke autentisert" });
 
       const result = await pool.query(
-        "UPDATE notifications SET read_at = NOW() WHERE id = $1 AND recipient_id = $2 RETURNING *",
+        "UPDATE tidum_notifications SET read_at = NOW() WHERE id = $1 AND recipient_id = $2 RETURNING *",
         [req.params.id, userId]
       );
 
@@ -143,7 +143,7 @@ export function registerNotificationRoutes(app: Express) {
       if (!userId) return res.status(401).json({ error: "Ikke autentisert" });
 
       await pool.query(
-        "UPDATE notifications SET read_at = NOW() WHERE recipient_id = $1 AND read_at IS NULL",
+        "UPDATE tidum_notifications SET read_at = NOW() WHERE recipient_id = $1 AND read_at IS NULL",
         [userId]
       );
 
@@ -160,7 +160,7 @@ export function registerNotificationRoutes(app: Express) {
       if (!userId) return res.status(401).json({ error: "Ikke autentisert" });
 
       await pool.query(
-        "DELETE FROM notifications WHERE id = $1 AND recipient_id = $2",
+        "DELETE FROM tidum_notifications WHERE id = $1 AND recipient_id = $2",
         [req.params.id, userId]
       );
 

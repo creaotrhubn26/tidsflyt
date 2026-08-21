@@ -19,7 +19,7 @@ let cached: { ctx: StripeContext; key: string } | null = null;
 
 // Secrets (sk_*, whsec_*) leses fra Render env — IKKE fra DB. Public IDs
 // (publishable key) og runtime-konfig (currency, success-URL) hentes fra
-// salg_settings så admin kan justere dem uten redeploy.
+// tidum_salg_settings så admin kan justere dem uten redeploy.
 //
 // DB-fallback for sk_* / whsec_* beholdes som backwards-compat for tidlig
 // oppsett der nøklene ble inserted via SQL — gir warning i logg.

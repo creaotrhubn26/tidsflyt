@@ -26,7 +26,7 @@ export function getSession() {
     conString: requireDatabaseConnectionString(),
     createTableIfMissing: false,
     ttl: sessionTtl,
-    tableName: "sessions",
+    tableName: "tidum_sessions",
   });
   return session({
     secret: process.env.SESSION_SECRET!,

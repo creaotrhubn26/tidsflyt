@@ -6,7 +6,7 @@
  *   2) Oppdaterer vendors.max_users + subscription_plan (DB)
  *   3) Kaller Stripe-prorering hvis TIDUM_STRIPE_AUTOBUMP=1
  *   4) Sender hovedadmin-notice + Daniel-varsel
- *   5) Logger hendelsen til vendor_seat_log
+ *   5) Logger hendelsen til tidum_vendor_seat_log
  *
  * Brukes av:
  *   - Daglig seat-overrun-cron (sikkerhetsnett — fanger alt)

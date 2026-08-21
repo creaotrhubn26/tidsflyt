@@ -60,7 +60,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
   let dynamicDbPool: typeof pool;
 
   // Fresh module graph + own pool per test (not beforeAll) since each test
-  // below needs isolated admin_users/users rows and there are only two of
+  // below needs isolated tidum_admin_users/users rows and there are only two of
   // them — simpler than sharing one app across cases the way
   // prototype-tester-permissions.test.ts does for its four.
   beforeEach(async () => {
@@ -88,7 +88,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     await dynamicDbPool.end();
   });
 
-  it("admin_users-shaped JWT (id from admin_users id space) resolves roleId via the admin_users -> users email join", async () => {
+  it("tidum_admin_users-shaped JWT (id from tidum_admin_users id space) resolves roleId via the tidum_admin_users -> users email join", async () => {
     const [role] = await dynamicDb
       .insert(roles)
       .values({ name: "test_role_jwt_fallback_join", scope: "global" })
@@ -101,7 +101,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       const {
         rows: [adminUserRow],
       } = await dynamicDbPool.query(
-        `INSERT INTO admin_users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
+        `INSERT INTO tidum_admin_users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
         [`jwt_fallback_join_${Date.now()}`, email],
       );
       adminUserId = adminUserRow.id;
@@ -125,14 +125,14 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       expect(res.body.roleId).toBe(role.id);
     } finally {
       if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
-      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
       await dynamicDb.delete(roles).where(eq(roles.id, role.id));
     }
   });
 
-  it("admin_users-shaped JWT resolves via the email join even when admin_users and users store the email with different casing", async () => {
+  it("tidum_admin_users-shaped JWT resolves via the email join even when tidum_admin_users and users store the email with different casing", async () => {
     // pairAdminUserWithUsersTable normalizes email to lowercase when
-    // writing users.email, but admin_users.email keeps whatever case the
+    // writing users.email, but tidum_admin_users.email keeps whatever case the
     // caller originally supplied (e.g. Ola.Nordmann@Firma.no) — the join
     // must not miss this pairing just because the two sides disagree on
     // case. Found in fase 1.5's final review.
@@ -148,13 +148,13 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       const {
         rows: [adminUserRow],
       } = await dynamicDbPool.query(
-        `INSERT INTO admin_users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
+        `INSERT INTO tidum_admin_users (username, email, password_hash) VALUES ($1, $2, 'x') RETURNING id`,
         [`jwt_case_join_${Date.now()}`, mixedCaseEmail],
       );
       adminUserId = adminUserRow.id;
 
       // users.email stored lowercase, matching pairAdminUserWithUsersTable's
-      // actual write behavior — admin_users keeps the original mixed case.
+      // actual write behavior — tidum_admin_users keeps the original mixed case.
       const {
         rows: [userRow],
       } = await dynamicDbPool.query(
@@ -170,12 +170,12 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       expect(res.body.roleId).toBe(role.id);
     } finally {
       if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
-      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
       await dynamicDb.delete(roles).where(eq(roles.id, role.id));
     }
   });
 
-  it("admin_users-shaped JWT with no linked users row falls back to the real system role by name (not undefined, not blindly super_admin)", async () => {
+  it("tidum_admin_users-shaped JWT with no linked users row falls back to the real system role by name (not undefined, not blindly super_admin)", async () => {
     const email = `jwt-fallback-noname-${Date.now()}@example.com`;
     let adminUserId: number | undefined;
 
@@ -183,7 +183,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       const {
         rows: [adminUserRow],
       } = await dynamicDbPool.query(
-        `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
+        `INSERT INTO tidum_admin_users (username, email, password_hash, role) VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
         [`jwt_fallback_noname_${Date.now()}`, email],
       );
       adminUserId = adminUserRow.id;
@@ -200,11 +200,11 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       expect(res.status).toBe(200);
       expect(res.body.roleId).toBe(vendorAdminRole.id);
     } finally {
-      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
     }
   });
 
-  it("admin_users-shaped JWT whose paired users row has role_id = NULL (explicitly unassigned via 'Fjern') resolves to undefined, not the name-based fallback", async () => {
+  it("tidum_admin_users-shaped JWT whose paired users row has role_id = NULL (explicitly unassigned via 'Fjern') resolves to undefined, not the name-based fallback", async () => {
     const email = `jwt-unassigned-${Date.now()}@example.com`;
     let adminUserId: number | undefined;
     let userId: string | undefined;
@@ -213,7 +213,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       const {
         rows: [adminUserRow],
       } = await dynamicDbPool.query(
-        `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
+        `INSERT INTO tidum_admin_users (username, email, password_hash, role) VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
         [`jwt_unassigned_${Date.now()}`, email],
       );
       adminUserId = adminUserRow.id;
@@ -237,7 +237,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
       expect(res.body.roleId).toBeUndefined();
     } finally {
       if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
-      if (adminUserId) await dynamicDbPool.query(`DELETE FROM admin_users WHERE id = $1`, [adminUserId]);
+      if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
     }
   });
 });

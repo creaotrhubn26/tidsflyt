@@ -11,7 +11,7 @@
  *     og forholdsmessighet. Samtykke alene er IKKE gyldig rettsgrunnlag i
  *     arbeidsforhold (Datatilsynet).
  *   - Bokføringsloven §13 krever 5 års oppbevaring av timebilag → vi sletter
- *     ikke log_row, vi anonymiserer brukeren rundt dem.
+ *     ikke tidum_log_row, vi anonymiserer brukeren rundt dem.
  *   - Barnevernsloven §10 har egne journal- og oppbevarings-regler for
  *     barnevernsdata; følges via per-vendor retensjons-overrides.
  *
@@ -26,8 +26,8 @@
  *     GET    /api/admin/users/:id/data-export — Art. 20 portabilitet
  *     POST   /api/gdpr/purge/run            — manuell trigger av retensjons-cron
  *
- *   Cron: daglig 02:00 → coords-blurring + sletting av aldrede travel_legs,
- *   audit-rader og leave_attachments.
+ *   Cron: daglig 02:00 → coords-blurring + sletting av aldrede tidum_travel_legs,
+ *   audit-rader og tidum_leave_attachments.
  */
 
 import type { Express, Request, Response } from "express";
@@ -170,7 +170,7 @@ export function registerGdprRoutes(app: Express) {
    * confirmation via body { confirm: "SLETT" } to prevent accidental calls.
    *
    * Note: bokføringslovens 5-år regel overstyrer GDPR for timebilag. Vi sletter
-   * derfor IKKE log_row-data, men anonymiserer profilen slik at timene ikke
+   * derfor IKKE tidum_log_row-data, men anonymiserer profilen slik at timene ikke
    * lenger er personidentifiserbare.
    */
   app.delete("/api/me", requireAuth, async (req: Request, res: Response) => {
@@ -216,7 +216,7 @@ export function registerGdprRoutes(app: Express) {
         db.delete(timerSessions).where(eq(timerSessions.userId, userId as any)),
       ]);
 
-      // 3. Log the deletion in audit-log if rapport_audit_log table exists
+      // 3. Log the deletion in audit-log if tidum_rapport_audit_log table exists
       try {
         await db.insert(rapportAuditLog).values({
           rapportId: null as any,
@@ -225,7 +225,7 @@ export function registerGdprRoutes(app: Express) {
           details: {
             reason: "Article 17 request by user",
             anonymizedAt: deletionTime.toISOString(),
-            retainedForRetention: ["log_row", "rapporter", "leave_requests", "overtime_entries"],
+            retainedForRetention: ["tidum_log_row", "tidum_rapporter", "tidum_leave_requests", "tidum_overtime_entries"],
           } as any,
           createdAt: deletionTime,
         } as any);
@@ -258,9 +258,9 @@ export function registerGdprRoutes(app: Express) {
   /**
    * POST /api/admin/users/:id/erase
    *
-   * Pseudonymisering på tvers av tabeller (log_row, travel_legs, audit,
-   * leave_requests, leave_attachments, timer_sessions, user_settings,
-   * poweroffice_employee_mappings). Sletter også vedleggsfiler fra disk.
+   * Pseudonymisering på tvers av tabeller (tidum_log_row, tidum_travel_legs, audit,
+   * tidum_leave_requests, tidum_leave_attachments, tidum_timer_sessions, tidum_user_settings,
+   * tidum_poweroffice_employee_mappings). Sletter også vedleggsfiler fra disk.
    *
    * Kun super_admin — handlingen er irreversibel og skal være initiert av
    * dokumentert brukerforespørsel etter Art. 17.

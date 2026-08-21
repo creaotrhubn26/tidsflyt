@@ -1,7 +1,7 @@
 /**
  * server/lib/timesheet-lock.ts
  *
- * Edit-lock for log_row entries tied to a month that has been submitted or
+ * Edit-lock for tidum_log_row entries tied to a month that has been submitted or
  * approved. Prevents workers from silently rewriting history after their
  * tiltaksleder has reviewed/approved the period.
  *
@@ -32,7 +32,7 @@ export async function getMonthLockStatus(
   if (!userId || !month) return { locked: false };
   try {
     const result = await pool.query(
-      `SELECT status FROM timesheet_submissions
+      `SELECT status FROM tidum_timesheet_submissions
        WHERE user_id = $1 AND month = $2
        LIMIT 1`,
       [userId, month],
@@ -43,7 +43,7 @@ export async function getMonthLockStatus(
     return { locked, status: row.status, month };
   } catch (err: any) {
     // If the table doesn't exist yet (fresh DB), fail open — no lock.
-    if (String(err?.message || '').includes('relation "timesheet_submissions" does not exist')) {
+    if (String(err?.message || '').includes('relation "tidum_timesheet_submissions" does not exist')) {
       return { locked: false };
     }
     throw err;

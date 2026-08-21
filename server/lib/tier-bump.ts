@@ -8,7 +8,7 @@
  * neste import-runde har riktig grense.
  *
  * Vi rekker IKKE den eksakte tier-snapshot-historikken på vendor
- * (tier_snapshot_id ligger på access_requests.signed-row, og det er
+ * (tier_snapshot_id ligger på tidum_access_requests.signed-row, og det er
  * historisk). I stedet lagrer vi bump-historikk i imports.summary_jsonb
  * + sender e-post til Daniel som har audit-spor.
  */
@@ -30,7 +30,7 @@ export interface TierBumpResult {
 /**
  * Slå opp riktig tier for det nye brukerantallet og oppdater vendor.
  * Returnerer null hvis ingen tier matcher (skal ikke skje med korrekt
- * konfigurert pricing_tiers, men håndteres defensivt).
+ * konfigurert tidum_pricing_tiers, men håndteres defensivt).
  */
 export async function applyTierBump(
   vendorId: number,

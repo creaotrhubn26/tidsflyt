@@ -127,7 +127,7 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
   }
 
   const actorRoleResult = await pool.query(
-    `SELECT role FROM company_users WHERE company_id = $1 AND user_email = $2 LIMIT 1`,
+    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND user_email = $2 LIMIT 1`,
     [companyId, actorEmail]
   );
 
@@ -205,9 +205,9 @@ function buildDefaultAnalyticsSettings() {
 let cachedSuperAdminRoleId: string | null = null;
 
 // Cache of system role name -> real DB row id. Generalizes
-// cachedSuperAdminRoleId so the JWT-branch admin_users legacy fallback
+// cachedSuperAdminRoleId so the JWT-branch tidum_admin_users legacy fallback
 // (below, in authenticateAdmin) can resolve any system role by name, not
-// just super_admin — admin_users.role defaults to 'vendor_admin', it is
+// just super_admin — tidum_admin_users.role defaults to 'vendor_admin', it is
 // NOT always super_admin, so that fallback must look up the actual role.
 const cachedSystemRoleIdsByName = new Map<string, string | null>();
 
@@ -236,7 +236,7 @@ async function resolveSuperAdminRoleId(): Promise<string | null> {
   return cachedSuperAdminRoleId;
 }
 
-// Pare en admin_users-konto med en users-rad (fase 1.5). Delt av
+// Pare en tidum_admin_users-konto med en users-rad (fase 1.5). Delt av
 // /api/admin/create-super, /api/admin/bootstrap og /api/cms/setup slik at
 // paringslogikken (rolle-oppslag + upsert) finnes ett sted.
 // username/password er NOT NULL-kolonner fra et urelatert produkt som deler
@@ -270,14 +270,14 @@ async function pairAdminUserWithUsersTable(params: {
 // JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
 // different `id` spaces (see authenticateAdmin below):
 //  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
-//  2. /api/admin/login signs `id: admin_users.id` (a separate serial id
+//  2. /api/admin/login signs `id: tidum_admin_users.id` (a separate serial id
 //     space) and carries no email in the payload, so the direct users.id
-//     lookup matches zero rows for these tokens. Join through admin_users
+//     lookup matches zero rows for these tokens. Join through tidum_admin_users
 //     -> users on email (the only field verified to be shared between the
 //     two tables — both declare it `unique`) to find the linked users row.
-//  3. If no linked users row exists at all (a pure admin_users-only
+//  3. If no linked users row exists at all (a pure tidum_admin_users-only
 //     account), fall back to resolving the system role by the JWT's own
-//     `role` string. NOT assumed to be super_admin — admin_users.role
+//     `role` string. NOT assumed to be super_admin — tidum_admin_users.role
 //     defaults to 'vendor_admin' in the schema, so this must look up
 //     whichever role name is actually on the token.
 // Fails closed (undefined) on DB error, same as resolveSuperAdminRoleId —
@@ -298,20 +298,20 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
 
   try {
     // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
-    // to lowercase when writing users.email, but admin_users.email keeps
+    // to lowercase when writing users.email, but tidum_admin_users.email keeps
     // whatever case the caller supplied — an exact-case join would miss
     // the pairing for any mixed-case admin email and fall through to the
     // (correct but less precise) name-based fallback below. Found in
     // fase 1.5's final review.
     const byAdminUsersEmail = await pool.query(
-      `SELECT u.role_id FROM admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
+      `SELECT u.role_id FROM tidum_admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
       [admin.id],
     );
     if (byAdminUsersEmail.rows.length > 0) {
       return byAdminUsersEmail.rows[0].role_id ?? undefined;
     }
   } catch (err) {
-    console.error('[authenticateAdmin] failed admin_users email-join roleId lookup', err);
+    console.error('[authenticateAdmin] failed tidum_admin_users email-join roleId lookup', err);
   }
 
   return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
@@ -664,14 +664,14 @@ export function registerSmartTimingRoutes(app: Express) {
   async function createContentVersion(contentType: string, contentId: number | null, data: any, changedBy?: string, changeDescription?: string) {
     try {
       const versionResult = await pool.query(
-        `SELECT COALESCE(MAX(version_number), 0) as max_version FROM content_versions 
+        `SELECT COALESCE(MAX(version_number), 0) as max_version FROM tidum_content_versions 
          WHERE content_type = $1 AND (content_id = $2 OR ($2 IS NULL AND content_id IS NULL))`,
         [contentType, contentId]
       );
       const nextVersion = (versionResult.rows[0]?.max_version || 0) + 1;
       
       await pool.query(
-        `INSERT INTO content_versions (content_type, content_id, version_number, data, changed_by, change_description)
+        `INSERT INTO tidum_content_versions (content_type, content_id, version_number, data, changed_by, change_description)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         [contentType, contentId, nextVersion, JSON.stringify(data), changedBy, changeDescription]
       );
@@ -766,8 +766,8 @@ export function registerSmartTimingRoutes(app: Express) {
       
       let query = `
         SELECT lr.*, pi.konsulent, pi.bedrift, pi.oppdragsgiver, pi.tiltak, pi.klient_id
-        FROM log_row lr
-        LEFT JOIN project_info pi ON lr.project_id = pi.id
+        FROM tidum_log_row lr
+        LEFT JOIN tidum_project_info pi ON lr.project_id = pi.id
         WHERE lr.user_id = $1
       `;
       const params: any[] = [userId];
@@ -825,7 +825,7 @@ export function registerSmartTimingRoutes(app: Express) {
       let created: any;
       if (hasClientId) {
         const insertResult = await pool.query(
-          `INSERT INTO log_row
+          `INSERT INTO tidum_log_row
              (id, date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
            ON CONFLICT (id) DO NOTHING
@@ -836,13 +836,13 @@ export function registerSmartTimingRoutes(app: Express) {
           created = insertResult.rows[0];
         } else {
           // Row already exists from a prior replay — return it unchanged (idempotent).
-          const existing = await pool.query('SELECT * FROM log_row WHERE id = $1', [clientId]);
+          const existing = await pool.query('SELECT * FROM tidum_log_row WHERE id = $1', [clientId]);
           created = existing.rows[0];
           res.setHeader('X-Tidum-Idempotent', '1');
         }
       } else {
         const result = await pool.query(
-          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
+          `INSERT INTO tidum_log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
            RETURNING *`,
           [date, start_time, end_time, break_hours || 0, activity || 'Work', title, project, place, notes, expense_coverage || 0, ownerId, project_id, sakIdValue, sakLocationIdValue],
@@ -866,7 +866,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
       // Check lock against both the existing entry's month (to prevent editing a locked past entry)
       // and the new target month (to prevent moving an entry into a locked month).
-      const existing = await pool.query('SELECT user_id, date FROM log_row WHERE id = $1', [id]);
+      const existing = await pool.query('SELECT user_id, date FROM tidum_log_row WHERE id = $1', [id]);
       if (existing.rows.length === 0) return res.status(404).json({ error: 'Log not found' });
       const { user_id: ownerId, date: existingDate } = existing.rows[0];
       await assertMonthNotLocked({ userId: ownerId, date: existingDate, callerRole });
@@ -882,11 +882,11 @@ export function registerSmartTimingRoutes(app: Express) {
         callerRole, bypass: !!bypass_atl,
       });
       // Snapshot full before-data for the audit diff
-      const fullBefore = await pool.query('SELECT * FROM log_row WHERE id = $1', [id]);
+      const fullBefore = await pool.query('SELECT * FROM tidum_log_row WHERE id = $1', [id]);
       const sakIdValue = typeof sak_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_id) ? sak_id : null;
       const sakLocationIdValue = typeof sak_location_id === 'string' && /^[0-9a-f-]{36}$/i.test(sak_location_id) ? sak_location_id : null;
       const result = await pool.query(
-        `UPDATE log_row SET
+        `UPDATE tidum_log_row SET
             date=$1, start_time=$2, end_time=$3, break_hours=$4, activity=$5,
             title=$6, project=$7, place=$8, notes=$9, expense_coverage=$10,
             sak_id = COALESCE($11::uuid, sak_id),
@@ -914,11 +914,11 @@ export function registerSmartTimingRoutes(app: Express) {
   app.delete("/api/logs/:id", requireAuth, async (req, res) => {
     try {
       const callerRole = (req as any).authUser?.role ?? (req.user as any)?.role ?? null;
-      const existing = await pool.query('SELECT * FROM log_row WHERE id = $1', [req.params.id]);
+      const existing = await pool.query('SELECT * FROM tidum_log_row WHERE id = $1', [req.params.id]);
       if (existing.rows.length === 0) return res.status(204).send(); // already gone
       const { user_id: ownerId, date: existingDate } = existing.rows[0];
       await assertMonthNotLocked({ userId: ownerId, date: existingDate, callerRole });
-      await pool.query('DELETE FROM log_row WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_log_row WHERE id = $1', [req.params.id]);
       await auditLogRow({ action: 'delete', logRowId: req.params.id, before: existing.rows[0], req });
       res.status(204).send();
     } catch (err: any) {
@@ -942,7 +942,7 @@ export function registerSmartTimingRoutes(app: Express) {
         const sakIdValue = typeof row.sak_id === 'string' && /^[0-9a-f-]{36}$/i.test(row.sak_id) ? row.sak_id : null;
         const sakLocationIdValue = typeof row.sak_location_id === 'string' && /^[0-9a-f-]{36}$/i.test(row.sak_location_id) ? row.sak_location_id : null;
         const r = await pool.query(
-          `INSERT INTO log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
+          `INSERT INTO tidum_log_row (date, start_time, end_time, break_hours, activity, title, project, place, notes, expense_coverage, user_id, project_id, sak_id, sak_location_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14) RETURNING *`,
           [row.date, row.start_time, row.end_time, row.break_hours || 0, row.activity || 'Work', row.title, row.project, row.place, row.notes, row.expense_coverage || 0, userId, project_id, sakIdValue, sakLocationIdValue]
         );
@@ -975,10 +975,10 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/settings", requireAuth, async (req, res) => {
     try {
       const userId = (req.query.user_id as string) || 'default';
-      const result = await pool.query('SELECT * FROM user_settings WHERE user_id = $1', [userId]);
+      const result = await pool.query('SELECT * FROM tidum_user_settings WHERE user_id = $1', [userId]);
       if (result.rows.length === 0) {
         const newSettings = await pool.query(
-          `INSERT INTO user_settings (user_id) VALUES ($1) RETURNING *`,
+          `INSERT INTO tidum_user_settings (user_id) VALUES ($1) RETURNING *`,
           [userId]
         );
         return res.json(newSettings.rows[0]);
@@ -995,7 +995,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const userId = user_id || 'default';
       
       const result = await pool.query(
-        `INSERT INTO user_settings (user_id, paid_break, tax_pct, hourly_rate, timesheet_sender, timesheet_recipient, timesheet_format, theme_mode, view_mode, language)
+        `INSERT INTO tidum_user_settings (user_id, paid_break, tax_pct, hourly_rate, timesheet_sender, timesheet_recipient, timesheet_format, theme_mode, view_mode, language)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (user_id) DO UPDATE SET
            paid_break = EXCLUDED.paid_break,
@@ -1022,7 +1022,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const userId = (req.query.user_id as string) || 'default';
       const result = await pool.query(
-        'SELECT * FROM project_info WHERE user_id = $1 AND is_active = true ORDER BY id DESC',
+        'SELECT * FROM tidum_project_info WHERE user_id = $1 AND is_active = true ORDER BY id DESC',
         [userId]
       );
       res.json(result.rows);
@@ -1035,7 +1035,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id, institution_id } = req.body;
       const result = await pool.query(
-        `INSERT INTO project_info (konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id, institution_id)
+        `INSERT INTO tidum_project_info (konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id, institution_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, user_id || 'default', institution_id || null]
       );
@@ -1049,7 +1049,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, institution_id } = req.body;
       const result = await pool.query(
-        `UPDATE project_info
+        `UPDATE tidum_project_info
            SET konsulent=$1, bedrift=$2, oppdragsgiver=$3, tiltak=$4, periode=$5, klient_id=$6, institution_id=$7, updated_at=NOW()
          WHERE id=$8 RETURNING *`,
         [konsulent, bedrift, oppdragsgiver, tiltak, periode, klient_id, institution_id || null, req.params.id]
@@ -1066,7 +1066,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const userId = (req.query.user_id as string) || 'default';
       const result = await pool.query(
-        'SELECT * FROM quick_templates WHERE user_id = $1 ORDER BY display_order, id',
+        'SELECT * FROM tidum_quick_templates WHERE user_id = $1 ORDER BY display_order, id',
         [userId]
       );
       res.json(result.rows);
@@ -1079,7 +1079,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { label, activity, title, project, place, is_favorite, display_order, user_id } = req.body;
       const result = await pool.query(
-        `INSERT INTO quick_templates (label, activity, title, project, place, is_favorite, display_order, user_id)
+        `INSERT INTO tidum_quick_templates (label, activity, title, project, place, is_favorite, display_order, user_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
         [label, activity || 'Work', title, project, place, is_favorite || false, display_order || 0, user_id || 'default']
       );
@@ -1091,7 +1091,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/quick-templates/:id", requireAuth, async (req, res) => {
     try {
-      await pool.query('DELETE FROM quick_templates WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_quick_templates WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1101,7 +1101,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== COMPANIES ==========
   app.get("/api/companies", requireAuth, async (_req, res) => {
     try {
-      const result = await pool.query('SELECT id, name, display_order FROM companies ORDER BY display_order, name');
+      const result = await pool.query('SELECT id, name, display_order FROM tidum_companies ORDER BY display_order, name');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1112,7 +1112,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name } = req.body;
       const result = await pool.query(
-        'INSERT INTO companies (name) VALUES ($1) RETURNING *',
+        'INSERT INTO tidum_companies (name) VALUES ($1) RETURNING *',
         [name]
       );
       res.status(201).json(result.rows[0]);
@@ -1127,7 +1127,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { username, password } = req.body;
       const result = await pool.query(
         `SELECT a.*, v.name as vendor_name, v.slug as vendor_slug 
-         FROM admin_users a 
+         FROM tidum_admin_users a 
          LEFT JOIN vendors v ON a.vendor_id::text = v.id::text 
          WHERE (a.username = $1 OR a.email = $1) AND a.is_active = true`,
         [username]
@@ -1144,7 +1144,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(401).json({ error: 'Invalid credentials' });
       }
       
-      await pool.query('UPDATE admin_users SET last_login = NOW() WHERE id = $1', [admin.id]);
+      await pool.query('UPDATE tidum_admin_users SET last_login = NOW() WHERE id = $1', [admin.id]);
       
       const token = jwt.sign(
         { 
@@ -1220,7 +1220,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const result = await pool.query(
         `SELECT a.id, a.username, a.email, a.role, a.vendor_id, a.last_login, a.created_at,
                 v.name as vendor_name, v.slug as vendor_slug
-         FROM admin_users a
+         FROM tidum_admin_users a
          LEFT JOIN vendors v ON a.vendor_id = v.id
          WHERE a.id = $1`,
         [req.admin.id]
@@ -1369,7 +1369,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const result = await pool.query(
         `SELECT id, username, email, role, is_active, last_login, created_at 
-         FROM admin_users WHERE vendor_id = $1 ORDER BY username`,
+         FROM tidum_admin_users WHERE vendor_id = $1 ORDER BY username`,
         [vendorId]
       );
       res.json(result.rows);
@@ -1401,9 +1401,9 @@ export function registerSmartTimingRoutes(app: Express) {
         || crypto.randomBytes(18).toString('base64url');
       const passwordHash = await bcrypt.hash(effectivePassword, 10);
 
-      // 1. Legacy admin_users record
+      // 1. Legacy tidum_admin_users record
       const adminResult = await pool.query(
-        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+        `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'vendor_admin', $4) RETURNING id, username, email, role, vendor_id, created_at`,
         [username, email, passwordHash, vendorId]
       );
@@ -1420,7 +1420,7 @@ export function registerSmartTimingRoutes(app: Express) {
       // pairAdminUserWithUsersTable here — that helper preserves an
       // existing users.role on conflict (COALESCE), but this route's whole
       // point is to deliberately overwrite it: a vendor explicitly invites
-      // this person as vendor_admin, same intent as the company_users
+      // this person as vendor_admin, same intent as the tidum_company_users
       // insert right below.
       const normalizedEmail = email.toLowerCase().trim();
       const vendorAdminRoleId = (await pool.query(
@@ -1434,9 +1434,9 @@ export function registerSmartTimingRoutes(app: Express) {
         [username, normalizedEmail, vendorAdminRoleId, vendorId]
       );
 
-      // 3. company_users entry so the user appears in the vendor's user list
+      // 3. tidum_company_users entry so the user appears in the vendor's user list
       await pool.query(
-        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
          VALUES ($1, $1, $2, 'vendor_admin', true)
          ON CONFLICT DO NOTHING`,
         [vendorId, normalizedEmail]
@@ -1618,7 +1618,7 @@ export function registerSmartTimingRoutes(app: Express) {
         [vendorId, userId]
       );
       await pool.query(
-        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
          VALUES ($1, $1, $2, 'vendor_admin', true)
          ON CONFLICT DO NOTHING`,
         [vendorId, existing.email]
@@ -2078,7 +2078,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const passwordHash = await bcrypt.hash(password, 10);
       
       const result = await pool.query(
-        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+        `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
@@ -2096,7 +2096,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Bootstrap: Create first super admin (only works if no admins exist)
   app.post("/api/admin/bootstrap", async (req, res) => {
     try {
-      const existingAdmins = await pool.query('SELECT COUNT(*) as count FROM admin_users');
+      const existingAdmins = await pool.query('SELECT COUNT(*) as count FROM tidum_admin_users');
       if (parseInt(existingAdmins.rows[0].count) > 0) {
         return res.status(403).json({ error: 'Bootstrap only allowed when no admins exist' });
       }
@@ -2105,7 +2105,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const passwordHash = await bcrypt.hash(password, 10);
       
       const result = await pool.query(
-        `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+        `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'super_admin', NULL) RETURNING id, username, email, role, created_at`,
         [username, email, passwordHash]
       );
@@ -2201,19 +2201,19 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== COMPANY PORTAL ==========
 
-  // Resolve the current user's company_id from company_users table
+  // Resolve the current user's company_id from tidum_company_users table
   app.get("/api/me/company", requireAuth, async (req, res) => {
     try {
       const email = (req.user as any)?.email || (req as any).admin?.email;
       if (!email) return res.json({ companyId: null });
 
       const result = await pool.query(
-        `SELECT company_id FROM company_users WHERE user_email = $1 LIMIT 1`,
+        `SELECT company_id FROM tidum_company_users WHERE user_email = $1 LIMIT 1`,
         [email]
       );
 
       if (result.rows.length === 0) {
-        // If no company_users row exists, auto-create one for the first vendor/company
+        // If no tidum_company_users row exists, auto-create one for the first vendor/company
         const vendorId = (req.user as any)?.vendorId;
         if (vendorId) {
           return res.json({ companyId: vendorId });
@@ -2232,8 +2232,8 @@ export function registerSmartTimingRoutes(app: Express) {
       const companyId = req.query.company_id || 1;
       const result = await pool.query(
         `SELECT cu.*, 
-          (SELECT json_agg(uc.*) FROM user_cases uc WHERE uc.company_user_id = cu.id) as cases
-         FROM company_users cu 
+          (SELECT json_agg(uc.*) FROM tidum_user_cases uc WHERE uc.company_user_id = cu.id) as cases
+         FROM tidum_company_users cu 
          WHERE cu.company_id = $1 
          ORDER BY cu.created_at DESC`,
         [companyId]
@@ -2262,7 +2262,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
          VALUES ($1, $1, $2, $3, true) RETURNING *`,
         [companyId, user_email, targetRole]
       );
@@ -2283,7 +2283,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (case_title && result.rows[0]) {
         try {
           await pool.query(
-            `INSERT INTO user_cases (company_user_id, case_title, status)
+            `INSERT INTO tidum_user_cases (company_user_id, case_title, status)
              VALUES ($1, $2, 'active')`,
             [result.rows[0].id, case_title]
           );
@@ -2294,10 +2294,10 @@ export function registerSmartTimingRoutes(app: Express) {
       if (institution && result.rows[0]) {
         try {
           await pool.query(
-            `ALTER TABLE company_users ADD COLUMN IF NOT EXISTS institution TEXT`
+            `ALTER TABLE tidum_company_users ADD COLUMN IF NOT EXISTS institution TEXT`
           );
           await pool.query(
-            `UPDATE company_users SET institution = $1 WHERE id = $2`,
+            `UPDATE tidum_company_users SET institution = $1 WHERE id = $2`,
             [institution, result.rows[0].id]
           );
         } catch (_) { /* best-effort */ }
@@ -2366,7 +2366,7 @@ export function registerSmartTimingRoutes(app: Express) {
         try {
           // Check duplicates within this company
           const dup = await pool.query(
-            `SELECT id FROM company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
+            `SELECT id FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
             [companyId, email],
           );
           if (dup.rows.length > 0) {
@@ -2375,7 +2375,7 @@ export function registerSmartTimingRoutes(app: Express) {
           }
 
           const result = await pool.query(
-            `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+            `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
              VALUES ($1, $1, $2, $3, true) RETURNING *`,
             [companyId, email, targetRole],
           );
@@ -2432,7 +2432,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `UPDATE company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
+        `UPDATE tidum_company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
          WHERE id = $3 RETURNING *`,
         [role ? normalizeRole(role) : null, approved, req.params.id]
       );
@@ -2485,7 +2485,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });
       }
 
-      await pool.query('DELETE FROM company_users WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2499,8 +2499,8 @@ export function registerSmartTimingRoutes(app: Express) {
       
       let query = `
         SELECT lr.*, cu.user_email, cu.role
-        FROM log_row lr
-        JOIN company_users cu ON lr.user_id = cu.user_email
+        FROM tidum_log_row lr
+        JOIN tidum_company_users cu ON lr.user_id = cu.user_email
         WHERE cu.company_id = $1
       `;
       const params: any[] = [company_id || 1];
@@ -2531,8 +2531,8 @@ export function registerSmartTimingRoutes(app: Express) {
       const companyId = req.query.company_id || 1;
       const result = await pool.query(
         `SELECT cal.*, cu.user_email as actor_email
-         FROM company_audit_log cal
-         LEFT JOIN company_users cu ON cal.actor_company_user_id = cu.id
+         FROM tidum_company_audit_log cal
+         LEFT JOIN tidum_company_users cu ON cal.actor_company_user_id = cu.id
          WHERE cal.company_id = $1
          ORDER BY cal.created_at DESC
          LIMIT 100`,
@@ -2548,14 +2548,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/setup", authenticateAdmin, async (_req, res) => {
     try {
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS site_settings (
+        CREATE TABLE IF NOT EXISTS tidum_site_settings (
           id SERIAL PRIMARY KEY,
           key TEXT NOT NULL UNIQUE,
           value TEXT,
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS landing_hero (
+        CREATE TABLE IF NOT EXISTS tidum_landing_hero (
           id SERIAL PRIMARY KEY,
           title TEXT NOT NULL,
           title_highlight TEXT,
@@ -2569,7 +2569,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS landing_features (
+        CREATE TABLE IF NOT EXISTS tidum_landing_features (
           id SERIAL PRIMARY KEY,
           icon TEXT NOT NULL,
           title TEXT NOT NULL,
@@ -2580,7 +2580,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS landing_testimonials (
+        CREATE TABLE IF NOT EXISTS tidum_landing_testimonials (
           id SERIAL PRIMARY KEY,
           quote TEXT NOT NULL,
           name TEXT NOT NULL,
@@ -2593,7 +2593,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS landing_cta (
+        CREATE TABLE IF NOT EXISTS tidum_landing_cta (
           id SERIAL PRIMARY KEY,
           section_title TEXT,
           features_title TEXT,
@@ -2615,7 +2615,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS landing_partners (
+        CREATE TABLE IF NOT EXISTS tidum_landing_partners (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL,
           logo_url TEXT NOT NULL,
@@ -2626,9 +2626,9 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS cms_activity_log (
+        CREATE TABLE IF NOT EXISTS tidum_cms_activity_log (
           id SERIAL PRIMARY KEY,
-          admin_id INTEGER REFERENCES admin_users(id),
+          admin_id INTEGER REFERENCES tidum_admin_users(id),
           action TEXT NOT NULL,
           entity_type TEXT NOT NULL,
           entity_id INTEGER,
@@ -2636,7 +2636,7 @@ export function registerSmartTimingRoutes(app: Express) {
           created_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS cms_pages (
+        CREATE TABLE IF NOT EXISTS tidum_cms_pages (
           id SERIAL PRIMARY KEY,
           page_type TEXT NOT NULL UNIQUE,
           content JSONB NOT NULL DEFAULT '{}',
@@ -2645,7 +2645,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS why_page_hero (
+        CREATE TABLE IF NOT EXISTS tidum_why_page_hero (
           id SERIAL PRIMARY KEY,
           title TEXT NOT NULL,
           title_highlight TEXT,
@@ -2659,7 +2659,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS why_page_stats (
+        CREATE TABLE IF NOT EXISTS tidum_why_page_stats (
           id SERIAL PRIMARY KEY,
           value TEXT NOT NULL,
           label TEXT NOT NULL,
@@ -2668,7 +2668,7 @@ export function registerSmartTimingRoutes(app: Express) {
           created_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS why_page_benefits (
+        CREATE TABLE IF NOT EXISTS tidum_why_page_benefits (
           id SERIAL PRIMARY KEY,
           icon TEXT DEFAULT 'Clock',
           title TEXT NOT NULL,
@@ -2679,7 +2679,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS why_page_features (
+        CREATE TABLE IF NOT EXISTS tidum_why_page_features (
           id SERIAL PRIMARY KEY,
           icon TEXT DEFAULT 'Smartphone',
           title TEXT NOT NULL,
@@ -2690,7 +2690,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS why_page_content (
+        CREATE TABLE IF NOT EXISTS tidum_why_page_content (
           id SERIAL PRIMARY KEY,
           section_id TEXT NOT NULL UNIQUE,
           title TEXT,
@@ -2704,7 +2704,7 @@ export function registerSmartTimingRoutes(app: Express) {
           updated_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS feedback_requests (
+        CREATE TABLE IF NOT EXISTS tidum_feedback_requests (
           id SERIAL PRIMARY KEY,
           vendor_id INTEGER,
           user_id TEXT,
@@ -2716,7 +2716,7 @@ export function registerSmartTimingRoutes(app: Express) {
           metadata JSONB
         );
         
-        CREATE TABLE IF NOT EXISTS feedback_responses (
+        CREATE TABLE IF NOT EXISTS tidum_feedback_responses (
           id SERIAL PRIMARY KEY,
           request_id INTEGER NOT NULL,
           vendor_id INTEGER,
@@ -2749,9 +2749,9 @@ export function registerSmartTimingRoutes(app: Express) {
         );
       `);
       
-      // Also create admin_users table if not exists
+      // Also create tidum_admin_users table if not exists
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS admin_users (
+        CREATE TABLE IF NOT EXISTS tidum_admin_users (
           id SERIAL PRIMARY KEY,
           username TEXT NOT NULL UNIQUE,
           email TEXT NOT NULL UNIQUE,
@@ -2767,16 +2767,16 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Add vendor_id column if it doesn't exist (for existing tables)
       await pool.query(`
-        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id);
-        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id);
+        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       `);
       
       // Create default admin if none exists, or reset password if exists
-      const adminCheck = await pool.query('SELECT COUNT(*) FROM admin_users WHERE username = $1', ['admin']);
+      const adminCheck = await pool.query('SELECT COUNT(*) FROM tidum_admin_users WHERE username = $1', ['admin']);
       const passwordHash = await bcrypt.hash('admin123', 10);
       if (parseInt(adminCheck.rows[0].count) === 0) {
         await pool.query(
-          `INSERT INTO admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
+          `INSERT INTO tidum_admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
           ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
         );
         // Pare med users-tabellen, samme mønster som create-super/bootstrap.
@@ -2787,7 +2787,7 @@ export function registerSmartTimingRoutes(app: Express) {
         });
       } else {
         await pool.query(
-          `UPDATE admin_users SET password_hash = $1 WHERE username = $2`,
+          `UPDATE tidum_admin_users SET password_hash = $1 WHERE username = $2`,
           [passwordHash, 'admin']
         );
       }
@@ -2801,7 +2801,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: CLEAR TESTIMONIALS ==========
   app.post("/api/cms/clear-testimonials", authenticateAdmin, async (_req, res) => {
     try {
-      await pool.query('DELETE FROM landing_testimonials WHERE 1=1');
+      await pool.query('DELETE FROM tidum_landing_testimonials WHERE 1=1');
       res.json({ success: true, message: 'All testimonials deleted' });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2811,8 +2811,8 @@ export function registerSmartTimingRoutes(app: Express) {
   // Add missing columns to testimonials table
   async function updateTestimonialsTable() {
     try {
-      await pool.query(`ALTER TABLE landing_testimonials ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
-      await pool.query(`ALTER TABLE landing_testimonials ADD COLUMN IF NOT EXISTS company_logo TEXT`);
+      await pool.query(`ALTER TABLE tidum_landing_testimonials ADD COLUMN IF NOT EXISTS avatar_url TEXT`);
+      await pool.query(`ALTER TABLE tidum_landing_testimonials ADD COLUMN IF NOT EXISTS company_logo TEXT`);
     } catch (err) {
       console.error('Error updating testimonials table:', err);
     }
@@ -2823,14 +2823,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.post("/api/cms/seed", authenticateAdmin, async (_req, res) => {
     try {
       // Check if already seeded
-      const heroCheck = await pool.query('SELECT COUNT(*) FROM landing_hero');
+      const heroCheck = await pool.query('SELECT COUNT(*) FROM tidum_landing_hero');
       if (parseInt(heroCheck.rows[0].count) > 0) {
         return res.json({ success: true, message: 'Content already seeded' });
       }
 
       // Seed Hero
       await pool.query(`
-        INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
+        INSERT INTO tidum_landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
         VALUES (
           'Smart Timeføring for',
           'Norske Bedrifter',
@@ -2845,7 +2845,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
       // Seed Features
       await pool.query(`
-        INSERT INTO landing_features (icon, title, description, display_order) VALUES
+        INSERT INTO tidum_landing_features (icon, title, description, display_order) VALUES
         ('Clock', 'Enkel Timeføring', 'Registrer timer raskt og enkelt med vår intuitive grensesnitt. Start og stopp tidtaker eller legg inn manuelt.', 0),
         ('Users', 'Team Administrasjon', 'Administrer brukere, roller og tilganger. Inviter nye teammedlemmer og følg opp deres timer.', 1),
         ('FileText', 'Rapporter & Eksport', 'Generer detaljerte rapporter for prosjekter, ansatte eller perioder. Eksporter til Excel eller PDF.', 2),
@@ -2858,7 +2858,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
       // Seed CTA/Sections
       await pool.query(`
-        INSERT INTO landing_cta (
+        INSERT INTO tidum_landing_cta (
           features_title, features_subtitle,
           testimonials_title, testimonials_subtitle,
           cta_title, cta_subtitle, cta_button_text,
@@ -2892,7 +2892,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { mergeNavConfig, NAV_CONFIG_KEY } = await import("@shared/nav-config");
       const result = await pool.query(
-        'SELECT value FROM site_settings WHERE key = $1',
+        'SELECT value FROM tidum_site_settings WHERE key = $1',
         [NAV_CONFIG_KEY],
       );
       let parsed: any = null;
@@ -2919,17 +2919,17 @@ export function registerSmartTimingRoutes(app: Express) {
       const merged = mergeNavConfig(req.body);
       const value = JSON.stringify(merged);
       const existing = await pool.query(
-        'SELECT id FROM site_settings WHERE key = $1',
+        'SELECT id FROM tidum_site_settings WHERE key = $1',
         [NAV_CONFIG_KEY],
       );
       if (existing.rows.length > 0) {
         await pool.query(
-          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
+          'UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
           [value, NAV_CONFIG_KEY],
         );
       } else {
         await pool.query(
-          'INSERT INTO site_settings (key, value) VALUES ($1, $2)',
+          'INSERT INTO tidum_site_settings (key, value) VALUES ($1, $2)',
           [NAV_CONFIG_KEY, value],
         );
       }
@@ -2943,7 +2943,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/brand", async (_req, res) => {
     try {
       const result = await pool.query(
-        `SELECT value FROM site_settings WHERE key = 'brand_info'`,
+        `SELECT value FROM tidum_site_settings WHERE key = 'brand_info'`,
       );
       let parsed: any = {};
       if (result.rows.length > 0) {
@@ -2977,14 +2977,14 @@ export function registerSmartTimingRoutes(app: Express) {
         if (typeof req.body?.[k] === "string") allowed[k] = req.body[k];
       }
       const value = JSON.stringify(allowed);
-      const existing = await pool.query("SELECT id FROM site_settings WHERE key = 'brand_info'");
+      const existing = await pool.query("SELECT id FROM tidum_site_settings WHERE key = 'brand_info'");
       if (existing.rows.length > 0) {
         await pool.query(
-          "UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = 'brand_info'",
+          "UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = 'brand_info'",
           [value],
         );
       } else {
-        await pool.query("INSERT INTO site_settings (key, value) VALUES ('brand_info', $1)", [value]);
+        await pool.query("INSERT INTO tidum_site_settings (key, value) VALUES ('brand_info', $1)", [value]);
       }
       res.json({ ok: true, brand: allowed });
     } catch (err: any) {
@@ -2997,7 +2997,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { mergeGuideConfig, GUIDE_CONFIG_KEY } = await import("@shared/guide-config");
       const result = await pool.query(
-        'SELECT value FROM site_settings WHERE key = $1',
+        'SELECT value FROM tidum_site_settings WHERE key = $1',
         [GUIDE_CONFIG_KEY],
       );
       let parsed: any = null;
@@ -3024,7 +3024,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const merged = mergeGuideConfig(req.body);
       const value = JSON.stringify(merged);
       const existing = await pool.query(
-        'SELECT * FROM site_settings WHERE key = $1',
+        'SELECT * FROM tidum_site_settings WHERE key = $1',
         [GUIDE_CONFIG_KEY],
       );
       // Snapshot the current version into the history before overwriting.
@@ -3036,7 +3036,7 @@ export function registerSmartTimingRoutes(app: Express) {
           : null;
         if (prev) {
           const histRow = await pool.query(
-            'SELECT value FROM site_settings WHERE key = $1',
+            'SELECT value FROM tidum_site_settings WHERE key = $1',
             [HISTORY_KEY],
           );
           let history: any[] = [];
@@ -3055,9 +3055,9 @@ export function registerSmartTimingRoutes(app: Express) {
           history = history.slice(0, 20);
           const histValue = JSON.stringify(history);
           if (histRow.rows.length > 0) {
-            await pool.query('UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [histValue, HISTORY_KEY]);
+            await pool.query('UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [histValue, HISTORY_KEY]);
           } else {
-            await pool.query('INSERT INTO site_settings (key, value) VALUES ($1, $2)', [HISTORY_KEY, histValue]);
+            await pool.query('INSERT INTO tidum_site_settings (key, value) VALUES ($1, $2)', [HISTORY_KEY, histValue]);
           }
         }
       } catch (e) {
@@ -3066,12 +3066,12 @@ export function registerSmartTimingRoutes(app: Express) {
 
       if (existing.rows.length > 0) {
         await pool.query(
-          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
+          'UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = $2',
           [value, GUIDE_CONFIG_KEY],
         );
       } else {
         await pool.query(
-          'INSERT INTO site_settings (key, value) VALUES ($1, $2)',
+          'INSERT INTO tidum_site_settings (key, value) VALUES ($1, $2)',
           [GUIDE_CONFIG_KEY, value],
         );
       }
@@ -3094,7 +3094,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       const keys = ["guide_config", "nav_config", "brand_info"];
       const result = await pool.query(
-        'SELECT key, value FROM site_settings WHERE key = ANY($1::text[])',
+        'SELECT key, value FROM tidum_site_settings WHERE key = ANY($1::text[])',
         [keys],
       );
       const bundle: Record<string, any> = {
@@ -3141,11 +3141,11 @@ export function registerSmartTimingRoutes(app: Express) {
         if (key === "guide_config") normalized = mergeGuideConfig(normalized);
         else if (key === "nav_config") normalized = mergeNavConfig(normalized);
         const value = JSON.stringify(normalized);
-        const existing = await pool.query('SELECT id FROM site_settings WHERE key = $1', [key]);
+        const existing = await pool.query('SELECT id FROM tidum_site_settings WHERE key = $1', [key]);
         if (existing.rows.length > 0) {
-          await pool.query('UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [value, key]);
+          await pool.query('UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = $2', [value, key]);
         } else {
-          await pool.query('INSERT INTO site_settings (key, value) VALUES ($1, $2)', [key, value]);
+          await pool.query('INSERT INTO tidum_site_settings (key, value) VALUES ($1, $2)', [key, value]);
         }
         applied.push(key);
       }
@@ -3164,7 +3164,7 @@ export function registerSmartTimingRoutes(app: Express) {
   async function ensureStuckTable() {
     if (stuckTableReady) return;
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS stuck_events (
+      CREATE TABLE IF NOT EXISTS tidum_stuck_events (
         id SERIAL PRIMARY KEY,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         reason TEXT NOT NULL,
@@ -3174,8 +3174,8 @@ export function registerSmartTimingRoutes(app: Express) {
         session_id TEXT
       );
     `);
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_created_at ON stuck_events (created_at DESC);');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_reason ON stuck_events (reason);');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_created_at ON tidum_stuck_events (created_at DESC);');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_stuck_events_reason ON tidum_stuck_events (reason);');
     stuckTableReady = true;
   }
 
@@ -3193,7 +3193,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: "ugyldig reason eller action" });
       }
       await pool.query(
-        `INSERT INTO stuck_events (reason, variant_id, action, path, session_id)
+        `INSERT INTO tidum_stuck_events (reason, variant_id, action, path, session_id)
          VALUES ($1, $2, $3, $4, $5)`,
         [
           reason,
@@ -3222,7 +3222,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const [aggregated, daily, topPaths] = await Promise.all([
         pool.query(
           `SELECT reason, variant_id, action, COUNT(*)::int AS count
-             FROM stuck_events
+             FROM tidum_stuck_events
             WHERE created_at >= NOW() - $1::interval
             GROUP BY reason, variant_id, action
             ORDER BY reason, variant_id NULLS FIRST, action`,
@@ -3234,7 +3234,7 @@ export function registerSmartTimingRoutes(app: Express) {
              reason,
              action,
              COUNT(*)::int AS count
-            FROM stuck_events
+            FROM tidum_stuck_events
            WHERE created_at >= NOW() - $1::interval
            GROUP BY 1, 2, 3
            ORDER BY 1`,
@@ -3242,7 +3242,7 @@ export function registerSmartTimingRoutes(app: Express) {
         ),
         pool.query(
           `SELECT path, COUNT(*)::int AS shown
-             FROM stuck_events
+             FROM tidum_stuck_events
             WHERE created_at >= NOW() - $1::interval
               AND action = 'shown'
               AND path IS NOT NULL
@@ -3283,7 +3283,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (role !== "super_admin" && role !== "hovedadmin" && role !== "admin") {
         return res.status(403).json({ error: "Krever admin-rolle" });
       }
-      const r = await pool.query("SELECT value FROM site_settings WHERE key = 'guide_config_history'");
+      const r = await pool.query("SELECT value FROM tidum_site_settings WHERE key = 'guide_config_history'");
       let history: any[] = [];
       if (r.rows.length > 0) {
         try {
@@ -3301,7 +3301,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: SITE SETTINGS ==========
   app.get("/api/cms/settings", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM site_settings ORDER BY key');
+      const result = await pool.query('SELECT * FROM tidum_site_settings ORDER BY key');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3312,16 +3312,16 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { key } = req.params;
       const { value } = req.body;
-      const existing = await pool.query('SELECT * FROM site_settings WHERE key = $1', [key]);
+      const existing = await pool.query('SELECT * FROM tidum_site_settings WHERE key = $1', [key]);
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          'UPDATE site_settings SET value = $1, updated_at = NOW() WHERE key = $2 RETURNING *',
+          'UPDATE tidum_site_settings SET value = $1, updated_at = NOW() WHERE key = $2 RETURNING *',
           [value, key]
         );
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          'INSERT INTO site_settings (key, value) VALUES ($1, $2) RETURNING *',
+          'INSERT INTO tidum_site_settings (key, value) VALUES ($1, $2) RETURNING *',
           [key, value]
         );
         res.json(result.rows[0]);
@@ -3334,7 +3334,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: LANDING HERO ==========
   app.get("/api/cms/hero", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
+      const result = await pool.query('SELECT * FROM tidum_landing_hero WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3344,7 +3344,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/hero", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3 } = req.body;
-      const existing = await pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1');
+      const existing = await pool.query('SELECT * FROM tidum_landing_hero WHERE is_active = true LIMIT 1');
       
       // Save version before update
       if (existing.rows.length > 0) {
@@ -3353,7 +3353,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE landing_hero SET 
+          `UPDATE tidum_landing_hero SET 
             title = $1, title_highlight = $2, subtitle = $3, 
             cta_primary_text = $4, cta_secondary_text = $5,
             badge1 = $6, badge2 = $7, badge3 = $8, updated_at = NOW()
@@ -3363,7 +3363,7 @@ export function registerSmartTimingRoutes(app: Express) {
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
+          `INSERT INTO tidum_landing_hero (title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
           [title, title_highlight, subtitle, cta_primary_text, cta_secondary_text, badge1, badge2, badge3]
         );
@@ -3377,7 +3377,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: LANDING FEATURES ==========
   app.get("/api/cms/features", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_landing_features WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3388,7 +3388,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { icon, title, description, display_order } = req.body;
       const result = await pool.query(
-        `INSERT INTO landing_features (icon, title, description, display_order)
+        `INSERT INTO tidum_landing_features (icon, title, description, display_order)
          VALUES ($1, $2, $3, $4) RETURNING *`,
         [icon, title, description, display_order || 0]
       );
@@ -3403,7 +3403,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { icon, title, description, display_order, is_active } = req.body;
       const result = await pool.query(
-        `UPDATE landing_features SET icon = $1, title = $2, description = $3, display_order = $4, is_active = $5, updated_at = NOW()
+        `UPDATE tidum_landing_features SET icon = $1, title = $2, description = $3, display_order = $4, is_active = $5, updated_at = NOW()
          WHERE id = $6 RETURNING *`,
         [icon, title, description, display_order, is_active ?? true, id]
       );
@@ -3416,7 +3416,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/cms/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM landing_features WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_landing_features WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3430,7 +3430,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'orderedIds must be an array' });
       }
       for (let i = 0; i < orderedIds.length; i++) {
-        await pool.query('UPDATE landing_features SET display_order = $1 WHERE id = $2', [i, orderedIds[i]]);
+        await pool.query('UPDATE tidum_landing_features SET display_order = $1 WHERE id = $2', [i, orderedIds[i]]);
       }
       res.json({ success: true });
     } catch (err: any) {
@@ -3441,7 +3441,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: LANDING TESTIMONIALS ==========
   app.get("/api/cms/testimonials", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_landing_testimonials WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3452,7 +3452,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { quote, name, role, avatar_url, company_logo, display_order } = req.body;
       const result = await pool.query(
-        `INSERT INTO landing_testimonials (quote, name, role, avatar_url, company_logo, display_order)
+        `INSERT INTO tidum_landing_testimonials (quote, name, role, avatar_url, company_logo, display_order)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
         [quote, name, role, avatar_url || null, company_logo || null, display_order || 0]
       );
@@ -3467,7 +3467,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { quote, name, role, avatar_url, company_logo, display_order, is_active } = req.body;
       const result = await pool.query(
-        `UPDATE landing_testimonials SET quote = $1, name = $2, role = $3, avatar_url = $4, company_logo = $5, display_order = $6, is_active = $7, updated_at = NOW()
+        `UPDATE tidum_landing_testimonials SET quote = $1, name = $2, role = $3, avatar_url = $4, company_logo = $5, display_order = $6, is_active = $7, updated_at = NOW()
          WHERE id = $8 RETURNING *`,
         [quote, name, role, avatar_url || null, company_logo || null, display_order, is_active ?? true, id]
       );
@@ -3480,7 +3480,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/cms/testimonials/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM landing_testimonials WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_landing_testimonials WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3494,7 +3494,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'orderedIds must be an array' });
       }
       for (let i = 0; i < orderedIds.length; i++) {
-        await pool.query('UPDATE landing_testimonials SET display_order = $1 WHERE id = $2', [i, orderedIds[i]]);
+        await pool.query('UPDATE tidum_landing_testimonials SET display_order = $1 WHERE id = $2', [i, orderedIds[i]]);
       }
       res.json({ success: true });
     } catch (err: any) {
@@ -3505,7 +3505,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: PARTNERS ==========
   app.get("/api/cms/partners", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_landing_partners WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3516,7 +3516,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name, logo_url, website_url, display_order } = req.body;
       const result = await pool.query(
-        `INSERT INTO landing_partners (name, logo_url, website_url, display_order)
+        `INSERT INTO tidum_landing_partners (name, logo_url, website_url, display_order)
          VALUES ($1, $2, $3, $4) RETURNING *`,
         [name, logo_url, website_url || null, display_order || 0]
       );
@@ -3531,7 +3531,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { name, logo_url, website_url, display_order, is_active } = req.body;
       const result = await pool.query(
-        `UPDATE landing_partners SET name = $1, logo_url = $2, website_url = $3, display_order = $4, is_active = $5, updated_at = NOW()
+        `UPDATE tidum_landing_partners SET name = $1, logo_url = $2, website_url = $3, display_order = $4, is_active = $5, updated_at = NOW()
          WHERE id = $6 RETURNING *`,
         [name, logo_url, website_url || null, display_order, is_active ?? true, id]
       );
@@ -3544,7 +3544,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/cms/partners/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM landing_partners WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_landing_partners WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3556,8 +3556,8 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const result = await pool.query(`
         SELECT cal.*, au.username as admin_username 
-        FROM cms_activity_log cal
-        LEFT JOIN admin_users au ON cal.admin_id = au.id
+        FROM tidum_cms_activity_log cal
+        LEFT JOIN tidum_admin_users au ON cal.admin_id = au.id
         ORDER BY cal.created_at DESC
         LIMIT 100
       `);
@@ -3570,7 +3570,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: LANDING CTA/SECTIONS ==========
   app.get("/api/cms/sections", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
+      const result = await pool.query('SELECT * FROM tidum_landing_cta WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3587,7 +3587,7 @@ export function registerSmartTimingRoutes(app: Express) {
         footer_copyright 
       } = req.body;
       
-      const existing = await pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1');
+      const existing = await pool.query('SELECT * FROM tidum_landing_cta WHERE is_active = true LIMIT 1');
       
       // Save version before update
       if (existing.rows.length > 0) {
@@ -3596,7 +3596,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE landing_cta SET 
+          `UPDATE tidum_landing_cta SET 
             features_title = $1, features_subtitle = $2,
             testimonials_title = $3, testimonials_subtitle = $4,
             cta_title = $5, cta_subtitle = $6, cta_button_text = $7,
@@ -3611,7 +3611,7 @@ export function registerSmartTimingRoutes(app: Express) {
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO landing_cta (features_title, features_subtitle, testimonials_title, testimonials_subtitle,
+          `INSERT INTO tidum_landing_cta (features_title, features_subtitle, testimonials_title, testimonials_subtitle,
             cta_title, cta_subtitle, cta_button_text, contact_title, contact_subtitle, contact_email, contact_phone, contact_address, footer_copyright)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING *`,
           [features_title, features_subtitle, testimonials_title, testimonials_subtitle,
@@ -3638,7 +3638,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Log the activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, entity_type, entity_id, entity_name, changes_summary, user_name)
+        `INSERT INTO tidum_cms_activity_log (action, entity_type, entity_id, entity_name, changes_summary, user_name)
          VALUES ($1, $2, $3, $4, $5, $6)`,
         ['published', 'site', null, 'Landingsside', 'Alle endringer publisert til produksjon', req.admin?.username || 'system']
       );
@@ -3700,7 +3700,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       try {
         const result = await pool.query(
-          'SELECT * FROM cms_pages WHERE page_type = $1 AND is_active = true LIMIT 1',
+          'SELECT * FROM tidum_cms_pages WHERE page_type = $1 AND is_active = true LIMIT 1',
           [pageType]
         );
         
@@ -3732,7 +3732,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       try {
         await pool.query(`
-          CREATE TABLE IF NOT EXISTS cms_pages (
+          CREATE TABLE IF NOT EXISTS tidum_cms_pages (
             id SERIAL PRIMARY KEY,
             page_type TEXT NOT NULL UNIQUE,
             content JSONB NOT NULL DEFAULT '{}',
@@ -3744,7 +3744,7 @@ export function registerSmartTimingRoutes(app: Express) {
       } catch (e) {}
       
       const existing = await pool.query(
-        'SELECT * FROM cms_pages WHERE page_type = $1',
+        'SELECT * FROM tidum_cms_pages WHERE page_type = $1',
         [pageType]
       );
       
@@ -3752,13 +3752,13 @@ export function registerSmartTimingRoutes(app: Express) {
         await createContentVersion('cms_pages', existing.rows[0].id, existing.rows[0].content, req.admin?.username, `${pageType} page updated`);
         
         const result = await pool.query(
-          'UPDATE cms_pages SET content = $1, updated_at = NOW() WHERE page_type = $2 RETURNING *',
+          'UPDATE tidum_cms_pages SET content = $1, updated_at = NOW() WHERE page_type = $2 RETURNING *',
           [JSON.stringify(content), pageType]
         );
         res.json(result.rows[0].content);
       } else {
         const result = await pool.query(
-          'INSERT INTO cms_pages (page_type, content) VALUES ($1, $2) RETURNING *',
+          'INSERT INTO tidum_cms_pages (page_type, content) VALUES ($1, $2) RETURNING *',
           [pageType, JSON.stringify(content)]
         );
         res.json(result.rows[0].content);
@@ -3772,11 +3772,11 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/landing", async (_req, res) => {
     try {
       const [heroResult, featuresResult, testimonialsResult, sectionsResult, partnersResult, vendorsResult] = await Promise.all([
-        pool.query('SELECT * FROM landing_hero WHERE is_active = true LIMIT 1'),
-        pool.query('SELECT * FROM landing_features WHERE is_active = true ORDER BY display_order'),
-        pool.query('SELECT * FROM landing_testimonials WHERE is_active = true ORDER BY display_order'),
-        pool.query('SELECT * FROM landing_cta WHERE is_active = true LIMIT 1'),
-        pool.query('SELECT * FROM landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
+        pool.query('SELECT * FROM tidum_landing_hero WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM tidum_landing_features WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM tidum_landing_testimonials WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM tidum_landing_cta WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM tidum_landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
         pool.query("SELECT id, name, logo_url, website_url FROM vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
       ]);
       
@@ -3799,13 +3799,13 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/why-page", async (_req, res) => {
     try {
       const [heroResult, statsResult, benefitsResult, featuresResult, nordicResult, trustResult, ctaResult] = await Promise.all([
-        pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1'),
-        pool.query('SELECT * FROM why_page_stats WHERE is_active = true ORDER BY display_order'),
-        pool.query('SELECT * FROM why_page_benefits WHERE is_active = true ORDER BY display_order'),
-        pool.query('SELECT * FROM why_page_features WHERE is_active = true ORDER BY display_order'),
-        pool.query("SELECT * FROM why_page_content WHERE section_id = 'nordic' LIMIT 1").catch(() => ({ rows: [] })),
-        pool.query("SELECT * FROM why_page_content WHERE section_id = 'trust' LIMIT 1").catch(() => ({ rows: [] })),
-        pool.query("SELECT * FROM why_page_content WHERE section_id = 'cta' LIMIT 1").catch(() => ({ rows: [] })),
+        pool.query('SELECT * FROM tidum_why_page_hero WHERE is_active = true LIMIT 1'),
+        pool.query('SELECT * FROM tidum_why_page_stats WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM tidum_why_page_benefits WHERE is_active = true ORDER BY display_order'),
+        pool.query('SELECT * FROM tidum_why_page_features WHERE is_active = true ORDER BY display_order'),
+        pool.query("SELECT * FROM tidum_why_page_content WHERE section_id = 'nordic' LIMIT 1").catch(() => ({ rows: [] })),
+        pool.query("SELECT * FROM tidum_why_page_content WHERE section_id = 'trust' LIMIT 1").catch(() => ({ rows: [] })),
+        pool.query("SELECT * FROM tidum_why_page_content WHERE section_id = 'cta' LIMIT 1").catch(() => ({ rows: [] })),
       ]);
       
       res.json({
@@ -3825,7 +3825,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Why Page Hero
   app.get("/api/cms/why-page/hero", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1');
+      const result = await pool.query('SELECT * FROM tidum_why_page_hero WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3835,11 +3835,11 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/why-page/hero", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url } = req.body;
-      const existing = await pool.query('SELECT * FROM why_page_hero WHERE is_active = true LIMIT 1');
+      const existing = await pool.query('SELECT * FROM tidum_why_page_hero WHERE is_active = true LIMIT 1');
       
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE why_page_hero SET 
+          `UPDATE tidum_why_page_hero SET 
             title = $1, title_highlight = $2, subtitle = $3, 
             cta_primary_text = $4, cta_primary_url = $5,
             cta_secondary_text = $6, cta_secondary_url = $7, updated_at = NOW()
@@ -3849,7 +3849,7 @@ export function registerSmartTimingRoutes(app: Express) {
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO why_page_hero (title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url)
+          `INSERT INTO tidum_why_page_hero (title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url)
            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
           [title, title_highlight, subtitle, cta_primary_text, cta_primary_url, cta_secondary_text, cta_secondary_url]
         );
@@ -3863,7 +3863,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Why Page Stats CRUD
   app.get("/api/cms/why-page/stats", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM why_page_stats WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_why_page_stats WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3874,7 +3874,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { value, label, display_order } = req.body;
       const result = await pool.query(
-        'INSERT INTO why_page_stats (value, label, display_order) VALUES ($1, $2, $3) RETURNING *',
+        'INSERT INTO tidum_why_page_stats (value, label, display_order) VALUES ($1, $2, $3) RETURNING *',
         [value, label, display_order || 0]
       );
       res.json(result.rows[0]);
@@ -3888,7 +3888,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { value, label, display_order } = req.body;
       const result = await pool.query(
-        'UPDATE why_page_stats SET value = $1, label = $2, display_order = $3 WHERE id = $4 RETURNING *',
+        'UPDATE tidum_why_page_stats SET value = $1, label = $2, display_order = $3 WHERE id = $4 RETURNING *',
         [value, label, display_order, id]
       );
       res.json(result.rows[0]);
@@ -3900,7 +3900,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.delete("/api/cms/why-page/stats/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await pool.query('UPDATE why_page_stats SET is_active = false WHERE id = $1', [id]);
+      await pool.query('UPDATE tidum_why_page_stats SET is_active = false WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3910,7 +3910,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Why Page Benefits CRUD
   app.get("/api/cms/why-page/benefits", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM why_page_benefits WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_why_page_benefits WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3921,7 +3921,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { icon, title, description, display_order } = req.body;
       const result = await pool.query(
-        'INSERT INTO why_page_benefits (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO tidum_why_page_benefits (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
         [icon || 'Clock', title, description, display_order || 0]
       );
       res.json(result.rows[0]);
@@ -3935,7 +3935,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { icon, title, description, display_order } = req.body;
       const result = await pool.query(
-        'UPDATE why_page_benefits SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
+        'UPDATE tidum_why_page_benefits SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
         [icon, title, description, display_order, id]
       );
       res.json(result.rows[0]);
@@ -3947,7 +3947,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.delete("/api/cms/why-page/benefits/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await pool.query('UPDATE why_page_benefits SET is_active = false WHERE id = $1', [id]);
+      await pool.query('UPDATE tidum_why_page_benefits SET is_active = false WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3957,7 +3957,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Why Page Features CRUD
   app.get("/api/cms/why-page/features", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM why_page_features WHERE is_active = true ORDER BY display_order');
+      const result = await pool.query('SELECT * FROM tidum_why_page_features WHERE is_active = true ORDER BY display_order');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3968,7 +3968,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { icon, title, description, display_order } = req.body;
       const result = await pool.query(
-        'INSERT INTO why_page_features (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO tidum_why_page_features (icon, title, description, display_order) VALUES ($1, $2, $3, $4) RETURNING *',
         [icon || 'Smartphone', title, description, display_order || 0]
       );
       res.json(result.rows[0]);
@@ -3982,7 +3982,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { icon, title, description, display_order } = req.body;
       const result = await pool.query(
-        'UPDATE why_page_features SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
+        'UPDATE tidum_why_page_features SET icon = $1, title = $2, description = $3, display_order = $4 WHERE id = $5 RETURNING *',
         [icon, title, description, display_order, id]
       );
       res.json(result.rows[0]);
@@ -3994,7 +3994,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.delete("/api/cms/why-page/features/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await pool.query('UPDATE why_page_features SET is_active = false WHERE id = $1', [id]);
+      await pool.query('UPDATE tidum_why_page_features SET is_active = false WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4005,7 +4005,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/why-page/content/:sectionId", async (req, res) => {
     try {
       const { sectionId } = req.params;
-      const result = await pool.query('SELECT * FROM why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
+      const result = await pool.query('SELECT * FROM tidum_why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4017,11 +4017,11 @@ export function registerSmartTimingRoutes(app: Express) {
       const { sectionId } = req.params;
       const { title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url } = req.body;
       
-      const existing = await pool.query('SELECT * FROM why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
+      const existing = await pool.query('SELECT * FROM tidum_why_page_content WHERE section_id = $1 LIMIT 1', [sectionId]);
       
       if (existing.rows.length > 0) {
         const result = await pool.query(
-          `UPDATE why_page_content SET 
+          `UPDATE tidum_why_page_content SET 
             title = $1, subtitle = $2, bullet_points = $3, 
             cta_title = $4, cta_subtitle = $5, cta_button_text = $6, cta_button_url = $7, updated_at = NOW()
           WHERE section_id = $8 RETURNING *`,
@@ -4030,7 +4030,7 @@ export function registerSmartTimingRoutes(app: Express) {
         res.json(result.rows[0]);
       } else {
         const result = await pool.query(
-          `INSERT INTO why_page_content (section_id, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url)
+          `INSERT INTO tidum_why_page_content (section_id, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
           [sectionId, title, subtitle, bullet_points, cta_title, cta_subtitle, cta_button_text, cta_button_url]
         );
@@ -4044,7 +4044,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: DESIGN TOKENS ==========
   app.get("/api/cms/design-tokens", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
+      const result = await pool.query('SELECT * FROM tidum_design_tokens WHERE is_active = true LIMIT 1');
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4054,7 +4054,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.put("/api/cms/design-tokens", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const data = req.body;
-      const existing = await pool.query('SELECT * FROM design_tokens WHERE is_active = true LIMIT 1');
+      const existing = await pool.query('SELECT * FROM tidum_design_tokens WHERE is_active = true LIMIT 1');
       
       // Save version before update
       if (existing.rows.length > 0) {
@@ -4081,7 +4081,7 @@ export function registerSmartTimingRoutes(app: Express) {
         values.push(existing.rows[0].id);
         
         const result = await pool.query(
-          `UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1} RETURNING *`,
+          `UPDATE tidum_design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1} RETURNING *`,
           values
         );
         res.json(result.rows[0]);
@@ -4091,7 +4091,7 @@ export function registerSmartTimingRoutes(app: Express) {
         const values = columns.map(col => data[col] ?? null);
         
         const result = await pool.query(
-          `INSERT INTO design_tokens (${insertCols}) VALUES (${placeholders}) RETURNING *`,
+          `INSERT INTO tidum_design_tokens (${insertCols}) VALUES (${placeholders}) RETURNING *`,
           values
         );
         res.json(result.rows[0]);
@@ -4104,7 +4104,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: SECTION DESIGN SETTINGS ==========
   app.get("/api/cms/section-design", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM section_design_settings WHERE is_active = true ORDER BY section_name');
+      const result = await pool.query('SELECT * FROM tidum_section_design_settings WHERE is_active = true ORDER BY section_name');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4113,7 +4113,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.get("/api/cms/section-design/:section", async (req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM section_design_settings WHERE section_name = $1 AND is_active = true LIMIT 1', [req.params.section]);
+      const result = await pool.query('SELECT * FROM tidum_section_design_settings WHERE section_name = $1 AND is_active = true LIMIT 1', [req.params.section]);
       res.json(result.rows[0] || null);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4140,7 +4140,7 @@ export function registerSmartTimingRoutes(app: Express) {
         'footer_columns', 'footer_divider', 'footer_divider_color'
       ];
       
-      const existing = await pool.query('SELECT * FROM section_design_settings WHERE section_name = $1 LIMIT 1', [section]);
+      const existing = await pool.query('SELECT * FROM tidum_section_design_settings WHERE section_name = $1 LIMIT 1', [section]);
       
       if (existing.rows.length > 0) {
         const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
@@ -4148,7 +4148,7 @@ export function registerSmartTimingRoutes(app: Express) {
         values.push(section);
         
         const result = await pool.query(
-          `UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1} RETURNING *`,
+          `UPDATE tidum_section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1} RETURNING *`,
           values
         );
         res.json(result.rows[0]);
@@ -4158,7 +4158,7 @@ export function registerSmartTimingRoutes(app: Express) {
         const values = [section, ...columns.map(col => data[col] ?? null)];
         
         const result = await pool.query(
-          `INSERT INTO section_design_settings (${insertCols}) VALUES (${placeholders}) RETURNING *`,
+          `INSERT INTO tidum_section_design_settings (${insertCols}) VALUES (${placeholders}) RETURNING *`,
           values
         );
         res.json(result.rows[0]);
@@ -4171,7 +4171,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== CMS: DESIGN PRESETS ==========
   app.get("/api/cms/design-presets", async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
+      const result = await pool.query('SELECT * FROM tidum_design_presets WHERE is_active = true ORDER BY is_built_in DESC, name');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4182,7 +4182,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name, description, tokens, section_settings, thumbnail } = req.body;
       const result = await pool.query(
-        `INSERT INTO design_presets (name, description, tokens, section_settings, thumbnail) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        `INSERT INTO tidum_design_presets (name, description, tokens, section_settings, thumbnail) VALUES ($1, $2, $3, $4, $5) RETURNING *`,
         [name, description, JSON.stringify(tokens), section_settings ? JSON.stringify(section_settings) : null, thumbnail]
       );
       res.json(result.rows[0]);
@@ -4195,7 +4195,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name, description, tokens, section_settings, thumbnail } = req.body;
       const result = await pool.query(
-        `UPDATE design_presets SET name = $1, description = $2, tokens = $3, section_settings = $4, thumbnail = $5, updated_at = NOW() WHERE id = $6 RETURNING *`,
+        `UPDATE tidum_design_presets SET name = $1, description = $2, tokens = $3, section_settings = $4, thumbnail = $5, updated_at = NOW() WHERE id = $6 RETURNING *`,
         [name, description, JSON.stringify(tokens), section_settings ? JSON.stringify(section_settings) : null, thumbnail, req.params.id]
       );
       res.json(result.rows[0]);
@@ -4206,7 +4206,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/cms/design-presets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM design_presets WHERE id = $1 AND is_built_in = false', [req.params.id]);
+      await pool.query('DELETE FROM tidum_design_presets WHERE id = $1 AND is_built_in = false', [req.params.id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4215,7 +4215,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/cms/design-presets/:id/apply", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const preset = await pool.query('SELECT * FROM design_presets WHERE id = $1', [req.params.id]);
+      const preset = await pool.query('SELECT * FROM tidum_design_presets WHERE id = $1', [req.params.id]);
       if (preset.rows.length === 0) {
         return res.status(404).json({ error: 'Preset not found' });
       }
@@ -4224,13 +4224,13 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Apply tokens
       if (tokens) {
-        const existing = await pool.query('SELECT id FROM design_tokens WHERE is_active = true LIMIT 1');
+        const existing = await pool.query('SELECT id FROM tidum_design_tokens WHERE is_active = true LIMIT 1');
         if (existing.rows.length > 0) {
           const columns = Object.keys(tokens).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
           const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
           const values = columns.map(col => tokens[col]);
           values.push(existing.rows[0].id);
-          await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          await pool.query(`UPDATE tidum_design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
         }
       }
       
@@ -4241,7 +4241,7 @@ export function registerSmartTimingRoutes(app: Express) {
           const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
           const values = columns.map(col => settings[col]);
           values.push(sectionName);
-          await pool.query(`UPDATE section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
+          await pool.query(`UPDATE tidum_section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
         }
       }
       
@@ -4253,11 +4253,11 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== ACCESS REQUESTS ==========
   
-  // Create access_requests table if not exists
+  // Create tidum_access_requests table if not exists
   async function ensureAccessRequestsTable() {
     try {
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS access_requests (
+        CREATE TABLE IF NOT EXISTS tidum_access_requests (
           id SERIAL PRIMARY KEY,
           full_name TEXT NOT NULL,
           email TEXT NOT NULL,
@@ -4272,10 +4272,10 @@ export function registerSmartTimingRoutes(app: Express) {
         )
       `);
       // Add columns if they don't exist (for existing tables)
-      await pool.query(`ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS org_number TEXT`);
-      await pool.query(`ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS brreg_verified BOOLEAN DEFAULT FALSE`);
+      await pool.query(`ALTER TABLE tidum_access_requests ADD COLUMN IF NOT EXISTS org_number TEXT`);
+      await pool.query(`ALTER TABLE tidum_access_requests ADD COLUMN IF NOT EXISTS brreg_verified BOOLEAN DEFAULT FALSE`);
     } catch (err) {
-      console.error('Error creating access_requests table:', err);
+      console.error('Error creating tidum_access_requests table:', err);
     }
   }
   ensureAccessRequestsTable();
@@ -4286,7 +4286,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Get all access requests (admin only)
   app.get("/api/admin/access-requests", authenticateAdmin, async (_req, res) => {
     try {
-      const result = await pool.query('SELECT * FROM access_requests ORDER BY created_at DESC');
+      const result = await pool.query('SELECT * FROM tidum_access_requests ORDER BY created_at DESC');
       res.json({ requests: result.rows });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4300,7 +4300,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { status } = req.body;
       
       const result = await pool.query(
-        `UPDATE access_requests SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+        `UPDATE tidum_access_requests SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
         [status, id]
       );
       
@@ -4316,26 +4316,26 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== CASE REPORTS ==========
   
-  // Helper function to ensure case_reports table exists with correct schema
+  // Helper function to ensure tidum_case_reports table exists with correct schema
   async function ensureCaseReportsTable() {
     try {
       // Check if table exists and has correct columns
       const tableCheck = await pool.query(`
         SELECT column_name FROM information_schema.columns 
-        WHERE table_name = 'case_reports' LIMIT 1
+        WHERE table_name = 'tidum_case_reports' LIMIT 1
       `);
       
       if (tableCheck.rows.length > 0) {
         // Check if it has user_id column (snake_case)
         const columnCheck = await pool.query(`
           SELECT column_name FROM information_schema.columns 
-          WHERE table_name = 'case_reports' AND column_name = 'user_id'
+          WHERE table_name = 'tidum_case_reports' AND column_name = 'user_id'
         `);
         
         if (columnCheck.rows.length === 0) {
           // Table exists but with wrong column names (camelCase), drop and recreate
-          console.log('Dropping case_reports table with incorrect schema...');
-          await pool.query('DROP TABLE IF EXISTS case_reports');
+          console.log('Dropping tidum_case_reports table with incorrect schema...');
+          await pool.query('DROP TABLE IF EXISTS tidum_case_reports');
         } else {
           console.log('Case reports table already exists with correct schema');
           return;
@@ -4344,7 +4344,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Create table with snake_case columns
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS case_reports (
+        CREATE TABLE IF NOT EXISTS tidum_case_reports (
           id SERIAL PRIMARY KEY,
           vendor_id INTEGER,
           user_id TEXT NOT NULL,
@@ -4371,14 +4371,14 @@ export function registerSmartTimingRoutes(app: Express) {
       `);
       console.log('Case reports table created with correct schema');
     } catch (err) {
-      console.error('Error ensuring case_reports table:', err);
+      console.error('Error ensuring tidum_case_reports table:', err);
     }
   }
   
   // Ensure table exists on startup
   ensureCaseReportsTable();
 
-  // Setup case_reports table (admin endpoint)
+  // Setup tidum_case_reports table (admin endpoint)
   app.post("/api/case-reports/setup", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       await ensureCaseReportsTable();
@@ -4395,7 +4395,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const userId = user_id || 'default';
       
       const result = await pool.query(
-        `SELECT * FROM case_reports WHERE user_id = $1 ORDER BY created_at DESC`,
+        `SELECT * FROM tidum_case_reports WHERE user_id = $1 ORDER BY created_at DESC`,
         [userId]
       );
       res.json({ reports: result.rows });
@@ -4410,7 +4410,7 @@ export function registerSmartTimingRoutes(app: Express) {
     if (!/^\d+$/.test(req.params.id)) return next();
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      const result = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -4433,7 +4433,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const piiWarnings = scanFieldsForPii({ background, actions, progress, challenges, factors, assessment, recommendations, notes });
       
       const result = await pool.query(
-        `INSERT INTO case_reports 
+        `INSERT INTO tidum_case_reports 
          (user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
          RETURNING *`,
@@ -4462,7 +4462,7 @@ export function registerSmartTimingRoutes(app: Express) {
         case_id, month
       } = req.body;
       
-      let query = `UPDATE case_reports SET updated_at = NOW()`;
+      let query = `UPDATE tidum_case_reports SET updated_at = NOW()`;
       const values: any[] = [];
       let paramIndex = 1;
       
@@ -4505,7 +4505,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.delete("/api/case-reports/:id", requireAuth, async (req, res) => {
     try {
       const { id } = req.params;
-      await pool.query('DELETE FROM case_reports WHERE id = $1', [id]);
+      await pool.query('DELETE FROM tidum_case_reports WHERE id = $1', [id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -4516,7 +4516,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status } = req.query;
-      let query = 'SELECT * FROM case_reports';
+      let query = 'SELECT * FROM tidum_case_reports';
       const params: any[] = [];
       
       if (status) {
@@ -4537,7 +4537,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { id } = req.params;
       const result = await pool.query(
-        `UPDATE case_reports SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
+        `UPDATE tidum_case_reports SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
         [req.admin?.username || 'admin', id]
       );
       if (result.rows.length === 0) {
@@ -4569,7 +4569,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
       const { reason } = req.body;
       const result = await pool.query(
-        `UPDATE case_reports SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW() WHERE id = $3 RETURNING *`,
+        `UPDATE tidum_case_reports SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW() WHERE id = $3 RETURNING *`,
         [reason, req.admin?.username || 'admin', id]
       );
       if (result.rows.length === 0) {
@@ -4597,10 +4597,10 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== REPORT COMMENTS (Feedback Workflow) ==========
   
-  // Ensure report_comments table exists
+  // Ensure tidum_report_comments table exists
   async function ensureReportCommentsTable() {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS report_comments (
+      CREATE TABLE IF NOT EXISTS tidum_report_comments (
         id SERIAL PRIMARY KEY,
         report_id INTEGER NOT NULL,
         author_id TEXT NOT NULL,
@@ -4625,7 +4625,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Verify user owns this report (basic auth check)
       if (user_id) {
-        const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+        const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
         if (reportCheck.rows.length === 0) {
           return res.status(404).json({ error: 'Report not found' });
         }
@@ -4634,7 +4634,7 @@ export function registerSmartTimingRoutes(app: Express) {
         }
       }
       
-      let query = `SELECT * FROM report_comments WHERE report_id = $1`;
+      let query = `SELECT * FROM tidum_report_comments WHERE report_id = $1`;
       if (!include_internal) {
         query += ` AND is_internal = false`;
       }
@@ -4664,7 +4664,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -4676,7 +4676,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const finalIsInternal = author_role === 'admin' ? (is_internal || false) : false;
       
       const result = await pool.query(
-        `INSERT INTO report_comments (report_id, author_id, author_name, author_role, content, is_internal, parent_id)
+        `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal, parent_id)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [id, author_id, author_name, author_role || 'user', content, finalIsInternal, parent_id]
       );
@@ -4697,7 +4697,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -4706,7 +4706,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       await pool.query(
-        `UPDATE report_comments SET read_at = NOW() WHERE report_id = $1 AND author_id != $2 AND read_at IS NULL`,
+        `UPDATE tidum_report_comments SET read_at = NOW() WHERE report_id = $1 AND author_id != $2 AND read_at IS NULL`,
         [id, reader_id]
       );
       res.json({ success: true });
@@ -4726,8 +4726,8 @@ export function registerSmartTimingRoutes(app: Express) {
       // Get reports owned by user that have unread comments from others
       const result = await pool.query(`
         SELECT COUNT(DISTINCT rc.id) as unread_count
-        FROM report_comments rc
-        JOIN case_reports cr ON rc.report_id = cr.id
+        FROM tidum_report_comments rc
+        JOIN tidum_case_reports cr ON rc.report_id = cr.id
         WHERE cr.user_id = $1 AND rc.author_id != $1 AND rc.read_at IS NULL AND rc.is_internal = false
       `, [user_id]);
       
@@ -4743,7 +4743,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { id } = req.params;
 
       // Fetch the report content for PII scanning before submission
-      const reportCheck = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -4770,7 +4770,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `UPDATE case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
+        `UPDATE tidum_case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
         [id]
       );
       if (result.rows.length === 0) {
@@ -4791,7 +4791,7 @@ export function registerSmartTimingRoutes(app: Express) {
       // Add comment
       if (content) {
         await pool.query(
-          `INSERT INTO report_comments (report_id, author_id, author_name, author_role, content, is_internal)
+          `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal)
            VALUES ($1, $2, $3, 'admin', $4, $5)`,
           [id, req.admin?.username || 'admin', req.admin?.username || 'Administrator', content, is_internal || false]
         );
@@ -4800,12 +4800,12 @@ export function registerSmartTimingRoutes(app: Express) {
       // Optionally set status to needs_revision
       if (request_revision) {
         await pool.query(
-          `UPDATE case_reports SET status = 'needs_revision', updated_at = NOW() WHERE id = $1`,
+          `UPDATE tidum_case_reports SET status = 'needs_revision', updated_at = NOW() WHERE id = $1`,
           [id]
         );
       }
       
-      const report = await pool.query('SELECT * FROM case_reports WHERE id = $1', [id]);
+      const report = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
       const cr = report.rows[0];
 
       // Notify the report author about feedback / revision request
@@ -4910,13 +4910,13 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  // ========== CMS: SEO SETTINGS (consolidated to seo_global_settings) ==========
+  // ========== CMS: SEO SETTINGS (consolidated to tidum_seo_global_settings) ==========
   app.get("/api/cms/seo/global", async (_req, res) => {
     try {
-      let result = await pool.query('SELECT * FROM seo_global_settings WHERE id = 1');
+      let result = await pool.query('SELECT * FROM tidum_seo_global_settings WHERE id = 1');
       if (result.rows.length === 0) {
         const insertResult = await pool.query(
-          `INSERT INTO seo_global_settings (id, site_name, sitemap_enabled, sitemap_auto_generate) 
+          `INSERT INTO tidum_seo_global_settings (id, site_name, sitemap_enabled, sitemap_auto_generate) 
            VALUES (1, 'Tidum', true, true) RETURNING *`
         );
         result = { rows: [insertResult.rows[0]], rowCount: 1, command: '', oid: 0, fields: [] } as any;
@@ -4947,7 +4947,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const bVerif = bing_verification || bing_site_verification || '';
 
       const result = await pool.query(
-        `INSERT INTO seo_global_settings (id, site_name, site_description, default_og_image, 
+        `INSERT INTO tidum_seo_global_settings (id, site_name, site_description, default_og_image, 
          favicon_url, google_verification, bing_verification, robots_txt, sitemap_enabled, 
          sitemap_auto_generate, updated_at)
          VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
@@ -4958,9 +4958,9 @@ export function registerSmartTimingRoutes(app: Express) {
          favicon_url = EXCLUDED.favicon_url,
          google_verification = EXCLUDED.google_verification,
          bing_verification = EXCLUDED.bing_verification,
-         robots_txt = COALESCE(EXCLUDED.robots_txt, seo_global_settings.robots_txt),
-         sitemap_enabled = COALESCE(EXCLUDED.sitemap_enabled, seo_global_settings.sitemap_enabled),
-         sitemap_auto_generate = COALESCE(EXCLUDED.sitemap_auto_generate, seo_global_settings.sitemap_auto_generate),
+         robots_txt = COALESCE(EXCLUDED.robots_txt, tidum_seo_global_settings.robots_txt),
+         sitemap_enabled = COALESCE(EXCLUDED.sitemap_enabled, tidum_seo_global_settings.sitemap_enabled),
+         sitemap_auto_generate = COALESCE(EXCLUDED.sitemap_auto_generate, tidum_seo_global_settings.sitemap_auto_generate),
          updated_at = NOW()
          RETURNING *`,
         [site_name || 'Tidum', site_description, default_og_image, favicon_url,
@@ -5164,8 +5164,8 @@ export function registerSmartTimingRoutes(app: Express) {
       const limitNum = Math.min(100, Math.max(1, parseInt(limit as string, 10) || 20));
       const offset = (pageNum - 1) * limitNum;
 
-      let query = 'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id';
-      let countQuery = 'SELECT COUNT(*) FROM cms_posts p';
+      let query = 'SELECT p.*, c.name as category_name FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id';
+      let countQuery = 'SELECT COUNT(*) FROM tidum_cms_posts p';
       const conditions: string[] = [];
       const params: any[] = [];
 
@@ -5219,7 +5219,7 @@ export function registerSmartTimingRoutes(app: Express) {
   async function autoPublishScheduled() {
     try {
       await pool.query(
-        `UPDATE cms_posts
+        `UPDATE tidum_cms_posts
            SET status = 'published',
                published_at = COALESCE(published_at, scheduled_at, NOW()),
                updated_at = NOW()
@@ -5243,8 +5243,8 @@ export function registerSmartTimingRoutes(app: Express) {
       let query = `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.author, p.category_id,
                     p.tags, p.status, p.reading_time, p.word_count, p.published_at, p.created_at, p.updated_at,
                     c.name as category_name, c.slug as category_slug
-                    FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id`;
-      let countQuery = 'SELECT COUNT(*) FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id';
+                    FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id`;
+      let countQuery = 'SELECT COUNT(*) FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id';
       const conditions: string[] = ["p.status = 'published'"];
       const params: any[] = [];
 
@@ -5305,8 +5305,8 @@ export function registerSmartTimingRoutes(app: Express) {
       try {
         const result = await pool.query(
           `SELECT p.title, p.excerpt, c.name AS category_name
-             FROM cms_posts p
-        LEFT JOIN cms_categories c ON p.category_id = c.id
+             FROM tidum_cms_posts p
+        LEFT JOIN tidum_cms_categories c ON p.category_id = c.id
             WHERE p.slug = $1
             LIMIT 1`,
           [slug],
@@ -5342,7 +5342,7 @@ export function registerSmartTimingRoutes(app: Express) {
       await autoPublishScheduled();
       const result = await pool.query(
         `SELECT p.*, c.name as category_name, c.slug as category_slug
-         FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id
+         FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id
          WHERE p.slug = $1 AND p.status = 'published'`,
         [req.params.slug]
       );
@@ -5359,7 +5359,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/blog/:slug/related", async (req, res) => {
     try {
       const post = await pool.query(
-        "SELECT id, category_id, tags FROM cms_posts WHERE slug = $1 AND status = 'published'",
+        "SELECT id, category_id, tags FROM tidum_cms_posts WHERE slug = $1 AND status = 'published'",
         [req.params.slug]
       );
       if (post.rows.length === 0) {
@@ -5371,7 +5371,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const result = await pool.query(
         `SELECT p.id, p.title, p.slug, p.excerpt, p.featured_image, p.reading_time, p.published_at,
                 c.name as category_name
-         FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id
+         FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id
          WHERE p.status = 'published' AND p.id != $1
          ORDER BY
            CASE WHEN p.category_id = $2 THEN 0 ELSE 1 END,
@@ -5390,7 +5390,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/posts/:id", async (req, res) => {
     try {
       const result = await pool.query(
-        'SELECT p.*, c.name as category_name FROM cms_posts p LEFT JOIN cms_categories c ON p.category_id = c.id WHERE p.id = $1',
+        'SELECT p.*, c.name as category_name FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id WHERE p.id = $1',
         [req.params.id]
       );
       res.json(result.rows[0] || null);
@@ -5408,7 +5408,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { readingTime, wordCount } = calculateReadingStats(content);
 
       const result = await pool.query(
-        `INSERT INTO cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status,
+        `INSERT INTO tidum_cms_posts (title, slug, excerpt, content, featured_image, author, category_id, tags, status,
          meta_title, meta_description, og_image, reading_time, word_count, scheduled_at, published_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING *`,
         [title, slug, excerpt, content, featured_image, author, category_id, tags, status || 'draft',
@@ -5425,7 +5425,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { title, slug, excerpt, content, featured_image, author, category_id, tags, status,
               meta_title, meta_description, og_image, scheduled_at } = req.body;
-      const existingPost = await pool.query('SELECT status, published_at FROM cms_posts WHERE id = $1', [req.params.id]);
+      const existingPost = await pool.query('SELECT status, published_at FROM tidum_cms_posts WHERE id = $1', [req.params.id]);
       let published_at = existingPost.rows[0]?.published_at;
 
       if (status === 'published' && existingPost.rows[0]?.status !== 'published') {
@@ -5435,7 +5435,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const { readingTime, wordCount } = calculateReadingStats(content);
 
       const result = await pool.query(
-        `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4, featured_image = $5,
+        `UPDATE tidum_cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4, featured_image = $5,
          author = $6, category_id = $7, tags = $8, status = $9, published_at = $10,
          meta_title = $11, meta_description = $12, og_image = $13, reading_time = $14, word_count = $15,
          scheduled_at = $16, updated_at = NOW()
@@ -5452,7 +5452,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Admin: delete post
   app.delete("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM cms_posts WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_cms_posts WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -5463,8 +5463,8 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/categories", async (_req, res) => {
     try {
       const result = await pool.query(
-        `SELECT c.*, (SELECT COUNT(*) FROM cms_posts p WHERE p.category_id = c.id AND p.status = 'published') as post_count
-         FROM cms_categories c ORDER BY c.name`
+        `SELECT c.*, (SELECT COUNT(*) FROM tidum_cms_posts p WHERE p.category_id = c.id AND p.status = 'published') as post_count
+         FROM tidum_cms_categories c ORDER BY c.name`
       );
       res.json(result.rows);
     } catch (err: any) {
@@ -5476,7 +5476,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name, slug, description, parent_id } = req.body;
       const result = await pool.query(
-        'INSERT INTO cms_categories (name, slug, description, parent_id) VALUES ($1, $2, $3, $4) RETURNING *',
+        'INSERT INTO tidum_cms_categories (name, slug, description, parent_id) VALUES ($1, $2, $3, $4) RETURNING *',
         [name, slug, description, parent_id]
       );
       res.json(result.rows[0]);
@@ -5490,7 +5490,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { name, slug, description, parent_id } = req.body;
       const result = await pool.query(
-        'UPDATE cms_categories SET name = $1, slug = $2, description = $3, parent_id = $4, updated_at = NOW() WHERE id = $5 RETURNING *',
+        'UPDATE tidum_cms_categories SET name = $1, slug = $2, description = $3, parent_id = $4, updated_at = NOW() WHERE id = $5 RETURNING *',
         [name, slug, description, parent_id, req.params.id]
       );
       res.json(result.rows[0]);
@@ -5501,7 +5501,7 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/cms/categories/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM cms_categories WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_cms_categories WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -5513,13 +5513,13 @@ export function registerSmartTimingRoutes(app: Express) {
   // Public: get approved comments for a post
   app.get("/api/blog/:slug/comments", async (req, res) => {
     try {
-      const post = await pool.query("SELECT id FROM cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
+      const post = await pool.query("SELECT id FROM tidum_cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
       if (post.rows.length === 0) {
         return res.status(404).json({ error: 'Post not found' });
       }
       const result = await pool.query(
         `SELECT id, post_id, parent_id, author_name, author_url, content, created_at
-         FROM blog_comments WHERE post_id = $1 AND status = 'approved' ORDER BY created_at ASC`,
+         FROM tidum_blog_comments WHERE post_id = $1 AND status = 'approved' ORDER BY created_at ASC`,
         [post.rows[0].id]
       );
       res.json(result.rows);
@@ -5531,7 +5531,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Public: submit comment
   app.post("/api/blog/:slug/comments", async (req, res) => {
     try {
-      const post = await pool.query("SELECT id FROM cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
+      const post = await pool.query("SELECT id FROM tidum_cms_posts WHERE slug = $1 AND status = 'published'", [req.params.slug]);
       if (post.rows.length === 0) {
         return res.status(404).json({ error: 'Post not found' });
       }
@@ -5540,7 +5540,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Name and content are required' });
       }
       const result = await pool.query(
-        `INSERT INTO blog_comments (post_id, parent_id, author_name, author_email, author_url, content, ip_address, user_agent)
+        `INSERT INTO tidum_blog_comments (post_id, parent_id, author_name, author_email, author_url, content, ip_address, user_agent)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, post_id, parent_id, author_name, content, created_at`,
         [post.rows[0].id, parent_id || null, author_name, author_email, author_url, content,
          req.ip, req.headers['user-agent']]
@@ -5556,7 +5556,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const { status, post_id } = req.query;
       let query = `SELECT bc.*, p.title as post_title, p.slug as post_slug
-                    FROM blog_comments bc JOIN cms_posts p ON bc.post_id = p.id`;
+                    FROM tidum_blog_comments bc JOIN tidum_cms_posts p ON bc.post_id = p.id`;
       const conditions: string[] = [];
       const params: any[] = [];
 
@@ -5588,7 +5588,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Invalid status' });
       }
       const result = await pool.query(
-        'UPDATE blog_comments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
+        'UPDATE tidum_blog_comments SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *',
         [status, req.params.id]
       );
       res.json(result.rows[0]);
@@ -5600,7 +5600,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Admin: delete comment
   app.delete("/api/cms/comments/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM blog_comments WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_blog_comments WHERE id = $1', [req.params.id]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -5612,7 +5612,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const posts = await pool.query(
         `SELECT title, slug, excerpt, author, published_at, updated_at
-         FROM cms_posts WHERE status = 'published'
+         FROM tidum_cms_posts WHERE status = 'published'
          ORDER BY published_at DESC NULLS LAST LIMIT 20`
       );
       const baseUrl = `https://${req.get('host')}`;
@@ -5658,7 +5658,7 @@ export function registerSmartTimingRoutes(app: Express) {
   setInterval(async () => {
     try {
       const result = await pool.query(
-        `UPDATE cms_posts SET status = 'published', published_at = NOW(), updated_at = NOW()
+        `UPDATE tidum_cms_posts SET status = 'published', published_at = NOW(), updated_at = NOW()
          WHERE status = 'scheduled' AND scheduled_at <= NOW() RETURNING id, title`
       );
       if (result.rows.length > 0) {
@@ -5678,7 +5678,7 @@ export function registerSmartTimingRoutes(app: Express) {
       
       let query = `
         SELECT id, content_type, content_id, version_number, change_description, changed_by, created_at
-        FROM content_versions
+        FROM tidum_content_versions
       `;
       const conditions: string[] = [];
       const params: any[] = [];
@@ -5711,7 +5711,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/versions/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
-        'SELECT * FROM content_versions WHERE id = $1',
+        'SELECT * FROM tidum_content_versions WHERE id = $1',
         [req.params.id]
       );
       if (result.rows.length === 0) {
@@ -5728,7 +5728,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       // Get the version to restore
       const versionResult = await pool.query(
-        'SELECT * FROM content_versions WHERE id = $1',
+        'SELECT * FROM tidum_content_versions WHERE id = $1',
         [req.params.id]
       );
       
@@ -5746,7 +5746,7 @@ export function registerSmartTimingRoutes(app: Express) {
       switch (content_type) {
         case 'hero':
           await pool.query(
-            `UPDATE landing_hero SET title = $1, title_highlight = $2, subtitle = $3, 
+            `UPDATE tidum_landing_hero SET title = $1, title_highlight = $2, subtitle = $3, 
              cta_primary_text = $4, cta_secondary_text = $5, badge1 = $6, badge2 = $7, badge3 = $8, 
              updated_at = NOW() WHERE id = $9`,
             [versionData.title, versionData.title_highlight, versionData.subtitle,
@@ -5758,7 +5758,7 @@ export function registerSmartTimingRoutes(app: Express) {
           
         case 'sections':
           await pool.query(
-            `UPDATE landing_cta SET features_title = $1, features_subtitle = $2, 
+            `UPDATE tidum_landing_cta SET features_title = $1, features_subtitle = $2, 
              testimonials_title = $3, testimonials_subtitle = $4, cta_title = $5, 
              cta_subtitle = $6, cta_button_text = $7, contact_title = $8, 
              contact_subtitle = $9, contact_email = $10, contact_phone = $11, 
@@ -5775,7 +5775,7 @@ export function registerSmartTimingRoutes(app: Express) {
           
         case 'feature':
           await pool.query(
-            `UPDATE landing_features SET icon = $1, title = $2, description = $3, 
+            `UPDATE tidum_landing_features SET icon = $1, title = $2, description = $3, 
              display_order = $4, is_active = $5, updated_at = NOW() WHERE id = $6`,
             [versionData.icon, versionData.title, versionData.description,
              versionData.display_order, versionData.is_active, content_id]
@@ -5785,7 +5785,7 @@ export function registerSmartTimingRoutes(app: Express) {
           
         case 'testimonial':
           await pool.query(
-            `UPDATE landing_testimonials SET name = $1, role = $2, company = $3, 
+            `UPDATE tidum_landing_testimonials SET name = $1, role = $2, company = $3, 
              content = $4, avatar = $5, rating = $6, is_active = $7, updated_at = NOW() WHERE id = $8`,
             [versionData.name, versionData.role, versionData.company,
              versionData.content, versionData.avatar, versionData.rating, versionData.is_active, content_id]
@@ -5801,7 +5801,7 @@ export function registerSmartTimingRoutes(app: Express) {
             const values = tokenFields.map(f => versionData[f]);
             values.push(content_id || 1);
             await pool.query(
-              `UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${values.length}`,
+              `UPDATE tidum_design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${values.length}`,
               values
             );
           }
@@ -5822,7 +5822,7 @@ export function registerSmartTimingRoutes(app: Express) {
           
         case 'blog_post':
           await pool.query(
-            `UPDATE cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4,
+            `UPDATE tidum_cms_posts SET title = $1, slug = $2, excerpt = $3, content = $4,
              featured_image = $5, author = $6, category_id = $7, tags = $8, 
              status = $9, updated_at = NOW() WHERE id = $10`,
             [versionData.title, versionData.slug, versionData.excerpt, versionData.content,
@@ -5876,7 +5876,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/cms/versions/compare/:id1/:id2", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
-        'SELECT * FROM content_versions WHERE id IN ($1, $2) ORDER BY version_number',
+        'SELECT * FROM tidum_content_versions WHERE id IN ($1, $2) ORDER BY version_number',
         [req.params.id1, req.params.id2]
       );
       
@@ -5903,12 +5903,12 @@ export function registerSmartTimingRoutes(app: Express) {
   // Get analytics settings
   app.get("/api/cms/analytics", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM analytics_settings WHERE id = 1');
+      const result = await pool.query('SELECT * FROM tidum_analytics_settings WHERE id = 1');
       if (result.rows.length === 0) {
         const defaults = buildDefaultAnalyticsSettings();
         // Create default settings
         const insertResult = await pool.query(
-          `INSERT INTO analytics_settings (
+          `INSERT INTO tidum_analytics_settings (
              id,
              ga4_measurement_id,
              ga4_stream_id,
@@ -5950,7 +5950,7 @@ export function registerSmartTimingRoutes(app: Express) {
       } = req.body;
 
       const result = await pool.query(
-        `INSERT INTO analytics_settings (id, ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, 
+        `INSERT INTO tidum_analytics_settings (id, ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, 
          enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths, 
          custom_events, updated_at)
          VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
@@ -5982,7 +5982,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/analytics/config", async (_req, res) => {
     try {
       const result = await pool.query(
-        'SELECT ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths FROM analytics_settings WHERE id = 1 AND is_active = true'
+        'SELECT ga4_measurement_id, ga4_stream_id, gtm_container_id, enable_tracking, enable_page_views, enable_events, enable_consent_mode, cookie_consent, excluded_paths FROM tidum_analytics_settings WHERE id = 1 AND is_active = true'
       );
       if (result.rows.length === 0) {
         const defaults = buildDefaultAnalyticsSettings();
@@ -6020,7 +6020,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Get all SEO pages
   app.get("/api/cms/seo/pages", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM seo_pages ORDER BY page_path');
+      const result = await pool.query('SELECT * FROM tidum_seo_pages ORDER BY page_path');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6038,7 +6038,7 @@ export function registerSmartTimingRoutes(app: Express) {
       } = req.body;
 
       const result = await pool.query(
-        `INSERT INTO seo_pages (page_path, title, meta_description, meta_keywords, canonical_url,
+        `INSERT INTO tidum_seo_pages (page_path, title, meta_description, meta_keywords, canonical_url,
          og_title, og_description, og_image, og_type, twitter_card, twitter_title,
          twitter_description, twitter_image, robots_index, robots_follow, structured_data, 
          priority, change_frequency)
@@ -6067,7 +6067,7 @@ export function registerSmartTimingRoutes(app: Express) {
       } = req.body;
 
       const result = await pool.query(
-        `UPDATE seo_pages SET page_path = $1, title = $2, meta_description = $3, 
+        `UPDATE tidum_seo_pages SET page_path = $1, title = $2, meta_description = $3, 
          meta_keywords = $4, canonical_url = $5, og_title = $6, og_description = $7,
          og_image = $8, og_type = $9, twitter_card = $10, twitter_title = $11,
          twitter_description = $12, twitter_image = $13, robots_index = $14, robots_follow = $15,
@@ -6092,7 +6092,7 @@ export function registerSmartTimingRoutes(app: Express) {
   // Delete SEO page
   app.delete("/api/cms/seo/pages/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM seo_pages WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_seo_pages WHERE id = $1', [req.params.id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6104,7 +6104,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const path = req.query.path as string || '/';
       const result = await pool.query(
-        'SELECT * FROM seo_pages WHERE page_path = $1 AND is_active = true',
+        'SELECT * FROM tidum_seo_pages WHERE page_path = $1 AND is_active = true',
         [path]
       );
       if (result.rows.length === 0) {
@@ -6124,7 +6124,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/sitemap.xml", async (req, res) => {
     try {
       const globalSettings = await pool.query(
-        'SELECT sitemap_enabled FROM seo_global_settings WHERE id = 1'
+        'SELECT sitemap_enabled FROM tidum_seo_global_settings WHERE id = 1'
       );
       
       // Default to enabled if no settings row
@@ -6134,7 +6134,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const pages = await pool.query(
-        'SELECT page_path, priority, change_frequency, updated_at FROM seo_pages WHERE is_active = true AND robots_index = true'
+        'SELECT page_path, priority, change_frequency, updated_at FROM tidum_seo_pages WHERE is_active = true AND robots_index = true'
       );
 
       const baseUrl = `${req.protocol || 'https'}://${req.get('host') || 'tidum.no'}`;
@@ -6177,7 +6177,7 @@ export function registerSmartTimingRoutes(app: Express) {
       // Published builder pages
       try {
         const builderPages = await pool.query(
-          "SELECT slug, updated_at FROM builder_pages WHERE status = 'published'"
+          "SELECT slug, updated_at FROM tidum_builder_pages WHERE status = 'published'"
         );
         for (const bp of builderPages.rows) {
           sitemap += '  <url>\n';
@@ -6190,13 +6190,13 @@ export function registerSmartTimingRoutes(app: Express) {
           sitemap += '  </url>\n';
         }
       } catch (e) {
-        // builder_pages table might not exist
+        // tidum_builder_pages table might not exist
       }
 
       // Published blog posts
       try {
         const posts = await pool.query(
-          "SELECT slug, updated_at, published_at FROM cms_posts WHERE status = 'published' ORDER BY published_at DESC"
+          "SELECT slug, updated_at, published_at FROM tidum_cms_posts WHERE status = 'published' ORDER BY published_at DESC"
         );
         for (const post of posts.rows) {
           sitemap += '  <url>\n';
@@ -6209,7 +6209,7 @@ export function registerSmartTimingRoutes(app: Express) {
           sitemap += '  </url>\n';
         }
       } catch (e) {
-        // cms_posts table might not exist
+        // tidum_cms_posts table might not exist
       }
 
       sitemap += '</urlset>';
@@ -6217,7 +6217,7 @@ export function registerSmartTimingRoutes(app: Express) {
       // Update last generated timestamp
       try {
         await pool.query(
-          'UPDATE seo_global_settings SET last_sitemap_generated = NOW() WHERE id = 1'
+          'UPDATE tidum_seo_global_settings SET last_sitemap_generated = NOW() WHERE id = 1'
         );
       } catch (e) {}
 
@@ -6236,7 +6236,7 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/robots.txt", async (req, res) => {
     try {
       const result = await pool.query(
-        'SELECT robots_txt FROM seo_global_settings WHERE id = 1'
+        'SELECT robots_txt FROM tidum_seo_global_settings WHERE id = 1'
       );
 
       let robotsTxt = '';
@@ -6271,7 +6271,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Get all email templates
   app.get("/api/cms/email/templates", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM email_templates ORDER BY category, name');
+      const result = await pool.query('SELECT * FROM tidum_email_templates ORDER BY category, name');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6281,7 +6281,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Get single email template
   app.get("/api/cms/email/templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM email_templates WHERE id = $1', [req.params.id]);
+      const result = await pool.query('SELECT * FROM tidum_email_templates WHERE id = $1', [req.params.id]);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
@@ -6297,7 +6297,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, slug, subject, html_content, text_content, variables, category } = req.body;
 
       const result = await pool.query(
-        `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
+        `INSERT INTO tidum_email_templates (name, slug, subject, html_content, text_content, variables, category)
          VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
         [name, slug, subject, html_content, text_content, variables, category || 'general']
       );
@@ -6314,7 +6314,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, slug, subject, html_content, text_content, variables, category, is_active } = req.body;
 
       const result = await pool.query(
-        `UPDATE email_templates SET name = $1, slug = $2, subject = $3, html_content = $4,
+        `UPDATE tidum_email_templates SET name = $1, slug = $2, subject = $3, html_content = $4,
          text_content = $5, variables = $6, category = $7, is_active = $8, updated_at = NOW()
          WHERE id = $9 RETURNING *`,
         [name, slug, subject, html_content, text_content, variables, category, is_active, req.params.id]
@@ -6332,7 +6332,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Delete email template
   app.delete("/api/cms/email/templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      await pool.query('DELETE FROM email_templates WHERE id = $1', [req.params.id]);
+      await pool.query('DELETE FROM tidum_email_templates WHERE id = $1', [req.params.id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6346,10 +6346,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Get email settings
   app.get("/api/cms/email/settings", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      const result = await pool.query('SELECT * FROM tidum_email_settings WHERE id = 1');
       if (result.rows.length === 0) {
         const insertResult = await pool.query(
-          `INSERT INTO email_settings (id, provider, smtp_host, smtp_port, smtp_secure) 
+          `INSERT INTO tidum_email_settings (id, provider, smtp_host, smtp_port, smtp_secure) 
            VALUES (1, 'smtp', 'smtp.gmail.com', 587, false) RETURNING *`
         );
         return res.json(insertResult.rows[0]);
@@ -6366,7 +6366,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { provider, smtp_host, smtp_port, smtp_secure, smtp_user, from_email, from_name, reply_to_email } = req.body;
 
       const result = await pool.query(
-        `INSERT INTO email_settings (id, provider, smtp_host, smtp_port, smtp_secure, smtp_user, 
+        `INSERT INTO tidum_email_settings (id, provider, smtp_host, smtp_port, smtp_secure, smtp_user, 
          from_email, from_name, reply_to_email, updated_at)
          VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, NOW())
          ON CONFLICT (id) DO UPDATE SET
@@ -6588,14 +6588,14 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { template_id, recipient_email, variables } = req.body;
       
       // Get template
-      const templateResult = await pool.query('SELECT * FROM email_templates WHERE id = $1', [template_id]);
+      const templateResult = await pool.query('SELECT * FROM tidum_email_templates WHERE id = $1', [template_id]);
       if (templateResult.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       const template = templateResult.rows[0];
 
       // Get email settings
-      const settingsResult = await pool.query('SELECT * FROM email_settings WHERE id = 1');
+      const settingsResult = await pool.query('SELECT * FROM tidum_email_settings WHERE id = 1');
       if (settingsResult.rows.length === 0) {
         return res.status(400).json({ error: 'Email settings not configured' });
       }
@@ -6622,7 +6622,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Log send history
       await pool.query(
-        `INSERT INTO email_send_history (template_id, recipient_email, subject, status, sent_at, metadata)
+        `INSERT INTO tidum_email_send_history (template_id, recipient_email, subject, status, sent_at, metadata)
          VALUES ($1, $2, $3, 'sent', NOW(), $4)`,
         [template_id, recipient_email, subject, JSON.stringify({ test: true, variables })]
       );
@@ -6639,8 +6639,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const limit = parseInt(req.query.limit as string) || 50;
       const result = await pool.query(
-        `SELECT h.*, t.name as template_name FROM email_send_history h
-         LEFT JOIN email_templates t ON h.template_id = t.id
+        `SELECT h.*, t.name as template_name FROM tidum_email_send_history h
+         LEFT JOIN tidum_email_templates t ON h.template_id = t.id
          ORDER BY h.created_at DESC LIMIT $1`,
         [limit]
       );
@@ -6741,7 +6741,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       for (const template of defaultTemplates) {
         await pool.query(
-          `INSERT INTO email_templates (name, slug, subject, html_content, text_content, variables, category)
+          `INSERT INTO tidum_email_templates (name, slug, subject, html_content, text_content, variables, category)
            VALUES ($1, $2, $3, $4, $5, $6, $7)
            ON CONFLICT (slug) DO NOTHING`,
           [template.name, template.slug, template.subject, template.html_content, template.text_content, template.variables, template.category]
@@ -6760,7 +6760,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   async function ensureReportTables() {
     try {
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS report_templates (
+        CREATE TABLE IF NOT EXISTS tidum_report_templates (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL,
           description TEXT,
@@ -6801,7 +6801,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       `);
 
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS report_block_types (
+        CREATE TABLE IF NOT EXISTS tidum_report_block_types (
           id SERIAL PRIMARY KEY,
           type TEXT NOT NULL UNIQUE,
           name TEXT NOT NULL,
@@ -6814,7 +6814,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       `);
 
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS report_generated (
+        CREATE TABLE IF NOT EXISTS tidum_report_generated (
           id SERIAL PRIMARY KEY,
           case_report_id INTEGER NOT NULL,
           template_id INTEGER NOT NULL,
@@ -6826,7 +6826,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       `);
 
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS report_assets (
+        CREATE TABLE IF NOT EXISTS tidum_report_assets (
           id SERIAL PRIMARY KEY,
           company_id INTEGER,
           name TEXT NOT NULL,
@@ -6854,7 +6854,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/report-templates", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query(
-        `SELECT * FROM report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
+        `SELECT * FROM tidum_report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
       );
       res.json(result.rows);
     } catch (err: any) {
@@ -6866,7 +6866,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM report_templates WHERE id = $1', [id]);
+      const result = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [id]);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
@@ -6901,7 +6901,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       }
 
       const result = await pool.query(
-        `INSERT INTO report_templates (
+        `INSERT INTO tidum_report_templates (
           name, description, company_id, paper_size, orientation,
           margin_top, margin_bottom, margin_left, margin_right,
           header_enabled, header_height, header_logo_url, header_logo_position,
@@ -6953,7 +6953,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const values = fields.map(f => f === 'blocks' ? JSON.stringify(updates[f]) : updates[f]);
 
       const result = await pool.query(
-        `UPDATE report_templates SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        `UPDATE tidum_report_templates SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
         [id, ...values]
       );
 
@@ -6970,7 +6970,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.delete("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await pool.query('UPDATE report_templates SET is_active = false WHERE id = $1', [id]);
+      await pool.query('UPDATE tidum_report_templates SET is_active = false WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6980,7 +6980,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Get available block types
   app.get("/api/report-templates/blocks/types", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
-      const result = await pool.query('SELECT * FROM report_block_types WHERE is_active = true ORDER BY name');
+      const result = await pool.query('SELECT * FROM tidum_report_block_types WHERE is_active = true ORDER BY name');
       if (result.rows.length === 0) {
         // Return default block types if none exist
         const defaultBlocks = [
@@ -7029,7 +7029,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       for (const block of defaultBlocks) {
         await pool.query(
-          `INSERT INTO report_block_types (type, name, description, icon, available_fields, default_config)
+          `INSERT INTO tidum_report_block_types (type, name, description, icon, available_fields, default_config)
            VALUES ($1, $2, $3, $4, $5, $6)
            ON CONFLICT (type) DO UPDATE SET name = $2, description = $3, icon = $4, available_fields = $5, default_config = $6`,
           [block.type, block.name, block.description, block.icon, block.available_fields, block.default_config]
@@ -7046,7 +7046,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { company_id, type } = req.query;
-      let query = 'SELECT * FROM report_assets WHERE is_active = true';
+      let query = 'SELECT * FROM tidum_report_assets WHERE is_active = true';
       const params: any[] = [];
       
       if (company_id) {
@@ -7071,7 +7071,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, type, url, mime_type, size, width, height, company_id } = req.body;
       const result = await pool.query(
-        `INSERT INTO report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
+        `INSERT INTO tidum_report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
         [name, type, url, mime_type, size, width, height, company_id, req.admin?.username]
       );
@@ -7085,7 +7085,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.delete("/api/report-assets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      await pool.query('UPDATE report_assets SET is_active = false WHERE id = $1', [id]);
+      await pool.query('UPDATE tidum_report_assets SET is_active = false WHERE id = $1', [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -7098,14 +7098,14 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { templateId, caseReportId } = req.params;
 
       // Get template
-      const templateResult = await pool.query('SELECT * FROM report_templates WHERE id = $1', [templateId]);
+      const templateResult = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [templateId]);
       if (templateResult.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       const template = templateResult.rows[0];
 
       // Get case report data
-      const reportResult = await pool.query('SELECT * FROM case_reports WHERE id = $1', [caseReportId]);
+      const reportResult = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [caseReportId]);
       if (reportResult.rows.length === 0) {
         return res.status(404).json({ error: 'Case report not found' });
       }
@@ -7312,7 +7312,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Log generation
       await pool.query(
-        `INSERT INTO report_generated (case_report_id, template_id, generated_by, metadata)
+        `INSERT INTO tidum_report_generated (case_report_id, template_id, generated_by, metadata)
          VALUES ($1, $2, $3, $4)`,
         [caseReportId, templateId, req.admin?.username, JSON.stringify({ generated_at: new Date() })]
       );
@@ -7330,9 +7330,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const limit = parseInt(req.query.limit as string) || 50;
       const result = await pool.query(
         `SELECT g.*, t.name as template_name, r.case_id, r.month
-         FROM report_generated g
-         LEFT JOIN report_templates t ON g.template_id = t.id
-         LEFT JOIN case_reports r ON g.case_report_id = r.id
+         FROM tidum_report_generated g
+         LEFT JOIN tidum_report_templates t ON g.template_id = t.id
+         LEFT JOIN tidum_case_reports r ON g.case_report_id = r.id
          ORDER BY g.created_at DESC LIMIT $1`,
         [limit]
       );
@@ -7363,7 +7363,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       ];
 
       const result = await pool.query(
-        `INSERT INTO report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
+        `INSERT INTO tidum_report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
          VALUES ($1, $2, $3, $4, $5, true, $6)
          ON CONFLICT DO NOTHING
          RETURNING *`,
@@ -7395,7 +7395,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         return res.status(400).json({ error: 'userId or vendorId required' });
       }
 
-      let query = `SELECT * FROM feedback_requests WHERE status = 'pending'`;
+      let query = `SELECT * FROM tidum_feedback_requests WHERE status = 'pending'`;
       const params: any[] = [];
       
       if (userId) {
@@ -7429,7 +7429,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Insert feedback response
       const responseResult = await pool.query(
-        `INSERT INTO feedback_responses (request_id, vendor_id, user_id, rating_score, nps_score, satisfaction_label, textual_feedback)
+        `INSERT INTO tidum_feedback_responses (request_id, vendor_id, user_id, rating_score, nps_score, satisfaction_label, textual_feedback)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
         [requestId, vendorId || null, userId || null, ratingScore, npsScore || null, satisfactionLabel || null, textualFeedback || null]
@@ -7437,7 +7437,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Mark request as completed
       await pool.query(
-        `UPDATE feedback_requests SET status = 'completed', responded_at = NOW() WHERE id = $1`,
+        `UPDATE tidum_feedback_requests SET status = 'completed', responded_at = NOW() WHERE id = $1`,
         [requestId]
       );
 
@@ -7459,7 +7459,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const snoozedUntil = new Date(Date.now() + snoozeHours * 60 * 60 * 1000);
       
       await pool.query(
-        `UPDATE feedback_requests SET status = 'snoozed', snoozed_until = $2 WHERE id = $1`,
+        `UPDATE tidum_feedback_requests SET status = 'snoozed', snoozed_until = $2 WHERE id = $1`,
         [requestId, snoozedUntil]
       );
 
@@ -7479,7 +7479,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       }
 
       await pool.query(
-        `UPDATE feedback_requests SET status = 'dismissed' WHERE id = $1`,
+        `UPDATE tidum_feedback_requests SET status = 'dismissed' WHERE id = $1`,
         [requestId]
       );
 
@@ -7499,7 +7499,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
            COUNT(*) as total_responses,
            COUNT(DISTINCT vendor_id) as vendor_count,
            COUNT(DISTINCT user_id) as user_count
-         FROM feedback_responses
+         FROM tidum_feedback_responses
          WHERE rating_score IS NOT NULL`
       );
 
@@ -7519,7 +7519,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         `SELECT 
            COUNT(CASE WHEN rating_score >= 4 THEN 1 END) as satisfied,
            COUNT(*) as total
-         FROM feedback_responses
+         FROM tidum_feedback_responses
          WHERE rating_score IS NOT NULL`
       );
 
@@ -7558,7 +7558,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       let entryCount = 0;
       try {
         const entriesResult = await pool.query(
-          `SELECT COUNT(*) as entry_count FROM log_row WHERE user_id = $1`,
+          `SELECT COUNT(*) as entry_count FROM tidum_log_row WHERE user_id = $1`,
           [userId]
         );
         entryCount = parseInt(entriesResult.rows[0].entry_count);
@@ -7573,7 +7573,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         try {
           const vendorUsersResult = await pool.query(
             `SELECT COUNT(DISTINCT user_id) as user_count 
-             FROM project_info 
+             FROM tidum_project_info 
              WHERE vendor_id = $1`,
             [vendorId]
           );
@@ -7590,7 +7590,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Check if user already has a pending/completed feedback request
       const existingRequest = await pool.query(
-        `SELECT id, status FROM feedback_requests 
+        `SELECT id, status FROM tidum_feedback_requests 
          WHERE user_id = $1 AND request_type = 'user_milestone'
          ORDER BY triggered_at DESC LIMIT 1`,
         [userId]
@@ -7599,7 +7599,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (qualifiesForFeedback && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
         // Create a new feedback request
         const newRequest = await pool.query(
-          `INSERT INTO feedback_requests (user_id, vendor_id, request_type, status, metadata)
+          `INSERT INTO tidum_feedback_requests (user_id, vendor_id, request_type, status, metadata)
            VALUES ($1, $2, 'user_milestone', 'pending', $3)
            ON CONFLICT DO NOTHING
            RETURNING *`,
@@ -7615,7 +7615,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (existingRequest.rows[0]?.status === 'pending') {
         // Check if snoozed
         const fullRequest = await pool.query(
-          `SELECT * FROM feedback_requests WHERE id = $1`,
+          `SELECT * FROM tidum_feedback_requests WHERE id = $1`,
           [existingRequest.rows[0].id]
         );
         const req = fullRequest.rows[0];
@@ -7645,10 +7645,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         return res.status(400).json({ error: 'vendorId is required' });
       }
 
-      // Check if vendor has 5+ users (using project_info or session table)
+      // Check if vendor has 5+ users (using tidum_project_info or session table)
       const usersResult = await pool.query(
         `SELECT COUNT(DISTINCT user_id) as user_count 
-         FROM project_info 
+         FROM tidum_project_info 
          WHERE vendor_id = $1`,
         [vendorId]
       );
@@ -7656,7 +7656,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Check if vendor already has a pending/completed feedback request
       const existingRequest = await pool.query(
-        `SELECT id, status FROM feedback_requests 
+        `SELECT id, status FROM tidum_feedback_requests 
          WHERE vendor_id = $1 AND request_type = 'vendor_milestone' AND user_id IS NULL
          ORDER BY triggered_at DESC LIMIT 1`,
         [vendorId]
@@ -7665,7 +7665,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (userCount >= 5 && (!existingRequest.rows[0] || existingRequest.rows[0].status === 'dismissed')) {
         // Create a new feedback request for vendor admin
         const newRequest = await pool.query(
-          `INSERT INTO feedback_requests (vendor_id, request_type, status, metadata)
+          `INSERT INTO tidum_feedback_requests (vendor_id, request_type, status, metadata)
            VALUES ($1, 'vendor_milestone', 'pending', $2)
            ON CONFLICT DO NOTHING
            RETURNING *`,
@@ -7698,9 +7698,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const result = await pool.query(`
         SELECT ct.*, 
                COUNT(cf.id) as field_count,
-               (SELECT COUNT(*) FROM cms_content_entries ce WHERE ce.content_type_id = ct.id) as entry_count
-        FROM cms_content_types ct
-        LEFT JOIN cms_content_fields cf ON cf.content_type_id = ct.id
+               (SELECT COUNT(*) FROM tidum_cms_content_entries ce WHERE ce.content_type_id = ct.id) as entry_count
+        FROM tidum_cms_content_types ct
+        LEFT JOIN tidum_cms_content_fields cf ON cf.content_type_id = ct.id
         GROUP BY ct.id
         ORDER BY ct.name
       `);
@@ -7714,12 +7714,12 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/cms/content-types/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const typeResult = await pool.query(`SELECT * FROM cms_content_types WHERE id = $1`, [id]);
+      const typeResult = await pool.query(`SELECT * FROM tidum_cms_content_types WHERE id = $1`, [id]);
       if (!typeResult.rows[0]) {
         return res.status(404).json({ error: 'Content type not found' });
       }
       const fieldsResult = await pool.query(
-        `SELECT * FROM cms_content_fields WHERE content_type_id = $1 ORDER BY display_order`,
+        `SELECT * FROM tidum_cms_content_fields WHERE content_type_id = $1 ORDER BY display_order`,
         [id]
       );
       res.json({ ...typeResult.rows[0], fields: fieldsResult.rows });
@@ -7733,7 +7733,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { name, slug, description, icon, displayField } = req.body;
       const result = await pool.query(
-        `INSERT INTO cms_content_types (name, slug, description, icon, display_field)
+        `INSERT INTO tidum_cms_content_types (name, slug, description, icon, display_field)
          VALUES ($1, $2, $3, $4, $5)
          RETURNING *`,
         [name, slug, description, icon || 'FileText', displayField]
@@ -7741,7 +7741,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, new_data)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, new_data)
          VALUES ('create', 'content_type', $1, $2, $3, $4, $5)`,
         [result.rows[0].id, name, req.admin?.id, req.admin?.username, JSON.stringify(result.rows[0])]
       );
@@ -7758,10 +7758,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { name, slug, description, icon, displayField } = req.body;
       
-      const prevResult = await pool.query(`SELECT * FROM cms_content_types WHERE id = $1`, [id]);
+      const prevResult = await pool.query(`SELECT * FROM tidum_cms_content_types WHERE id = $1`, [id]);
       
       const result = await pool.query(
-        `UPDATE cms_content_types 
+        `UPDATE tidum_cms_content_types 
          SET name = COALESCE($1, name), 
              slug = COALESCE($2, slug),
              description = COALESCE($3, description),
@@ -7779,7 +7779,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, prev_data, new_data)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name, prev_data, new_data)
          VALUES ('update', 'content_type', $1, $2, $3, $4, $5, $6)`,
         [id, name || prevResult.rows[0]?.name, req.admin?.id, req.admin?.username, JSON.stringify(prevResult.rows[0]), JSON.stringify(result.rows[0])]
       );
@@ -7796,21 +7796,21 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       
       // Check if system type
-      const checkResult = await pool.query(`SELECT is_system, name FROM cms_content_types WHERE id = $1`, [id]);
+      const checkResult = await pool.query(`SELECT is_system, name FROM tidum_cms_content_types WHERE id = $1`, [id]);
       if (checkResult.rows[0]?.is_system) {
         return res.status(400).json({ error: 'Cannot delete system content types' });
       }
       
       // Delete fields first
-      await pool.query(`DELETE FROM cms_content_fields WHERE content_type_id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_fields WHERE content_type_id = $1`, [id]);
       // Delete entries
-      await pool.query(`DELETE FROM cms_content_entries WHERE content_type_id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_entries WHERE content_type_id = $1`, [id]);
       // Delete type
-      await pool.query(`DELETE FROM cms_content_types WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_types WHERE id = $1`, [id]);
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, resource_name, user_id, user_name)
          VALUES ('delete', 'content_type', $1, $2, $3, $4)`,
         [id, checkResult.rows[0]?.name, req.admin?.id, req.admin?.username]
       );
@@ -7828,7 +7828,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, slug, fieldType, isRequired, isUnique, isLocalizable, defaultValue, validations, appearance, displayOrder } = req.body;
       
       const result = await pool.query(
-        `INSERT INTO cms_content_fields (content_type_id, name, slug, field_type, is_required, is_unique, is_localizable, default_value, validations, appearance, display_order)
+        `INSERT INTO tidum_cms_content_fields (content_type_id, name, slug, field_type, is_required, is_unique, is_localizable, default_value, validations, appearance, display_order)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
          RETURNING *`,
         [id, name, slug, fieldType, isRequired || false, isUnique || false, isLocalizable || false, 
@@ -7851,7 +7851,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, slug, fieldType, isRequired, isUnique, isLocalizable, defaultValue, validations, appearance, displayOrder } = req.body;
       
       const result = await pool.query(
-        `UPDATE cms_content_fields 
+        `UPDATE tidum_cms_content_fields 
          SET name = COALESCE($1, name),
              slug = COALESCE($2, slug),
              field_type = COALESCE($3, field_type),
@@ -7882,7 +7882,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.delete("/api/cms/content-fields/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      await pool.query(`DELETE FROM cms_content_fields WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_fields WHERE id = $1`, [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -7895,7 +7895,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { status, limit = 50, offset = 0 } = req.query;
       
-      let query = `SELECT * FROM cms_content_entries WHERE content_type_id = $1`;
+      let query = `SELECT * FROM tidum_cms_content_entries WHERE content_type_id = $1`;
       const params: any[] = [id];
       
       if (status) {
@@ -7919,7 +7919,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { contentTypeId, data, status, locale, scheduledAt } = req.body;
       
       const result = await pool.query(
-        `INSERT INTO cms_content_entries (content_type_id, data, status, locale, scheduled_at, created_by, updated_by)
+        `INSERT INTO tidum_cms_content_entries (content_type_id, data, status, locale, scheduled_at, created_by, updated_by)
          VALUES ($1, $2, $3, $4, $5, $6, $6)
          RETURNING *`,
         [contentTypeId, JSON.stringify(data), status || 'draft', locale || 'nb-NO', scheduledAt || null, req.admin?.username]
@@ -7927,14 +7927,14 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Create initial version
       await pool.query(
-        `INSERT INTO cms_content_entry_versions (entry_id, version_number, data, status, changed_by, change_description)
+        `INSERT INTO tidum_cms_content_entry_versions (entry_id, version_number, data, status, changed_by, change_description)
          VALUES ($1, 1, $2, $3, $4, 'Initial creation')`,
         [result.rows[0].id, JSON.stringify(data), status || 'draft', req.admin?.username]
       );
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name, new_data)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, user_id, user_name, new_data)
          VALUES ('create', 'content_entry', $1, $2, $3, $4)`,
         [result.rows[0].id, req.admin?.id, req.admin?.username, JSON.stringify(result.rows[0])]
       );
@@ -7949,7 +7949,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/cms/content-entries/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const result = await pool.query(`SELECT * FROM cms_content_entries WHERE id = $1`, [id]);
+      const result = await pool.query(`SELECT * FROM tidum_cms_content_entries WHERE id = $1`, [id]);
       if (!result.rows[0]) {
         return res.status(404).json({ error: 'Entry not found' });
       }
@@ -7965,10 +7965,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { data, status, scheduledAt } = req.body;
       
-      const prevResult = await pool.query(`SELECT * FROM cms_content_entries WHERE id = $1`, [id]);
+      const prevResult = await pool.query(`SELECT * FROM tidum_cms_content_entries WHERE id = $1`, [id]);
       
       const result = await pool.query(
-        `UPDATE cms_content_entries 
+        `UPDATE tidum_cms_content_entries 
          SET data = COALESCE($1, data),
              status = COALESCE($2, status),
              scheduled_at = $3,
@@ -7985,11 +7985,11 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Create new version
       const versionResult = await pool.query(
-        `SELECT COALESCE(MAX(version_number), 0) + 1 as next FROM cms_content_entry_versions WHERE entry_id = $1`,
+        `SELECT COALESCE(MAX(version_number), 0) + 1 as next FROM tidum_cms_content_entry_versions WHERE entry_id = $1`,
         [id]
       );
       await pool.query(
-        `INSERT INTO cms_content_entry_versions (entry_id, version_number, data, status, changed_by)
+        `INSERT INTO tidum_cms_content_entry_versions (entry_id, version_number, data, status, changed_by)
          VALUES ($1, $2, $3, $4, $5)`,
         [id, versionResult.rows[0].next, JSON.stringify(data || prevResult.rows[0]?.data), status || prevResult.rows[0]?.status, req.admin?.username]
       );
@@ -8006,7 +8006,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       
       const result = await pool.query(
-        `UPDATE cms_content_entries 
+        `UPDATE tidum_cms_content_entries 
          SET status = 'published', 
              published_at = NOW(), 
              published_by = $1,
@@ -8018,7 +8018,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, user_id, user_name)
          VALUES ('publish', 'content_entry', $1, $2, $3)`,
         [id, req.admin?.id, req.admin?.username]
       );
@@ -8035,7 +8035,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       
       const result = await pool.query(
-        `UPDATE cms_content_entries 
+        `UPDATE tidum_cms_content_entries 
          SET status = 'draft', 
              updated_at = NOW()
          WHERE id = $1
@@ -8055,13 +8055,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       
       // Delete versions first
-      await pool.query(`DELETE FROM cms_content_entry_versions WHERE entry_id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_entry_versions WHERE entry_id = $1`, [id]);
       // Delete entry
-      await pool.query(`DELETE FROM cms_content_entries WHERE id = $1`, [id]);
+      await pool.query(`DELETE FROM tidum_cms_content_entries WHERE id = $1`, [id]);
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, user_id, user_name)
          VALUES ('delete', 'content_entry', $1, $2, $3)`,
         [id, req.admin?.id, req.admin?.username]
       );
@@ -8077,7 +8077,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { id } = req.params;
       const result = await pool.query(
-        `SELECT * FROM cms_content_entry_versions WHERE entry_id = $1 ORDER BY version_number DESC`,
+        `SELECT * FROM tidum_cms_content_entry_versions WHERE entry_id = $1 ORDER BY version_number DESC`,
         [id]
       );
       res.json(result.rows);
@@ -8093,7 +8093,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Get version data
       const versionResult = await pool.query(
-        `SELECT * FROM cms_content_entry_versions WHERE id = $1 AND entry_id = $2`,
+        `SELECT * FROM tidum_cms_content_entry_versions WHERE id = $1 AND entry_id = $2`,
         [versionId, id]
       );
       
@@ -8103,7 +8103,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Update entry with version data
       const result = await pool.query(
-        `UPDATE cms_content_entries 
+        `UPDATE tidum_cms_content_entries 
          SET data = $1,
              status = 'draft',
              updated_by = $2,
@@ -8115,7 +8115,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       
       // Log activity
       await pool.query(
-        `INSERT INTO cms_activity_log (action, resource_type, resource_id, user_id, user_name, details)
+        `INSERT INTO tidum_cms_activity_log (action, resource_type, resource_id, user_id, user_name, details)
          VALUES ('restore', 'content_entry', $1, $2, $3, $4)`,
         [id, req.admin?.id, req.admin?.username, JSON.stringify({ restoredFrom: versionId })]
       );
@@ -8131,7 +8131,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const { limit = 50, offset = 0, resourceType } = req.query;
       
-      let query = `SELECT * FROM cms_activity_log`;
+      let query = `SELECT * FROM tidum_cms_activity_log`;
       const params: any[] = [];
       
       if (resourceType) {
@@ -8155,7 +8155,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/cms/crawler/jobs", authenticateAdmin, async (_req: AuthRequest, res: Response) => {
     try {
       const result = await pool.query(
-        "SELECT * FROM crawler_jobs ORDER BY created_at DESC LIMIT 50"
+        "SELECT * FROM tidum_crawler_jobs ORDER BY created_at DESC LIMIT 50"
       );
       res.json(result.rows);
     } catch (err: any) {
@@ -8167,7 +8167,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.get("/api/cms/crawler/jobs/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      const job = await pool.query("SELECT * FROM crawler_jobs WHERE id = $1", [id]);
+      const job = await pool.query("SELECT * FROM tidum_crawler_jobs WHERE id = $1", [id]);
       if (job.rows.length === 0) return res.status(404).json({ error: "Job not found" });
 
       const { getCrawlSummary: getSummary } = await import("./crawler-engine");
@@ -8200,7 +8200,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
 
       const result = await pool.query(
-        `INSERT INTO crawler_jobs (
+        `INSERT INTO tidum_crawler_jobs (
           name, target_url, crawl_type, max_pages, max_depth, crawl_delay_ms,
           respect_robots_txt, follow_external_links, follow_subdomains,
           include_images, include_css, include_js,
@@ -8290,11 +8290,11 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const allowedSorts = ["url", "status_code", "response_time_ms", "word_count", "title_length", "depth", "created_at"];
       const sort = allowedSorts.includes(sortBy) ? sortBy : "url";
 
-      const totalResult = await pool.query(`SELECT COUNT(*) as c FROM crawler_results ${where}`, params);
+      const totalResult = await pool.query(`SELECT COUNT(*) as c FROM tidum_crawler_results ${where}`, params);
       const total = parseInt(totalResult.rows[0].c);
 
       const rows = await pool.query(
-        `SELECT * FROM crawler_results ${where} ORDER BY ${sort} ${sortDir} LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
+        `SELECT * FROM tidum_crawler_results ${where} ORDER BY ${sort} ${sortDir} LIMIT $${paramIdx++} OFFSET $${paramIdx++}`,
         [...params, limit, offset]
       );
 
@@ -8317,7 +8317,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
            issue->>'severity' as severity,
            COUNT(*) as count,
            array_agg(DISTINCT url) as example_urls
-         FROM crawler_results, jsonb_array_elements(issues) as issue
+         FROM tidum_crawler_results, jsonb_array_elements(issues) as issue
          WHERE job_id = $1
          GROUP BY issue->>'type', issue->>'severity'
          ORDER BY 
@@ -8353,7 +8353,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const result = await pool.query(
         `SELECT url, redirect_url, redirect_chain, redirect_type, status_code
-         FROM crawler_results
+         FROM tidum_crawler_results
          WHERE job_id = $1 AND redirect_url IS NOT NULL
          ORDER BY array_length(redirect_chain, 1) DESC NULLS LAST`,
         [id]
@@ -8370,7 +8370,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { cancelCrawl } = await import("./crawler-engine");
       cancelCrawl(parseInt(id));
-      await pool.query("UPDATE crawler_jobs SET status = 'cancelled' WHERE id = $1 AND status = 'running'", [id]);
+      await pool.query("UPDATE tidum_crawler_jobs SET status = 'cancelled' WHERE id = $1 AND status = 'running'", [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -8381,8 +8381,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   app.delete("/api/cms/crawler/jobs/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
       const { id } = req.params;
-      await pool.query("DELETE FROM crawler_results WHERE job_id = $1", [id]);
-      await pool.query("DELETE FROM crawler_jobs WHERE id = $1", [id]);
+      await pool.query("DELETE FROM tidum_crawler_results WHERE job_id = $1", [id]);
+      await pool.query("DELETE FROM tidum_crawler_jobs WHERE id = $1", [id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -8396,7 +8396,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const format = req.query.format as string || "csv";
 
       const results = await pool.query(
-        "SELECT * FROM crawler_results WHERE job_id = $1 ORDER BY url",
+        "SELECT * FROM tidum_crawler_results WHERE job_id = $1 ORDER BY url",
         [id]
       );
 
@@ -8459,8 +8459,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Get results from both crawls
       const [crawl1, crawl2] = await Promise.all([
-        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM crawler_results WHERE job_id = $1", [id]),
-        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM crawler_results WHERE job_id = $1", [otherId]),
+        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM tidum_crawler_results WHERE job_id = $1", [id]),
+        pool.query("SELECT url, status_code, title, meta_description, word_count, response_time_ms, indexable, issues FROM tidum_crawler_results WHERE job_id = $1", [otherId]),
       ]);
 
       const map1 = new Map(crawl1.rows.map(r => [r.url, r]));
@@ -8509,7 +8509,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // ── Crawler Schedules ──
   app.get("/api/cms/crawler/schedules", authenticateAdmin, async (_req: AuthRequest, res: Response) => {
     try {
-      const result = await pool.query("SELECT * FROM crawler_schedules ORDER BY created_at DESC");
+      const result = await pool.query("SELECT * FROM tidum_crawler_schedules ORDER BY created_at DESC");
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -8522,7 +8522,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       if (!target_url) return res.status(400).json({ error: "target_url required" });
 
       const result = await pool.query(
-        `INSERT INTO crawler_schedules (name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links, is_active)
+        `INSERT INTO tidum_crawler_schedules (name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links, is_active)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *`,
         [name || `Schedule ${target_url}`, target_url, cron_expression || "0 3 * * 1", max_pages || 500, max_depth || 10, crawl_delay_ms || 200, respect_robots_txt ?? true, follow_external_links ?? false]
       );
@@ -8550,7 +8550,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       params.push(id);
       const result = await pool.query(
-        `UPDATE crawler_schedules SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
+        `UPDATE tidum_crawler_schedules SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
         params
       );
       res.json(result.rows[0]);
@@ -8561,7 +8561,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
   app.delete("/api/cms/crawler/schedules/:id", authenticateAdmin, async (req: AuthRequest, res: Response) => {
     try {
-      await pool.query("DELETE FROM crawler_schedules WHERE id = $1", [req.params.id]);
+      await pool.query("DELETE FROM tidum_crawler_schedules WHERE id = $1", [req.params.id]);
       res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -8574,7 +8574,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { getCrawlProgress } = await import("./crawler-engine");
       const progress = getCrawlProgress(parseInt(id));
-      const job = await pool.query("SELECT status, pages_crawled, pages_total, errors_count, warnings_count FROM crawler_jobs WHERE id = $1", [id]);
+      const job = await pool.query("SELECT status, pages_crawled, pages_total, errors_count, warnings_count FROM tidum_crawler_jobs WHERE id = $1", [id]);
       res.json({ ...job.rows[0], liveProgress: progress || null });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -8584,19 +8584,19 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Run database migrations on startup
   (async () => {
     try {
-      // Add vendor_id column to admin_users if it doesn't exist
+      // Add vendor_id column to tidum_admin_users if it doesn't exist
       await pool.query(`
-        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER;
-        ALTER TABLE admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
+        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER;
+        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       `);
 
       await pool.query(`
-        ALTER TABLE analytics_settings ADD COLUMN IF NOT EXISTS gtm_container_id TEXT;
+        ALTER TABLE tidum_analytics_settings ADD COLUMN IF NOT EXISTS gtm_container_id TEXT;
       `);
       
-      // Create landing_partners table if it doesn't exist
+      // Create tidum_landing_partners table if it doesn't exist
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS landing_partners (
+        CREATE TABLE IF NOT EXISTS tidum_landing_partners (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL,
           logo_url TEXT NOT NULL,
@@ -8611,7 +8611,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       // Per-tenant credentials for external push integrations (PowerOffice,
       // later Tripletex, Visma). See migrations/035_vendor_integrations.sql.
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS vendor_integrations (
+        CREATE TABLE IF NOT EXISTS tidum_vendor_integrations (
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           vendor_id INTEGER NOT NULL,
           provider TEXT NOT NULL,
@@ -8626,8 +8626,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
           updated_at TIMESTAMP DEFAULT NOW(),
           UNIQUE (vendor_id, provider)
         );
-        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_vendor ON vendor_integrations(vendor_id);
-        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_provider ON vendor_integrations(provider);
+        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_vendor ON tidum_vendor_integrations(vendor_id);
+        CREATE INDEX IF NOT EXISTS idx_vendor_integrations_provider ON tidum_vendor_integrations(provider);
       `);
     } catch (err) {
       // Ignore errors - table might not exist yet
@@ -8636,11 +8636,11 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
   // ========== TIMESHEET SUBMISSIONS (Monthly timeliste workflow) ==========
 
-  // Ensure timesheet_submissions table
+  // Ensure tidum_timesheet_submissions table
   async function ensureTimesheetSubmissionsTable() {
     try {
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS timesheet_submissions (
+        CREATE TABLE IF NOT EXISTS tidum_timesheet_submissions (
           id SERIAL PRIMARY KEY,
           user_id TEXT NOT NULL,
           vendor_id INTEGER,
@@ -8661,7 +8661,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         )
       `);
     } catch (err) {
-      console.error('Error creating timesheet_submissions table:', err);
+      console.error('Error creating tidum_timesheet_submissions table:', err);
     }
   }
   ensureTimesheetSubmissionsTable();
@@ -8684,7 +8684,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
                   EXTRACT(EPOCH FROM (end_time::time - start_time::time)) / 3600 -
                   COALESCE(break_hours::numeric, 0)
                 ), 0) as total_hours
-         FROM log_row
+         FROM tidum_log_row
          WHERE user_id = $1 AND date >= $2::date AND date < ($2::date + INTERVAL '1 month')`,
         [userId, startDate]
       );
@@ -8698,7 +8698,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Upsert the submission
       const result = await pool.query(
-        `INSERT INTO timesheet_submissions (user_id, vendor_id, month, total_hours, entry_count, status, submitted_at, notes, updated_at)
+        `INSERT INTO tidum_timesheet_submissions (user_id, vendor_id, month, total_hours, entry_count, status, submitted_at, notes, updated_at)
          VALUES ($1, $2, $3, $4, $5, 'submitted', NOW(), $6, NOW())
          ON CONFLICT (user_id, month)
          DO UPDATE SET status = 'submitted', total_hours = $4, entry_count = $5, submitted_at = NOW(), notes = $6, updated_at = NOW()
@@ -8741,7 +8741,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     try {
       const userId = req.user?.id || req.userId || 'default';
       const result = await pool.query(
-        `SELECT * FROM timesheet_submissions WHERE user_id = $1 ORDER BY month DESC`,
+        `SELECT * FROM tidum_timesheet_submissions WHERE user_id = $1 ORDER BY month DESC`,
         [userId]
       );
       res.json({ submissions: result.rows });
@@ -8757,8 +8757,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const vendorId = req.admin?.vendorId;
 
       let query = `SELECT ts.*, cu.user_email, cu.role as user_role
-                    FROM timesheet_submissions ts
-                    LEFT JOIN company_users cu ON ts.user_id = cu.user_email`;
+                    FROM tidum_timesheet_submissions ts
+                    LEFT JOIN tidum_company_users cu ON ts.user_id = cu.user_email`;
       const params: any[] = [];
 
       if (vendorId) {
@@ -8785,7 +8785,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const approvedBy = req.admin?.username || 'admin';
 
       const result = await pool.query(
-        `UPDATE timesheet_submissions
+        `UPDATE tidum_timesheet_submissions
          SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
          WHERE id = $2 AND status = 'submitted'
          RETURNING *`,
@@ -8887,7 +8887,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const rejectedBy = req.admin?.username || 'admin';
 
       const result = await pool.query(
-        `UPDATE timesheet_submissions
+        `UPDATE tidum_timesheet_submissions
          SET status = 'rejected', rejected_by = $1, rejected_at = NOW(), rejection_reason = $2, updated_at = NOW()
          WHERE id = $3 AND status = 'submitted'
          RETURNING *`,
@@ -8925,7 +8925,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
   async function ensureBlogSystemTables() {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS cms_categories (
+      CREATE TABLE IF NOT EXISTS tidum_cms_categories (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         slug TEXT NOT NULL UNIQUE,
@@ -8937,7 +8937,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS cms_posts (
+      CREATE TABLE IF NOT EXISTS tidum_cms_posts (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
         slug TEXT NOT NULL UNIQUE,
@@ -8945,7 +8945,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         content TEXT,
         featured_image TEXT,
         author TEXT,
-        category_id INTEGER REFERENCES cms_categories(id) ON DELETE SET NULL,
+        category_id INTEGER REFERENCES tidum_cms_categories(id) ON DELETE SET NULL,
         tags TEXT[],
         status TEXT NOT NULL DEFAULT 'draft',
         meta_title TEXT,
@@ -8961,10 +8961,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS blog_comments (
+      CREATE TABLE IF NOT EXISTS tidum_blog_comments (
         id SERIAL PRIMARY KEY,
-        post_id INTEGER NOT NULL REFERENCES cms_posts(id) ON DELETE CASCADE,
-        parent_id INTEGER REFERENCES blog_comments(id) ON DELETE CASCADE,
+        post_id INTEGER NOT NULL REFERENCES tidum_cms_posts(id) ON DELETE CASCADE,
+        parent_id INTEGER REFERENCES tidum_blog_comments(id) ON DELETE CASCADE,
         author_name TEXT NOT NULL,
         author_email TEXT,
         author_url TEXT,
@@ -8977,17 +8977,17 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       )
     `);
 
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_categories_slug ON cms_categories(slug)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_slug ON cms_posts(slug)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_status ON cms_posts(status)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_scheduled_at ON cms_posts(scheduled_at)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_post_id ON blog_comments(post_id)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_status ON blog_comments(status)`);
-    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_parent_id ON blog_comments(parent_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_categories_slug ON tidum_cms_categories(slug)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_slug ON tidum_cms_posts(slug)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_status ON tidum_cms_posts(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_cms_posts_scheduled_at ON tidum_cms_posts(scheduled_at)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_post_id ON tidum_blog_comments(post_id)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_status ON tidum_blog_comments(status)`);
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_blog_comments_parent_id ON tidum_blog_comments(parent_id)`);
 
     await pool.query(`
       CREATE INDEX IF NOT EXISTS idx_cms_posts_search
-      ON cms_posts
+      ON tidum_cms_posts
       USING gin (to_tsvector('norwegian', coalesce(title, '') || ' ' || coalesce(excerpt, '') || ' ' || coalesce(content, '')))
     `);
   }

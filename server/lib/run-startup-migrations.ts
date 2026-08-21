@@ -55,13 +55,13 @@ export async function runStartupMigrations(): Promise<void> {
     if (filename === "055_admin_users_role_id_unification.sql") {
       try {
         const skipped = await pool.query(`
-          SELECT COUNT(*) FROM admin_users a
+          SELECT COUNT(*) FROM tidum_admin_users a
           WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
             AND EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
             AND a.role IN ('super_admin', 'vendor_admin')
         `);
         if (Number(skipped.rows[0].count) > 0) {
-          console.warn(`[migration 055] ${skipped.rows[0].count} admin_users row(s) skipped pairing due to username collision — remain on name-based role resolution fallback`);
+          console.warn(`[migration 055] ${skipped.rows[0].count} tidum_admin_users row(s) skipped pairing due to username collision — remain on name-based role resolution fallback`);
         }
       } catch (err: any) {
         console.error(`[migration 055] failed to check for skipped username-collision rows (055 itself already applied successfully):`, err?.message || err);

@@ -146,11 +146,11 @@ async function resolveUserByEidIdentity(ssnHash: string): Promise<AuthUser | nul
   };
 }
 
-// Fallback når ingen eid_identities-rad finnes ennå: super admin kan
+// Fallback når ingen tidum_eid_identities-rad finnes ennå: super admin kan
 // forhåndsregistrere hvilket fødselsnummer en konto skal kobles til, FØR
 // personen noensinne har logget inn med eID (se migrations/053). Denne
 // slår opp den forventede hashen på users direkte — brukes kun av
-// createEidCallbackHandler, som skriver selve eid_identities-raden og
+// createEidCallbackHandler, som skriver selve tidum_eid_identities-raden og
 // nullstiller feltet idet koblingen er gjort (one-shot, ikke gjenbrukbar).
 async function resolveUserByExpectedSsnHash(ssnHash: string): Promise<AuthUser | null> {
   const [user] = await db.select().from(users).where(eq(users.expectedSsnHash, ssnHash)).limit(1);
@@ -291,7 +291,7 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
       let resolvedUser = await resolveUserByEidIdentity(ssnHash);
 
       if (!resolvedUser) {
-        // Ingen eid_identities ennå — men kanskje super admin har
+        // Ingen tidum_eid_identities ennå — men kanskje super admin har
         // forhåndsregistrert nettopp dette fødselsnummeret på en konto
         // (migrations/053). Første ekte eID-innlogging fullfører da
         // koblingen automatisk, uten en mellomliggende Google/e-post-økt.

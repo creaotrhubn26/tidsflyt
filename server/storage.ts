@@ -613,7 +613,7 @@ export class ExternalDbStorage implements IStorage {
       try {
         const result = await pool.query(
           `SELECT id, actor_company_user_id, action, target_type, target_id, created_at 
-           FROM company_audit_log 
+           FROM tidum_company_audit_log 
            ORDER BY created_at DESC 
            LIMIT $1`,
           [limit || 10]
@@ -636,7 +636,7 @@ export class ExternalDbStorage implements IStorage {
   async createActivity(activity: InsertActivity): Promise<Activity> {
     try {
       const result = await pool.query(
-        `INSERT INTO company_audit_log (company_id, action, target_type, details, created_at)
+        `INSERT INTO tidum_company_audit_log (company_id, action, target_type, details, created_at)
          VALUES ($1, $2, $3, $4, NOW())
          RETURNING id, created_at`,
         [1, activity.action, 'activity', JSON.stringify({ description: activity.description })]

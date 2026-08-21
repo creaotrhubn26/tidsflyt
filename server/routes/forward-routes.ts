@@ -129,11 +129,11 @@ function buildEmailContent(p: {
 async function logForward(userId: string, recipientEmail: string, institution: string | null, reportType: string, periodStart: string, periodEnd: string, status: string) {
   try {
     await pool.query(
-      `INSERT INTO forward_log (user_id, recipient_email, institution_name, report_type, period_start, period_end, status, created_at)
+      `INSERT INTO tidum_forward_log (user_id, recipient_email, institution_name, report_type, period_start, period_end, status, created_at)
        VALUES ($1,$2,$3,$4,$5,$6,$7,NOW())`,
       [userId, recipientEmail, institution, reportType, periodStart, periodEnd, status],
     );
-  } catch { /* forward_log may not exist yet – non-critical */ }
+  } catch { /* tidum_forward_log may not exist yet – non-critical */ }
 }
 
 // ── Routes ─────────────────────────────────────────────────────────────
@@ -275,7 +275,7 @@ export function registerForwardRoutes(app: Express) {
       const userId = user.id || user.email || 'default';
       try {
         await pool.query(
-          `UPDATE forward_log SET status = 'confirmed' WHERE user_id = $1 AND status = 'prepared' AND created_at = (SELECT MAX(created_at) FROM forward_log WHERE user_id = $1 AND status = 'prepared')`,
+          `UPDATE tidum_forward_log SET status = 'confirmed' WHERE user_id = $1 AND status = 'prepared' AND created_at = (SELECT MAX(created_at) FROM tidum_forward_log WHERE user_id = $1 AND status = 'prepared')`,
           [userId],
         );
       } catch { /* non-critical */ }
@@ -295,7 +295,7 @@ export function registerForwardRoutes(app: Express) {
 
       const userId = user.id || user.email || 'default';
       try {
-        const result = await pool.query('SELECT * FROM forward_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50', [userId]);
+        const result = await pool.query('SELECT * FROM tidum_forward_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50', [userId]);
         res.json(result.rows);
       } catch { res.json([]); }
     } catch (error: any) {

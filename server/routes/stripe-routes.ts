@@ -143,7 +143,7 @@ export function registerStripeRoutes(app: Express): void {
       // Idempotency — Stripe retries; skip if we've already seen this event
       try {
         const existing = await pool.query(
-          "SELECT id FROM stripe_events WHERE stripe_event_id = $1 LIMIT 1",
+          "SELECT id FROM tidum_stripe_events WHERE stripe_event_id = $1 LIMIT 1",
           [event.id],
         );
         if (existing.rows.length > 0) {
@@ -161,7 +161,7 @@ export function registerStripeRoutes(app: Express): void {
           leadId = Number(obj.metadata.tidum_lead_id);
         } else if (customerId) {
           const r = await pool.query(
-            "SELECT id FROM access_requests WHERE stripe_customer_id = $1 LIMIT 1",
+            "SELECT id FROM tidum_access_requests WHERE stripe_customer_id = $1 LIMIT 1",
             [customerId],
           );
           if (r.rows.length > 0) leadId = r.rows[0].id;
@@ -175,7 +175,7 @@ export function registerStripeRoutes(app: Express): void {
           if (leadId) {
             const sub = event.type === "customer.subscription.created"
               ? obj
-              : (await pool.query("SELECT * FROM access_requests WHERE id = $1", [leadId])).rows[0];
+              : (await pool.query("SELECT * FROM tidum_access_requests WHERE id = $1", [leadId])).rows[0];
 
             // Compute MRR from subscription items
             let mrrOre = 0;
@@ -190,7 +190,7 @@ export function registerStripeRoutes(app: Express): void {
             }
 
             const ins = await pool.query(
-              `INSERT INTO revenue_events (
+              `INSERT INTO tidum_revenue_events (
                  lead_id, customer_email, customer_company, event_type,
                  delta_mrr_ore, mrr_after_ore, source, utm_source, utm_medium, utm_campaign,
                  occurred_at, notes
@@ -198,7 +198,7 @@ export function registerStripeRoutes(app: Express): void {
                SELECT $1, ar.email, ar.company, 'signup',
                       $2, $2, ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign,
                       NOW(), $3
-                 FROM access_requests ar WHERE ar.id = $1
+                 FROM tidum_access_requests ar WHERE ar.id = $1
                RETURNING id`,
               [leadId, mrrOre, `Stripe ${event.type}`],
             );
@@ -206,7 +206,7 @@ export function registerStripeRoutes(app: Express): void {
 
             // Update lead state
             await pool.query(
-              `UPDATE access_requests SET
+              `UPDATE tidum_access_requests SET
                  stripe_subscription_id = COALESCE($2, stripe_subscription_id),
                  stripe_customer_id     = COALESCE($3, stripe_customer_id),
                  signed_at              = COALESCE(signed_at, NOW()),
@@ -223,8 +223,8 @@ export function registerStripeRoutes(app: Express): void {
                 `SELECT ar.email, ar.company, ar.user_count_estimate,
                         ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign,
                         pt.slug AS tier_slug, pt.label AS tier_label
-                   FROM access_requests ar
-                   LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+                   FROM tidum_access_requests ar
+                   LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
                   WHERE ar.id = $1`,
                 [leadId],
               );
@@ -251,13 +251,13 @@ export function registerStripeRoutes(app: Express): void {
           // churn
           if (leadId) {
             const ins = await pool.query(
-              `INSERT INTO revenue_events (
+              `INSERT INTO tidum_revenue_events (
                  lead_id, customer_email, customer_company, event_type,
                  delta_mrr_ore, mrr_after_ore, occurred_at, notes
                )
                SELECT $1, ar.email, ar.company, 'churn',
                       -COALESCE(ar.mrr_ore_snapshot, 0), 0, NOW(), 'Stripe subscription cancelled'
-                 FROM access_requests ar WHERE ar.id = $1
+                 FROM tidum_access_requests ar WHERE ar.id = $1
                RETURNING id`,
               [leadId],
             );
@@ -267,7 +267,7 @@ export function registerStripeRoutes(app: Express): void {
             try {
               const { rows: leadRows } = await pool.query(
                 `SELECT email, mrr_ore_snapshot, stripe_subscription_id
-                   FROM access_requests WHERE id = $1`,
+                   FROM tidum_access_requests WHERE id = $1`,
                 [leadId],
               );
               const r = leadRows[0];
@@ -290,7 +290,7 @@ export function registerStripeRoutes(app: Express): void {
         }
 
         await pool.query(
-          `INSERT INTO stripe_events (
+          `INSERT INTO tidum_stripe_events (
              stripe_event_id, event_type, customer_id, subscription_id, invoice_id,
              payload, processed_at, revenue_event_id
            ) VALUES ($1, $2, $3, $4, $5, $6, NOW(), $7)`,

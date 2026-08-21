@@ -227,7 +227,7 @@ export async function startCrawl(config: CrawlConfig): Promise<void> {
   try {
     // Update job status
     await pool.query(
-      "UPDATE crawler_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
+      "UPDATE tidum_crawler_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
       [config.jobId]
     );
 
@@ -298,7 +298,7 @@ export async function startCrawl(config: CrawlConfig): Promise<void> {
 
         // Update progress
         await pool.query(
-          "UPDATE crawler_jobs SET pages_crawled = $1, pages_total = $2, errors_count = errors_count + $3, warnings_count = warnings_count + $4, updated_at = NOW() WHERE id = $5",
+          "UPDATE tidum_crawler_jobs SET pages_crawled = $1, pages_total = $2, errors_count = errors_count + $3, warnings_count = warnings_count + $4, updated_at = NOW() WHERE id = $5",
           [
             crawledCount,
             totalCount,
@@ -346,13 +346,13 @@ export async function startCrawl(config: CrawlConfig): Promise<void> {
     const finalStatus = cancelled ? "cancelled" : "completed";
     const duration = Date.now() - (await getJobStartTime(config.jobId));
     await pool.query(
-      "UPDATE crawler_jobs SET status = $1, completed_at = NOW(), duration_ms = $2, pages_crawled = $3, pages_total = $4 WHERE id = $5",
+      "UPDATE tidum_crawler_jobs SET status = $1, completed_at = NOW(), duration_ms = $2, pages_crawled = $3, pages_total = $4 WHERE id = $5",
       [finalStatus, duration, crawledCount, totalCount, config.jobId]
     );
 
   } catch (err: any) {
     await pool.query(
-      "UPDATE crawler_jobs SET status = 'failed', completed_at = NOW() WHERE id = $1",
+      "UPDATE tidum_crawler_jobs SET status = 'failed', completed_at = NOW() WHERE id = $1",
       [config.jobId]
     );
     console.error(`[Crawler] Job ${config.jobId} failed:`, err.message);
@@ -779,7 +779,7 @@ export async function runCrawlJob(config: CrawlConfig): Promise<void> {
 
   try {
     await pool.query(
-      "UPDATE crawler_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
+      "UPDATE tidum_crawler_jobs SET status = 'running', started_at = NOW() WHERE id = $1",
       [config.jobId]
     );
 
@@ -842,10 +842,10 @@ export async function runCrawlJob(config: CrawlConfig): Promise<void> {
         // Progress update (every 5 pages)
         if (crawledCount % 5 === 0 || queue.length === 0) {
           await pool.query(
-            "UPDATE crawler_jobs SET pages_crawled = $1, pages_total = $2, errors_count = $3, warnings_count = $4, updated_at = NOW() WHERE id = $5",
+            "UPDATE tidum_crawler_jobs SET pages_crawled = $1, pages_total = $2, errors_count = $3, warnings_count = $4, updated_at = NOW() WHERE id = $5",
             [crawledCount, visited.size, 
-             (await pool.query("SELECT COUNT(*) FROM crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"error\"}]'", [config.jobId])).rows[0].count,
-             (await pool.query("SELECT COUNT(*) FROM crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"warning\"}]'", [config.jobId])).rows[0].count,
+             (await pool.query("SELECT COUNT(*) FROM tidum_crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"error\"}]'", [config.jobId])).rows[0].count,
+             (await pool.query("SELECT COUNT(*) FROM tidum_crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"warning\"}]'", [config.jobId])).rows[0].count,
              config.jobId]
           );
         }
@@ -866,20 +866,20 @@ export async function runCrawlJob(config: CrawlConfig): Promise<void> {
     }
 
     const finalStatus = cancelled ? "cancelled" : "completed";
-    const startRow = await pool.query("SELECT started_at FROM crawler_jobs WHERE id = $1", [config.jobId]);
+    const startRow = await pool.query("SELECT started_at FROM tidum_crawler_jobs WHERE id = $1", [config.jobId]);
     const durationMs = startRow.rows[0]?.started_at ? Date.now() - new Date(startRow.rows[0].started_at).getTime() : 0;
 
     // Calculate final error/warning counts
-    const errCount = (await pool.query("SELECT COUNT(*) as c FROM crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"error\"}]'", [config.jobId])).rows[0].c;
-    const warnCount = (await pool.query("SELECT COUNT(*) as c FROM crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"warning\"}]'", [config.jobId])).rows[0].c;
+    const errCount = (await pool.query("SELECT COUNT(*) as c FROM tidum_crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"error\"}]'", [config.jobId])).rows[0].c;
+    const warnCount = (await pool.query("SELECT COUNT(*) as c FROM tidum_crawler_results WHERE job_id = $1 AND issues @> '[{\"severity\":\"warning\"}]'", [config.jobId])).rows[0].c;
 
     await pool.query(
-      "UPDATE crawler_jobs SET status = $1, completed_at = NOW(), duration_ms = $2, pages_crawled = $3, pages_total = $4, errors_count = $5, warnings_count = $6 WHERE id = $7",
+      "UPDATE tidum_crawler_jobs SET status = $1, completed_at = NOW(), duration_ms = $2, pages_crawled = $3, pages_total = $4, errors_count = $5, warnings_count = $6 WHERE id = $7",
       [finalStatus, durationMs, crawledCount, visited.size, parseInt(errCount), parseInt(warnCount), config.jobId]
     );
 
   } catch (err: any) {
-    await pool.query("UPDATE crawler_jobs SET status = 'failed', completed_at = NOW() WHERE id = $1", [config.jobId]);
+    await pool.query("UPDATE tidum_crawler_jobs SET status = 'failed', completed_at = NOW() WHERE id = $1", [config.jobId]);
     console.error(`[Crawler] Job ${config.jobId} failed:`, err.message);
   } finally {
     activeCrawls.delete(config.jobId);
@@ -951,7 +951,7 @@ async function fetchWithRedirectTracking(url: string, userAgent: string, chain: 
 async function saveResult(jobId: number, result: CrawlResult & { discoveredUrls?: any[] }): Promise<void> {
   const { discoveredUrls, ...r } = result;
   await pool.query(
-    `INSERT INTO crawler_results (
+    `INSERT INTO tidum_crawler_results (
       job_id, url, url_hash, parent_url, depth,
       status_code, content_type, response_time_ms, content_size, content_hash,
       redirect_url, redirect_chain, redirect_type,
@@ -992,7 +992,7 @@ async function saveResult(jobId: number, result: CrawlResult & { discoveredUrls?
 }
 
 async function getJobStartTime(jobId: number): Promise<number> {
-  const r = await pool.query("SELECT started_at FROM crawler_jobs WHERE id = $1", [jobId]);
+  const r = await pool.query("SELECT started_at FROM tidum_crawler_jobs WHERE id = $1", [jobId]);
   return r.rows[0]?.started_at ? new Date(r.rows[0].started_at).getTime() : Date.now();
 }
 
@@ -1005,7 +1005,7 @@ export async function findDuplicatePages(jobId: number) {
   // Exact duplicates by content hash
   const exact = await pool.query(
     `SELECT content_hash, array_agg(url) as urls, COUNT(*) as count
-     FROM crawler_results 
+     FROM tidum_crawler_results 
      WHERE job_id = $1 AND content_hash IS NOT NULL AND status_code = 200
      GROUP BY content_hash HAVING COUNT(*) > 1
      ORDER BY count DESC`,
@@ -1015,7 +1015,7 @@ export async function findDuplicatePages(jobId: number) {
   // Duplicate titles
   const dupTitles = await pool.query(
     `SELECT title, array_agg(url) as urls, COUNT(*) as count
-     FROM crawler_results 
+     FROM tidum_crawler_results 
      WHERE job_id = $1 AND title IS NOT NULL AND title != '' AND status_code = 200
      GROUP BY title HAVING COUNT(*) > 1
      ORDER BY count DESC`,
@@ -1025,7 +1025,7 @@ export async function findDuplicatePages(jobId: number) {
   // Duplicate meta descriptions
   const dupDescs = await pool.query(
     `SELECT meta_description, array_agg(url) as urls, COUNT(*) as count
-     FROM crawler_results 
+     FROM tidum_crawler_results 
      WHERE job_id = $1 AND meta_description IS NOT NULL AND meta_description != '' AND status_code = 200
      GROUP BY meta_description HAVING COUNT(*) > 1
      ORDER BY count DESC`,
@@ -1041,13 +1041,13 @@ export async function findDuplicatePages(jobId: number) {
 
 // ── Summary stats ────────────────────────────────────────────────────
 export async function getCrawlSummary(jobId: number) {
-  const totalPages = await pool.query("SELECT COUNT(*) as c FROM crawler_results WHERE job_id = $1", [jobId]);
+  const totalPages = await pool.query("SELECT COUNT(*) as c FROM tidum_crawler_results WHERE job_id = $1", [jobId]);
   const statusCodes = await pool.query(
-    `SELECT status_code, COUNT(*) as count FROM crawler_results WHERE job_id = $1 GROUP BY status_code ORDER BY status_code`,
+    `SELECT status_code, COUNT(*) as count FROM tidum_crawler_results WHERE job_id = $1 GROUP BY status_code ORDER BY status_code`,
     [jobId]
   );
   const avgResponseTime = await pool.query(
-    "SELECT AVG(response_time_ms) as avg, MAX(response_time_ms) as max, MIN(response_time_ms) as min FROM crawler_results WHERE job_id = $1 AND response_time_ms IS NOT NULL",
+    "SELECT AVG(response_time_ms) as avg, MAX(response_time_ms) as max, MIN(response_time_ms) as min FROM tidum_crawler_results WHERE job_id = $1 AND response_time_ms IS NOT NULL",
     [jobId]
   );
   const issuesByType = await pool.query(
@@ -1055,14 +1055,14 @@ export async function getCrawlSummary(jobId: number) {
        issue->>'type' as issue_type, 
        issue->>'severity' as severity,
        COUNT(*) as count
-     FROM crawler_results, jsonb_array_elements(issues) as issue
+     FROM tidum_crawler_results, jsonb_array_elements(issues) as issue
      WHERE job_id = $1
      GROUP BY issue->>'type', issue->>'severity'
      ORDER BY count DESC`,
     [jobId]
   );
   const indexability = await pool.query(
-    "SELECT indexable, COUNT(*) as count FROM crawler_results WHERE job_id = $1 GROUP BY indexable",
+    "SELECT indexable, COUNT(*) as count FROM tidum_crawler_results WHERE job_id = $1 GROUP BY indexable",
     [jobId]
   );
 

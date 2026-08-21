@@ -7,8 +7,8 @@
  * Section types reference (sections JSON structure):
  *   - rich_text:              free-form textarea with GDPR check
  *   - structured_observations: repeatable observations (date, area, text)
- *   - goals_list:             use the existing rapport_maal table
- *   - activities_log:         use the existing rapport_aktiviteter table
+ *   - goals_list:             use the existing tidum_rapport_maal table
+ *   - activities_log:         use the existing tidum_rapport_aktiviteter table
  *   - checklist:              array of items; tester marks done/not-done + optional note
  *   - summary:                closing summary text
  */
@@ -706,7 +706,7 @@ export async function seedSystemRapportTemplates() {
       // Fall back to raw insert with a try/catch.
       try {
         await db.execute(sql`
-          INSERT INTO rapport_templates (vendor_id, slug, name, description, suggested_institution_type, sections, is_system, is_active, created_by)
+          INSERT INTO tidum_rapport_templates (vendor_id, slug, name, description, suggested_institution_type, sections, is_system, is_active, created_by)
           VALUES (NULL, ${tpl.slug}, ${tpl.name}, ${tpl.description}, ${tpl.suggestedInstitutionType}, ${JSON.stringify(tpl.sections)}::jsonb, true, true, 'system')
           ON CONFLICT (vendor_id, slug) DO UPDATE
           SET name = EXCLUDED.name,
