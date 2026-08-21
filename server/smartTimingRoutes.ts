@@ -1994,6 +1994,18 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.post("/api/admin/activity/page-view", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
+      // authenticateAdmin's sesjon-gren krever kun en gyldig Passport-sesjon
+      // (delt med portal-/leverandørbrukere), ikke en admin-rolle — hver
+      // annen admin-rute kompenserer med sin egen hasPermission()-sjekk,
+      // men denne ruten hadde bevisst ingen (spec: "enhver gyldig admin kan
+      // logge sin egen sidevisning"). Uten denne sjekken kunne enhver
+      // innlogget bruker, ikke bare admins, skrive rader i det som er ment
+      // å være en admin-aktivitetslogg. Legacy-rollestrengen (ikke
+      // roleId/hasPermission) matcher samme mønster admin-roller.tsx sin
+      // klient-gate allerede bruker for "hva teller som admin-nivå".
+      if (req.admin.role !== "super_admin" && req.admin.role !== "vendor_admin") {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
       const { path } = req.body as { path?: string };
       if (typeof path !== "string" || !path.startsWith("/admin") || path.length > 512) {
         return res.status(400).json({ error: "path må starte med /admin og være under 512 tegn" });

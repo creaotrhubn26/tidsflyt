@@ -71,6 +71,27 @@ describe("admin activity log routes", () => {
     expect(res.status).toBe(400);
   });
 
+  it("POST /api/admin/activity/page-view rejects a caller whose role is neither super_admin nor vendor_admin", async () => {
+    // authenticateAdmin's session branch accepts any authenticated Passport
+    // session with no role check of its own (shared with portal/vendor
+    // employee logins) — this route's own role check is what stops a
+    // non-admin from writing into what's meant to be an admin activity log.
+    const token = jwt.sign(
+      { id: "test-activity-member", email: "member@example.com", role: "member" },
+      JWT_SECRET,
+    );
+    const res = await request(app)
+      .post("/api/admin/activity/page-view")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ path: "/admin/roller" });
+
+    expect(res.status).toBe(403);
+    const { rows } = await pool.query(
+      `SELECT 1 FROM tidum_admin_activity_log WHERE user_id = 'test-activity-member'`,
+    );
+    expect(rows.length).toBe(0);
+  });
+
   it("a mutation through an unrelated authenticateAdmin route logs a mutation row with the real status code", async () => {
     const token = await signVendorAdminToken();
     // attachActivityLogging() skips writing when NODE_ENV === "test" (fix
