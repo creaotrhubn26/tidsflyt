@@ -23,17 +23,17 @@ antatt):
   — et annet produkts `vendors`-tabell fantes allerede under det navnet.
   **Disse to tabellene er eksplisitt UTENFOR OMFANG** — brukerens
   beslutning, bekreftet: "La users/vendors være, omdøp resten."
-- **126 tabeller** er bekreftet Tidum-eide og trygge å omdøpe: 117 funnet
+- **120 tabeller** er bekreftet Tidum-eide og trygge å omdøpe: 111 funnet
   via `migrations/*.sql` (`CREATE TABLE`) og `shared/schema.ts`/
   `shared/models/*.ts` (`pgTable(`), pluss 9 funnet i en oppfølgende sweep
   for tabeller opprettet "lat" direkte i TypeScript-kode (samme mønster
   som `server/lib/log-row-audit.ts`s `ensureLogRowAuditTable()`) — disse
   var usynlige for det første søket siden de aldri står i en
   migrasjonsfil eller en `pgTable()`-erklæring.
-- Ingen av de 126 har fremmed-eide foreign keys inn i seg (kun én
+- Ingen av de 120 har fremmed-eide foreign keys inn i seg (kun én
   selv-forventet FK: `users.role_id REFERENCES tidum_roles(id)`, fra
   fase 1, allerede riktig navngitt).
-- **De aller fleste av de 126 har 0 rader i produksjon akkurat nå** og
+- **De aller fleste av de 120 har 0 rader i produksjon akkurat nå** og
   svært få kall-steder (1-9 filer) — lav praktisk risiko for de fleste
   enkelttabeller.
 - Ingen `CREATE VIEW`/`CREATE FUNCTION`/`CREATE TRIGGER` funnet i
@@ -58,7 +58,7 @@ bekreftelse. Allerede fikset (`--strict`-flagg + advarsel i
 - `legacy`-skjemaet røres IKKE — bekreftet inaktivt (appens `search_path`
   treffer kun `public`), ingen praktisk risiko der, ingen praktisk
   gevinst av å røre det.
-- Alle 126 tabeller får `tidum_`-prefiks — samme konvensjon som allerede
+- Alle 120 tabeller får `tidum_`-prefiks — samme konvensjon som allerede
   etablert (`tidum_permissions` osv.).
 - Drizzle TS-eksportnavn (bindingsnavnene, f.eks. `export const users`)
   endres IKKE — kun SQL-nivå-tabellnavnet i `pgTable("gammelt_navn", ...)`
@@ -66,17 +66,17 @@ bekreftelse. Allerede fikset (`--strict`-flagg + advarsel i
   `shared/models/permissions.ts` allerede etablerte.
 - Ingen ny migrasjons-/skjema-mekanisme — bruk eksisterende
   `migrations/*.sql` + `server/lib/run-startup-migrations.ts`-mønsteret.
-- All omdøping skjer i ÉN koordinert migrasjon (ikke 126 separate) —
+- All omdøping skjer i ÉN koordinert migrasjon (ikke 120 separate) —
   Postgres-omdøping er billig nok til at dette er trygt i ett steg, og én
-  migrasjon er lettere å verifisere fullstendig enn 126.
+  migrasjon er lettere å verifisere fullstendig enn 120.
 - Kodeoppdateringen (rå SQL-strenger + `pgTable()`-kall + de 9 lat-init
   `CREATE TABLE IF NOT EXISTS`-setningene) skjer samlet, ikke tabell for
   tabell — men VERIFISERES eksplisitt fullstendig (se under) før den
   regnes som ferdig.
 
-## De 126 tabellene
+## De 120 tabellene
 
-**117 funnet via migrations/schema.ts:**
+**111 funnet via migrations/schema.ts:**
 
 ```
 access_requests, admin_users, aktivitet_maler, analytics_settings, api_keys,
@@ -145,8 +145,8 @@ DO $$ BEGIN
   ALTER TABLE IF EXISTS admin_users RENAME TO tidum_admin_users;
 EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 
--- ... (én blokk per tabell, alle 126, i implementeringsplanen skrevet ut
--- fullstendig — denne spec-en viser mønsteret, ikke alle 126 gjentatt)
+-- ... (én blokk per tabell, alle 120, i implementeringsplanen skrevet ut
+-- fullstendig — denne spec-en viser mønsteret, ikke alle 120 gjentatt)
 ```
 
 `IF EXISTS` gjør hver enkeltlinje trygg mot at en tabell allerede ble
@@ -162,13 +162,13 @@ Registreres i `server/lib/run-startup-migrations.ts` som vanlig, etter
 ## Kodeoppdatering
 
 **A) `pgTable()`-erklæringer** (`shared/schema.ts`, `shared/models/*.ts`):
-for hver av de 117 schema-erklærte tabellene, endre kun SQL-navn-
+for hver av de 111 schema-erklærte tabellene, endre kun SQL-navn-
 strengen: `pgTable("gammelt_navn", {...})` → `pgTable("tidum_gammelt_navn", {...})`.
 TS-eksportnavnet (variabelnavnet/bindingen) endres IKKE.
 
 **B) Rå SQL-referanser** (`server/`, hovedsakelig `smartTimingRoutes.ts`
 og `server/routes/*.ts`): hver `FROM x`, `INTO x`, `JOIN x`,
-`UPDATE x`, `DELETE FROM x` der `x` er ett av de 126 gamle navnene,
+`UPDATE x`, `DELETE FROM x` der `x` er ett av de 120 gamle navnene,
 endres til `tidum_x`. Dette er det STØRSTE, mest risikofylte steget —
 se «Verifiseringsstrategi».
 
@@ -189,7 +189,7 @@ Sweepen som fant de 9 lat-opprettede tabellene beviser at et rent
 tekst-søk kan ha blindsoner. Før noen kode regnes som ferdig endret:
 
 1. **Etter kodeoppdateringen**: grep hele `server/`, `shared/`, `client/`
-   for HVERT av de 126 gamle tabellnavnene som RÅ ORD (`\btabellnavn\b`,
+   for HVERT av de 120 gamle tabellnavnene som RÅ ORD (`\btabellnavn\b`,
    ikke som delstreng av et annet ord — f.eks. `saker` er delstreng av
    `sakerLocations` som IKKE skal treffes). Forventet resultat: NULL
    treff for et gammelt navn utenfor migrasjonsfilen selv og
@@ -202,7 +202,7 @@ tekst-søk kan ha blindsoner. Før noen kode regnes som ferdig endret:
    eventuelle NYE lat-opprettede tabeller lagt til av annet arbeid i
    mellomtiden — denne økten har allerede vist at kodebasen endres
    raskt.
-3. **Etter migrasjonen kjører mot ekte database**: for hver av de 126,
+3. **Etter migrasjonen kjører mot ekte database**: for hver av de 120,
    bekreft (a) det gamle navnet IKKE lenger eksisterer i
    `information_schema.tables`, (b) det nye `tidum_`-navnet GJØR det, (c)
    radantallet er uendret (RENAME flytter ikke data, men bekreft likevel
@@ -235,7 +235,7 @@ tekst-søk kan ha blindsoner. Før noen kode regnes som ferdig endret:
 - Migreringstest (samme mønster som `migrations/054`-`056` sine
   tester): kjør migrasjon 057 mot ekte database (les-før/les-etter,
   bekreft gammelt navn borte / nytt navn til stede / radantall uendret)
-  for et representativt utvalg av de 126 (ikke praktisk å teste alle 126
+  for et representativt utvalg av de 120 (ikke praktisk å teste alle 120
   individuelt — velg minst: én tabell med reelt innhold, én helt tom, én
   av de 9 lat-init-tabellene, én med den doble lat-init-koden).
   begge kjør IF-EXISTS-veien (frisk tabell) OG bekreft idempotens (kjør
@@ -261,4 +261,4 @@ tekst-søk kan ha blindsoner. Før noen kode regnes som ferdig endret:
   revisjonslogg-/aktivitetstabell-mønstrene i kodebasen
   (`log_row_audit`, `company_audit_log`, `cms_activity_log`,
   `rapport_audit_log`, `tidum_admin_activity_log`, og trolig flere blant
-  de 126) — observert tidligere denne økten, ikke adressert her.
+  de 120) — observert tidligere denne økten, ikke adressert her.
