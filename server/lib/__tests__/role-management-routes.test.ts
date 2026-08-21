@@ -89,7 +89,10 @@ describe("role management routes", () => {
       .get("/api/admin/permissions")
       .set("Authorization", `Bearer ${token}`);
     expect(res.status).toBe(200);
-    expect(res.body.length).toBe(7);
+    // 7 fra fase 1 + activity_log.view lagt til av aktivitetslogg-planens
+    // Task 1 (migrations/056) — oppdater dette tallet igjen neste gang
+    // PERMISSION_CATALOG vokser.
+    expect(res.body.length).toBe(8);
   });
 
   it("POST /api/admin/roles creates a role with no permissions", async () => {

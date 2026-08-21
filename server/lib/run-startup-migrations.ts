@@ -24,6 +24,7 @@ const STARTUP_MIGRATIONS: string[] = [
   "053_expected_ssn_hash.sql",
   "054_role_permission_system.sql",
   "055_admin_users_role_id_unification.sql",
+  "056_admin_activity_log.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

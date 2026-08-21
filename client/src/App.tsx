@@ -13,6 +13,7 @@ import { LanguageBootstrap } from "@/components/language-bootstrap";
 import { AuthGuard } from "@/components/auth-guard";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { AnalyticsRuntime } from "@/components/analytics-runtime";
+import { AdminActivityTracker } from "@/components/admin-activity-tracker";
 import NotFound from "@/pages/not-found";
 import { RolePreviewProvider } from "@/hooks/use-role-preview";
 import { ComposeProvider } from "@/components/email/compose-context";
@@ -35,6 +36,7 @@ const CMSPageLegacy = lazy(() =>
 );
 const Vendors = lazy(() => import("@/pages/vendors"));
 const AdminRoller = lazy(() => import("@/pages/admin-roller"));
+const AdminAktivitetslogg = lazy(() => import("@/pages/admin-aktivitetslogg"));
 const Contact = lazy(() => import("@/pages/contact"));
 const Privacy = lazy(() => import("@/pages/privacy"));
 const Terms = lazy(() => import("@/pages/terms"));
@@ -192,6 +194,7 @@ function Router() {
         <Route path="/admin/rapport-maler/:id">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><AdminRapportTemplateEditPage /></AuthGuard>}</Route>
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/admin/roller">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminRoller /></AuthGuard>}</Route>
+        <Route path="/admin/aktivitetslogg">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminAktivitetslogg /></AuthGuard>}</Route>
         <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
@@ -246,6 +249,7 @@ function App() {
           <TooltipProvider>
             <Toaster />
             <AnalyticsRuntime />
+            <AdminActivityTracker />
             <OfflineIndicator />
             <RolePreviewProvider>
               <ComposeProvider>

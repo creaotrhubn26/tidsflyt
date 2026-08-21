@@ -317,6 +317,42 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
   return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
 }
 
+// Skriver én rad per mutasjonsforsøk mot en authenticateAdmin-gated rute —
+// kalt fra alle 3 suksess-grenene i authenticateAdmin, IKKE fra individuelle
+// ruter (~100 av dem), samme "én delt funksjon fremfor tredobling"-lærdom
+// som pairAdminUserWithUsersTable over. Logger også mislykkede forsøk
+// (statuskoden lagres) — en 403 er like interessant som en 200 for "hva
+// prøvde denne brukeren å gjøre". Best-effort: skriver aldri feil videre til
+// den faktiske handlingen.
+function attachActivityLogging(req: AuthRequest, res: Response): void {
+  // Every other pre-existing test file routes requests through
+  // authenticateAdmin without knowing this table exists, so without this
+  // guard they'd all silently write stray rows into the shared production
+  // table. Kept as the very first check.
+  if (process.env.NODE_ENV === "test") return;
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(req.method)) return;
+  const userId = req.admin?.id;
+  if (!userId) return;
+  // The page-view endpoint below is itself a POST and logs its own
+  // 'page_view' row — skip it here to avoid double-logging every page-view
+  // call as a spurious 'mutation' row too. Normalize a trailing slash first
+  // since Express's default non-strict routing matches both.
+  if (req.path.replace(/\/$/, "") === "/api/admin/activity/page-view") return;
+  res.on("finish", () => {
+    try {
+      pool
+        .query(
+          `INSERT INTO tidum_admin_activity_log (user_id, event_type, method, path, status_code)
+           VALUES ($1, 'mutation', $2, $3, $4)`,
+          [userId, req.method, req.path, res.statusCode],
+        )
+        .catch((err) => console.error("[activity-log] failed to write mutation entry", err));
+    } catch (err) {
+      console.error("[activity-log] unexpected error in finish listener", err);
+    }
+  });
+}
+
 export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // DEV MODE: bypass auth
   if (isDevMode) {
@@ -326,6 +362,7 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
       role: 'super_admin',
       roleId: (await resolveSuperAdminRoleId()) ?? undefined,
     };
+    attachActivityLogging(req, res);
     return next();
   }
   // Try JWT Bearer token first
@@ -346,6 +383,7 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
     if (!req.admin.roleId) {
       req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
     }
+    attachActivityLogging(req, res);
     return next();
   }
   // Fall back to session-based auth (Google OAuth)
@@ -364,6 +402,7 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
         console.error('[authenticateAdmin] failed to resolve session user roleId', err);
       }
     }
+    attachActivityLogging(req, res);
     return next();
   }
   return res.status(401).json({ error: 'Authentication required' });
@@ -1946,6 +1985,81 @@ export function registerSmartTimingRoutes(app: Express) {
         `SELECT id, email, first_name, last_name, role_id
          FROM users WHERE email ILIKE $1 ORDER BY email LIMIT 20`,
         [`%${q}%`],
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/admin/activity/page-view", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      // authenticateAdmin's sesjon-gren krever kun en gyldig Passport-sesjon
+      // (delt med portal-/leverandørbrukere), ikke en admin-rolle — hver
+      // annen admin-rute kompenserer med sin egen hasPermission()-sjekk,
+      // men denne ruten hadde bevisst ingen (spec: "enhver gyldig admin kan
+      // logge sin egen sidevisning"). Uten denne sjekken kunne enhver
+      // innlogget bruker, ikke bare admins, skrive rader i det som er ment
+      // å være en admin-aktivitetslogg. Legacy-rollestrengen (ikke
+      // roleId/hasPermission) matcher samme mønster admin-roller.tsx sin
+      // klient-gate allerede bruker for "hva teller som admin-nivå".
+      if (req.admin.role !== "super_admin" && req.admin.role !== "vendor_admin") {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const { path } = req.body as { path?: string };
+      if (typeof path !== "string" || !path.startsWith("/admin") || path.length > 512) {
+        return res.status(400).json({ error: "path må starte med /admin og være under 512 tegn" });
+      }
+      await pool.query(
+        `INSERT INTO tidum_admin_activity_log (user_id, event_type, path)
+         VALUES ($1, 'page_view', $2)`,
+        [req.admin.id, path],
+      );
+      res.status(201).json({ ok: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/admin/activity", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (!(await hasPermission(req.admin.roleId, "activity_log.view"))) {
+        return res.status(403).json({ error: "Ingen tilgang" });
+      }
+      const rawLimit = parseInt(String(req.query.limit ?? "50"), 10);
+      const limit = Math.min(Math.max(Number.isInteger(rawLimit) ? rawLimit : 50, 0), 200);
+      const rawOffset = parseInt(String(req.query.offset ?? "0"), 10);
+      const offset = Math.max(Number.isInteger(rawOffset) ? rawOffset : 0, 0);
+      const conditions: string[] = [];
+      const params: any[] = [];
+      if (req.query.userId) {
+        params.push(req.query.userId);
+        conditions.push(`al.user_id = $${params.length}`);
+      }
+      if (req.query.since) {
+        if (isNaN(Date.parse(String(req.query.since)))) {
+          return res.status(400).json({ error: "since må være en gyldig dato" });
+        }
+        params.push(req.query.since);
+        conditions.push(`al.created_at >= $${params.length}`);
+      }
+      if (req.query.until) {
+        if (isNaN(Date.parse(String(req.query.until)))) {
+          return res.status(400).json({ error: "until må være en gyldig dato" });
+        }
+        params.push(req.query.until);
+        conditions.push(`al.created_at <= $${params.length}`);
+      }
+      const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+      params.push(limit, offset);
+      const result = await pool.query(
+        `SELECT al.id, al.user_id, u.email as user_email, al.event_type, al.method, al.path, al.status_code, al.created_at
+         FROM tidum_admin_activity_log al
+         LEFT JOIN users u ON u.id = al.user_id
+         ${whereClause}
+         ORDER BY al.created_at DESC
+         LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        params,
       );
       res.json(result.rows);
     } catch (err: any) {
