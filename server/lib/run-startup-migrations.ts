@@ -5,6 +5,20 @@ import { pool } from "../db";
 // Migrations to apply on every startup. All SQL must be idempotent
 // (CREATE TABLE IF NOT EXISTS, ON CONFLICT DO NOTHING, etc.) so they
 // can run repeatedly without error or data loss.
+//
+// ORDER IS EXECUTION ORDER. runStartupMigrations() iterates this array
+// top-to-bottom with no sorting — position here is the only thing that
+// decides what runs when.
+//
+// !! 057_tidum_table_rename.sql MUST BE REGISTERED AS THE FIRST ENTRY,
+// ahead of 036-056, despite its higher number. 036-056 were rewritten to
+// CREATE/ALTER the tidum_-prefixed table names; 057 is what actually
+// renames the existing, data-holding tables to those names. If 057 runs
+// after (or not at all), 036-056 create 31 *empty shadow tables* under the
+// tidum_ names next to the real, still-old-named tables holding the data.
+// That happened once against the shared production DB and had to be
+// cleaned up by hand. 057 is deliberately not registered yet — when it is,
+// it goes at the top of this array, not at the bottom.
 const STARTUP_MIGRATIONS: string[] = [
   "036_pricing_sales.sql",
   "037_revenue_analytics.sql",
