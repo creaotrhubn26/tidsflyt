@@ -1683,7 +1683,7 @@ export async function registerRoutes(
   async function ensureSiteSettingsTableForOnboarding() {
     try {
       await pool.query(`
-        CREATE TABLE IF NOT EXISTS tidum_site_settings (
+        CREATE TABLE IF NOT EXISTS site_settings (
           id SERIAL PRIMARY KEY,
           key TEXT NOT NULL UNIQUE,
           value TEXT,
@@ -1827,7 +1827,7 @@ export async function registerRoutes(
     try {
       const result = await pool.query(
         `SELECT value
-         FROM tidum_site_settings
+         FROM site_settings
          WHERE key = $1
          LIMIT 1`,
         ["onboarding_content_v1"],

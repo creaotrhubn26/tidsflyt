@@ -8,7 +8,7 @@
  * neste import-runde har riktig grense.
  *
  * Vi rekker IKKE den eksakte tier-snapshot-historikken på vendor
- * (tier_snapshot_id ligger på tidum_access_requests.signed-row, og det er
+ * (tier_snapshot_id ligger på access_requests.signed-row, og det er
  * historisk). I stedet lagrer vi bump-historikk i imports.summary_jsonb
  * + sender e-post til Daniel som har audit-spor.
  */

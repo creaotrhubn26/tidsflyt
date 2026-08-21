@@ -268,7 +268,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
       let dbPage: any = null;
       try {
         const sp = await pool.query(
-          "SELECT * FROM tidum_seo_pages WHERE page_path = $1 AND is_active = true",
+          "SELECT * FROM seo_pages WHERE page_path = $1 AND is_active = true",
           [path],
         );
         if (sp.rows.length > 0) dbPage = sp.rows[0];

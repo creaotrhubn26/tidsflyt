@@ -3,14 +3,11 @@
 -- hver linje trygg å kjøre om igjen uansett hvor en tidligere, avbrutt
 -- kjøring stoppet.
 
-DO $$ BEGIN ALTER TABLE IF EXISTS access_requests RENAME TO tidum_access_requests; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS admin_users RENAME TO tidum_admin_users; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS aktivitet_maler RENAME TO tidum_aktivitet_maler; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS analytics_settings RENAME TO tidum_analytics_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS api_keys RENAME TO tidum_api_keys; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS api_usage_log RENAME TO tidum_api_usage_log; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS auth_login_events RENAME TO tidum_auth_login_events; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS blog_comments RENAME TO tidum_blog_comments; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS builder_pages RENAME TO tidum_builder_pages; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS case_reports RENAME TO tidum_case_reports; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS cms_activity_log RENAME TO tidum_cms_activity_log; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -18,7 +15,6 @@ DO $$ BEGIN ALTER TABLE IF EXISTS cms_categories RENAME TO tidum_cms_categories;
 DO $$ BEGIN ALTER TABLE IF EXISTS cms_content_entries RENAME TO tidum_cms_content_entries; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS cms_content_entry_versions RENAME TO tidum_cms_content_entry_versions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS cms_content_fields RENAME TO tidum_cms_content_fields; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS cms_content_types RENAME TO tidum_cms_content_types; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS cms_posts RENAME TO tidum_cms_posts; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS companies RENAME TO tidum_companies; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS company_audit_log RENAME TO tidum_company_audit_log; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -29,11 +25,9 @@ DO $$ BEGIN ALTER TABLE IF EXISTS crawler_results RENAME TO tidum_crawler_result
 DO $$ BEGIN ALTER TABLE IF EXISTS crawler_schedules RENAME TO tidum_crawler_schedules; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS dashboard_tasks RENAME TO tidum_dashboard_tasks; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS design_presets RENAME TO tidum_design_presets; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS design_tokens RENAME TO tidum_design_tokens; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS eid_identities RENAME TO tidum_eid_identities; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS email_send_history RENAME TO tidum_email_send_history; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS email_settings RENAME TO tidum_email_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS email_templates RENAME TO tidum_email_templates; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS feedback_requests RENAME TO tidum_feedback_requests; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS feedback_responses RENAME TO tidum_feedback_responses; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS form_submissions RENAME TO tidum_form_submissions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -46,7 +40,6 @@ DO $$ BEGIN ALTER TABLE IF EXISTS integration_interest_signals RENAME TO tidum_i
 DO $$ BEGIN ALTER TABLE IF EXISTS integration_roadmap RENAME TO tidum_integration_roadmap; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS integration_roadmap_history RENAME TO tidum_integration_roadmap_history; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS invoice_line_items RENAME TO tidum_invoice_line_items; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS invoices RENAME TO tidum_invoices; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS landing_cta RENAME TO tidum_landing_cta; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS landing_features RENAME TO tidum_landing_features; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS landing_hero RENAME TO tidum_landing_hero; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -57,11 +50,9 @@ DO $$ BEGIN ALTER TABLE IF EXISTS leave_requests RENAME TO tidum_leave_requests;
 DO $$ BEGIN ALTER TABLE IF EXISTS leave_types RENAME TO tidum_leave_types; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS log_row RENAME TO tidum_log_row; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS mobile_refresh_tokens RENAME TO tidum_mobile_refresh_tokens; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS notifications RENAME TO tidum_notifications; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS overtime_entries RENAME TO tidum_overtime_entries; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS overtime_settings RENAME TO tidum_overtime_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS page_analytics RENAME TO tidum_page_analytics; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS page_versions RENAME TO tidum_page_versions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS pricing_inclusions RENAME TO tidum_pricing_inclusions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS pricing_tier_inclusions RENAME TO tidum_pricing_tier_inclusions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS pricing_tiers RENAME TO tidum_pricing_tiers; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -91,9 +82,7 @@ DO $$ BEGIN ALTER TABLE IF EXISTS salg_settings RENAME TO tidum_salg_settings; E
 DO $$ BEGIN ALTER TABLE IF EXISTS section_design_settings RENAME TO tidum_section_design_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS section_templates RENAME TO tidum_section_templates; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS seo_global_settings RENAME TO tidum_seo_global_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS seo_pages RENAME TO tidum_seo_pages; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS sessions RENAME TO tidum_sessions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS site_settings RENAME TO tidum_site_settings; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS stripe_events RENAME TO tidum_stripe_events; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS tester_feedback RENAME TO tidum_tester_feedback; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS timer_sessions RENAME TO tidum_timer_sessions; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
@@ -115,13 +104,12 @@ DO $$ BEGIN ALTER TABLE IF EXISTS why_page_features RENAME TO tidum_why_page_fea
 DO $$ BEGIN ALTER TABLE IF EXISTS why_page_hero RENAME TO tidum_why_page_hero; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS why_page_stats RENAME TO tidum_why_page_stats; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 
--- De 9 lat-init-tabellene (opprettet direkte i TypeScript-kode, ikke i
+-- De 8 lat-init-tabellene (opprettet direkte i TypeScript-kode, ikke i
 -- noen tidligere migrasjon) — inkludert her i tilfelle de allerede finnes
 -- under gammelt navn i et miljø der koden allerede har kjørt. Trygt
 -- no-op hvis de aldri ble opprettet ennå (IF EXISTS).
 DO $$ BEGIN ALTER TABLE IF EXISTS log_row_audit RENAME TO tidum_log_row_audit; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS travel_legs RENAME TO tidum_travel_legs; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
-DO $$ BEGIN ALTER TABLE IF EXISTS cms_pages RENAME TO tidum_cms_pages; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS email_drafts RENAME TO tidum_email_drafts; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS landing_partners RENAME TO tidum_landing_partners; EXCEPTION WHEN duplicate_table THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE IF EXISTS leave_attachments RENAME TO tidum_leave_attachments; EXCEPTION WHEN duplicate_table THEN NULL; END $$;

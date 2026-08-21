@@ -8,7 +8,7 @@
 --
 -- Idempotent: kjøres på hver server-startup.
 
-ALTER TABLE tidum_access_requests
+ALTER TABLE access_requests
   ADD COLUMN IF NOT EXISTS source              TEXT,
   ADD COLUMN IF NOT EXISTS utm_source          TEXT,
   ADD COLUMN IF NOT EXISTS utm_medium          TEXT,
@@ -23,15 +23,15 @@ ALTER TABLE tidum_access_requests
   ADD COLUMN IF NOT EXISTS arr_ore_snapshot    INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_access_req_source
-  ON tidum_access_requests(source);
+  ON access_requests(source);
 CREATE INDEX IF NOT EXISTS idx_access_req_utm_source
-  ON tidum_access_requests(utm_source);
+  ON access_requests(utm_source);
 CREATE INDEX IF NOT EXISTS idx_access_req_signed_at
-  ON tidum_access_requests(signed_at);
+  ON access_requests(signed_at);
 
 CREATE TABLE IF NOT EXISTS tidum_revenue_events (
   id SERIAL PRIMARY KEY,
-  lead_id INTEGER REFERENCES tidum_access_requests(id) ON DELETE SET NULL,
+  lead_id INTEGER REFERENCES access_requests(id) ON DELETE SET NULL,
   customer_email TEXT NOT NULL,
   customer_company TEXT,
   event_type TEXT NOT NULL,            -- 'signup' | 'upgrade' | 'downgrade' | 'churn' | 'expansion' | 'reactivation'

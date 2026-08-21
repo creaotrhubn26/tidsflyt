@@ -45,7 +45,7 @@ export function registerAnalyticsRoutes(app: Express): void {
              COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
              COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr,
              COALESCE(AVG(NULLIF(${LEAD_ARR_FRAGMENT}, 0)), 0) AS avg_deal_size
-           FROM tidum_access_requests ar
+           FROM access_requests ar
            LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
            LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
            WHERE ar.created_at::date BETWEEN $1 AND $2
@@ -114,7 +114,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr,
            COUNT(ar.id) FILTER (WHERE lps.is_won = TRUE) AS won_count
-         FROM tidum_access_requests ar
+         FROM access_requests ar
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
@@ -148,7 +148,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            COUNT(ar.id) FILTER (WHERE lps.is_won = TRUE) AS won_count,
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
-         FROM tidum_access_requests ar
+         FROM access_requests ar
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
@@ -183,7 +183,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            COUNT(ar.id) FILTER (WHERE lps.is_won = TRUE) AS won_count,
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
-         FROM tidum_access_requests ar
+         FROM access_requests ar
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
@@ -217,7 +217,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            COUNT(ar.id) FILTER (WHERE lps.is_won = TRUE) AS won_count,
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0)         AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
-         FROM tidum_access_requests ar
+         FROM access_requests ar
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
@@ -254,7 +254,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            COUNT(ar.id)         AS lead_count,
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr
          FROM tidum_lead_pipeline_stages lps
-         LEFT JOIN tidum_access_requests ar
+         LEFT JOIN access_requests ar
            ON ar.pipeline_stage_id = lps.id
            AND ar.created_at::date BETWEEN $1 AND $2
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
@@ -391,7 +391,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign, ar.referrer,
            ${LEAD_ARR_FRAGMENT} AS arr_kr,
            ${LEAD_WEIGHTED_ARR_FRAGMENT} AS weighted_arr_kr
-         FROM tidum_access_requests ar
+         FROM access_requests ar
          LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2

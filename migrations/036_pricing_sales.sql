@@ -115,7 +115,7 @@ CREATE TABLE IF NOT EXISTS tidum_lead_pipeline_stages (
   updated_at TIMESTAMP DEFAULT NOW()
 );
 
-ALTER TABLE tidum_access_requests
+ALTER TABLE access_requests
   ADD COLUMN IF NOT EXISTS user_count_estimate INTEGER,
   ADD COLUMN IF NOT EXISTS tier_snapshot_id INTEGER REFERENCES tidum_pricing_tiers(id),
   ADD COLUMN IF NOT EXISTS pipeline_stage_id INTEGER REFERENCES tidum_lead_pipeline_stages(id),
@@ -133,9 +133,9 @@ CREATE INDEX IF NOT EXISTS idx_routing_active
 CREATE INDEX IF NOT EXISTS idx_pipeline_active
   ON tidum_lead_pipeline_stages(is_active, sort_order);
 CREATE INDEX IF NOT EXISTS idx_access_req_pipeline
-  ON tidum_access_requests(pipeline_stage_id);
+  ON access_requests(pipeline_stage_id);
 CREATE INDEX IF NOT EXISTS idx_access_req_assignee
-  ON tidum_access_requests(assigned_to_email);
+  ON access_requests(assigned_to_email);
 
 -- ====================== SEED DATA ======================
 

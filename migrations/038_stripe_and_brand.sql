@@ -87,13 +87,13 @@ CREATE INDEX IF NOT EXISTS idx_stripe_events_subscription ON tidum_stripe_events
 
 -- ============= 6. STRIPE-KOBLING PÅ access_requests / leads =============
 
-ALTER TABLE tidum_access_requests
+ALTER TABLE access_requests
   ADD COLUMN IF NOT EXISTS stripe_customer_id     TEXT,
   ADD COLUMN IF NOT EXISTS stripe_subscription_id TEXT,
   ADD COLUMN IF NOT EXISTS stripe_checkout_url    TEXT,
   ADD COLUMN IF NOT EXISTS stripe_checkout_expires_at TIMESTAMP;
 
 CREATE INDEX IF NOT EXISTS idx_access_req_stripe_customer
-  ON tidum_access_requests(stripe_customer_id);
+  ON access_requests(stripe_customer_id);
 CREATE INDEX IF NOT EXISTS idx_access_req_stripe_sub
-  ON tidum_access_requests(stripe_subscription_id);
+  ON access_requests(stripe_subscription_id);
