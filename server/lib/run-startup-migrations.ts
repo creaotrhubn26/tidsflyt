@@ -19,7 +19,7 @@ import { pool } from "../db";
 // That happened once against the shared production DB and had to be
 // cleaned up by hand. Keep it first — never move it down or re-sort this
 // array by filename.
-const STARTUP_MIGRATIONS: string[] = [
+export const STARTUP_MIGRATIONS: string[] = [
   "057_tidum_table_rename.sql",
   "036_pricing_sales.sql",
   "037_revenue_analytics.sql",
@@ -54,9 +54,20 @@ export async function runStartupMigrations(): Promise<void> {
       await pool.query(sql);
       console.log(`[migration] applied ${filename}`);
     } catch (err: any) {
-      // Don't crash startup — log and continue. Schema mismatches will
-      // show up on first query against the affected table.
       console.error(`[migration] FAILED ${filename}:`, err?.message || err);
+
+      // 057 is uniquely load-bearing (see the ordering comment above): every
+      // migration after it targets tidum_-prefixed names on the assumption
+      // that 057 already renamed the data-holding tables. If 057 fails and
+      // we let startup continue anyway, 036-056 recreate the exact empty
+      // shadow-table incident this whole initiative had to clean up once
+      // already. Abort startup instead of limping on with a half-migrated
+      // schema. Every other migration's failure is non-fatal — log and
+      // continue, schema mismatches show up on first query against the
+      // affected table.
+      if (filename === "057_tidum_table_rename.sql") {
+        throw err;
+      }
       continue;
     }
 

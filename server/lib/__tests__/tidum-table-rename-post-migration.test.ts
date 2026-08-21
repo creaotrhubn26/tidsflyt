@@ -23,6 +23,11 @@ const RENAMED: Array<[old: string, rowsBefore: number, why: string]> = [
   ["eid_identities", 0, "eID-innlogging"],
 ];
 
+// Disse to vokser under normal appbruk (innlogging skriver til begge), så
+// et eksakt radantall er flaky — sjekk i stedet at raden fortsatt finnes
+// og at ingenting ble slettet (>= radantallet rett før 057 kjørte).
+const GROWS_WITH_USAGE = new Set(["sessions", "auth_login_events"]);
+
 // De 12 tabellene som bevisst ble EKSKLUDERT fra omdøpingen (10 fremmed-eide,
 // access_requests = målnavnkollisjon, blog_comments = tvetydig). Disse SKAL
 // fortsatt hete det de alltid har hett.
@@ -56,7 +61,11 @@ describe("migrasjon 057: Tidum-tabell-omdøping mot ekte database", () => {
     expect(await tableExists(`tidum_${old}`), `tidum_${old} mangler`).toBe(true);
 
     const { rows } = await pool.query(`SELECT count(*)::int AS n FROM "tidum_${old}"`);
-    expect(rows[0].n, `radantall endret for tidum_${old}`).toBe(rowsBefore);
+    if (GROWS_WITH_USAGE.has(old)) {
+      expect(rows[0].n, `radantall gikk NED for tidum_${old} — data tapt`).toBeGreaterThanOrEqual(rowsBefore);
+    } else {
+      expect(rows[0].n, `radantall endret for tidum_${old}`).toBe(rowsBefore);
+    }
   });
 
   it.each(EXCLUDED)("%s er IKKE omdøpt (bevisst ekskludert)", async (name) => {

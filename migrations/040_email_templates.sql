@@ -45,7 +45,7 @@ E'Hei {{kunde_navn}},\n\nForespørselen din er sendt til vurdering. Når virksom
   (
     'lead-assigned',
     'Lead tildelt selger',
-    'Sendes internt til assignee-eposten i sales_routing_rules når et nytt lead matcher tier-båndet.',
+    'Sendes internt til assignee-eposten i tidum_sales_routing_rules når et nytt lead matcher tier-båndet.',
     '[{{assignee_label}}] Nytt lead: {{kunde_company}} ({{bruker_antall}} brukere)',
     'Tidum Salg — {{assignee_label}}',
     'Nytt lead tildelt deg',
@@ -76,3 +76,14 @@ E'Hei {{kunde_navn}},\n\nVi har gått gjennom forespørselen din, men kan ikke a
     NULL, NULL, TRUE
   )
 ON CONFLICT (slug) DO NOTHING;
+
+-- 040 already ran once against production (before sales_routing_rules was
+-- renamed to tidum_sales_routing_rules), so the 'lead-assigned' row above
+-- already exists there and the INSERT's ON CONFLICT DO NOTHING won't touch
+-- it again to pick up the corrected text. Idempotent UPDATE to fix the
+-- already-seeded row's stale table name in prod; matches nothing (no-op)
+-- once it has already run.
+UPDATE tidum_salg_email_templates
+SET description = 'Sendes internt til assignee-eposten i tidum_sales_routing_rules når et nytt lead matcher tier-båndet.'
+WHERE slug = 'lead-assigned'
+  AND description = 'Sendes internt til assignee-eposten i sales_routing_rules når et nytt lead matcher tier-båndet.';

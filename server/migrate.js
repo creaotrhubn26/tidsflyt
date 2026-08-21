@@ -1,3 +1,11 @@
+// !! SUPERSEDED — DO NOT RUN AGAINST THE SHARED PRODUCTION DATABASE !!
+// This script runs server/migrations/004_add_new_features.sql, whose 7
+// tables were renamed to their tidum_-prefixed equivalents by
+// migrations/057_tidum_table_rename.sql (already applied to production).
+// Running this now would recreate the old-named tables as empty shadow
+// tables next to the real, tidum_-prefixed data — the exact incident 057
+// was written to fix. Kept only for historical reference.
+
 import pkg from 'pg';
 const { Pool } = pkg;
 import { readFileSync } from 'fs';
