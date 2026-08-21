@@ -95,7 +95,7 @@ export const RETENTION_POLICY_POLICY = [
   },
   {
     dataType: "Saksrapporter (rapporter)",
-    storage: "rapporter, tidum_rapport_aktiviteter, tidum_rapport_maal",
+    storage: "tidum_rapporter, tidum_rapport_aktiviteter, tidum_rapport_maal",
     purpose: "Dokumentere oppfølging i klientsaker",
     legalBasis: "Barnevernsloven §10 / NAV-loven §6 / kommunale lovhjemler avhengig av sektor",
     deleteAfterYears: "Sektorbestemt — 25 år (barnevern), 10 år (helse), 5+ år (kommune)",

@@ -11,7 +11,7 @@
 -- Audit: `summary_jsonb` lagrer alt vi vil kunne svare på i ettertid
 --   (hvor mange ble importert, hvilke ble vendor_admin, hvem kjørte importen).
 
-CREATE TABLE IF NOT EXISTS imports (
+CREATE TABLE IF NOT EXISTS tidum_imports (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   vendor_id       INTEGER NOT NULL,
   source          TEXT NOT NULL CHECK (source IN ('planday','visma','quinyx','csv')),
@@ -26,12 +26,12 @@ CREATE TABLE IF NOT EXISTS imports (
   summary_jsonb   JSONB
 );
 
-CREATE INDEX IF NOT EXISTS idx_imports_vendor_status ON imports(vendor_id, status);
-CREATE INDEX IF NOT EXISTS idx_imports_created_at    ON imports(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_imports_vendor_status ON tidum_imports(vendor_id, status);
+CREATE INDEX IF NOT EXISTS idx_imports_created_at    ON tidum_imports(created_at DESC);
 
-CREATE TABLE IF NOT EXISTS import_rows (
+CREATE TABLE IF NOT EXISTS tidum_import_rows (
   id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  import_id        UUID NOT NULL REFERENCES imports(id) ON DELETE CASCADE,
+  import_id        UUID NOT NULL REFERENCES tidum_imports(id) ON DELETE CASCADE,
   row_index        INTEGER NOT NULL,
   external_id      TEXT,
   raw_jsonb        JSONB,
@@ -39,14 +39,14 @@ CREATE TABLE IF NOT EXISTS import_rows (
   status           TEXT NOT NULL DEFAULT 'valid' CHECK (status IN ('valid','error','imported','skipped','duplicate')),
   error_msg        TEXT,
   role_assigned    TEXT,
-  target_user_id   INTEGER REFERENCES company_users(id) ON DELETE SET NULL,
+  target_user_id   INTEGER REFERENCES tidum_company_users(id) ON DELETE SET NULL,
   created_at       TIMESTAMP DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_import_rows_import_id ON import_rows(import_id);
-CREATE INDEX IF NOT EXISTS idx_import_rows_status    ON import_rows(import_id, status);
+CREATE INDEX IF NOT EXISTS idx_import_rows_import_id ON tidum_import_rows(import_id);
+CREATE INDEX IF NOT EXISTS idx_import_rows_status    ON tidum_import_rows(import_id, status);
 
 -- Idempotens-vakt: én ekstern ID kan ikke importeres to ganger i samme import-batch
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_import_rows_external_id
-  ON import_rows(import_id, external_id)
+  ON tidum_import_rows(import_id, external_id)
   WHERE external_id IS NOT NULL;

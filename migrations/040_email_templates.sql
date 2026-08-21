@@ -8,7 +8,7 @@
 -- Variabler i tekst-feltene støtter {{placeholders}} samme syntaks
 -- som contract-renderer (kunde_navn, leverandor_navn, lead.* osv).
 
-CREATE TABLE IF NOT EXISTS salg_email_templates (
+CREATE TABLE IF NOT EXISTS tidum_salg_email_templates (
   id SERIAL PRIMARY KEY,
   slug TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS salg_email_templates (
 );
 
 CREATE INDEX IF NOT EXISTS idx_salg_email_templates_slug
-  ON salg_email_templates(slug);
+  ON tidum_salg_email_templates(slug);
 
 -- Seed default-malene som matcher dagens hardkodede tekster
-INSERT INTO salg_email_templates (slug, name, description, subject, badge, title, intro, body_md, cta_label, cta_url, is_active)
+INSERT INTO tidum_salg_email_templates (slug, name, description, subject, badge, title, intro, body_md, cta_label, cta_url, is_active)
 VALUES
   (
     'access-request-received',

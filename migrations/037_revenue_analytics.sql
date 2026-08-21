@@ -8,7 +8,7 @@
 --
 -- Idempotent: kjøres på hver server-startup.
 
-ALTER TABLE access_requests
+ALTER TABLE tidum_access_requests
   ADD COLUMN IF NOT EXISTS source              TEXT,
   ADD COLUMN IF NOT EXISTS utm_source          TEXT,
   ADD COLUMN IF NOT EXISTS utm_medium          TEXT,
@@ -23,21 +23,21 @@ ALTER TABLE access_requests
   ADD COLUMN IF NOT EXISTS arr_ore_snapshot    INTEGER;
 
 CREATE INDEX IF NOT EXISTS idx_access_req_source
-  ON access_requests(source);
+  ON tidum_access_requests(source);
 CREATE INDEX IF NOT EXISTS idx_access_req_utm_source
-  ON access_requests(utm_source);
+  ON tidum_access_requests(utm_source);
 CREATE INDEX IF NOT EXISTS idx_access_req_signed_at
-  ON access_requests(signed_at);
+  ON tidum_access_requests(signed_at);
 
-CREATE TABLE IF NOT EXISTS revenue_events (
+CREATE TABLE IF NOT EXISTS tidum_revenue_events (
   id SERIAL PRIMARY KEY,
-  lead_id INTEGER REFERENCES access_requests(id) ON DELETE SET NULL,
+  lead_id INTEGER REFERENCES tidum_access_requests(id) ON DELETE SET NULL,
   customer_email TEXT NOT NULL,
   customer_company TEXT,
   event_type TEXT NOT NULL,            -- 'signup' | 'upgrade' | 'downgrade' | 'churn' | 'expansion' | 'reactivation'
   delta_mrr_ore BIGINT NOT NULL,       -- positive for increase, negative for decrease
   mrr_after_ore BIGINT NOT NULL,       -- snapshot of customer MRR after event
-  tier_id INTEGER REFERENCES pricing_tiers(id),
+  tier_id INTEGER REFERENCES tidum_pricing_tiers(id),
   source TEXT,                         -- copied from lead at signup for cohort attribution
   utm_source TEXT,
   utm_medium TEXT,
@@ -49,12 +49,12 @@ CREATE TABLE IF NOT EXISTS revenue_events (
 );
 
 CREATE INDEX IF NOT EXISTS idx_revenue_events_customer
-  ON revenue_events(customer_email);
+  ON tidum_revenue_events(customer_email);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_occurred
-  ON revenue_events(occurred_at);
+  ON tidum_revenue_events(occurred_at);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_type
-  ON revenue_events(event_type, occurred_at);
+  ON tidum_revenue_events(event_type, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_lead
-  ON revenue_events(lead_id);
+  ON tidum_revenue_events(lead_id);
 CREATE INDEX IF NOT EXISTS idx_revenue_events_source
-  ON revenue_events(source);
+  ON tidum_revenue_events(source);
