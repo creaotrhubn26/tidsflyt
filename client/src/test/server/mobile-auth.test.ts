@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { db } from "../../../../server/db";
+import { db, pool } from "../../../../server/db";
 import { mobileRefreshTokens, users } from "../../../../shared/schema";
 import { eq } from "drizzle-orm";
 
@@ -26,23 +26,35 @@ describe("issueMobileTokens / refreshMobileAccessToken / revokeMobileRefreshToke
     const { issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } = await import(
       "../../../../server/lib/mobile-auth"
     );
-    const [user] = await db
-      .insert(users)
-      .values({ email: `mobile-auth-test-${Date.now()}@example.com`, role: "member" })
-      .returning();
+    // Raw SQL, not db.insert(users) — public.users has hidden NOT NULL
+    // columns (username, password) from an unrelated product sharing this
+    // database, which Tidum's own Drizzle schema (shared/models/auth.ts)
+    // doesn't declare. Same pattern as createDisposableUser() elsewhere in
+    // this test suite (e.g. server/lib/__tests__/role-management-routes.test.ts).
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const {
+      rows: [user],
+    } = await pool.query(
+      `INSERT INTO users (username, password, email, role) VALUES ($1, 'x', $2, 'member') RETURNING id`,
+      [`test_mobile_auth_${suffix}`, `mobile-auth-test-${suffix}@example.com`],
+    );
 
-    const { refreshToken } = await issueMobileTokens(user.id);
+    try {
+      const { refreshToken } = await issueMobileTokens(user.id);
 
-    const refreshed = await refreshMobileAccessToken(refreshToken);
-    expect(refreshed).not.toBeNull();
-    expect(refreshed?.accessToken).toBeTruthy();
+      const refreshed = await refreshMobileAccessToken(refreshToken);
+      expect(refreshed).not.toBeNull();
+      expect(refreshed?.accessToken).toBeTruthy();
 
-    await revokeMobileRefreshToken(refreshToken);
-    const afterRevoke = await refreshMobileAccessToken(refreshToken);
-    expect(afterRevoke).toBeNull();
-
-    await db.delete(mobileRefreshTokens).where(eq(mobileRefreshTokens.userId, user.id));
-    await db.delete(users).where(eq(users.id, user.id));
+      await revokeMobileRefreshToken(refreshToken);
+      const afterRevoke = await refreshMobileAccessToken(refreshToken);
+      expect(afterRevoke).toBeNull();
+    } finally {
+      // Runs even if an assertion above throws, so a failed run never
+      // leaves the row behind in the shared production database.
+      await db.delete(mobileRefreshTokens).where(eq(mobileRefreshTokens.userId, user.id));
+      await db.delete(users).where(eq(users.id, user.id));
+    }
   });
 
   it("returns null for an unknown refresh token", async () => {

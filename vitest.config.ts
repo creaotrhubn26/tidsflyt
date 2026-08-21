@@ -7,6 +7,18 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
+    // Many server-side test files run integration tests against the real,
+    // shared production database (no test DB exists in this environment)
+    // and assert GLOBAL invariants — e.g. "removing the only role.manage
+    // holder is blocked" — that the code under test deliberately checks
+    // system-wide, not scoped to one test file's own fixtures. Vitest's
+    // default file-level parallelism lets two such files race on that
+    // real, shared state (one file temporarily removing role.manage from
+    // the real super_admin role while another asserts it's the sole
+    // holder), causing intermittent false failures and, worse, a real
+    // (if brief) window where a live account loses real access. No CI
+    // pipeline currently depends on parallel speed, so correctness wins.
+    fileParallelism: false,
     setupFiles: ['./client/src/test/setup.ts'],
     env: {
       // Fallback only — real DATABASE_URL (CI/local) always wins. Lets

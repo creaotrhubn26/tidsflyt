@@ -24,25 +24,35 @@ describe("isAuthenticatedOrBearer", () => {
   it("accepts a request with a valid Bearer access token and populates req.user", async () => {
     const { resolveBearerUser, isAuthenticatedOrBearer } = await import("../../../../server/custom-auth");
     const { signAccessToken } = await import("../../../../server/lib/mobile-auth");
-    const { db } = await import("../../../../server/db");
-    const { users } = await import("../../../../shared/schema");
+    const { pool } = await import("../../../../server/db");
 
-    const [user] = await db
-      .insert(users)
-      .values({ email: `bearer-test-${Date.now()}@example.com`, role: "member", firstName: "Test" })
-      .returning();
+    // Raw SQL, not db.insert(users) — public.users has hidden NOT NULL
+    // columns (username, password) from an unrelated product sharing this
+    // database, which Tidum's own Drizzle schema (shared/models/auth.ts)
+    // doesn't declare. Same pattern as createDisposableUser() elsewhere in
+    // this test suite (e.g. server/lib/__tests__/role-management-routes.test.ts).
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const {
+      rows: [user],
+    } = await pool.query(
+      `INSERT INTO users (username, password, email, role, first_name) VALUES ($1, 'x', $2, 'member', 'Test') RETURNING id`,
+      [`test_bearer_auth_${suffix}`, `bearer-test-${suffix}@example.com`],
+    );
 
-    const app = express();
-    app.use(resolveBearerUser);
-    app.get("/protected", isAuthenticatedOrBearer, (req, res) => res.json({ id: (req.user as any).id }));
+    try {
+      const app = express();
+      app.use(resolveBearerUser);
+      app.get("/protected", isAuthenticatedOrBearer, (req, res) => res.json({ id: (req.user as any).id }));
 
-    const token = signAccessToken(user.id);
-    const res = await request(app).get("/protected").set("Authorization", `Bearer ${token}`);
-    expect(res.status).toBe(200);
-    expect(res.body.id).toBe(user.id);
-
-    const { eq } = await import("drizzle-orm");
-    await db.delete(users).where(eq(users.id, user.id));
+      const token = signAccessToken(user.id);
+      const res = await request(app).get("/protected").set("Authorization", `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(user.id);
+    } finally {
+      // Runs even if an assertion above throws, so a failed run never
+      // leaves the row behind in the shared production database.
+      await pool.query(`DELETE FROM users WHERE id = $1`, [user.id]);
+    }
   });
 });
 
