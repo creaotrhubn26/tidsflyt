@@ -17,9 +17,10 @@ import { pool } from "../db";
 // after (or not at all), 036-056 create 31 *empty shadow tables* under the
 // tidum_ names next to the real, still-old-named tables holding the data.
 // That happened once against the shared production DB and had to be
-// cleaned up by hand. 057 is deliberately not registered yet — when it is,
-// it goes at the top of this array, not at the bottom.
+// cleaned up by hand. Keep it first — never move it down or re-sort this
+// array by filename.
 const STARTUP_MIGRATIONS: string[] = [
+  "057_tidum_table_rename.sql",
   "036_pricing_sales.sql",
   "037_revenue_analytics.sql",
   "038_stripe_and_brand.sql",
