@@ -45,6 +45,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "059_task_assignment.sql",
   "060_notifications_drop_stale_user_id_not_null.sql",
   "061_notifications_drop_remaining_stale_not_null.sql",
+  "062_sak_journal.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

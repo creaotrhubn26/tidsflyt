@@ -2051,6 +2051,32 @@ export const rapporter = pgTable("tidum_rapporter", {
   updatedAt:       timestamp("updated_at").defaultNow(),
 });
 
+// Uforanderlig sak-journal — se migrations/062_sak_journal.sql. Ingen
+// updatedAt-kolonne: en rad som aldri kan endres trenger ingen
+// "sist endret"-tidsstempel; fraværet ER garantien gjort synlig i skjemaet.
+export const sakJournal = pgTable("tidum_sak_journal", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  sakId:            uuid("sak_id").notNull(),
+  userId:           integer("user_id").notNull(),
+  content:          text("content").notNull(),
+  correctsEntryId:  uuid("corrects_entry_id"),
+  createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const sakJournalAttachments = pgTable("tidum_sak_journal_attachments", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  journalEntryId:  uuid("journal_entry_id").notNull(),
+  filename:        text("filename").notNull(),
+  originalName:    text("original_name").notNull(),
+  mimeType:        text("mime_type").notNull(),
+  sizeBytes:       integer("size_bytes").notNull(),
+  uploadedBy:      integer("uploaded_by").notNull(),
+  uploadedAt:      timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
+});
+
+export type SakJournalEntry = typeof sakJournal.$inferSelect;
+export type SakJournalAttachment = typeof sakJournalAttachments.$inferSelect;
+
 // ── RAPPORT-MÅL ───────────────────────────────────────────────────────────────
 
 export const rapportMaal = pgTable("tidum_rapport_maal", {
@@ -2266,6 +2292,10 @@ export const insertRapportSchema = createInsertSchema(rapporter, {
   innledning:    z.string().max(5000).optional(),
   avslutning:    z.string().max(5000).optional(),
   dynamiskeFelter: z.record(z.string()).optional(),
+});
+
+export const insertSakJournalSchema = createInsertSchema(sakJournal, {
+  content: z.string().min(1).max(10000),
 });
 
 export const insertMaalSchema = createInsertSchema(rapportMaal, {
