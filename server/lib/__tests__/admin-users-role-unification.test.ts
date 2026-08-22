@@ -3,15 +3,15 @@ import { pool } from "../../db";
 import { readFileSync } from "fs";
 import { join } from "path";
 
-describe("admin_users/users role_id unification (migration 055)", () => {
+describe("tidum_admin_users/users role_id unification (migration 055)", () => {
   // Pattern-based cleanup, not id-array-based: an id array is skipped
   // whenever a preceding assertion (or a destructure like `pairedUser.id`
   // on a query result that came back empty — exactly the regression this
   // suite exists to catch) throws before the push runs, leaking the row
-  // into the real shared production `users`/`admin_users` tables. Deleting
+  // into the real shared production `users`/`tidum_admin_users` tables. Deleting
   // by the test_unif_ username prefix is immune to that whole bug class.
   afterEach(async () => {
-    await pool.query(`DELETE FROM admin_users WHERE username LIKE 'test_unif_%'`);
+    await pool.query(`DELETE FROM tidum_admin_users WHERE username LIKE 'test_unif_%'`);
     await pool.query(`DELETE FROM users WHERE username LIKE 'test_unif_%'`);
   });
 
@@ -23,12 +23,12 @@ describe("admin_users/users role_id unification (migration 055)", () => {
     await pool.query(sql);
   }
 
-  it("creates a paired users row for an admin_users row with no matching email, with role_id set", async () => {
+  it("creates a paired users row for an tidum_admin_users row with no matching email, with role_id set", async () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const {
       rows: [adminUser],
     } = await pool.query(
-      `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+      `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
        VALUES ($1, $2, 'x', 'super_admin', NULL) RETURNING id, email`,
       [`test_unif_admin_${suffix}`, `test-unif-${suffix}@example.com`],
     );
@@ -59,7 +59,7 @@ describe("admin_users/users role_id unification (migration 055)", () => {
     const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const email = `test-unif-paired-${suffix}@example.com`;
     await pool.query(
-      `INSERT INTO admin_users (username, email, password_hash, role, vendor_id)
+      `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
        VALUES ($1, $2, 'x', 'vendor_admin', NULL) RETURNING id`,
       [`test_unif_paired_admin_${suffix}`, email],
     );

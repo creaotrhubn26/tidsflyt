@@ -19,7 +19,7 @@ SELECT
   (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true),
   a.created_at,
   now()
-FROM admin_users a
+FROM tidum_admin_users a
 WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
   AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
   AND a.role IN ('super_admin', 'vendor_admin');

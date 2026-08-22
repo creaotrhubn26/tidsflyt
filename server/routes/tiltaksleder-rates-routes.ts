@@ -69,7 +69,7 @@ async function assertSakAccess(
   sakId: string,
 ): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
   const result = await pool.query(
-    `SELECT id, vendor_id, tiltaksleder_id, tildelte_user_id FROM saker WHERE id = $1 LIMIT 1`,
+    `SELECT id, vendor_id, tiltaksleder_id, tildelte_user_id FROM tidum_saker WHERE id = $1 LIMIT 1`,
     [sakId],
   );
   if (result.rows.length === 0) return { ok: false, status: 404, error: 'Sak finnes ikke' };
@@ -122,9 +122,9 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       const lookup = await pool.query(
         `SELECT uc.id, uc.case_id, uc.company_user_id, cu.vendor_id, cu.user_email,
                 s.id AS sak_uuid, s.tiltaksleder_id, s.tildelte_user_id, s.vendor_id AS sak_vendor_id
-         FROM user_cases uc
-         LEFT JOIN company_users cu ON cu.id = uc.company_user_id
-         LEFT JOIN saker s ON s.saksnummer = uc.case_id
+         FROM tidum_user_cases uc
+         LEFT JOIN tidum_company_users cu ON cu.id = uc.company_user_id
+         LEFT JOIN tidum_saker s ON s.saksnummer = uc.case_id
          WHERE uc.id = $1
          LIMIT 1`,
         [userCaseId],
@@ -165,7 +165,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       params.push(userCaseId);
 
       const result = await pool.query(
-        `UPDATE user_cases SET ${sets.join(', ')} WHERE id = $${p} RETURNING *`,
+        `UPDATE tidum_user_cases SET ${sets.join(', ')} WHERE id = $${p} RETURNING *`,
         params,
       );
       return res.json({ ok: true, userCase: result.rows[0] });
@@ -181,7 +181,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
    * Aggregat: per (vendor, sak, bruker) henter vi
    *   - timer (sum av sluttid - starttid - pause)
    *   - døgn  (count distinct date)
-   *   - rate  (fra user_cases — hourlyRate eller dayRate avhengig av rateMode)
+   *   - rate  (fra tidum_user_cases — hourlyRate eller dayRate avhengig av rateMode)
    *   - beløp (rate × mengde)
    *
    * Filter:
@@ -206,10 +206,10 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       const callerUserId = userId(req);
       const callerRole = userRole(req);
 
-      // SQL: aggregat fra log_row joined med saker, user_cases OG sak_locations.
+      // SQL: aggregat fra tidum_log_row joined med saker, tidum_user_cases OG tidum_sak_locations.
       // Sats-prioritet:
-      //   1) Hvis log_row.sak_location_id finnes → sak_locations.rate_mode + rate
-      //   2) Ellers → user_cases.rate_mode + rate
+      //   1) Hvis tidum_log_row.sak_location_id finnes → tidum_sak_locations.rate_mode + rate
+      //   2) Ellers → tidum_user_cases.rate_mode + rate
       //
       // Vi grupperer per (sak, bruker, lokasjon) for å regne korrekte beløp
       // når en bruker har timer i flere lokasjoner med ulike satser. UI
@@ -217,7 +217,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       const sql = `
         WITH scoped_saker AS (
           SELECT s.id, s.saksnummer, s.tittel, s.vendor_id, s.tiltaksleder_id, s.tildelte_user_id
-          FROM saker s
+          FROM tidum_saker s
           WHERE
             ${callerRole === 'super_admin' ? 'TRUE' :
               callerRole === 'vendor_admin' || callerRole === 'hovedadmin' || callerRole === 'admin'
@@ -231,7 +231,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
             lr.user_id AS user_id_text,
             lr.date,
             EXTRACT(EPOCH FROM (lr.end_time - lr.start_time)) / 3600.0 - COALESCE(lr.break_hours, 0)::numeric AS hours
-          FROM log_row lr
+          FROM tidum_log_row lr
           WHERE lr.sak_id IN (SELECT id FROM scoped_saker)
             AND lr.date >= $4::date
             AND lr.date <  $5::date
@@ -257,13 +257,13 @@ export function registerTiltakslederRatesRoutes(app: Express) {
             COUNT(DISTINCT slogs.date)::int         AS days
           FROM scoped_saker ss
           JOIN scoped_logs slogs ON slogs.sak_id = ss.id
-          LEFT JOIN company_users cu
+          LEFT JOIN tidum_company_users cu
                  ON cu.vendor_id = ss.vendor_id
                 AND cu.id::text = slogs.user_id_text
-          LEFT JOIN user_cases uc
+          LEFT JOIN tidum_user_cases uc
                  ON uc.company_user_id = cu.id
                 AND uc.case_id = ss.saksnummer
-          LEFT JOIN sak_locations sl_loc
+          LEFT JOIN tidum_sak_locations sl_loc
                  ON sl_loc.id = slogs.sak_location_id
           GROUP BY ss.id, ss.saksnummer, ss.tittel, ss.vendor_id, cu.id, cu.user_email,
                    uc.id, uc.hourly_rate, uc.day_rate, uc.rate_mode,
@@ -353,7 +353,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const result = await pool.query(
-        `SELECT * FROM sak_locations WHERE sak_id = $1 ORDER BY active DESC, name ASC`,
+        `SELECT * FROM tidum_sak_locations WHERE sak_id = $1 ORDER BY active DESC, name ASC`,
         [req.params.sakId],
       );
       return res.json({ locations: result.rows });
@@ -385,7 +385,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `INSERT INTO sak_locations (sak_id, name, address, rate_mode, hourly_rate, day_rate, created_by)
+        `INSERT INTO tidum_sak_locations (sak_id, name, address, rate_mode, hourly_rate, day_rate, created_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
         [
@@ -440,7 +440,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       params.push(req.params.id, req.params.sakId);
 
       const result = await pool.query(
-        `UPDATE sak_locations SET ${sets.join(', ')}
+        `UPDATE tidum_sak_locations SET ${sets.join(', ')}
          WHERE id = $${p++} AND sak_id = $${p}
          RETURNING *`,
         params,
@@ -461,7 +461,7 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       if (!access.ok) return res.status(access.status).json({ error: access.error });
 
       const result = await pool.query(
-        `UPDATE sak_locations SET active = false, updated_at = NOW()
+        `UPDATE tidum_sak_locations SET active = false, updated_at = NOW()
          WHERE id = $1 AND sak_id = $2 RETURNING id`,
         [req.params.id, req.params.sakId],
       );

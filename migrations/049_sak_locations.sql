@@ -10,9 +10,9 @@
 --   2. user_cases.day_rate / hourly_rate
 --   3. vendor_settings.enforced_hourly_rate
 
-CREATE TABLE IF NOT EXISTS sak_locations (
+CREATE TABLE IF NOT EXISTS tidum_sak_locations (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  sak_id        UUID NOT NULL REFERENCES saker(id) ON DELETE CASCADE,
+  sak_id        UUID NOT NULL REFERENCES tidum_saker(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
   address       TEXT,
   rate_mode     TEXT NOT NULL DEFAULT 'hour',
@@ -26,10 +26,10 @@ CREATE TABLE IF NOT EXISTS sak_locations (
     CHECK (rate_mode IN ('hour', 'day'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_sak_locations_sak_id ON sak_locations(sak_id);
-CREATE INDEX IF NOT EXISTS idx_sak_locations_active ON sak_locations(active);
+CREATE INDEX IF NOT EXISTS idx_sak_locations_sak_id ON tidum_sak_locations(sak_id);
+CREATE INDEX IF NOT EXISTS idx_sak_locations_active ON tidum_sak_locations(active);
 
-ALTER TABLE log_row
+ALTER TABLE tidum_log_row
   ADD COLUMN IF NOT EXISTS sak_location_id UUID;
 
-CREATE INDEX IF NOT EXISTS idx_log_row_sak_location ON log_row(sak_location_id);
+CREATE INDEX IF NOT EXISTS idx_log_row_sak_location ON tidum_log_row(sak_location_id);

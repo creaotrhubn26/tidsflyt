@@ -137,7 +137,7 @@ export async function validateShift(input: ShiftInput): Promise<AtlValidationRes
   try {
     const params: any[] = [input.userId, lookbackStartStr, lookbackEnd];
     let sql = `SELECT id, date::text as date, start_time::text as start_time, end_time::text as end_time, break_hours
-               FROM log_row
+               FROM tidum_log_row
                WHERE user_id = $1 AND date >= $2 AND date <= $3`;
     if (input.excludeEntryId) {
       params.push(input.excludeEntryId);
@@ -148,7 +148,7 @@ export async function validateShift(input: ShiftInput): Promise<AtlValidationRes
   } catch (err: any) {
     // If table not available (edge case), skip DB-dependent checks — we already
     // have the daily-length + break warnings above, which is the bigger signal.
-    if (String(err?.message || '').includes('relation "log_row" does not exist')) {
+    if (String(err?.message || '').includes('relation "tidum_log_row" does not exist')) {
       return { warnings, errors };
     }
     throw err;

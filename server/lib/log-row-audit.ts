@@ -1,9 +1,9 @@
 /**
  * server/lib/log-row-audit.ts
  *
- * Append-only audit trail for log_row mutations. Supports compliance
+ * Append-only audit trail for tidum_log_row mutations. Supports compliance
  * (arbeidstilsynet, internrevisjon) and simplifies "who changed what, when"
- * investigations without rewriting the main log_row schema.
+ * investigations without rewriting the main tidum_log_row schema.
  *
  * Schema is created lazily on first import (no migration needed).
  */
@@ -20,7 +20,7 @@ export async function ensureLogRowAuditTable(): Promise<void> {
   if (ensured) return;
   try {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS log_row_audit (
+      CREATE TABLE IF NOT EXISTS tidum_log_row_audit (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         log_row_id UUID NOT NULL,
         action TEXT NOT NULL CHECK (action IN ('create', 'update', 'delete')),
@@ -32,12 +32,12 @@ export async function ensureLogRowAuditTable(): Promise<void> {
         ip_address TEXT,
         user_agent TEXT
       );
-      CREATE INDEX IF NOT EXISTS idx_log_row_audit_row_id ON log_row_audit(log_row_id);
-      CREATE INDEX IF NOT EXISTS idx_log_row_audit_changed_at ON log_row_audit(changed_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_log_row_audit_row_id ON tidum_log_row_audit(log_row_id);
+      CREATE INDEX IF NOT EXISTS idx_log_row_audit_changed_at ON tidum_log_row_audit(changed_at DESC);
     `);
     ensured = true;
   } catch (err) {
-    console.error('Failed to ensure log_row_audit table:', err);
+    console.error('Failed to ensure tidum_log_row_audit table:', err);
     throw err;
   }
 }
@@ -66,7 +66,7 @@ export async function auditLogRow(opts: AuditWriteOptions): Promise<void> {
     await ensureLogRowAuditTable();
     const caller = opts.req ? callerFromReq(opts.req) : { userId: null, role: null, ip: null, userAgent: null };
     await pool.query(
-      `INSERT INTO log_row_audit
+      `INSERT INTO tidum_log_row_audit
          (log_row_id, action, before_data, after_data, changed_by, changed_by_role, ip_address, user_agent)
        VALUES ($1, $2, $3::jsonb, $4::jsonb, $5, $6, $7, $8)`,
       [
@@ -82,7 +82,7 @@ export async function auditLogRow(opts: AuditWriteOptions): Promise<void> {
     );
   } catch (err) {
     // Audit must never break a user-facing mutation; log and swallow.
-    console.error('[audit] failed to write log_row_audit entry:', err);
+    console.error('[audit] failed to write tidum_log_row_audit entry:', err);
   }
 }
 
@@ -104,7 +104,7 @@ export async function listAuditForLogRow(logRowId: string, limit = 50): Promise<
   const result = await pool.query(
     `SELECT id, log_row_id, action, before_data, after_data,
             changed_by, changed_by_role, changed_at, ip_address, user_agent
-     FROM log_row_audit
+     FROM tidum_log_row_audit
      WHERE log_row_id = $1
      ORDER BY changed_at DESC
      LIMIT $2`,

@@ -30,7 +30,7 @@ export interface TierBumpResult {
 /**
  * Slå opp riktig tier for det nye brukerantallet og oppdater vendor.
  * Returnerer null hvis ingen tier matcher (skal ikke skje med korrekt
- * konfigurert pricing_tiers, men håndteres defensivt).
+ * konfigurert tidum_pricing_tiers, men håndteres defensivt).
  */
 export async function applyTierBump(
   vendorId: number,

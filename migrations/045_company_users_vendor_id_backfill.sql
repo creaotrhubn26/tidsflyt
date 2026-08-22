@@ -12,6 +12,6 @@
 -- Denne migrasjonen normaliserer eksisterende data slik at T13–T17 fungerer
 -- helhetlig fra dag én etter deploy.
 
-UPDATE company_users
+UPDATE tidum_company_users
 SET vendor_id = company_id
 WHERE vendor_id IS NULL;

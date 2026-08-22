@@ -1,7 +1,7 @@
 /**
  * server/routes/travel-legs-routes.ts
  *
- * REST for travel_legs (kjøregodt-segmenter) brukt fra stemplings-flyten.
+ * REST for tidum_travel_legs (kjøregodt-segmenter) brukt fra stemplings-flyten.
  *
  *   GET    /api/travel-legs             — list (filter: date, from, to, sakId, logRowId)
  *   POST   /api/travel-legs             — create; auto-beregner km hvis coords gitt

@@ -9,8 +9,8 @@
 
 -- Steg 1: Rydd eventuelle duplikater (behold raden med lavest id per
 -- vendor_id + user_email — typisk den eldste).
-DELETE FROM company_users a
-USING company_users b
+DELETE FROM tidum_company_users a
+USING tidum_company_users b
 WHERE a.id > b.id
   AND a.vendor_id IS NOT DISTINCT FROM b.vendor_id
   AND a.user_email = b.user_email;
@@ -19,4 +19,4 @@ WHERE a.id > b.id
 -- vendor_id IS NULL — uten det vil PostgreSQL behandle to NULL-rader som
 -- forskjellige og slippe gjennom duplikater.
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_company_users_email_per_vendor
-  ON company_users(COALESCE(vendor_id, 0), lower(user_email));
+  ON tidum_company_users(COALESCE(vendor_id, 0), lower(user_email));

@@ -1,7 +1,7 @@
 /**
  * server/routes/leave-attachments-routes.ts
  *
- * Sykmelding / annen dokumentasjon på leave_requests. PDF eller bilder.
+ * Sykmelding / annen dokumentasjon på tidum_leave_requests. PDF eller bilder.
  *
  *   POST   /api/leave/:id/attachments   — upload 1 fil
  *   GET    /api/leave/:id/attachments   — list
@@ -52,7 +52,7 @@ let ensured = false;
 async function ensureTable(): Promise<void> {
   if (ensured) return;
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS leave_attachments (
+    CREATE TABLE IF NOT EXISTS tidum_leave_attachments (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       leave_request_id INTEGER NOT NULL,
       filename TEXT NOT NULL,
@@ -62,7 +62,7 @@ async function ensureTable(): Promise<void> {
       uploaded_by TEXT,
       uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_leave_attachments_request ON leave_attachments(leave_request_id);
+    CREATE INDEX IF NOT EXISTS idx_leave_attachments_request ON tidum_leave_attachments(leave_request_id);
   `);
   ensured = true;
 }
@@ -80,7 +80,7 @@ async function canAccessAttachment(req: Request, leaveRequestId: number): Promis
   if (isAdminOrTiltaksleder(req)) return true;
   const userId = authedUser(req)?.id;
   if (!userId) return false;
-  const r = await pool.query('SELECT user_id FROM leave_requests WHERE id = $1 LIMIT 1', [leaveRequestId]);
+  const r = await pool.query('SELECT user_id FROM tidum_leave_requests WHERE id = $1 LIMIT 1', [leaveRequestId]);
   return r.rows[0]?.user_id === String(userId);
 }
 
@@ -93,7 +93,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
       if (!req.file) return res.status(400).json({ error: 'Ingen fil mottatt (feltnavn må være "file")' });
 
       // Authorisation: eier eller admin/tiltaksleder
-      const lr = await pool.query('SELECT user_id FROM leave_requests WHERE id = $1 LIMIT 1', [leaveRequestId]);
+      const lr = await pool.query('SELECT user_id FROM tidum_leave_requests WHERE id = $1 LIMIT 1', [leaveRequestId]);
       if (lr.rows.length === 0) {
         // Rydd opp filen siden vi ikke knytter den
         fs.unlink(req.file.path, () => {});
@@ -107,7 +107,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `INSERT INTO leave_attachments
+        `INSERT INTO tidum_leave_attachments
            (leave_request_id, filename, original_name, mime_type, size_bytes, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id, leave_request_id, filename, original_name, mime_type, size_bytes, uploaded_by, uploaded_at`,
@@ -138,7 +138,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
       const r = await pool.query(
         `SELECT id, leave_request_id, filename, original_name, mime_type, size_bytes,
                 uploaded_by, uploaded_at
-         FROM leave_attachments WHERE leave_request_id = $1 ORDER BY uploaded_at DESC`,
+         FROM tidum_leave_attachments WHERE leave_request_id = $1 ORDER BY uploaded_at DESC`,
         [leaveRequestId],
       );
       res.json(r.rows);
@@ -151,7 +151,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
     try {
       await ensureTable();
       const r = await pool.query(
-        'SELECT leave_request_id, filename, original_name, mime_type FROM leave_attachments WHERE id = $1 LIMIT 1',
+        'SELECT leave_request_id, filename, original_name, mime_type FROM tidum_leave_attachments WHERE id = $1 LIMIT 1',
         [req.params.attId],
       );
       if (r.rows.length === 0) return res.status(404).json({ error: 'Ikke funnet' });
@@ -173,7 +173,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
     try {
       await ensureTable();
       const r = await pool.query(
-        'SELECT leave_request_id, filename FROM leave_attachments WHERE id = $1 LIMIT 1',
+        'SELECT leave_request_id, filename FROM tidum_leave_attachments WHERE id = $1 LIMIT 1',
         [req.params.attId],
       );
       if (r.rows.length === 0) return res.status(404).json({ error: 'Ikke funnet' });
@@ -181,7 +181,7 @@ export function registerLeaveAttachmentsRoutes(app: Express) {
       if (!(await canAccessAttachment(req, row.leave_request_id))) {
         return res.status(403).json({ error: 'Ikke tilgang' });
       }
-      await pool.query('DELETE FROM leave_attachments WHERE id = $1', [req.params.attId]);
+      await pool.query('DELETE FROM tidum_leave_attachments WHERE id = $1', [req.params.attId]);
       const filePath = path.join(LEAVE_UPLOAD_DIR, row.filename);
       fs.unlink(filePath, () => {}); // best-effort
       res.status(204).send();

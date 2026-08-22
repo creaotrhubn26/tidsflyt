@@ -347,7 +347,7 @@ export function registerEmailComposerRoutes(app: Express) {
         try {
           await ensureDraftsTable();
           await pool.query(
-            `DELETE FROM email_drafts WHERE id = $1 AND user_id = $2`,
+            `DELETE FROM tidum_email_drafts WHERE id = $1 AND user_id = $2`,
             [draftId, senderId],
           );
         } catch (e) {
@@ -428,7 +428,7 @@ export function registerEmailComposerRoutes(app: Express) {
   async function ensureDraftsTable() {
     if (draftsTableReady) return;
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS email_drafts (
+      CREATE TABLE IF NOT EXISTS tidum_email_drafts (
         id SERIAL PRIMARY KEY,
         user_id TEXT NOT NULL,
         to_email TEXT,
@@ -447,8 +447,8 @@ export function registerEmailComposerRoutes(app: Express) {
         updated_at TIMESTAMPTZ DEFAULT NOW()
       );
     `);
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_user ON email_drafts (user_id, status, updated_at DESC);');
-    await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_send_at ON email_drafts (status, send_at);');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_user ON tidum_email_drafts (user_id, status, updated_at DESC);');
+    await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_send_at ON tidum_email_drafts (status, send_at);');
     draftsTableReady = true;
   }
 
@@ -458,7 +458,7 @@ export function registerEmailComposerRoutes(app: Express) {
     try {
       await ensureDraftsTable();
       const due = await pool.query(
-        `SELECT * FROM email_drafts
+        `SELECT * FROM tidum_email_drafts
           WHERE status = 'scheduled' AND send_at IS NOT NULL AND send_at <= NOW()
           ORDER BY send_at ASC LIMIT 20`,
       );
@@ -495,7 +495,7 @@ export function registerEmailComposerRoutes(app: Express) {
           });
 
           await pool.query(
-            `UPDATE email_drafts SET status = $1, sent_at = NOW(), updated_at = NOW() WHERE id = $2`,
+            `UPDATE tidum_email_drafts SET status = $1, sent_at = NOW(), updated_at = NOW() WHERE id = $2`,
             [sent ? 'sent' : 'failed', d.id],
           );
 
@@ -517,7 +517,7 @@ export function registerEmailComposerRoutes(app: Express) {
         } catch (e: any) {
           console.warn('Auto-send draft', d.id, 'failed:', e.message);
           await pool.query(
-            `UPDATE email_drafts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
+            `UPDATE tidum_email_drafts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
             [d.id],
           );
         }
@@ -539,7 +539,7 @@ export function registerEmailComposerRoutes(app: Express) {
       await autoSendScheduled();
       const userId = String(user.id || user.email);
       const result = await pool.query(
-        `SELECT * FROM email_drafts
+        `SELECT * FROM tidum_email_drafts
           WHERE user_id = $1 AND status IN ('draft', 'scheduled')
           ORDER BY updated_at DESC LIMIT 100`,
         [userId],
@@ -565,14 +565,14 @@ export function registerEmailComposerRoutes(app: Express) {
       const attachmentsJson = JSON.stringify(Array.isArray(attachments) ? attachments : []);
       if (id) {
         const existing = await pool.query(
-          `SELECT user_id FROM email_drafts WHERE id = $1`,
+          `SELECT user_id FROM tidum_email_drafts WHERE id = $1`,
           [id],
         );
         if (existing.rows.length === 0 || existing.rows[0].user_id !== userId) {
           return res.status(404).json({ error: 'Utkast ikke funnet' });
         }
         const updated = await pool.query(
-          `UPDATE email_drafts SET
+          `UPDATE tidum_email_drafts SET
               to_email = $1, cc_email = $2, bcc_email = $3, subject = $4, body = $5,
               template_id = $6, recipient_name = $7, institution_name = $8,
               attachments = $9::jsonb, send_at = $10, status = $11, updated_at = NOW()
@@ -584,7 +584,7 @@ export function registerEmailComposerRoutes(app: Express) {
         return res.json(updated.rows[0]);
       }
       const inserted = await pool.query(
-        `INSERT INTO email_drafts
+        `INSERT INTO tidum_email_drafts
             (user_id, to_email, cc_email, bcc_email, subject, body,
              template_id, recipient_name, institution_name, attachments, send_at, status)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
@@ -608,7 +608,7 @@ export function registerEmailComposerRoutes(app: Express) {
       await ensureDraftsTable();
       const userId = String(user.id || user.email);
       await pool.query(
-        `DELETE FROM email_drafts WHERE id = $1 AND user_id = $2`,
+        `DELETE FROM tidum_email_drafts WHERE id = $1 AND user_id = $2`,
         [req.params.id, userId],
       );
       res.json({ ok: true });

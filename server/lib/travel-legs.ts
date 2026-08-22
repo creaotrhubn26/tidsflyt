@@ -26,9 +26,9 @@ let ensured = false;
 export async function ensureTravelLegsTable(): Promise<void> {
   if (ensured) return;
   await pool.query(`
-    CREATE TABLE IF NOT EXISTS travel_legs (
+    CREATE TABLE IF NOT EXISTS tidum_travel_legs (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-      log_row_id UUID REFERENCES log_row(id) ON DELETE CASCADE,
+      log_row_id UUID REFERENCES tidum_log_row(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL,
       sak_id UUID,
       date DATE NOT NULL,
@@ -50,9 +50,9 @@ export async function ensureTravelLegsTable(): Promise<void> {
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW()
     );
-    CREATE INDEX IF NOT EXISTS idx_travel_legs_user_date ON travel_legs(user_id, date);
-    CREATE INDEX IF NOT EXISTS idx_travel_legs_log_row ON travel_legs(log_row_id);
-    CREATE INDEX IF NOT EXISTS idx_travel_legs_sak ON travel_legs(sak_id);
+    CREATE INDEX IF NOT EXISTS idx_travel_legs_user_date ON tidum_travel_legs(user_id, date);
+    CREATE INDEX IF NOT EXISTS idx_travel_legs_log_row ON tidum_travel_legs(log_row_id);
+    CREATE INDEX IF NOT EXISTS idx_travel_legs_sak ON tidum_travel_legs(sak_id);
   `);
   ensured = true;
 }
@@ -150,7 +150,7 @@ export async function createTravelLeg(input: TravelLegInput): Promise<TravelLeg>
   const totalAmount = computeLegTotal(input.kilometers, ratePerKm, passengerCount, passengerRatePerKm);
 
   const result = await pool.query(
-    `INSERT INTO travel_legs
+    `INSERT INTO tidum_travel_legs
        (log_row_id, user_id, sak_id, date, leg_order,
         from_name, to_name, from_lat, from_lng, to_lat, to_lng,
         kilometers, rate_per_km, passenger_count, passenger_rate_per_km,
@@ -201,7 +201,7 @@ export async function listTravelLegs(filters: {
   if (filters.sakId) { params.push(filters.sakId); where.push(`sak_id = $${params.length}`); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const result = await pool.query(
-    `SELECT * FROM travel_legs ${clause} ORDER BY date DESC, leg_order ASC, created_at ASC`,
+    `SELECT * FROM tidum_travel_legs ${clause} ORDER BY date DESC, leg_order ASC, created_at ASC`,
     params,
   );
   return result.rows.map(mapRow);
@@ -209,7 +209,7 @@ export async function listTravelLegs(filters: {
 
 export async function getTravelLeg(id: string): Promise<TravelLeg | null> {
   await ensureTravelLegsTable();
-  const r = await pool.query('SELECT * FROM travel_legs WHERE id = $1 LIMIT 1', [id]);
+  const r = await pool.query('SELECT * FROM tidum_travel_legs WHERE id = $1 LIMIT 1', [id]);
   return r.rows[0] ? mapRow(r.rows[0]) : null;
 }
 
@@ -227,7 +227,7 @@ export async function updateTravelLeg(id: string, patch: Partial<TravelLegInput>
   const totalAmount = computeLegTotal(next.kilometers, next.ratePerKm, next.passengerCount, next.passengerRatePerKm);
 
   const r = await pool.query(
-    `UPDATE travel_legs SET
+    `UPDATE tidum_travel_legs SET
         from_name = COALESCE($1, from_name),
         to_name = COALESCE($2, to_name),
         from_lat = $3,
@@ -270,6 +270,6 @@ export async function updateTravelLeg(id: string, patch: Partial<TravelLegInput>
 
 export async function deleteTravelLeg(id: string): Promise<boolean> {
   await ensureTravelLegsTable();
-  const r = await pool.query('DELETE FROM travel_legs WHERE id = $1 RETURNING id', [id]);
+  const r = await pool.query('DELETE FROM tidum_travel_legs WHERE id = $1 RETURNING id', [id]);
   return r.rows.length > 0;
 }

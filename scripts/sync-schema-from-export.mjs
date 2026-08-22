@@ -219,7 +219,7 @@ async function ensureTrailingStatement(pool, statement) {
     return;
   }
 
-  if (statement.startsWith('ALTER TABLE "email_send_history" ADD CONSTRAINT "')) {
+  if (statement.startsWith('ALTER TABLE "tidum_email_send_history" ADD CONSTRAINT "')) {
     const constraintMatch = /ADD CONSTRAINT "([^"]+)"/.exec(statement);
     if (!constraintMatch) {
       await pool.query(statement);

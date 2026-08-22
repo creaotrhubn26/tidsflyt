@@ -627,8 +627,8 @@ export function registerPricingRoutes(app: Express): void {
           lps.is_terminal          AS stage_is_terminal,
           lps.is_won               AS stage_is_won
         FROM access_requests ar
-        LEFT JOIN pricing_tiers       pt  ON pt.id  = ar.tier_snapshot_id
-        LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+        LEFT JOIN tidum_pricing_tiers       pt  ON pt.id  = ar.tier_snapshot_id
+        LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
         WHERE ($1::text IS NULL OR lps.slug = $1)
           AND ($2::text IS NULL OR ar.assigned_to_email = $2)
         ORDER BY ar.created_at DESC
@@ -658,8 +658,8 @@ export function registerPricingRoutes(app: Express): void {
           lps.slug                 AS stage_slug,
           lps.probability_pct      AS stage_probability_pct
         FROM access_requests ar
-        LEFT JOIN pricing_tiers       pt  ON pt.id  = ar.tier_snapshot_id
-        LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+        LEFT JOIN tidum_pricing_tiers       pt  ON pt.id  = ar.tier_snapshot_id
+        LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
         WHERE ar.id = $1
         LIMIT 1
       `;
@@ -679,7 +679,7 @@ export function registerPricingRoutes(app: Express): void {
       const data: any = { ...parsed.data, updatedAt: new Date() };
       if (parsed.data.assignedToEmail === "") data.assignedToEmail = null;
 
-      // Detect stage transition to log a revenue_events row.
+      // Detect stage transition to log a tidum_revenue_events row.
       // Won → 'signup' event with full ARR snapshot.
       // Churn (terminal but !won, after a previous won) → 'churn' event.
       let stageChange: { newStageId: number | null; oldStageId: number | null } | null = null;
@@ -706,7 +706,7 @@ export function registerPricingRoutes(app: Express): void {
       if (stageChange && stageChange.newStageId && stageChange.newStageId !== stageChange.oldStageId) {
         try {
           await pool.query(
-            `INSERT INTO revenue_events (
+            `INSERT INTO tidum_revenue_events (
               lead_id, customer_email, customer_company, event_type,
               delta_mrr_ore, mrr_after_ore, tier_id,
               source, utm_source, utm_medium, utm_campaign, occurred_at, created_by
@@ -724,8 +724,8 @@ export function registerPricingRoutes(app: Express): void {
               ar.source, ar.utm_source, ar.utm_medium, ar.utm_campaign,
               NOW(), $2
             FROM access_requests ar
-            LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-            LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+            LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+            LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
             WHERE ar.id = $1
               AND lps.is_terminal IS TRUE
               AND pt.id IS NOT NULL
@@ -739,7 +739,7 @@ export function registerPricingRoutes(app: Express): void {
               `UPDATE access_requests
                  SET signed_at = COALESCE(signed_at,
                    CASE WHEN EXISTS (
-                     SELECT 1 FROM lead_pipeline_stages
+                     SELECT 1 FROM tidum_lead_pipeline_stages
                      WHERE id = $2 AND is_won IS TRUE
                    ) THEN NOW() ELSE signed_at END
                  )
@@ -749,7 +749,7 @@ export function registerPricingRoutes(app: Express): void {
 
             // GA4 server-side purchase når selger manuelt setter Won
             const { rows: stageRows } = await pool.query(
-              `SELECT is_won FROM lead_pipeline_stages WHERE id = $1`,
+              `SELECT is_won FROM tidum_lead_pipeline_stages WHERE id = $1`,
               [parsed.data.pipelineStageId],
             );
             if (stageRows[0]?.is_won) {
@@ -760,7 +760,7 @@ export function registerPricingRoutes(app: Express): void {
                         pt.slug AS tier_slug, pt.label AS tier_label,
                         pt.price_per_user_ore
                    FROM access_requests ar
-                   LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+                   LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
                   WHERE ar.id = $1`,
                 [id],
               );
@@ -908,9 +908,9 @@ export function registerPricingRoutes(app: Express): void {
                     * 12 * lps.probability_pct) / 10000
             END
           ), 0)                    AS weighted_arr_kr
-        FROM lead_pipeline_stages lps
+        FROM tidum_lead_pipeline_stages lps
         LEFT JOIN access_requests ar ON ar.pipeline_stage_id = lps.id
-        LEFT JOIN pricing_tiers   pt ON pt.id = ar.tier_snapshot_id
+        LEFT JOIN tidum_pricing_tiers   pt ON pt.id = ar.tier_snapshot_id
         WHERE lps.is_active = TRUE
         GROUP BY lps.slug, lps.label, lps.probability_pct, lps.sort_order
         ORDER BY lps.sort_order

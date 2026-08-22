@@ -6,7 +6,7 @@
 -- replayed. revoked_at lets a single stolen/lost device be cut off without
 -- rotating the signing secret for everyone.
 
-CREATE TABLE IF NOT EXISTS mobile_refresh_tokens (
+CREATE TABLE IF NOT EXISTS tidum_mobile_refresh_tokens (
   id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     VARCHAR NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_hash  TEXT NOT NULL UNIQUE,
@@ -16,4 +16,4 @@ CREATE TABLE IF NOT EXISTS mobile_refresh_tokens (
 );
 
 CREATE INDEX IF NOT EXISTS mobile_refresh_tokens_user_idx
-  ON mobile_refresh_tokens (user_id);
+  ON tidum_mobile_refresh_tokens (user_id);

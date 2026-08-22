@@ -260,7 +260,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
       // Fetch global SEO settings for verification codes
       let globalSeo: any = null;
       try {
-        const gs = await pool.query("SELECT * FROM seo_global_settings WHERE id = 1");
+        const gs = await pool.query("SELECT * FROM tidum_seo_global_settings WHERE id = 1");
         if (gs.rows.length > 0) globalSeo = gs.rows[0];
       } catch { /* table might not exist */ }
 
@@ -281,7 +281,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
           const postResult = await pool.query(
             `SELECT title, slug, excerpt, content, featured_image, author, meta_title, meta_description, og_image,
                     reading_time, word_count, published_at, updated_at, tags
-             FROM cms_posts WHERE slug = $1 AND status = 'published'`,
+             FROM tidum_cms_posts WHERE slug = $1 AND status = 'published'`,
             [slug],
           );
           if (postResult.rows.length > 0) {
@@ -337,7 +337,7 @@ export function seoMiddleware(getHtml: () => Promise<string>) {
         try {
           const pageResult = await pool.query(
             `SELECT title, meta_title, meta_description, og_image, canonical_url
-             FROM builder_pages WHERE slug = $1 AND status = 'published'`,
+             FROM tidum_builder_pages WHERE slug = $1 AND status = 'published'`,
             [slug],
           );
           if (pageResult.rows.length > 0) {

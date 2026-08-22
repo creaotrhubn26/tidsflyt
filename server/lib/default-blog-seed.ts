@@ -17,7 +17,7 @@ async function ensureCategoryMap() {
 
   for (const category of DEFAULT_BLOG_CATEGORIES) {
     const result = await pool.query(
-      `INSERT INTO cms_categories (name, slug, description, updated_at)
+      `INSERT INTO tidum_cms_categories (name, slug, description, updated_at)
        VALUES ($1, $2, $3, NOW())
        ON CONFLICT (slug) DO UPDATE
        SET name = EXCLUDED.name,
@@ -37,7 +37,7 @@ async function upsertPost(post: DefaultBlogPostSeed, categoryId: number) {
   const { readingTime, wordCount } = calculateReadingStats(post.content);
 
   await pool.query(
-    `INSERT INTO cms_posts (
+    `INSERT INTO tidum_cms_posts (
        title, slug, excerpt, content, featured_image, author, category_id, tags, status,
        meta_title, meta_description, og_image, reading_time, word_count, published_at, updated_at
      )
@@ -97,7 +97,7 @@ export async function ensureDefaultBlogSeed() {
   } catch (error: any) {
     const message = String(error?.message || error);
 
-    if (message.includes("cms_posts") || message.includes("cms_categories") || message.includes("does not exist")) {
+    if (message.includes("tidum_cms_posts") || message.includes("tidum_cms_categories") || message.includes("does not exist")) {
       console.warn("[blog-seed] Skipping default blog seed because CMS tables are not available yet");
       return;
     }

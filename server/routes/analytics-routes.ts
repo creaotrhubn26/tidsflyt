@@ -46,8 +46,8 @@ export function registerAnalyticsRoutes(app: Express): void {
              COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr,
              COALESCE(AVG(NULLIF(${LEAD_ARR_FRAGMENT}, 0)), 0) AS avg_deal_size
            FROM access_requests ar
-           LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-           LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+           LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+           LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
            WHERE ar.created_at::date BETWEEN $1 AND $2
              AND (lps.is_terminal IS NOT TRUE OR lps.is_won IS TRUE)`,
           [from, to],
@@ -61,16 +61,16 @@ export function registerAnalyticsRoutes(app: Express): void {
                WHERE event_type IN ('downgrade','churn')
              ), 0) AS net_mrr_ore,
              COALESCE(SUM(delta_mrr_ore), 0) AS new_mrr_ore_in_range
-           FROM revenue_events
+           FROM tidum_revenue_events
            WHERE occurred_at::date BETWEEN $1 AND $2`,
           [from, to],
         ),
         pool.query(
           `SELECT COUNT(DISTINCT customer_email) AS active_customers
-           FROM revenue_events
+           FROM tidum_revenue_events
            WHERE event_type IN ('signup','upgrade','expansion','reactivation')
              AND customer_email NOT IN (
-               SELECT customer_email FROM revenue_events WHERE event_type = 'churn'
+               SELECT customer_email FROM tidum_revenue_events WHERE event_type = 'churn'
              )`,
         ),
       ]);
@@ -115,8 +115,8 @@ export function registerAnalyticsRoutes(app: Express): void {
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr,
            COUNT(ar.id) FILTER (WHERE lps.is_won = TRUE) AS won_count
          FROM access_requests ar
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-         LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
          GROUP BY pt.id, pt.label, pt.slug, pt.sort_order
          ORDER BY pt.sort_order NULLS LAST`,
@@ -149,8 +149,8 @@ export function registerAnalyticsRoutes(app: Express): void {
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
          FROM access_requests ar
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-         LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
          GROUP BY 1
          ORDER BY weighted_arr DESC NULLS LAST
@@ -184,8 +184,8 @@ export function registerAnalyticsRoutes(app: Express): void {
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
          FROM access_requests ar
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-         LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
          GROUP BY 1
          ORDER BY weighted_arr DESC NULLS LAST`,
@@ -218,8 +218,8 @@ export function registerAnalyticsRoutes(app: Express): void {
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0)         AS pipeline_arr,
            COALESCE(SUM(${LEAD_WEIGHTED_ARR_FRAGMENT}), 0) AS weighted_arr
          FROM access_requests ar
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-         LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
          GROUP BY ar.assigned_to_label, ar.assigned_to_email
          ORDER BY weighted_arr DESC NULLS LAST`,
@@ -253,11 +253,11 @@ export function registerAnalyticsRoutes(app: Express): void {
            lps.is_won           AS is_won,
            COUNT(ar.id)         AS lead_count,
            COALESCE(SUM(${LEAD_ARR_FRAGMENT}), 0) AS pipeline_arr
-         FROM lead_pipeline_stages lps
+         FROM tidum_lead_pipeline_stages lps
          LEFT JOIN access_requests ar
            ON ar.pipeline_stage_id = lps.id
            AND ar.created_at::date BETWEEN $1 AND $2
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
          WHERE lps.is_active = TRUE
          GROUP BY lps.slug, lps.label, lps.sort_order, lps.probability_pct, lps.is_won
          ORDER BY lps.sort_order`,
@@ -282,7 +282,7 @@ export function registerAnalyticsRoutes(app: Express): void {
   });
 
   // ============================================================
-  // MRR timeline (month-by-month, summed from revenue_events)
+  // MRR timeline (month-by-month, summed from tidum_revenue_events)
   // ============================================================
   app.get("/api/admin/analytics/mrr-timeline", requireSuperAdmin, async (req, res) => {
     try {
@@ -310,7 +310,7 @@ export function registerAnalyticsRoutes(app: Express): void {
              WHERE re.event_type = 'churn'
            ) AS churned_customers
          FROM months m
-         LEFT JOIN revenue_events re
+         LEFT JOIN tidum_revenue_events re
            ON date_trunc('month', re.occurred_at)::date = m.month
          GROUP BY m.month
          ORDER BY m.month`,
@@ -355,7 +355,7 @@ export function registerAnalyticsRoutes(app: Express): void {
            MAX(occurred_at)                    AS last_event_at,
            COUNT(*)                            AS event_count,
            BOOL_OR(event_type = 'churn')       AS is_churned
-         FROM revenue_events
+         FROM tidum_revenue_events
          GROUP BY customer_email
          ORDER BY current_mrr_ore DESC NULLS LAST
          LIMIT 50`,
@@ -392,8 +392,8 @@ export function registerAnalyticsRoutes(app: Express): void {
            ${LEAD_ARR_FRAGMENT} AS arr_kr,
            ${LEAD_WEIGHTED_ARR_FRAGMENT} AS weighted_arr_kr
          FROM access_requests ar
-         LEFT JOIN pricing_tiers pt ON pt.id = ar.tier_snapshot_id
-         LEFT JOIN lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
+         LEFT JOIN tidum_pricing_tiers pt ON pt.id = ar.tier_snapshot_id
+         LEFT JOIN tidum_lead_pipeline_stages lps ON lps.id = ar.pipeline_stage_id
          WHERE ar.created_at::date BETWEEN $1 AND $2
          ORDER BY ar.created_at DESC`,
         [from, to],

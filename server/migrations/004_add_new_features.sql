@@ -1,3 +1,14 @@
+-- !! SUPERSEDED — DO NOT RUN AGAINST THE SHARED PRODUCTION DATABASE !!
+-- All 7 tables this file creates (leave_types, leave_balances,
+-- leave_requests, recurring_entries, overtime_settings, overtime_entries,
+-- invoice_line_items) were renamed to their tidum_-prefixed equivalents by
+-- migrations/057_tidum_table_rename.sql, which has already run against
+-- production. Running this file there now would recreate the old-named
+-- tables as empty shadow tables alongside the real, tidum_-prefixed data —
+-- the exact incident 057 was written to fix. This file is not on any
+-- automatic boot path (not in package.json scripts, not in
+-- STARTUP_MIGRATIONS) — it is kept only for historical reference.
+--
 -- Leave/Vacation Management Tables
 CREATE TABLE IF NOT EXISTS leave_types (
   id SERIAL PRIMARY KEY,

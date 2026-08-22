@@ -245,10 +245,11 @@ New tables added in `server/migrations/004_add_new_features.sql`:
 - `invoice_line_items` - Invoice line items
 - `notification_queue` - Notification delivery queue
 
-**Run migration:**
-```bash
-psql $DATABASE_URL < server/migrations/004_add_new_features.sql
-```
+**Run migration:** superseded — these tables were renamed to their
+`tidum_`-prefixed equivalents by `migrations/057_tidum_table_rename.sql`,
+already applied to production. Do not run
+`server/migrations/004_add_new_features.sql` directly; it is no longer a
+setup step.
 
 ---
 
@@ -260,9 +261,10 @@ npm install
 ```
 
 ### 2. Run Database Migration
-```bash
-psql $DATABASE_URL < server/migrations/004_add_new_features.sql
-```
+No longer needed — superseded by `migrations/057_tidum_table_rename.sql`,
+already applied to production. Do not run
+`server/migrations/004_add_new_features.sql` against the shared production
+database.
 
 ### 3. Configure Environment Variables
 ```bash

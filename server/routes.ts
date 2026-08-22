@@ -171,7 +171,7 @@ async function ensureHovedadminForAccessRequest(
   const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
 
   await pool.query(
-    `INSERT INTO admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
+    `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
      VALUES ($1, $2, $3, 'hovedadmin', $4, true, NOW())
      ON CONFLICT (email)
      DO UPDATE SET
@@ -209,20 +209,20 @@ async function syncApprovedPortalUser(email: string, role: string, vendorId: num
 
   if (vendorId) {
     const existingCompanyUser = await pool.query(
-      `SELECT id FROM company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
+      `SELECT id FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
       [vendorId, email]
     );
 
     if (existingCompanyUser.rows.length > 0) {
       await pool.query(
-        `UPDATE company_users
+        `UPDATE tidum_company_users
          SET role = $1, approved = true, updated_at = NOW()
          WHERE id = $2`,
         [normalizedRole, existingCompanyUser.rows[0].id]
       );
     } else {
       await pool.query(
-        `INSERT INTO company_users (vendor_id, company_id, user_email, role, approved)
+        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
          VALUES ($1, $1, $2, $3, true)`,
         [vendorId, email, normalizedRole]
       );
@@ -1652,7 +1652,7 @@ export async function registerRoutes(
 
   async function ensureUserOnboardingStateTable() {
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS user_onboarding_state (
+      CREATE TABLE IF NOT EXISTS tidum_user_onboarding_state (
         user_id TEXT PRIMARY KEY,
         role TEXT,
         profile_confirmed BOOLEAN NOT NULL DEFAULT FALSE,
@@ -1666,16 +1666,16 @@ export async function registerRoutes(
         updated_at TIMESTAMP DEFAULT NOW()
       )
     `);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS role TEXT`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS profile_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS guide_viewed BOOLEAN NOT NULL DEFAULT FALSE`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS logo_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS manual_task_completions JSONB NOT NULL DEFAULT '{}'::jsonb`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMP`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
-    await pool.query(`ALTER TABLE user_onboarding_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS role TEXT`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS profile_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS guide_viewed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS logo_confirmed BOOLEAN NOT NULL DEFAULT FALSE`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS manual_task_completions JSONB NOT NULL DEFAULT '{}'::jsonb`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS dismissed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS snoozed_until TIMESTAMP`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS completed_at TIMESTAMP`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_user_onboarding_state ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
   }
 
   await ensureUserOnboardingStateTable();
@@ -1720,7 +1720,7 @@ export async function registerRoutes(
       : "";
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS integration_catalog (
+      CREATE TABLE IF NOT EXISTS tidum_integration_catalog (
         id SERIAL PRIMARY KEY,
         key TEXT NOT NULL UNIQUE,
         name TEXT NOT NULL,
@@ -1732,9 +1732,9 @@ export async function registerRoutes(
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS integration_interest_primary (
+      CREATE TABLE IF NOT EXISTS tidum_integration_interest_primary (
         id SERIAL PRIMARY KEY,
-        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        integration_key TEXT NOT NULL REFERENCES tidum_integration_catalog(key),
         vendor_id INTEGER NOT NULL ${integrationVendorReferenceSql},
         requested_by_user_id TEXT NOT NULL REFERENCES users(id),
         request_note TEXT,
@@ -1748,9 +1748,9 @@ export async function registerRoutes(
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS integration_interest_signals (
+      CREATE TABLE IF NOT EXISTS tidum_integration_interest_signals (
         id SERIAL PRIMARY KEY,
-        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        integration_key TEXT NOT NULL REFERENCES tidum_integration_catalog(key),
         vendor_id INTEGER NOT NULL ${integrationVendorReferenceSql},
         user_id TEXT NOT NULL REFERENCES users(id),
         note TEXT,
@@ -1761,9 +1761,9 @@ export async function registerRoutes(
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS integration_roadmap (
+      CREATE TABLE IF NOT EXISTS tidum_integration_roadmap (
         id SERIAL PRIMARY KEY,
-        integration_key TEXT NOT NULL UNIQUE REFERENCES integration_catalog(key),
+        integration_key TEXT NOT NULL UNIQUE REFERENCES tidum_integration_catalog(key),
         status TEXT NOT NULL DEFAULT 'requested',
         status_reason TEXT,
         target_quarter TEXT,
@@ -1779,9 +1779,9 @@ export async function registerRoutes(
     `);
 
     await pool.query(`
-      CREATE TABLE IF NOT EXISTS integration_roadmap_history (
+      CREATE TABLE IF NOT EXISTS tidum_integration_roadmap_history (
         id SERIAL PRIMARY KEY,
-        integration_key TEXT NOT NULL REFERENCES integration_catalog(key),
+        integration_key TEXT NOT NULL REFERENCES tidum_integration_catalog(key),
         from_status TEXT,
         to_status TEXT NOT NULL,
         changed_by TEXT,
@@ -1790,16 +1790,16 @@ export async function registerRoutes(
       )
     `);
 
-    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS note TEXT`);
-    await pool.query(`ALTER TABLE integration_roadmap ADD COLUMN IF NOT EXISTS fit_score_input INTEGER NOT NULL DEFAULT 3`);
-    await pool.query(`ALTER TABLE integration_roadmap ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
-    await pool.query(`ALTER TABLE integration_interest_primary ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
-    await pool.query(`ALTER TABLE integration_interest_primary ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
-    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
-    await pool.query(`ALTER TABLE integration_interest_signals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_integration_interest_signals ADD COLUMN IF NOT EXISTS note TEXT`);
+    await pool.query(`ALTER TABLE tidum_integration_roadmap ADD COLUMN IF NOT EXISTS fit_score_input INTEGER NOT NULL DEFAULT 3`);
+    await pool.query(`ALTER TABLE tidum_integration_roadmap ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_integration_interest_primary ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_integration_interest_primary ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_integration_interest_signals ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT NOW()`);
+    await pool.query(`ALTER TABLE tidum_integration_interest_signals ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW()`);
 
     await pool.query(`
-      INSERT INTO integration_catalog (key, name, description, is_active)
+      INSERT INTO tidum_integration_catalog (key, name, description, is_active)
       VALUES
         ('fiken', 'Fiken', 'Regnskap og faktura-integrasjon mot Fiken', TRUE),
         ('tripletex', 'Tripletex', 'Regnskap og lønnsdata-integrasjon mot Tripletex', TRUE),
@@ -1813,10 +1813,10 @@ export async function registerRoutes(
     `);
 
     await pool.query(`
-      INSERT INTO integration_roadmap (integration_key, status, fit_score_input, updated_at)
+      INSERT INTO tidum_integration_roadmap (integration_key, status, fit_score_input, updated_at)
       SELECT c.key, 'requested', 3, NOW()
-      FROM integration_catalog c
-      LEFT JOIN integration_roadmap r ON r.integration_key = c.key
+      FROM tidum_integration_catalog c
+      LEFT JOIN tidum_integration_roadmap r ON r.integration_key = c.key
       WHERE r.id IS NULL
     `);
   }
@@ -1856,7 +1856,7 @@ export async function registerRoutes(
   async function getOrCreateOnboardingState(userId: string, role: string) {
     const existing = await pool.query(
       `SELECT user_id, role, profile_confirmed, guide_viewed, logo_confirmed, manual_task_completions, dismissed_at, snoozed_until, completed_at, created_at, updated_at
-       FROM user_onboarding_state
+       FROM tidum_user_onboarding_state
        WHERE user_id = $1
        LIMIT 1`,
       [userId],
@@ -1865,7 +1865,7 @@ export async function registerRoutes(
       return existing.rows[0];
     }
     const inserted = await pool.query(
-      `INSERT INTO user_onboarding_state (user_id, role)
+      `INSERT INTO tidum_user_onboarding_state (user_id, role)
        VALUES ($1, $2)
        ON CONFLICT (user_id) DO UPDATE
          SET role = EXCLUDED.role, updated_at = NOW()
@@ -1879,7 +1879,7 @@ export async function registerRoutes(
     if (email) {
       const companyResult = await pool.query(
         `SELECT company_id
-         FROM company_users
+         FROM tidum_company_users
          WHERE LOWER(user_email) = LOWER($1)
          ORDER BY id ASC
          LIMIT 1`,
@@ -1956,15 +1956,15 @@ export async function registerRoutes(
       companyCasesCount,
       compensationConfiguredCount,
     ] = await Promise.all([
-      safeCount(`SELECT COUNT(*)::int AS count FROM log_row WHERE user_id = $1`, [userId]),
-      safeCount(`SELECT COUNT(*)::int AS count FROM timesheet_submissions WHERE user_id = $1 AND status IN ('submitted', 'approved')`, [userId]),
-      safeCount(`SELECT COUNT(*)::int AS count FROM case_reports WHERE user_id = $1 AND status IN ('submitted', 'approved', 'needs_revision')`, [userId]),
-      safeCount(`SELECT COUNT(*)::int AS count FROM timesheet_submissions WHERE approved_by = $1 AND status = 'approved'`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM tidum_log_row WHERE user_id = $1`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM tidum_timesheet_submissions WHERE user_id = $1 AND status IN ('submitted', 'approved')`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM tidum_case_reports WHERE user_id = $1 AND status IN ('submitted', 'approved', 'needs_revision')`, [userId]),
+      safeCount(`SELECT COUNT(*)::int AS count FROM tidum_timesheet_submissions WHERE approved_by = $1 AND status = 'approved'`, [userId]),
       email
         ? safeCount(
             `SELECT COUNT(*)::int AS count
-             FROM user_cases uc
-             JOIN company_users cu ON cu.id = uc.company_user_id
+             FROM tidum_user_cases uc
+             JOIN tidum_company_users cu ON cu.id = uc.company_user_id
              WHERE LOWER(cu.user_email) = LOWER($1)`,
             [email],
           )
@@ -1972,7 +1972,7 @@ export async function registerRoutes(
       companyId
         ? safeCount(
             `SELECT COUNT(*)::int AS count
-             FROM company_users
+             FROM tidum_company_users
              WHERE company_id = $1
                AND LOWER(COALESCE(user_email, '')) <> LOWER($2)`,
             [companyId, email],
@@ -1981,8 +1981,8 @@ export async function registerRoutes(
       companyId
         ? safeCount(
             `SELECT COUNT(*)::int AS count
-             FROM user_cases uc
-             JOIN company_users cu ON cu.id = uc.company_user_id
+             FROM tidum_user_cases uc
+             JOIN tidum_company_users cu ON cu.id = uc.company_user_id
              WHERE cu.company_id = $1`,
             [companyId],
           )
@@ -1990,8 +1990,8 @@ export async function registerRoutes(
       companyId
         ? safeCount(
             `SELECT COUNT(*)::int AS count
-             FROM user_cases uc
-             JOIN company_users cu ON cu.id = uc.company_user_id
+             FROM tidum_user_cases uc
+             JOIN tidum_company_users cu ON cu.id = uc.company_user_id
              WHERE cu.company_id = $1
                AND (
                  uc.hourly_rate IS NOT NULL
@@ -2214,7 +2214,7 @@ export async function registerRoutes(
 
     if (autoCompleted && !state.completed_at) {
       await pool.query(
-        `UPDATE user_onboarding_state
+        `UPDATE tidum_user_onboarding_state
          SET completed_at = NOW(),
              dismissed_at = NULL,
              snoozed_until = NULL,
@@ -2422,7 +2422,7 @@ export async function registerRoutes(
   async function ensureIntegrationCatalogKeyExists(integrationKey: IntegrationKey): Promise<boolean> {
     const result = await pool.query(
       `SELECT key
-       FROM integration_catalog
+       FROM tidum_integration_catalog
        WHERE key = $1
        LIMIT 1`,
       [integrationKey],
@@ -2483,16 +2483,16 @@ export async function registerRoutes(
               COALESCE(signal_votes.team_signals, 0) AS team_signals,
               COALESCE(mrr_values.estimated_mrr_value, 0) AS estimated_mrr_value,
               COALESCE(r.fit_score_input, 3) AS fit_score_input
-         FROM integration_catalog c
+         FROM tidum_integration_catalog c
     LEFT JOIN (
                SELECT integration_key, COUNT(DISTINCT vendor_id)::int AS primary_votes
-                 FROM integration_interest_primary
+                 FROM tidum_integration_interest_primary
              GROUP BY integration_key
               ) primary_votes
            ON primary_votes.integration_key = c.key
     LEFT JOIN (
                SELECT integration_key, COUNT(*)::int AS team_signals
-                 FROM integration_interest_signals
+                 FROM tidum_integration_interest_signals
              GROUP BY integration_key
               ) signal_votes
            ON signal_votes.integration_key = c.key
@@ -2507,12 +2507,12 @@ export async function registerRoutes(
                           ELSE 1.2
                         END * GREATEST(COALESCE(v.max_users, 0), 0)
                       )::float8 AS estimated_mrr_value
-                 FROM integration_interest_primary p
+                 FROM tidum_integration_interest_primary p
                  JOIN vendors v ON v.id::text = p.vendor_id::text
              GROUP BY p.integration_key
               ) mrr_values
            ON mrr_values.integration_key = c.key
-    LEFT JOIN integration_roadmap r
+    LEFT JOIN tidum_integration_roadmap r
            ON r.integration_key = c.key
         WHERE c.is_active = TRUE`,
     );
@@ -2556,11 +2556,11 @@ export async function registerRoutes(
       const totalScore = clampNumber((0.5 * demandScore) + (0.3 * mrrScore) + (0.2 * fitScore), 0, 100);
 
       await pool.query(
-        `INSERT INTO integration_roadmap (integration_key, status, fit_score_input, score_total, score_demand, score_mrr, score_fit, updated_at)
+        `INSERT INTO tidum_integration_roadmap (integration_key, status, fit_score_input, score_total, score_demand, score_mrr, score_fit, updated_at)
          VALUES ($1, 'requested', $2, $3, $4, $5, $6, NOW())
          ON CONFLICT (integration_key)
          DO UPDATE SET
-           fit_score_input = integration_roadmap.fit_score_input,
+           fit_score_input = tidum_integration_roadmap.fit_score_input,
            score_total = EXCLUDED.score_total,
            score_demand = EXCLUDED.score_demand,
            score_mrr = EXCLUDED.score_mrr,
@@ -2613,18 +2613,18 @@ export async function registerRoutes(
               COALESCE(signal_votes.signal_count, 0) AS team_signals,
               COALESCE(r.updated_at, c.updated_at, c.created_at) AS updated_at,
               r.updated_by
-         FROM integration_catalog c
-    LEFT JOIN integration_roadmap r
+         FROM tidum_integration_catalog c
+    LEFT JOIN tidum_integration_roadmap r
            ON r.integration_key = c.key
     LEFT JOIN (
                SELECT integration_key, COUNT(DISTINCT vendor_id)::int AS vendor_count
-                 FROM integration_interest_primary
+                 FROM tidum_integration_interest_primary
              GROUP BY integration_key
               ) primary_votes
            ON primary_votes.integration_key = c.key
     LEFT JOIN (
                SELECT integration_key, COUNT(*)::int AS signal_count
-                 FROM integration_interest_signals
+                 FROM tidum_integration_interest_signals
              GROUP BY integration_key
               ) signal_votes
            ON signal_votes.integration_key = c.key
@@ -2667,13 +2667,13 @@ export async function registerRoutes(
     const [primaryResult, signalResult] = await Promise.all([
       pool.query(
         `SELECT integration_key
-           FROM integration_interest_primary
+           FROM tidum_integration_interest_primary
           WHERE requested_by_user_id = $1`,
         [userId],
       ),
       pool.query(
         `SELECT integration_key
-           FROM integration_interest_signals
+           FROM tidum_integration_interest_signals
           WHERE user_id = $1`,
         [userId],
       ),
@@ -2702,7 +2702,7 @@ export async function registerRoutes(
   }) {
     const integrationMetaResult = await pool.query(
       `SELECT name
-       FROM integration_catalog
+       FROM tidum_integration_catalog
        WHERE key = $1
        LIMIT 1`,
       [opts.integrationKey],
@@ -2716,11 +2716,11 @@ export async function registerRoutes(
          FROM users u
    INNER JOIN (
                SELECT requested_by_user_id AS user_id
-                 FROM integration_interest_primary
+                 FROM tidum_integration_interest_primary
                 WHERE integration_key = $1
                 UNION
                SELECT user_id
-                 FROM integration_interest_signals
+                 FROM tidum_integration_interest_signals
                 WHERE integration_key = $1
               ) interested
            ON interested.user_id = u.id`,
@@ -2817,7 +2817,7 @@ export async function registerRoutes(
     try {
       const result = await pool.query(
         `SELECT key, name, description, is_active AS "isActive", updated_at AS "updatedAt"
-           FROM integration_catalog
+           FROM tidum_integration_catalog
           WHERE is_active = TRUE
        ORDER BY CASE key
                   WHEN 'fiken' THEN 1
@@ -2905,7 +2905,7 @@ export async function registerRoutes(
       }
 
       const insertResult = await pool.query(
-        `INSERT INTO integration_interest_primary (
+        `INSERT INTO tidum_integration_interest_primary (
            integration_key,
            vendor_id,
            requested_by_user_id,
@@ -2988,7 +2988,7 @@ export async function registerRoutes(
       }
 
       const insertResult = await pool.query(
-        `INSERT INTO integration_interest_signals (
+        `INSERT INTO tidum_integration_interest_signals (
            integration_key,
            vendor_id,
            user_id,
@@ -3044,8 +3044,8 @@ export async function registerRoutes(
                   p.urgency,
                   p.created_at,
                   p.updated_at
-             FROM integration_interest_primary p
-        LEFT JOIN integration_catalog c ON c.key = p.integration_key
+             FROM tidum_integration_interest_primary p
+        LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
         LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
             WHERE p.requested_by_user_id = $1
          ORDER BY p.created_at DESC`,
@@ -3060,8 +3060,8 @@ export async function registerRoutes(
                   s.note,
                   s.created_at,
                   s.updated_at
-             FROM integration_interest_signals s
-        LEFT JOIN integration_catalog c ON c.key = s.integration_key
+             FROM tidum_integration_interest_signals s
+        LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
         LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
             WHERE s.user_id = $1
          ORDER BY s.created_at DESC`,
@@ -3133,8 +3133,8 @@ export async function registerRoutes(
                   p.urgency,
                   p.created_at,
                   p.updated_at
-             FROM integration_interest_primary p
-        LEFT JOIN integration_catalog c ON c.key = p.integration_key
+             FROM tidum_integration_interest_primary p
+        LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
         LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
         LEFT JOIN users requester ON requester.id = p.requested_by_user_id
             ${primaryConditions.length ? `WHERE ${primaryConditions.join(" AND ")}` : ""}
@@ -3154,8 +3154,8 @@ export async function registerRoutes(
                   s.note,
                   s.created_at,
                   s.updated_at
-             FROM integration_interest_signals s
-        LEFT JOIN integration_catalog c ON c.key = s.integration_key
+             FROM tidum_integration_interest_signals s
+        LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
         LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
         LEFT JOIN users signal_user ON signal_user.id = s.user_id
             ${signalConditions.length ? `WHERE ${signalConditions.join(" AND ")}` : ""}
@@ -3200,7 +3200,7 @@ export async function registerRoutes(
 
       const catalogResult = await pool.query(
         `SELECT key, name, description
-           FROM integration_catalog
+           FROM tidum_integration_catalog
           WHERE is_active = TRUE
        ORDER BY name ASC`,
       );
@@ -3209,25 +3209,25 @@ export async function registerRoutes(
       const primaryResult = Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0
         ? await pool.query(
           `SELECT integration_key, vendor_id, created_at
-             FROM integration_interest_primary
+             FROM tidum_integration_interest_primary
             WHERE vendor_id = $1`,
           [scopedVendorId],
         )
         : await pool.query(
           `SELECT integration_key, vendor_id, created_at
-             FROM integration_interest_primary`,
+             FROM tidum_integration_interest_primary`,
         );
 
       const signalsResult = Number.isFinite(scopedVendorId) && scopedVendorId && scopedVendorId > 0
         ? await pool.query(
           `SELECT integration_key, vendor_id, user_id, created_at
-             FROM integration_interest_signals
+             FROM tidum_integration_interest_signals
             WHERE vendor_id = $1`,
           [scopedVendorId],
         )
         : await pool.query(
           `SELECT integration_key, vendor_id, user_id, created_at
-             FROM integration_interest_signals`,
+             FROM tidum_integration_interest_signals`,
         );
 
       const now = Date.now();
@@ -3400,7 +3400,7 @@ export async function registerRoutes(
       }
 
       await pool.query(
-        `INSERT INTO integration_roadmap (integration_key, status, fit_score_input, updated_at)
+        `INSERT INTO tidum_integration_roadmap (integration_key, status, fit_score_input, updated_at)
          VALUES ($1, 'requested', 3, NOW())
          ON CONFLICT (integration_key) DO NOTHING`,
         [integrationKey],
@@ -3408,7 +3408,7 @@ export async function registerRoutes(
 
       const existingResult = await pool.query(
         `SELECT integration_key, status, status_reason, target_quarter, fit_score_input
-           FROM integration_roadmap
+           FROM tidum_integration_roadmap
           WHERE integration_key = $1
           LIMIT 1`,
         [integrationKey],
@@ -3431,7 +3431,7 @@ export async function registerRoutes(
       const changedBy = String((req.user as any)?.id || "").trim() || null;
 
       await pool.query(
-        `UPDATE integration_roadmap
+        `UPDATE tidum_integration_roadmap
             SET status = $2,
                 status_reason = $3,
                 target_quarter = $4,
@@ -3456,7 +3456,7 @@ export async function registerRoutes(
 
       if (statusChanged) {
         await pool.query(
-          `INSERT INTO integration_roadmap_history (
+          `INSERT INTO tidum_integration_roadmap_history (
              integration_key,
              from_status,
              to_status,
@@ -4138,7 +4138,7 @@ export async function registerRoutes(
       }
 
       await pool.query(
-        `UPDATE user_onboarding_state
+        `UPDATE tidum_user_onboarding_state
          SET role = $2,
              profile_confirmed = $3,
              guide_viewed = $4,
@@ -4673,14 +4673,14 @@ export async function registerRoutes(
                       'hourly_rate', sl.hourly_rate,
                       'day_rate', sl.day_rate
                     ) ORDER BY sl.name)
-                    FROM sak_locations sl
+                    FROM tidum_sak_locations sl
                     WHERE sl.sak_id = s.id AND sl.active = true
                   ),
                   '[]'::json
                 ) AS locations
-         FROM company_users cu
-         JOIN user_cases uc ON uc.company_user_id = cu.id
-         LEFT JOIN saker s ON s.saksnummer = uc.case_id AND s.vendor_id = cu.vendor_id
+         FROM tidum_company_users cu
+         JOIN tidum_user_cases uc ON uc.company_user_id = cu.id
+         LEFT JOIN tidum_saker s ON s.saksnummer = uc.case_id AND s.vendor_id = cu.vendor_id
          WHERE cu.company_id = $1
            AND cu.approved = true
            AND (
@@ -4696,8 +4696,8 @@ export async function registerRoutes(
     } catch (error: any) {
       const message = String(error?.message || "");
       if (
-        message.includes("relation \"company_users\" does not exist")
-        || message.includes("relation \"user_cases\" does not exist")
+        message.includes("relation \"tidum_company_users\" does not exist")
+        || message.includes("relation \"tidum_user_cases\" does not exist")
       ) {
         return res.json([]);
       }
@@ -4930,7 +4930,7 @@ export async function registerRoutes(
           status,
           created_at,
           updated_at
-        FROM case_reports
+        FROM tidum_case_reports
         WHERE user_id = $1
           AND month >= $2
           AND month <= $3

@@ -224,7 +224,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         SELECT
           count(*)::int AS count,
           count(*) FILTER (WHERE status = 'godkjent')::int AS approved
-        FROM rapporter r
+        FROM tidum_rapporter r
         JOIN users u ON u.id::text = r.user_id::text
         WHERE u.vendor_id = ${Number(vendorId)}
           AND r.periode_from BETWEEN ${monthStart} AND ${monthEnd}
@@ -253,7 +253,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
 
       // Har minst én invitasjonslenke vært aktiv?
       const inviteLinkCount = await db.execute(sql`
-        SELECT count(*)::int AS c FROM vendor_invite_links WHERE vendor_id = ${Number(vendorId)}
+        SELECT count(*)::int AS c FROM tidum_vendor_invite_links WHERE vendor_id = ${Number(vendorId)}
       `);
       const hasInviteLink = Number((inviteLinkCount as any).rows?.[0]?.c ?? 0) > 0;
 

@@ -3,8 +3,7 @@ import { boolean, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex, 
 
 // Session storage table.
 // (IMPORTANT) This table is mandatory for Replit Auth, don't drop it.
-export const sessions = pgTable(
-  "sessions",
+export const sessions = pgTable("tidum_sessions",
   {
     sid: varchar("sid").primaryKey(),
     sess: jsonb("sess").notNull(),
@@ -41,8 +40,7 @@ export const users = pgTable("users", {
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
-export const eidIdentities = pgTable(
-  "eid_identities",
+export const eidIdentities = pgTable("tidum_eid_identities",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -67,7 +65,7 @@ export const eidIdentities = pgTable(
 export type EidIdentity = typeof eidIdentities.$inferSelect;
 export type NewEidIdentity = typeof eidIdentities.$inferInsert;
 
-export const mobileRefreshTokens = pgTable("mobile_refresh_tokens", {
+export const mobileRefreshTokens = pgTable("tidum_mobile_refresh_tokens", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   tokenHash: text("token_hash").notNull().unique(),
@@ -78,8 +76,7 @@ export const mobileRefreshTokens = pgTable("mobile_refresh_tokens", {
 
 export type MobileRefreshToken = typeof mobileRefreshTokens.$inferSelect;
 
-export const authLoginEvents = pgTable(
-  "auth_login_events",
+export const authLoginEvents = pgTable("tidum_auth_login_events",
   {
     id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
     provider: varchar("provider").notNull(),

@@ -4,7 +4,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Companies table
-export const companies = pgTable("companies", {
+export const companies = pgTable("tidum_companies", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id"), // null = legacy, otherwise belongs to vendor
   name: text("name").notNull(),
@@ -21,7 +21,7 @@ export const companies = pgTable("companies", {
 });
 
 // Company users table
-export const companyUsers = pgTable("company_users", {
+export const companyUsers = pgTable("tidum_company_users", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id"),
   companyId: integer("company_id").notNull(),
@@ -33,7 +33,7 @@ export const companyUsers = pgTable("company_users", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const userCases = pgTable("user_cases", {
+export const userCases = pgTable("tidum_user_cases", {
   id: serial("id").primaryKey(),
   companyUserId: integer("company_user_id"),
   caseId: text("case_id"),
@@ -126,7 +126,7 @@ export type InsertAccessRequest = z.infer<typeof insertAccessRequestSchema>;
 export type AccessRequest = typeof accessRequests.$inferSelect;
 
 // Project info table
-export const projectInfo = pgTable("project_info", {
+export const projectInfo = pgTable("tidum_project_info", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id"),
   konsulent: text("konsulent"),
@@ -143,7 +143,7 @@ export const projectInfo = pgTable("project_info", {
 });
 
 // Log row table (time entries)
-export const logRow = pgTable("log_row", {
+export const logRow = pgTable("tidum_log_row", {
   id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
   projectId: integer("project_id"),
   vendorId: integer("vendor_id"),
@@ -166,7 +166,7 @@ export const logRow = pgTable("log_row", {
 });
 
 // User settings table
-export const userSettings = pgTable("user_settings", {
+export const userSettings = pgTable("tidum_user_settings", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().unique().default("default"),
   paidBreak: boolean("paid_break").default(false),
@@ -195,7 +195,7 @@ export const userSettings = pgTable("user_settings", {
 // Rapport templates — define which sections a saksrapport has for different
 // sectors (barnevern, NAV, kommune, helse, generell). System templates are
 // seeded by Tidum; vendors can clone and customize.
-export const rapportTemplates = pgTable("rapport_templates", {
+export const rapportTemplates = pgTable("tidum_rapport_templates", {
   id:                        uuid("id").defaultRandom().primaryKey(),
   vendorId:                  integer("vendor_id"),
   slug:                      text("slug").notNull(),
@@ -213,7 +213,7 @@ export const rapportTemplates = pgTable("rapport_templates", {
 
 // Institutions a vendor (leverandør) works with — shared across all users in the vendor.
 // Used in "Ny sak", as a dropdown, for auto-forwarding rapporter, and for overtime rules.
-export const vendorInstitutions = pgTable("vendor_institutions", {
+export const vendorInstitutions = pgTable("tidum_vendor_institutions", {
   id:                  uuid("id").defaultRandom().primaryKey(),
   vendorId:            integer("vendor_id").notNull(),
   orgNumber:           text("org_number"),
@@ -243,7 +243,7 @@ export const vendorInstitutions = pgTable("vendor_institutions", {
 // later Tripletex, Visma). PowerOffice v2 uses OAuth 2.0 client_credentials
 // where the ClientKey is the per-tenant secret pasted in by the admin.
 // Access tokens (20-min TTL) are cached in memory, not persisted here.
-export const vendorIntegrations = pgTable("vendor_integrations", {
+export const vendorIntegrations = pgTable("tidum_vendor_integrations", {
   id:               uuid("id").defaultRandom().primaryKey(),
   vendorId:         integer("vendor_id").notNull(),
   provider:         text("provider").notNull(),       // 'poweroffice' | future
@@ -262,7 +262,7 @@ export const vendorIntegrations = pgTable("vendor_integrations", {
 // upload+parse → 'staged'-rad i imports + én rad per ansatt i import_rows;
 // hovedadmin går gjennom preview, bekrefter → 'confirmed' og rader flyttes
 // til company_users innenfor en transaksjon.
-export const imports = pgTable("imports", {
+export const imports = pgTable("tidum_imports", {
   id:             uuid("id").defaultRandom().primaryKey(),
   vendorId:       integer("vendor_id").notNull(),
   source:         text("source").notNull(),           // 'planday' | 'visma' | 'quinyx' | 'csv'
@@ -277,7 +277,7 @@ export const imports = pgTable("imports", {
   summaryJsonb:   jsonb("summary_jsonb"),             // {valid, errors, duplicates, admin_grants[]}
 });
 
-export const importRows = pgTable("import_rows", {
+export const importRows = pgTable("tidum_import_rows", {
   id:             uuid("id").defaultRandom().primaryKey(),
   importId:       uuid("import_id").notNull(),
   rowIndex:       integer("row_index").notNull(),
@@ -299,7 +299,7 @@ export type InsertImportRow = typeof importRows.$inferInsert;
 // Audit-spor for seat-overrun-hendelser (migrasjon 044). Brukes av
 // daglig cron + insert-time-hooks når en vendor passerer max_users
 // uavhengig av kilde (cron-sweep, manuell invite, API, etc.).
-export const vendorSeatLog = pgTable("vendor_seat_log", {
+export const vendorSeatLog = pgTable("tidum_vendor_seat_log", {
   id:            uuid("id").defaultRandom().primaryKey(),
   vendorId:      integer("vendor_id").notNull(),
   occurredAt:    timestamp("occurred_at").defaultNow(),
@@ -319,7 +319,7 @@ export type VendorSeatLog = typeof vendorSeatLog.$inferSelect;
 export type InsertVendorSeatLog = typeof vendorSeatLog.$inferInsert;
 
 // User-defined goal categories (replaces localStorage "custom-goal-cats")
-export const userGoalCategories = pgTable("user_goal_categories", {
+export const userGoalCategories = pgTable("tidum_user_goal_categories", {
   id:        uuid("id").defaultRandom().primaryKey(),
   userId:    integer("user_id").notNull(),
   navn:      text("navn").notNull(),
@@ -328,7 +328,7 @@ export const userGoalCategories = pgTable("user_goal_categories", {
 });
 
 // Feedback from prototype testers — contextual (page, viewport, screenshot etc.)
-export const testerFeedback = pgTable("tester_feedback", {
+export const testerFeedback = pgTable("tidum_tester_feedback", {
   id:                uuid("id").defaultRandom().primaryKey(),
   userId:            varchar("user_id").notNull(),
   email:             text("email"),
@@ -354,7 +354,7 @@ export const testerFeedback = pgTable("tester_feedback", {
 });
 
 // Form drafts per user (replaces localStorage drafts in use-draft.ts)
-export const userDrafts = pgTable("user_drafts", {
+export const userDrafts = pgTable("tidum_user_drafts", {
   id:         uuid("id").defaultRandom().primaryKey(),
   userId:     integer("user_id").notNull(),
   storageKey: text("storage_key").notNull(),
@@ -365,7 +365,7 @@ export const userDrafts = pgTable("user_drafts", {
 });
 
 // Activity templates: saved favorites per user
-export const aktivitetMaler = pgTable("aktivitet_maler", {
+export const aktivitetMaler = pgTable("tidum_aktivitet_maler", {
   id:          uuid("id").defaultRandom().primaryKey(),
   userId:      integer("user_id").notNull(),
   navn:        text("navn").notNull(),
@@ -380,7 +380,7 @@ export const aktivitetMaler = pgTable("aktivitet_maler", {
 });
 
 // Live timer session state (pause/resume sync)
-export const timerSessions = pgTable("timer_sessions", {
+export const timerSessions = pgTable("tidum_timer_sessions", {
   userId: text("user_id").primaryKey(),
   elapsedSeconds: integer("elapsed_seconds").notNull().default(0),
   pausedSeconds: integer("paused_seconds").notNull().default(0),
@@ -396,7 +396,7 @@ export const insertTimerSessionSchema = createInsertSchema(timerSessions).omit({
 });
 
 // Quick templates table
-export const quickTemplates = pgTable("quick_templates", {
+export const quickTemplates = pgTable("tidum_quick_templates", {
   id: serial("id").primaryKey(),
   userId: text("user_id").default("default"),
   label: text("label").notNull(),
@@ -450,7 +450,7 @@ export const apiKeys = pgTable("api_keys", {
 });
 
 // API Usage Log - for tracking and billing
-export const apiUsageLog = pgTable("api_usage_log", {
+export const apiUsageLog = pgTable("tidum_api_usage_log", {
   id: serial("id").primaryKey(),
   apiKeyId: integer("api_key_id").notNull(),
   vendorId: integer("vendor_id").notNull(),
@@ -465,7 +465,7 @@ export const apiUsageLog = pgTable("api_usage_log", {
 });
 
 // Admin users table - supports super_admin and vendor_admin roles
-export const adminUsers = pgTable("admin_users", {
+export const adminUsers = pgTable("tidum_admin_users", {
   id: serial("id").primaryKey(),
   username: text("username").notNull().unique(),
   email: text("email").notNull().unique(),
@@ -502,7 +502,7 @@ export const siteSettings = pgTable("site_settings", {
 });
 
 // CMS: Landing Hero Section
-export const landingHero = pgTable("landing_hero", {
+export const landingHero = pgTable("tidum_landing_hero", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   titleHighlight: text("title_highlight"),
@@ -536,7 +536,7 @@ export const landingHero = pgTable("landing_hero", {
 });
 
 // CMS: Landing Features
-export const landingFeatures = pgTable("landing_features", {
+export const landingFeatures = pgTable("tidum_landing_features", {
   id: serial("id").primaryKey(),
   icon: text("icon").notNull(),
   title: text("title").notNull(),
@@ -548,7 +548,7 @@ export const landingFeatures = pgTable("landing_features", {
 });
 
 // CMS: Landing Testimonials
-export const landingTestimonials = pgTable("landing_testimonials", {
+export const landingTestimonials = pgTable("tidum_landing_testimonials", {
   id: serial("id").primaryKey(),
   quote: text("quote").notNull(),
   name: text("name").notNull(),
@@ -560,7 +560,7 @@ export const landingTestimonials = pgTable("landing_testimonials", {
 });
 
 // CMS: Landing CTA Section
-export const landingCta = pgTable("landing_cta", {
+export const landingCta = pgTable("tidum_landing_cta", {
   id: serial("id").primaryKey(),
   sectionTitle: text("section_title"),
   featuresTitle: text("features_title"),
@@ -581,7 +581,7 @@ export const landingCta = pgTable("landing_cta", {
 });
 
 // CMS: Why Tidum Page - Hero Section
-export const whyPageHero = pgTable("why_page_hero", {
+export const whyPageHero = pgTable("tidum_why_page_hero", {
   id: serial("id").primaryKey(),
   title: text("title").notNull().default("Hvorfor velge Tidum?"),
   titleHighlight: text("title_highlight").default("Tidum"),
@@ -595,7 +595,7 @@ export const whyPageHero = pgTable("why_page_hero", {
 });
 
 // CMS: Why Tidum Page - Stats
-export const whyPageStats = pgTable("why_page_stats", {
+export const whyPageStats = pgTable("tidum_why_page_stats", {
   id: serial("id").primaryKey(),
   value: text("value").notNull(),
   label: text("label").notNull(),
@@ -604,7 +604,7 @@ export const whyPageStats = pgTable("why_page_stats", {
 });
 
 // CMS: Why Tidum Page - Benefits
-export const whyPageBenefits = pgTable("why_page_benefits", {
+export const whyPageBenefits = pgTable("tidum_why_page_benefits", {
   id: serial("id").primaryKey(),
   icon: text("icon").notNull().default("Clock"),
   title: text("title").notNull(),
@@ -614,7 +614,7 @@ export const whyPageBenefits = pgTable("why_page_benefits", {
 });
 
 // CMS: Why Tidum Page - Features
-export const whyPageFeatures = pgTable("why_page_features", {
+export const whyPageFeatures = pgTable("tidum_why_page_features", {
   id: serial("id").primaryKey(),
   icon: text("icon").notNull().default("Smartphone"),
   title: text("title").notNull(),
@@ -624,7 +624,7 @@ export const whyPageFeatures = pgTable("why_page_features", {
 });
 
 // CMS: Why Tidum Page - Content Sections
-export const whyPageContent = pgTable("why_page_content", {
+export const whyPageContent = pgTable("tidum_why_page_content", {
   id: serial("id").primaryKey(),
   sectionId: text("section_id").notNull().unique(), // e.g., "nordic", "trust", "cta"
   title: text("title").notNull(),
@@ -713,7 +713,7 @@ export const designTokens = pgTable("design_tokens", {
 });
 
 // Section Design Settings - Per-section customization
-export const sectionDesignSettings = pgTable("section_design_settings", {
+export const sectionDesignSettings = pgTable("tidum_section_design_settings", {
   id: serial("id").primaryKey(),
   sectionName: text("section_name").notNull(), // hero, features, testimonials, cta, contact, footer
   
@@ -795,7 +795,7 @@ export const sectionDesignSettings = pgTable("section_design_settings", {
 });
 
 // Design Presets - Saved themes
-export const designPresets = pgTable("design_presets", {
+export const designPresets = pgTable("tidum_design_presets", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
@@ -809,7 +809,7 @@ export const designPresets = pgTable("design_presets", {
 });
 
 // Builder Pages - Visual Editor output
-export const builderPages = pgTable("builder_pages", {
+export const builderPages = pgTable("tidum_builder_pages", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(), // URL path, e.g. "about", "pricing"
   title: text("title").notNull(),
@@ -843,7 +843,7 @@ export type InsertBuilderPage = z.infer<typeof insertBuilderPageSchema>;
 export type BuilderPage = typeof builderPages.$inferSelect;
 
 // Section Templates - Reusable section snippets
-export const sectionTemplates = pgTable("section_templates", {
+export const sectionTemplates = pgTable("tidum_section_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
@@ -879,7 +879,7 @@ export type InsertPageVersion = z.infer<typeof insertPageVersionSchema>;
 export type PageVersion = typeof pageVersions.$inferSelect;
 
 // Form Submissions - Contact form data from builder pages
-export const formSubmissions = pgTable("form_submissions", {
+export const formSubmissions = pgTable("tidum_form_submissions", {
   id: serial("id").primaryKey(),
   pageId: integer("page_id"),
   pageSlug: text("page_slug"),
@@ -896,7 +896,7 @@ export type InsertFormSubmission = z.infer<typeof insertFormSubmissionSchema>;
 export type FormSubmission = typeof formSubmissions.$inferSelect;
 
 // Page Analytics - View tracking
-export const pageAnalytics = pgTable("page_analytics", {
+export const pageAnalytics = pgTable("tidum_page_analytics", {
   id: serial("id").primaryKey(),
   pageId: integer("page_id").notNull(),
   pageSlug: text("page_slug"),
@@ -909,7 +909,7 @@ export const pageAnalytics = pgTable("page_analytics", {
 });
 
 // Case Reports table
-export const caseReports = pgTable("case_reports", {
+export const caseReports = pgTable("tidum_case_reports", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id"),
   userId: text("user_id").notNull(),
@@ -935,7 +935,7 @@ export const caseReports = pgTable("case_reports", {
 });
 
 // Company audit log
-export const companyAuditLog = pgTable("company_audit_log", {
+export const companyAuditLog = pgTable("tidum_company_audit_log", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id").notNull(),
   actorCompanyUserId: integer("actor_company_user_id"),
@@ -956,7 +956,7 @@ export const companyAuditLog = pgTable("company_audit_log", {
 // ========== BLOG SYSTEM ==========
 
 // Blog Categories
-export const blogCategories = pgTable("cms_categories", {
+export const blogCategories = pgTable("tidum_cms_categories", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(),
@@ -967,7 +967,7 @@ export const blogCategories = pgTable("cms_categories", {
 });
 
 // Blog Posts
-export const blogPosts = pgTable("cms_posts", {
+export const blogPosts = pgTable("tidum_cms_posts", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   slug: text("slug").notNull().unique(),
@@ -1019,7 +1019,7 @@ export type BlogComment = typeof blogComments.$inferSelect;
 export type InsertBlogComment = z.infer<typeof insertBlogCommentSchema>;
 
 // CMS Content Versions (for version history and restore)
-export const contentVersions = pgTable("content_versions", {
+export const contentVersions = pgTable("tidum_content_versions", {
   id: serial("id").primaryKey(),
   contentType: text("content_type").notNull(), // hero, features, testimonials, cta, blog_post, navigation, form, seo, design_tokens
   contentId: integer("content_id"), // ID of the specific item (null for global settings)
@@ -1056,7 +1056,7 @@ export const insertWhyPageContentSchema = createInsertSchema(whyPageContent).omi
 export const insertCaseReportSchema = createInsertSchema(caseReports).omit({ id: true, createdAt: true, updatedAt: true, rejectedAt: true, approvedAt: true });
 
 // Report Comments table - for feedback workflow
-export const reportComments = pgTable("report_comments", {
+export const reportComments = pgTable("tidum_report_comments", {
   id: serial("id").primaryKey(),
   reportId: integer("report_id").notNull(),
   authorId: text("author_id").notNull(),
@@ -1083,7 +1083,7 @@ export const insertDesignPresetSchema = createInsertSchema(designPresets).omit({
 export const insertContentVersionSchema = createInsertSchema(contentVersions).omit({ id: true, createdAt: true });
 
 // GA4 Analytics Settings
-export const analyticsSettings = pgTable("analytics_settings", {
+export const analyticsSettings = pgTable("tidum_analytics_settings", {
   id: serial("id").primaryKey(),
   ga4MeasurementId: text("ga4_measurement_id"),
   ga4StreamId: text("ga4_stream_id"),
@@ -1130,7 +1130,7 @@ export const seoPages = pgTable("seo_pages", {
 export const insertSeoPageSchema = createInsertSchema(seoPages).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Global SEO Settings
-export const seoGlobalSettings = pgTable("seo_global_settings", {
+export const seoGlobalSettings = pgTable("tidum_seo_global_settings", {
   id: serial("id").primaryKey(),
   siteName: text("site_name"),
   siteDescription: text("site_description"),
@@ -1169,7 +1169,7 @@ export const emailTemplates = pgTable("email_templates", {
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Email Send History
-export const emailSendHistory = pgTable("email_send_history", {
+export const emailSendHistory = pgTable("tidum_email_send_history", {
   id: serial("id").primaryKey(),
   templateId: integer("template_id").references(() => emailTemplates.id),
   sentBy: text("sent_by"),
@@ -1190,7 +1190,7 @@ export const emailSendHistory = pgTable("email_send_history", {
 export const insertEmailSendHistorySchema = createInsertSchema(emailSendHistory).omit({ id: true, createdAt: true });
 
 // Email Settings (SMTP config)
-export const emailSettings = pgTable("email_settings", {
+export const emailSettings = pgTable("tidum_email_settings", {
   id: serial("id").primaryKey(),
   provider: text("provider").default("smtp"),
   smtpHost: text("smtp_host"),
@@ -1284,7 +1284,7 @@ export type EmailSettings = typeof emailSettings.$inferSelect;
 export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;
 
 // Report Templates - For customizable case report designs
-export const reportTemplates = pgTable("report_templates", {
+export const reportTemplates = pgTable("tidum_report_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   description: text("description"),
@@ -1339,7 +1339,7 @@ export const reportTemplates = pgTable("report_templates", {
 });
 
 // Report Block Types - Available block types for report designer
-export const reportBlockTypes = pgTable("report_block_types", {
+export const reportBlockTypes = pgTable("tidum_report_block_types", {
   id: serial("id").primaryKey(),
   type: text("type").notNull().unique(), // header, text, section, table, signature, divider, image, spacer
   name: text("name").notNull(),
@@ -1351,7 +1351,7 @@ export const reportBlockTypes = pgTable("report_block_types", {
 });
 
 // Report Generated - History of generated reports
-export const reportGenerated = pgTable("report_generated", {
+export const reportGenerated = pgTable("tidum_report_generated", {
   id: serial("id").primaryKey(),
   caseReportId: integer("case_report_id").notNull(),
   templateId: integer("template_id").notNull(),
@@ -1362,7 +1362,7 @@ export const reportGenerated = pgTable("report_generated", {
 });
 
 // Report Assets - Uploaded logos and images for reports
-export const reportAssets = pgTable("report_assets", {
+export const reportAssets = pgTable("tidum_report_assets", {
   id: serial("id").primaryKey(),
   companyId: integer("company_id"),
   name: text("name").notNull(),
@@ -1394,7 +1394,7 @@ export type ReportAsset = typeof reportAssets.$inferSelect;
 export type InsertReportAsset = z.infer<typeof insertReportAssetSchema>;
 
 // Feedback Request - Tracks when to ask for feedback
-export const feedbackRequests = pgTable("feedback_requests", {
+export const feedbackRequests = pgTable("tidum_feedback_requests", {
   id: serial("id").primaryKey(),
   vendorId: integer("vendor_id"),
   userId: text("user_id"),
@@ -1407,7 +1407,7 @@ export const feedbackRequests = pgTable("feedback_requests", {
 });
 
 // Feedback Response - Actual feedback from users/vendors
-export const feedbackResponses = pgTable("feedback_responses", {
+export const feedbackResponses = pgTable("tidum_feedback_responses", {
   id: serial("id").primaryKey(),
   requestId: integer("request_id").notNull(),
   vendorId: integer("vendor_id"),
@@ -1449,7 +1449,7 @@ export const contentTypes = pgTable("cms_content_types", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const contentFields = pgTable("cms_content_fields", {
+export const contentFields = pgTable("tidum_cms_content_fields", {
   id: serial("id").primaryKey(),
   contentTypeId: integer("content_type_id").notNull(),
   name: text("name").notNull(),
@@ -1466,7 +1466,7 @@ export const contentFields = pgTable("cms_content_fields", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const contentEntries = pgTable("cms_content_entries", {
+export const contentEntries = pgTable("tidum_cms_content_entries", {
   id: serial("id").primaryKey(),
   contentTypeId: integer("content_type_id").notNull(),
   status: text("status").default("draft").notNull(), // draft, published, archived
@@ -1482,7 +1482,7 @@ export const contentEntries = pgTable("cms_content_entries", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const contentEntryVersions = pgTable("cms_content_entry_versions", {
+export const contentEntryVersions = pgTable("tidum_cms_content_entry_versions", {
   id: serial("id").primaryKey(),
   entryId: integer("entry_id").notNull(),
   versionNumber: integer("version_number").notNull(),
@@ -1493,7 +1493,7 @@ export const contentEntryVersions = pgTable("cms_content_entry_versions", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const cmsActivityLog = pgTable("cms_activity_log", {
+export const cmsActivityLog = pgTable("tidum_cms_activity_log", {
   id: serial("id").primaryKey(),
   action: text("action").notNull(), // create, update, delete, publish, unpublish, archive, restore
   resourceType: text("resource_type").notNull(), // content_type, content_entry, field, media
@@ -1567,7 +1567,7 @@ export type InsertTimeEntry = Omit<TimeEntry, 'id'>;
 export type InsertActivity = Omit<Activity, 'id'>;
 
 // Monthly timesheet submissions
-export const timesheetSubmissions = pgTable("timesheet_submissions", {
+export const timesheetSubmissions = pgTable("tidum_timesheet_submissions", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
   vendorId: integer("vendor_id"),
@@ -1617,7 +1617,7 @@ export type TimesheetSubmission = typeof timesheetSubmissions.$inferSelect;
 export type InsertTimesheetSubmission = typeof timesheetSubmissions.$inferInsert;
 
 // Dashboard tasks
-export const dashboardTasks = pgTable("dashboard_tasks", {
+export const dashboardTasks = pgTable("tidum_dashboard_tasks", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull(),
   title: text("title").notNull(),
@@ -1635,7 +1635,7 @@ export type DashboardTask = typeof dashboardTasks.$inferSelect;
 export type InsertDashboardTask = typeof dashboardTasks.$inferInsert;
 
 // User task learning preferences
-export const userTaskPrefs = pgTable("user_task_prefs", {
+export const userTaskPrefs = pgTable("tidum_user_task_prefs", {
   userId: text("user_id").primaryKey(),
   prefs: jsonb("prefs").notNull().default({}),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1667,7 +1667,7 @@ export const invoices = pgTable("invoices", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const invoiceLineItems = pgTable("invoice_line_items", {
+export const invoiceLineItems = pgTable("tidum_invoice_line_items", {
   id: serial("id").primaryKey(),
   invoiceId: uuid("invoice_id").notNull(),
   description: text("description").notNull(),
@@ -1679,7 +1679,7 @@ export const invoiceLineItems = pgTable("invoice_line_items", {
 
 // ========== LEAVE MANAGEMENT ==========
 
-export const leaveTypes = pgTable("leave_types", {
+export const leaveTypes = pgTable("tidum_leave_types", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug"),
@@ -1693,7 +1693,7 @@ export const leaveTypes = pgTable("leave_types", {
   maxDaysPerYear: integer("max_days_per_year"),
 });
 
-export const leaveRequests = pgTable("leave_requests", {
+export const leaveRequests = pgTable("tidum_leave_requests", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().default("default"),
   leaveTypeId: integer("leave_type_id").notNull(),
@@ -1708,7 +1708,7 @@ export const leaveRequests = pgTable("leave_requests", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const leaveBalances = pgTable("leave_balances", {
+export const leaveBalances = pgTable("tidum_leave_balances", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().default("default"),
   leaveTypeId: integer("leave_type_id").notNull(),
@@ -1721,7 +1721,7 @@ export const leaveBalances = pgTable("leave_balances", {
 
 // ========== OVERTIME ==========
 
-export const overtimeSettings = pgTable("overtime_settings", {
+export const overtimeSettings = pgTable("tidum_overtime_settings", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().unique(),
   standardHoursPerDay: text("standard_hours_per_day").default("7.5"),
@@ -1733,7 +1733,7 @@ export const overtimeSettings = pgTable("overtime_settings", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const overtimeEntries = pgTable("overtime_entries", {
+export const overtimeEntries = pgTable("tidum_overtime_entries", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().default("default"),
   date: text("date").notNull(),
@@ -1769,7 +1769,7 @@ export type Notification = typeof notifications.$inferSelect;
 
 // ========== INTEGRATION REQUESTS ==========
 
-export const integrationCatalog = pgTable("integration_catalog", {
+export const integrationCatalog = pgTable("tidum_integration_catalog", {
   id: serial("id").primaryKey(),
   key: text("key").notNull().unique(),
   name: text("name").notNull(),
@@ -1779,8 +1779,7 @@ export const integrationCatalog = pgTable("integration_catalog", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const integrationInterestPrimary = pgTable(
-  "integration_interest_primary",
+export const integrationInterestPrimary = pgTable("tidum_integration_interest_primary",
   {
     id: serial("id").primaryKey(),
     integrationKey: text("integration_key").notNull(),
@@ -1798,8 +1797,7 @@ export const integrationInterestPrimary = pgTable(
   }),
 );
 
-export const integrationInterestSignals = pgTable(
-  "integration_interest_signals",
+export const integrationInterestSignals = pgTable("tidum_integration_interest_signals",
   {
     id: serial("id").primaryKey(),
     integrationKey: text("integration_key").notNull(),
@@ -1814,7 +1812,7 @@ export const integrationInterestSignals = pgTable(
   }),
 );
 
-export const integrationRoadmap = pgTable("integration_roadmap", {
+export const integrationRoadmap = pgTable("tidum_integration_roadmap", {
   id: serial("id").primaryKey(),
   integrationKey: text("integration_key").notNull().unique(),
   status: text("status").notNull().default("requested"),
@@ -1830,7 +1828,7 @@ export const integrationRoadmap = pgTable("integration_roadmap", {
   createdAt: timestamp("created_at").defaultNow(),
 });
 
-export const integrationRoadmapHistory = pgTable("integration_roadmap_history", {
+export const integrationRoadmapHistory = pgTable("tidum_integration_roadmap_history", {
   id: serial("id").primaryKey(),
   integrationKey: text("integration_key").notNull(),
   fromStatus: text("from_status"),
@@ -1842,7 +1840,7 @@ export const integrationRoadmapHistory = pgTable("integration_roadmap_history", 
 
 // ========== RECURRING ENTRIES ==========
 
-export const recurringEntries = pgTable("recurring_entries", {
+export const recurringEntries = pgTable("tidum_recurring_entries", {
   id: serial("id").primaryKey(),
   userId: text("user_id").notNull().default("default"),
   title: text("title").notNull(),
@@ -1915,7 +1913,7 @@ export const fieldTypeEnum = pgEnum("field_type", [
 
 // ── SAKER ─────────────────────────────────────────────────────────────────────
 
-export const saker = pgTable("saker", {
+export const saker = pgTable("tidum_saker", {
   id:              uuid("id").defaultRandom().primaryKey(),
   saksnummer:      text("saksnummer").notNull().unique(),
   tittel:          text("tittel").notNull(),
@@ -1937,7 +1935,7 @@ export const saker = pgTable("saker", {
 
 // Per-sak fysiske lokasjoner (tiltaksbolig, hovedkontor, felt-base).
 // Lokasjonens rate overstyrer user_cases-rate når log_row peker hit.
-export const sakLocations = pgTable("sak_locations", {
+export const sakLocations = pgTable("tidum_sak_locations", {
   id:           uuid("id").defaultRandom().primaryKey(),
   sakId:        uuid("sak_id").notNull(),
   name:         text("name").notNull(),
@@ -1955,7 +1953,7 @@ export type SakLocation = typeof sakLocations.$inferSelect;
 
 // ── RAPPORTER ─────────────────────────────────────────────────────────────────
 
-export const rapporter = pgTable("rapporter", {
+export const rapporter = pgTable("tidum_rapporter", {
   id:              uuid("id").defaultRandom().primaryKey(),
   sakId:           uuid("sak_id").references(() => saker.id),
   userId:              integer("user_id").notNull(),
@@ -1992,7 +1990,7 @@ export const rapporter = pgTable("rapporter", {
 
 // ── RAPPORT-MÅL ───────────────────────────────────────────────────────────────
 
-export const rapportMaal = pgTable("rapport_maal", {
+export const rapportMaal = pgTable("tidum_rapport_maal", {
   id:          uuid("id").defaultRandom().primaryKey(),
   rapportId:   uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
   nummer:      integer("nummer").notNull(),
@@ -2006,7 +2004,7 @@ export const rapportMaal = pgTable("rapport_maal", {
 
 // ── AKTIVITETER ───────────────────────────────────────────────────────────────
 
-export const rapportAktiviteter = pgTable("rapport_aktiviteter", {
+export const rapportAktiviteter = pgTable("tidum_rapport_aktiviteter", {
   id:           uuid("id").defaultRandom().primaryKey(),
   rapportId:    uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
   malId:        uuid("mal_id").references(() => rapportMaal.id),
@@ -2027,7 +2025,7 @@ export const rapportAktiviteter = pgTable("rapport_aktiviteter", {
 // (Slack, e-post), and recipients self-onboard. Optional domain restriction
 // (e.g. only @bufetat.no), expiry, and max use count.
 
-export const vendorInviteLinks = pgTable("vendor_invite_links", {
+export const vendorInviteLinks = pgTable("tidum_vendor_invite_links", {
   id:               uuid("id").defaultRandom().primaryKey(),
   vendorId:         integer("vendor_id").notNull(),
   token:            text("token").notNull().unique(),
@@ -2048,7 +2046,7 @@ export const vendorInviteLinks = pgTable("vendor_invite_links", {
 // Hendelser miljøarbeidere opplever på jobb: vold, skade, rutinebrudd, arbeidsmiljø.
 // Kan knyttes til rapport eller stå alene. Tiltaksleder følger opp og lukker.
 
-export const rapportAvvik = pgTable("rapport_avvik", {
+export const rapportAvvik = pgTable("tidum_rapport_avvik", {
   id:                     uuid("id").defaultRandom().primaryKey(),
   vendorId:               integer("vendor_id").notNull(),
   userId:                 text("user_id").notNull(),
@@ -2086,7 +2084,7 @@ export const rapportAvvik = pgTable("rapport_avvik", {
 
 export type RapportAvvik = typeof rapportAvvik.$inferSelect;
 
-export const vendorAvvikProtokoller = pgTable("vendor_avvik_protokoller", {
+export const vendorAvvikProtokoller = pgTable("tidum_vendor_avvik_protokoller", {
   id:                 uuid("id").defaultRandom().primaryKey(),
   vendorId:           integer("vendor_id").notNull(),
   institutionId:      uuid("institution_id"),
@@ -2105,7 +2103,7 @@ export const vendorAvvikProtokoller = pgTable("vendor_avvik_protokoller", {
 // Append-only log of significant events on a rapport. Used for compliance
 // timeline + "who changed what" investigations.
 
-export const rapportAuditLog = pgTable("rapport_audit_log", {
+export const rapportAuditLog = pgTable("tidum_rapport_audit_log", {
   id:          uuid("id").defaultRandom().primaryKey(),
   rapportId:   uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
   userId:      integer("user_id"),
@@ -2119,7 +2117,7 @@ export const rapportAuditLog = pgTable("rapport_audit_log", {
 
 // ── KOMMENTARER ───────────────────────────────────────────────────────────────
 
-export const rapportKommentarer = pgTable("rapport_kommentarer", {
+export const rapportKommentarer = pgTable("tidum_rapport_kommentarer", {
   id:         uuid("id").defaultRandom().primaryKey(),
   rapportId:  uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
   fromUserId: integer("from_user_id").notNull(),
@@ -2131,7 +2129,7 @@ export const rapportKommentarer = pgTable("rapport_kommentarer", {
 
 // ── VENDOR TEMPLATES ──────────────────────────────────────────────────────────
 
-export const vendorTemplates = pgTable("vendor_templates", {
+export const vendorTemplates = pgTable("tidum_vendor_templates", {
   id:           uuid("id").defaultRandom().primaryKey(),
   vendorId:     integer("vendor_id").notNull(),
   navn:         text("navn").notNull().default("Standard mal"),
@@ -2233,7 +2231,7 @@ export const DEFAULT_RAPPORT_FIELDS: TemplateField[] = [
 // Pricing & Sales (migration 036) — alt admin-editerbart fra DB
 // ============================================================
 
-export const pricingTiers = pgTable("pricing_tiers", {
+export const pricingTiers = pgTable("tidum_pricing_tiers", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   label: text("label").notNull(),
@@ -2256,7 +2254,7 @@ export const pricingTiers = pgTable("pricing_tiers", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const pricingInclusions = pgTable("pricing_inclusions", {
+export const pricingInclusions = pgTable("tidum_pricing_inclusions", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   label: text("label").notNull(),
@@ -2267,12 +2265,12 @@ export const pricingInclusions = pgTable("pricing_inclusions", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const pricingTierInclusions = pgTable("pricing_tier_inclusions", {
+export const pricingTierInclusions = pgTable("tidum_pricing_tier_inclusions", {
   tierId: integer("tier_id").notNull(),
   inclusionId: integer("inclusion_id").notNull(),
 });
 
-export const salgSettings = pgTable("salg_settings", {
+export const salgSettings = pgTable("tidum_salg_settings", {
   key: text("key").primaryKey(),
   value: text("value"),
   dataType: text("data_type").notNull().default("string"),
@@ -2285,7 +2283,7 @@ export const salgSettings = pgTable("salg_settings", {
   updatedBy: text("updated_by"),
 });
 
-export const salesRoutingRules = pgTable("sales_routing_rules", {
+export const salesRoutingRules = pgTable("tidum_sales_routing_rules", {
   id: serial("id").primaryKey(),
   minUsers: integer("min_users").notNull(),
   maxUsers: integer("max_users"),
@@ -2299,7 +2297,7 @@ export const salesRoutingRules = pgTable("sales_routing_rules", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const salesScriptBlocks = pgTable("sales_script_blocks", {
+export const salesScriptBlocks = pgTable("tidum_sales_script_blocks", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   category: text("category").notNull(),
@@ -2311,7 +2309,7 @@ export const salesScriptBlocks = pgTable("sales_script_blocks", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const salgContractTemplates = pgTable("salg_contract_templates", {
+export const salgContractTemplates = pgTable("tidum_salg_contract_templates", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   version: integer("version").notNull().default(1),
@@ -2322,7 +2320,7 @@ export const salgContractTemplates = pgTable("salg_contract_templates", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
-export const leadPipelineStages = pgTable("lead_pipeline_stages", {
+export const leadPipelineStages = pgTable("tidum_lead_pipeline_stages", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   label: text("label").notNull(),
@@ -2353,7 +2351,7 @@ export type InsertLeadPipelineStage = typeof leadPipelineStages.$inferInsert;
 // Revenue analytics (migration 037)
 // ============================================================
 
-export const revenueEvents = pgTable("revenue_events", {
+export const revenueEvents = pgTable("tidum_revenue_events", {
   id: serial("id").primaryKey(),
   leadId: integer("lead_id"),
   customerEmail: text("customer_email").notNull(),
@@ -2379,7 +2377,7 @@ export type InsertRevenueEvent = typeof revenueEvents.$inferInsert;
 // E-postmaler (migration 040) — flytter brevtekst ut av kode
 // ============================================================
 
-export const salgEmailTemplates = pgTable("salg_email_templates", {
+export const salgEmailTemplates = pgTable("tidum_salg_email_templates", {
   id: serial("id").primaryKey(),
   slug: text("slug").notNull().unique(),
   name: text("name").notNull(),

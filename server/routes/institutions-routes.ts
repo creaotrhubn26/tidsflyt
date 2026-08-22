@@ -121,12 +121,12 @@ export function registerInstitutionsRoutes(app: Express) {
           TRIM(s.oppdragsgiver) AS name,
           COUNT(*)::int        AS sak_count,
           MAX(s.created_at)    AS last_seen
-        FROM saker s
+        FROM tidum_saker s
         WHERE s.vendor_id = ${vendorId}
           AND s.oppdragsgiver IS NOT NULL
           AND TRIM(s.oppdragsgiver) <> ''
           AND NOT EXISTS (
-            SELECT 1 FROM vendor_institutions vi
+            SELECT 1 FROM tidum_vendor_institutions vi
             WHERE vi.vendor_id = ${vendorId}
               AND LOWER(TRIM(vi.name)) = LOWER(TRIM(s.oppdragsgiver))
           )

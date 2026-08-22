@@ -9,7 +9,7 @@
 --   - server/lib/seat-overrun.ts (processVendorSeatOverrun)
 --   - server/routes/seat-overrun-cron.ts (daglig sweep 03:00)
 
-CREATE TABLE IF NOT EXISTS vendor_seat_log (
+CREATE TABLE IF NOT EXISTS tidum_vendor_seat_log (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   vendor_id       INTEGER NOT NULL,
   occurred_at     TIMESTAMP DEFAULT now(),
@@ -33,5 +33,5 @@ CREATE TABLE IF NOT EXISTS vendor_seat_log (
   triggered_by    TEXT
 );
 
-CREATE INDEX IF NOT EXISTS idx_vendor_seat_log_vendor    ON vendor_seat_log(vendor_id);
-CREATE INDEX IF NOT EXISTS idx_vendor_seat_log_occurred  ON vendor_seat_log(occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_vendor_seat_log_vendor    ON tidum_vendor_seat_log(vendor_id);
+CREATE INDEX IF NOT EXISTS idx_vendor_seat_log_occurred  ON tidum_vendor_seat_log(occurred_at DESC);
