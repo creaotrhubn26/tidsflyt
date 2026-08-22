@@ -232,7 +232,9 @@ git commit -m "feat: rangbasert canManageRole/canManageUsers-erstatning (fase 1.
 - Test: `server/lib/__tests__/company-user-role-hierarchy.test.ts`
 
 **Interfaces:**
-- Konsumerer: `getRoleRank`, `canManageRoleDynamic`, `canManageUsersDynamic` fra `server/lib/permissions.ts` (Task 1).
+- Konsumerer fra `server/lib/permissions.ts` (Task 1, ENDELIG signatur — avvek fra opprinnelig planantagelse pga. en ruling under Task 1s fiks-runde 1, se plan-ledgeren):
+  `canManageRoleDynamic(actorRoleName: string, targetRoleName: string, rankCache?: Map<string, number>, canManageOthersCache?: Map<string, boolean>): Promise<boolean>` (4 parametre, IKKE 3),
+  `canManageUsersDynamic(actorRoleName: string, cache?: Map<string, boolean>): Promise<boolean>` (cache-typen er boolean, ikke number — samme cache som `canManageOthersCache` over kan gjenbrukes til dette kallet).
 - Produserer: ingen nye grensesnitt — kun intern erstatning bak eksisterende ruter. Task 3 legger til et NYTT endepunkt i samme fil, uavhengig av denne oppgavens endringer.
 
 - [ ] **Step 1: Bytt import i smartTimingRoutes.ts**
@@ -325,6 +327,7 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
         ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim()
         : undefined;
       const rankCache = new Map<string, number>();
+      const canManageOthersCache = new Map<string, boolean>();
 
       for (const u of users) {
         const email = String(u.user_email || u.email || "").trim().toLowerCase();
@@ -333,13 +336,13 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
           continue;
         }
         const targetRole = normalizeRole(u.role || "miljoarbeider");
-        if (!(await canManageRoleDynamic(actorRole, targetRole, rankCache))) {
+        if (!(await canManageRoleDynamic(actorRole, targetRole, rankCache, canManageOthersCache))) {
           skipped.push({ email, reason: `Kan ikke invitere som ${targetRole}` });
           continue;
         }
 ```
 
-Legg merke til `rankCache`-en (ny — `new Map<string, number>()` opprettet én gang før løkken, sendt inn i hvert `canManageRoleDynamic`-kall i løkken) — bulk-import kan ha opptil 200 rader, og uten cache ville hver rad gjort 2 DB-oppslag (aktør + mål-rang) selv om aktørens og de fleste mål-rollenes rang er identisk på tvers av rader. Resten av løkken (linje 2366 og nedover, duplikat-sjekk osv.) uendret.
+Legg merke til de to cachene (nye — `rankCache`/`canManageOthersCache`, hver opprettet én gang før løkken, sendt inn i hvert `canManageRoleDynamic`-kall i løkken — funksjonen tar 4 parametre, se Interfaces-blokken over) — bulk-import kan ha opptil 200 rader, og uten cache ville hver rad gjort flere DB-oppslag (aktørens `can_manage_others` + aktør- og mål-rang) selv om aktørens verdier er identiske på tvers av alle rader. Resten av løkken (linje 2366 og nedover, duplikat-sjekk osv.) uendret.
 
 - [ ] **Step 5: Erstatt kallstedene i PATCH /api/company/users/:id (linje 2415-2432)**
 
