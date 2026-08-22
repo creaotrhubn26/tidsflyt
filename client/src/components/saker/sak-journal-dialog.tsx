@@ -24,12 +24,6 @@ interface JournalEntry {
   createdAt: string;
 }
 
-interface JournalAttachment {
-  id: string;
-  originalName: string;
-  mimeType: string;
-}
-
 interface SakRecord {
   id: string;
   saksnummer?: string;
@@ -56,6 +50,29 @@ function authorName(userId: number, companyTeam: CompanyUser[]): string {
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || `Bruker #${userId}`;
 }
 
+function JournalEntryAttachments({ sakId, entryId }: { sakId: string; entryId: string }) {
+  const { data: attachments = [] } = useQuery<{ id: string; originalName: string }[]>({
+    queryKey: [`/api/saker/${sakId}/journal/${entryId}/attachments`],
+  });
+  if (attachments.length === 0) return null;
+  return (
+    <div className="flex flex-wrap gap-1.5 pt-1">
+      {attachments.map((a) => (
+        <a
+          key={a.id}
+          href={`/api/saker/${sakId}/journal/${entryId}/attachments/${a.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+        >
+          <Paperclip className="h-3 w-3" />
+          {a.originalName}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 export function SakJournalDialog({ sak, open, onClose, companyTeam }: Props) {
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -78,11 +95,12 @@ export function SakJournalDialog({ sak, open, onClose, companyTeam }: Props) {
       if (vars.file) {
         const form = new FormData();
         form.append("file", vars.file);
-        await fetch(`/api/saker/${sak!.id}/journal/${created.id}/attachments`, {
+        const res = await fetch(`/api/saker/${sak!.id}/journal/${created.id}/attachments`, {
           method: "POST",
           body: form,
           credentials: "include",
         });
+        if (!res.ok) throw new Error("Kunne ikke laste opp vedlegg");
       }
       return created;
     },
@@ -124,6 +142,7 @@ export function SakJournalDialog({ sak, open, onClose, companyTeam }: Props) {
                 </p>
               )}
               <p className="whitespace-pre-wrap">{e.content}</p>
+              <JournalEntryAttachments sakId={sak.id} entryId={e.id} />
               <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-1">
                 <span>{authorName(e.userId, companyTeam)} · {new Date(e.createdAt).toLocaleString("nb-NO")}</span>
                 <Button
