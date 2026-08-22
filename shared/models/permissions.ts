@@ -17,6 +17,7 @@ export const roles = pgTable(
     scope: varchar("scope").notNull(),
     vendorId: integer("vendor_id"),
     isSystemDefault: boolean("is_system_default").notNull().default(false),
+    rank: integer("rank").notNull().default(0),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },

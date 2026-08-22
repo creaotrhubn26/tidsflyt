@@ -33,3 +33,43 @@ export async function getRoleById(roleId: string) {
   const [role] = await db.select().from(roles).where(eq(roles.id, roleId)).limit(1);
   return role ?? null;
 }
+
+export async function getRoleRank(roleName: string, cache?: Map<string, number>): Promise<number> {
+  if (cache?.has(roleName)) return cache.get(roleName)!;
+
+  try {
+    const [row] = await db
+      .select({ rank: roles.rank })
+      .from(roles)
+      .where(and(eq(roles.scope, "global"), eq(roles.name, roleName), eq(roles.isSystemDefault, true)))
+      .limit(1);
+
+    const result = row?.rank ?? -1;
+    cache?.set(roleName, result);
+    return result;
+  } catch (err) {
+    console.error("[permissions] getRoleRank query failed", roleName, err);
+    return -1;
+  }
+}
+
+export async function canManageRoleDynamic(
+  actorRoleName: string,
+  targetRoleName: string,
+  cache?: Map<string, number>,
+): Promise<boolean> {
+  const [actorRank, targetRank] = await Promise.all([
+    getRoleRank(actorRoleName, cache),
+    getRoleRank(targetRoleName, cache),
+  ]);
+  // -1 betyr ukjent rolle (rekke ikke funnet, eller DB-feil) — en ukjent
+  // rolle kan aldri administrere noe, og kan aldri bli administrert.
+  // Uten denne guarden ville -1 < 0 (miljoarbeider) feilaktig gitt true.
+  if (actorRank < 0 || targetRank < 0) return false;
+  return targetRank < actorRank;
+}
+
+export async function canManageUsersDynamic(actorRoleName: string, cache?: Map<string, number>): Promise<boolean> {
+  const actorRank = await getRoleRank(actorRoleName, cache);
+  return actorRank > 0;
+}
