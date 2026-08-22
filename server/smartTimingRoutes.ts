@@ -6,7 +6,7 @@ import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
-import { normalizeRole } from "@shared/roles";
+import { normalizeRole, TIDUM_ROLES } from "@shared/roles";
 import { canManageRoleDynamic, canManageUsersDynamic } from "./lib/permissions";
 import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
@@ -2490,6 +2490,48 @@ export function registerSmartTimingRoutes(app: Express) {
 
       await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [req.params.id]);
       res.status(204).send();
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // GET /api/company/users/manageable-roles?company_id=X&preview_role=Y
+  // Returnerer hvilke av TIDUM_ROLES aktøren kan tildele — brukes av
+  // inviter-dialogen (users.tsx) til å fylle rolle-dropdownen, i stedet
+  // for at klienten regner ut selv fra en hardkodet tabell (fase 1.6).
+  //
+  // preview_role: klientens "forhåndsvis som rolle X"-funksjon
+  // (use-role-preview.tsx) er en ren UI-simulering som ALDRI har vært
+  // sendt til server før denne oppgaven — kun tilgjengelig for aktører
+  // som selv kvalifiserer til forhåndsvisning (canManageUsersDynamic på
+  // deres EGEN, ekte rolle). Når satt og aktøren kvalifiserer, beregnes
+  // listen for preview_role i stedet for aktørens ekte rolle — kun for
+  // DENNE listen, aldri for faktisk skriveautorisasjon (POST/PATCH/DELETE
+  // over bruker fortsatt utelukkende den ekte aktør-rollen).
+  app.get("/api/company/users/manageable-roles", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const companyId = Number(req.query.company_id) || 1;
+      const actorRole = await resolveActorRoleForCompany(req, companyId);
+
+      let roleForLookup = actorRole;
+      const previewRoleRaw = req.query.preview_role;
+      if (typeof previewRoleRaw === "string" && previewRoleRaw.length > 0) {
+        const actorQualifiesToPreview = await canManageUsersDynamic(actorRole);
+        if (actorQualifiesToPreview) {
+          roleForLookup = normalizeRole(previewRoleRaw);
+        }
+      }
+
+      const rankCache = new Map<string, number>();
+      const canManageOthersCache = new Map<string, boolean>();
+      const results = await Promise.all(
+        TIDUM_ROLES.map(async (candidate) => ({
+          role: candidate,
+          allowed: await canManageRoleDynamic(roleForLookup, candidate, rankCache, canManageOthersCache),
+        })),
+      );
+
+      res.json({ roles: results.filter((r) => r.allowed).map((r) => r.role) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
