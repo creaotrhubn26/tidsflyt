@@ -6,7 +6,8 @@ import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
-import { canManageRole, canManageUsers, normalizeRole } from "@shared/roles";
+import { normalizeRole } from "@shared/roles";
+import { canManageRoleDynamic, canManageUsersDynamic } from "./lib/permissions";
 import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
 import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
@@ -117,7 +118,7 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
 
 async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): Promise<string> {
   const normalizedAuthRole = normalizeRole((req.user as any)?.role || req.admin?.role);
-  if (canManageUsers(normalizedAuthRole)) {
+  if (await canManageUsersDynamic(normalizedAuthRole)) {
     return normalizedAuthRole;
   }
 
@@ -2251,11 +2252,11 @@ export function registerSmartTimingRoutes(app: Express) {
       const targetRole = normalizeRole(role || 'member');
       const actorRole = await resolveActorRoleForCompany(req, companyId);
 
-      if (!canManageUsers(actorRole)) {
+      if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å invitere brukere.' });
       }
 
-      if (!canManageRole(actorRole, targetRole)) {
+      if (!(await canManageRoleDynamic(actorRole, targetRole))) {
         return res.status(403).json({
           error: `Rollen ${actorRole} kan ikke administrere ${targetRole}.`,
         });
@@ -2334,7 +2335,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const companyId = Number(company_id) || 1;
       const actorRole = await resolveActorRoleForCompany(req, companyId);
 
-      if (!canManageUsers(actorRole)) {
+      if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å invitere brukere.' });
       }
 
@@ -2351,6 +2352,8 @@ export function registerSmartTimingRoutes(app: Express) {
       const inviterName = (req.user as any)?.firstName
         ? `${(req.user as any).firstName} ${(req.user as any).lastName || ''}`.trim()
         : undefined;
+      const rankCache = new Map<string, number>();
+      const canManageOthersCache = new Map<string, boolean>();
 
       for (const u of users) {
         const email = String(u.user_email || u.email || "").trim().toLowerCase();
@@ -2359,7 +2362,7 @@ export function registerSmartTimingRoutes(app: Express) {
           continue;
         }
         const targetRole = normalizeRole(u.role || "miljoarbeider");
-        if (!canManageRole(actorRole, targetRole)) {
+        if (!(await canManageRoleDynamic(actorRole, targetRole, rankCache, canManageOthersCache))) {
           skipped.push({ email, reason: `Kan ikke invitere som ${targetRole}` });
           continue;
         }
@@ -2418,13 +2421,13 @@ export function registerSmartTimingRoutes(app: Express) {
       const companyId = Number(req.body.company_id || req.query.company_id) || 1;
       const actorRole = await resolveActorRoleForCompany(req, companyId);
 
-      if (!canManageUsers(actorRole)) {
+      if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å endre brukere.' });
       }
 
       if (role != null) {
         const targetRole = normalizeRole(role);
-        if (!canManageRole(actorRole, targetRole)) {
+        if (!(await canManageRoleDynamic(actorRole, targetRole))) {
           return res.status(403).json({
             error: `Rollen ${actorRole} kan ikke administrere ${targetRole}.`,
           });
@@ -2481,7 +2484,7 @@ export function registerSmartTimingRoutes(app: Express) {
     try {
       const companyId = Number(req.body?.company_id || req.query.company_id) || 1;
       const actorRole = await resolveActorRoleForCompany(req, companyId);
-      if (!canManageUsers(actorRole)) {
+      if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });
       }
 
