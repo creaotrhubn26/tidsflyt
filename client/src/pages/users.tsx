@@ -57,7 +57,7 @@ import { nb } from "date-fns/locale";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
-import { canManageRole, getRoleLabel, normalizeRole } from "@shared/roles";
+import { getRoleLabel, normalizeRole } from "@shared/roles";
 
 const roleColors = {
   hovedadmin: "bg-destructive/10 text-destructive border-destructive/20",
@@ -139,7 +139,7 @@ export default function UsersPage() {
   const [sortBy, setSortBy] = useState<"name" | "recent" | "hours">("recent");
   const { toast } = useToast();
   const { user } = useAuth();
-  const { effectiveRole } = useRolePreview();
+  const { effectiveRole, isPreviewActive } = useRolePreview();
 
   useEffect(() => {
     setTab(isInvitesRoute ? "pending" : "all");
@@ -288,8 +288,22 @@ export default function UsersPage() {
     hoursThisWeek: 0,
   }));
 
-  const actorRole = effectiveRole;
-  const allowedInviteRoles = inviteRoleOptions.filter((role) => canManageRole(actorRole, role));
+  const { data: manageableRolesData } = useQuery<{ roles: string[] }>({
+    queryKey: [
+      "/api/company/users/manageable-roles",
+      {
+        company_id: companyId,
+        // isPreviewActive er kun sann når canPreviewRoles er sann (se
+        // use-role-preview.tsx) — serveren re-verifiserer likevel selv om
+        // aktøren kvalifiserer til forhåndsvisning før den bruker denne
+        // parameteren, se Task 3s endepunkt.
+        preview_role: isPreviewActive ? effectiveRole : undefined,
+      },
+    ],
+    enabled: companyId != null,
+  });
+  const manageableRoleSet = new Set(manageableRolesData?.roles ?? []);
+  const allowedInviteRoles = inviteRoleOptions.filter((role) => manageableRoleSet.has(role));
 
   useEffect(() => {
     if (allowedInviteRoles.length === 0) {

@@ -56,7 +56,8 @@ import { z } from "zod";
 import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
-import { canAccessVendorApiAdmin, canManageUsers, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { canAccessVendorApiAdmin, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
@@ -4364,7 +4365,7 @@ export async function registerRoutes(
   app.get("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!canManageUsers(userRole)) {
+      if (!(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const defaults = await readSuggestionTeamDefaults();
@@ -4377,7 +4378,7 @@ export async function registerRoutes(
   app.patch("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!canManageUsers(userRole)) {
+      if (!(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
 
