@@ -272,6 +272,13 @@ sakerRouter.post("/:id/journal", requireAuth, async (req: any, res) => {
     if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
     if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
 
+    if (req.body.correctsEntryId) {
+      const [original] = await db.select().from(sakJournal).where(eq(sakJournal.id, req.body.correctsEntryId)).limit(1);
+      if (!original || original.sakId !== sak.id) {
+        return res.status(400).json({ error: "correctsEntryId peker ikke på en gyldig oppføring på denne saken" });
+      }
+    }
+
     const data = insertSakJournalSchema.parse({
       sakId: sak.id,
       userId: Number(req.user.id),
@@ -286,7 +293,7 @@ sakerRouter.post("/:id/journal", requireAuth, async (req: any, res) => {
 
     res.status(201).json(entry);
   } catch (e) {
-    res.status(400).json({ error: String(e) });
+    res.status(500).json({ error: String(e) });
   }
 });
 
@@ -369,7 +376,7 @@ sakerRouter.post(
 
       res.status(201).json(attachment);
     } catch (e) {
-      res.status(400).json({ error: String(e) });
+      res.status(500).json({ error: String(e) });
     }
   },
 );
@@ -395,13 +402,14 @@ sakerRouter.get(
         .from(sakJournalAttachments)
         .where(eq(sakJournalAttachments.id, req.params.attachmentId))
         .limit(1);
-      if (!attachment || attachment.journalEntryId !== req.params.entryId) {
+      if (!attachment || attachment.journalEntryId !== entry.id) {
         return res.status(404).json({ error: "Vedlegg ikke funnet" });
       }
 
       const bytes = await downloadJournalAttachment(attachment.filename);
+      const safeFilename = attachment.originalName.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_");
       res.setHeader("Content-Type", attachment.mimeType);
-      res.setHeader("Content-Disposition", `attachment; filename="${attachment.originalName}"`);
+      res.setHeader("Content-Disposition", `attachment; filename="${safeFilename}"`);
       res.send(bytes);
     } catch (e) {
       res.status(500).json({ error: String(e) });

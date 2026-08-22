@@ -191,14 +191,14 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
     const provider = providerFor(cfg);
     const defaults = skjermingDefaults(cfg);
 
-    let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, entry.sakId!)).limit(1);
-
     if (entry.entityType === "rapport") {
       const [rapport] = await db.select().from(rapporter).where(eq(rapporter.id, entry.entityId)).limit(1);
       if (!rapport) throw new Error("Rapporten finnes ikke lenger");
       if (!rapport.sakId) throw new Error("Rapporten er ikke knyttet til en sak");
       const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
       if (!sak) throw new Error("Saken finnes ikke lenger");
+
+      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
 
       if (!link) {
         const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
@@ -265,6 +265,8 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       if (!journalEntry) throw new Error("Journaloppføringen finnes ikke lenger");
       const [sak] = await db.select().from(saker).where(eq(saker.id, journalEntry.sakId)).limit(1);
       if (!sak) throw new Error("Saken finnes ikke lenger");
+
+      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
 
       if (!link) {
         const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));

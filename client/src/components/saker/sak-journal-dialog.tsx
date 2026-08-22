@@ -44,12 +44,39 @@ interface Props {
   companyTeam: CompanyUser[];
 }
 
+/**
+ * Plasserer hver korreksjon rett etter oppføringen den korrigerer, i stedet
+ * for rå kronologisk `createdAt`-rekkefølge fra API-et (spec-krav).
+ */
+function orderWithCorrectionsAdjacent(entries: JournalEntry[]): JournalEntry[] {
+  const byParent = new Map<string, JournalEntry[]>();
+  const roots: JournalEntry[] = [];
+  for (const e of entries) {
+    if (e.correctsEntryId) {
+      const siblings = byParent.get(e.correctsEntryId) ?? [];
+      siblings.push(e);
+      byParent.set(e.correctsEntryId, siblings);
+    } else {
+      roots.push(e);
+    }
+  }
+  const ordered: JournalEntry[] = [];
+  function visit(entry: JournalEntry) {
+    ordered.push(entry);
+    for (const child of byParent.get(entry.id) ?? []) visit(child);
+  }
+  for (const root of roots) visit(root);
+  return ordered;
+}
+
 function authorName(userId: number, companyTeam: CompanyUser[]): string {
   const u = companyTeam.find((t) => Number(t.id) === userId);
   if (!u) return `Bruker #${userId}`;
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || `Bruker #${userId}`;
 }
 
+// ponytail: N+1 useQuery per oppføring — greit ved forventet journalvolum per sak
+// (titalls, ikke tusenvis); slå sammen til én batch-spørring hvis det blir en flaskehals.
 function JournalEntryAttachments({ sakId, entryId }: { sakId: string; entryId: string }) {
   const { data: attachments = [] } = useQuery<{ id: string; originalName: string }[]>({
     queryKey: [`/api/saker/${sakId}/journal/${entryId}/attachments`],
@@ -132,7 +159,7 @@ export function SakJournalDialog({ sak, open, onClose, companyTeam }: Props) {
           {!isLoading && entries.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-6">Ingen journalnotater ennå.</p>
           )}
-          {entries.map((e) => (
+          {orderWithCorrectionsAdjacent(entries).map((e) => (
             <div key={e.id} className="rounded-md border border-border/60 p-3 text-sm space-y-1">
               {e.correctsEntryId && (
                 <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1">

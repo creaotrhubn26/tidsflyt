@@ -117,6 +117,21 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     expect(orig.content).toBe("Feil tekst.");
   });
 
+  it("correctsEntryId som peker på en oppføring på en ANNEN sak gir 400", async () => {
+    const sakA = await insertTestSak({ tiltakslederId: 111, tildelteUserId: [10] });
+    const sakB = await insertTestSak({ tiltakslederId: 222, tildelteUserId: [20] });
+
+    const appB = await appWithUser({ id: 20, role: "user" });
+    const entryB = await request(appB).post(`/api/saker/${sakB}/journal`).send({ content: "Hører til sak B." });
+    cleanupJournalIds.push(entryB.body.id);
+
+    const appA = await appWithUser({ id: 10, role: "user" });
+    const res = await request(appA)
+      .post(`/api/saker/${sakA}/journal`)
+      .send({ content: "Forsøker å korrigere sak B sin oppføring.", correctsEntryId: entryB.body.id });
+    expect(res.status).toBe(400);
+  }, 15000);
+
   it("kan laste opp og laste ned et vedlegg til en journaloppføring", async () => {
     const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
     const app = await appWithUser({ id: 42, role: "user" });
