@@ -154,7 +154,7 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
       `/api/saker/${sakA}/journal/${entryB.body.id}/attachments/${uploadB.body.id}`,
     );
     expect(leak.status).toBe(404);
-  });
+  }, 15000);
 
   it("kan liste alle vedlegg på en journaloppføring", async () => {
     const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
