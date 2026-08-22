@@ -15,6 +15,7 @@ import {
   Plus,
   Sparkles,
   Trash2,
+  UserPlus,
   X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -44,6 +45,9 @@ interface UserTask {
   linkedUrl: string | null;
   linkedLabel: string | null;
   snoozedUntil: string | null;
+  assignedByUserId: string | null;
+  dueAt: string | null;
+  escalatedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -289,13 +293,22 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
   const isPersonalized = prefs && (prefs.totalCreated ?? 0) >= 3;
   const staleDays = adaptiveStaleDays(prefs);
 
+  /* ── Assignable colleagues (task assignment) ── */
+  const { data: assignableData } = useQuery<{ canAssign: boolean; colleagues: Array<{ id: string; name: string }> }>({
+    queryKey: ["/api/tasks/assignable-colleagues"],
+  });
+  const canAssignToOthers = assignableData?.canAssign ?? false;
+  const colleagues = assignableData?.colleagues ?? [];
+  const [assigneeId, setAssigneeId] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState<string>("");
+
   /* ── Event logger (fire-and-forget) ── */
   const eventMut = useMutation({
     mutationFn: (event: object) => apiRequest("POST", "/api/task-prefs/event", event),
   });
 
   const createMut = useMutation({
-    mutationFn: (data: { title: string; linkedUrl?: string | null; linkedLabel?: string | null }) =>
+    mutationFn: (data: { title: string; linkedUrl?: string | null; linkedLabel?: string | null; assigneeUserId?: string | null; dueAt?: string | null }) =>
       apiRequest("POST", "/api/tasks", data),
     onSuccess: (_result, vars) => {
       qc.invalidateQueries({ queryKey: ["/api/tasks"] });
@@ -305,6 +318,8 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       setDraft("");
       setDraftLink(null);
       setSuggestedLink(null);
+      setAssigneeId(null);
+      setDueDate("");
     },
   });
 
@@ -379,7 +394,18 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
   const handleCreate = () => {
     const title = draft.trim();
     if (!title) return;
-    createMut.mutate({ title, linkedUrl: draftLink?.url ?? null, linkedLabel: draftLink?.label ?? null });
+    createMut.mutate({
+      title,
+      linkedUrl: draftLink?.url ?? null,
+      linkedLabel: draftLink?.label ?? null,
+      assigneeUserId: assigneeId ?? undefined,
+      // "Frist 25. aug" should mean the recipient has all of the 25th —
+      // <input type="date"> gives "2026-08-25", which new Date() parses as
+      // UTC midnight at the START of that day, making the escalation cron
+      // (runs 08:00) treat the task as overdue the same morning. Anchor to
+      // end-of-day locally instead.
+      dueAt: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : undefined,
+    });
   };
 
   /* ── Status tiles config ── */
@@ -739,6 +765,17 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                       {task.linkedLabel ?? "Åpne"}
                     </button>
                   )}
+                  {task.assignedByUserId && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
+                      Tildelt
+                      {task.dueAt && (
+                        <>
+                          {" · frist "}
+                          {new Date(task.dueAt).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}
+                        </>
+                      )}
+                    </span>
+                  )}
                   {/* Snooze popover */}
                   {editingId !== task.id && (
                     <Popover>
@@ -837,6 +874,17 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                               <ExternalLink className="h-3 w-3" />
                               {task.linkedLabel ?? "Åpne"}
                             </button>
+                          )}
+                          {task.assignedByUserId && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground shrink-0">
+                              Tildelt
+                              {task.dueAt && (
+                                <>
+                                  {" · frist "}
+                                  {new Date(task.dueAt).toLocaleDateString("nb-NO", { day: "numeric", month: "short" })}
+                                </>
+                              )}
+                            </span>
                           )}
                           <button
                             type="button"
@@ -1006,6 +1054,58 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
                     ))}
                   </PopoverContent>
                 </Popover>
+                {canAssignToOthers && (
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className={cn(
+                          "flex h-6 w-6 items-center justify-center rounded transition-colors",
+                          assigneeId
+                            ? "text-primary bg-primary/10"
+                            : "text-muted-foreground hover:text-primary hover:bg-accent",
+                        )}
+                        title="Tildel til"
+                      >
+                        <UserPlus className="h-3.5 w-3.5" />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-64 p-2 space-y-2">
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-1">
+                        Tildel til
+                      </p>
+                      <div className="space-y-1">
+                        {colleagues.map((c) => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => setAssigneeId(assigneeId === c.id ? null : c.id)}
+                            className={cn(
+                              "w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-accent transition-colors text-left",
+                              assigneeId === c.id && "bg-primary/10 text-primary",
+                            )}
+                          >
+                            {c.name}
+                          </button>
+                        ))}
+                        {colleagues.length === 0 && (
+                          <p className="text-xs text-muted-foreground px-2 py-1">Ingen kollegaer funnet.</p>
+                        )}
+                      </div>
+                      <div className="pt-1 border-t border-border/60">
+                        <label className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground px-1 block mb-1">
+                          Frist
+                        </label>
+                        <input
+                          type="date"
+                          value={dueDate}
+                          onChange={(e) => setDueDate(e.target.value)}
+                          className="w-full rounded-md border border-border/60 bg-transparent px-2 py-1 text-sm"
+                        />
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                )}
                 {draft.trim() && (
                   <button
                     type="button"

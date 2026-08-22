@@ -1685,6 +1685,9 @@ export const dashboardTasks = pgTable("tidum_dashboard_tasks", {
   linkedUrl: text("linked_url"),
   linkedLabel: text("linked_label"),
   snoozedUntil: timestamp("snoozed_until"),
+  assignedByUserId: text("assigned_by_user_id"),
+  dueAt: timestamp("due_at"),
+  escalatedAt: timestamp("escalated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

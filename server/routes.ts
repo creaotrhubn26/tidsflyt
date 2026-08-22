@@ -13,6 +13,7 @@ import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/rec
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
+import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -48,7 +49,7 @@ import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
 import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users, pricingTiers, salesRoutingRules, leadPipelineStages } from "@shared/schema";
-import { eq, and, isNull, desc, sql, asc, lte, gte, or } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, asc, lte, gte, or, ne } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -5442,12 +5443,89 @@ export async function registerRoutes(
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
-      const { title, linkedUrl, linkedLabel } = req.body;
+      const { title, linkedUrl, linkedLabel, assigneeUserId, dueAt } = req.body;
       if (!title || typeof title !== "string" || !title.trim()) {
         return res.status(400).json({ error: "title is required" });
       }
-      const task = await storage.createDashboardTask(userId, title.trim(), linkedUrl, linkedLabel);
+
+      let targetUserId = userId;
+      let assignedByUserId: string | undefined;
+      const parsedDueAt = dueAt ? new Date(dueAt) : undefined;
+
+      if (assigneeUserId && assigneeUserId !== userId) {
+        const actorRole = String(req.user?.role || "");
+        const allowed = await canManageUsersDynamic(actorRole);
+        if (!allowed) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const actorVendorId = req.user?.vendorId;
+        if (!actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const [targetUser] = await db
+          .select({ vendorId: users.vendorId })
+          .from(users)
+          .where(eq(users.id, assigneeUserId));
+        if (!targetUser || targetUser.vendorId !== actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        targetUserId = assigneeUserId;
+        assignedByUserId = userId;
+      }
+
+      const task = await storage.createDashboardTask(
+        targetUserId,
+        title.trim(),
+        linkedUrl,
+        linkedLabel,
+        assignedByUserId,
+        parsedDueAt,
+      );
+
+      if (assignedByUserId) {
+        await createNotification({
+          userId: targetUserId,
+          type: "task_assigned",
+          title: "Ny oppgave tildelt",
+          message: title.trim(),
+          link: "/dashboard",
+          createdBy: assignedByUserId,
+        });
+      }
+
       res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/tasks/assignable-colleagues", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const actorRole = String(req.user?.role || "");
+      const canAssign = await canManageUsersDynamic(actorRole);
+      if (!canAssign) {
+        return res.json({ canAssign: false, colleagues: [] });
+      }
+
+      const vendorId = req.user?.vendorId;
+      if (!vendorId) {
+        return res.json({ canAssign: true, colleagues: [] });
+      }
+
+      const colleagueRows = await db
+        .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email })
+        .from(users)
+        .where(and(eq(users.vendorId, vendorId), ne(users.id, userId)));
+
+      const colleagues = colleagueRows.map((u) => ({
+        id: u.id,
+        name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || u.id,
+      }));
+
+      res.json({ canAssign: true, colleagues });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -6559,6 +6637,7 @@ export async function registerRoutes(
   registerArchiveRoutes(app);
   registerEmployeeImportRoutes(app);
   registerSeatOverrunRoutes(app);
+  registerTaskEscalationRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
@@ -6568,6 +6647,7 @@ export async function registerRoutes(
     setupGdprCron();
     setupActivityLogCron();
     setupSeatOverrunCron();
+    setupTaskEscalationCron();
     setupArchiveCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)

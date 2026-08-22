@@ -360,8 +360,8 @@ export interface IStorage {
 
   // Dashboard tasks
   getDashboardTasks(userId: string): Promise<DashboardTask[]>;
-  createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string): Promise<DashboardTask>;
-  updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil'>>): Promise<DashboardTask | undefined>;
+  createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string, assignedByUserId?: string, dueAt?: Date): Promise<DashboardTask>;
+  updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil' | 'escalatedAt'>>): Promise<DashboardTask | undefined>;
   deleteDashboardTask(id: number, userId: string): Promise<boolean>;
 
   // Task learning
@@ -1097,14 +1097,22 @@ export class ExternalDbStorage implements IStorage {
       .orderBy(dashboardTasks.createdAt);
   }
 
-  async createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string): Promise<DashboardTask> {
+  async createDashboardTask(userId: string, title: string, linkedUrl?: string, linkedLabel?: string, assignedByUserId?: string, dueAt?: Date): Promise<DashboardTask> {
     const [row] = await db.insert(dashboardTasks)
-      .values({ userId, title, done: false, linkedUrl: linkedUrl ?? null, linkedLabel: linkedLabel ?? null })
+      .values({
+        userId,
+        title,
+        done: false,
+        linkedUrl: linkedUrl ?? null,
+        linkedLabel: linkedLabel ?? null,
+        assignedByUserId: assignedByUserId ?? null,
+        dueAt: dueAt ?? null,
+      })
       .returning();
     return row;
   }
 
-  async updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil'>>): Promise<DashboardTask | undefined> {
+  async updateDashboardTask(id: number, userId: string, data: Partial<Pick<DashboardTask, 'title' | 'done' | 'linkedUrl' | 'linkedLabel' | 'snoozedUntil' | 'escalatedAt'>>): Promise<DashboardTask | undefined> {
     const [row] = await db.update(dashboardTasks)
       .set({ ...data, updatedAt: new Date() })
       .where(and(eq(dashboardTasks.id, id), eq(dashboardTasks.userId, userId)))
