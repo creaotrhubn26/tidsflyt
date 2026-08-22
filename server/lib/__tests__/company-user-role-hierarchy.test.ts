@@ -18,21 +18,6 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     }
   });
 
-  // public.users has NOT NULL username/password with no default (a different
-  // product's table sharing this DB — see vendor-routes-permissions.test.ts).
-  // syncCompanyUserToPortalAccess's INSERT branch (new email, no existing
-  // users row) omits both and 500s on 23502 — a pre-existing bug unrelated to
-  // this task's canManageRoleDynamic/canManageUsersDynamic migration and out
-  // of scope to fix here (see task-2-report.md). Pre-seed a users row so the
-  // route takes the UPDATE branch instead, isolating these tests to the
-  // permission-check behavior actually under test.
-  async function preseedUsersRow(email: string) {
-    await pool.query(
-      `INSERT INTO users (username, password, email, role) VALUES ($1, 'unused-test-pairing', $2, 'member')`,
-      [`test_f16_user_${Date.now()}_${Math.random().toString(36).slice(2)}`, email],
-    );
-  }
-
   it("tiltaksleder kan invitere miljoarbeider (POST /api/company/users)", async () => {
     process.env.NODE_ENV = "production";
     const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
@@ -43,7 +28,6 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     const token = jwt.sign({ id: "test-tiltaksleder", email: "t@example.com", role: "tiltaksleder" }, JWT_SECRET);
     const email = `test_f16_${Date.now()}@example.com`;
     cleanupEmails.push(email);
-    await preseedUsersRow(email);
 
     const res = await request(app)
       .post("/api/company/users")
@@ -111,7 +95,6 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     const token = jwt.sign({ id: "test-actor-branch2", email: actorEmail, role: "member" }, JWT_SECRET);
     const targetEmail = `test_f16_target_branch2_${Date.now()}@example.com`;
     cleanupEmails.push(targetEmail);
-    await preseedUsersRow(targetEmail);
 
     const res = await request(app)
       .post("/api/company/users")

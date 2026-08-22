@@ -95,24 +95,30 @@ function getRequestUserEmail(req: AuthRequest): string | null {
 
 async function syncCompanyUserToPortalAccess(email: string, role: string, companyId: number) {
   const normalizedRole = normalizeRole(role);
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const roleId = await resolveSystemRoleIdByName(normalizedRole);
+
+  const {
+    rows: [existingUser],
+  } = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]);
 
   if (existingUser) {
-    await db
-      .update(users)
-      .set({
-        email,
-        role: normalizedRole,
-        vendorId: companyId,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, existingUser.id));
+    await pool.query(
+      `UPDATE users SET email = $1, role = $2, role_id = $3, vendor_id = $4, updated_at = NOW() WHERE id = $5`,
+      [email, normalizedRole, roleId, companyId, existingUser.id],
+    );
   } else {
-    await db.insert(users).values({
-      email,
-      role: normalizedRole,
-      vendorId: companyId,
-    });
+    // username/password are NOT NULL columns on the shared public.users
+    // table (owned by an unrelated product, see
+    // .claude/skills/rolle-tilgangssystem/references/fallgruver.md) —
+    // this invite flow never collects a separate username, so the email
+    // itself is used. password is never read for auth here (magic-link
+    // is the real auth path) — same placeholder as the vendor-admin
+    // route's users insert above.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, role_id, vendor_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4, $5)`,
+      [email, email, normalizedRole, roleId, companyId],
+    );
   }
 }
 
