@@ -13,6 +13,7 @@ import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/rec
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
+import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -6623,6 +6624,7 @@ export async function registerRoutes(
   registerPowerOfficeRoutes(app);
   registerEmployeeImportRoutes(app);
   registerSeatOverrunRoutes(app);
+  registerTaskEscalationRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
   if (process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
@@ -6632,6 +6634,7 @@ export async function registerRoutes(
     setupGdprCron();
     setupActivityLogCron();
     setupSeatOverrunCron();
+    setupTaskEscalationCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)
   seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));
