@@ -137,6 +137,25 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     expect(download.body).toEqual(Buffer.from("fake-pdf-bytes"));
   });
 
+  it("kan ikke laste ned et vedlegg via en sak det ikke tilhører (tvers-sak-lekkasje)", async () => {
+    const sakA = await insertTestSak({ tiltakslederId: 111, tildelteUserId: [10] });
+    const sakB = await insertTestSak({ tiltakslederId: 222, tildelteUserId: [20] });
+
+    const appB = await appWithUser({ id: 20, role: "user" });
+    const entryB = await request(appB).post(`/api/saker/${sakB}/journal`).send({ content: "Hører til sak B." });
+    cleanupJournalIds.push(entryB.body.id);
+    const uploadB = await request(appB)
+      .post(`/api/saker/${sakB}/journal/${entryB.body.id}/attachments`)
+      .attach("file", Buffer.from("fake-pdf-bytes"), { filename: "dok.pdf", contentType: "application/pdf" });
+    expect(uploadB.status).toBe(201);
+
+    const appA = await appWithUser({ id: 10, role: "user" });
+    const leak = await request(appA).get(
+      `/api/saker/${sakA}/journal/${entryB.body.id}/attachments/${uploadB.body.id}`,
+    );
+    expect(leak.status).toBe(404);
+  });
+
   it("ingen PATCH- eller DELETE-rute finnes for en journaloppføring", async () => {
     const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
     const app = await appWithUser({ id: 42, role: "user" });

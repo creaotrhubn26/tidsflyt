@@ -364,6 +364,9 @@ sakerRouter.get(
       if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
       if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
 
+      const [entry] = await db.select().from(sakJournal).where(eq(sakJournal.id, req.params.entryId)).limit(1);
+      if (!entry || entry.sakId !== sak.id) return res.status(404).json({ error: "Journaloppføring ikke funnet" });
+
       const [attachment] = await db
         .select()
         .from(sakJournalAttachments)
