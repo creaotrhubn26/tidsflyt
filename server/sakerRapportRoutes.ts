@@ -155,11 +155,31 @@ async function enrichSaker(rows: any[]) {
   }));
 }
 
+// Roller uten særskilt eierskap til en sak — ser kun saker de faktisk er
+// tildelt (tildelte_user_id), samme som den opprinnelige "user"-grenen.
+const SAK_STAFF_ROLES = new Set(["user", "member", "miljoarbeider", "case_manager", "teamleder", "prototype_tester"]);
+// Roller som kan eie/lede saker — ser saker der de er satt som tiltaksleder_id.
+const SAK_OWNER_ROLES = new Set(["vendor_admin", "tiltaksleder"]);
+
 sakerRouter.get("/", requireAuth, async (req: any, res) => {
   try {
     const { id: userId, role, vendorId } = req.user;
 
-    if (role === "user") {
+    if (role === "super_admin") {
+      const rows = await db.select().from(saker).orderBy(desc(saker.createdAt));
+      return res.json(await enrichSaker(rows));
+    }
+
+    if (SAK_OWNER_ROLES.has(role)) {
+      const rows = await db
+        .select()
+        .from(saker)
+        .where(eq(saker.tiltakslederId, userId))
+        .orderBy(desc(saker.createdAt));
+      return res.json(await enrichSaker(rows));
+    }
+
+    if (SAK_STAFF_ROLES.has(role)) {
       // Saker der userId er i tildelte_user_id-arrayet
       const rows = await db
         .select()
@@ -174,18 +194,9 @@ sakerRouter.get("/", requireAuth, async (req: any, res) => {
       return res.json(await enrichSaker(rows));
     }
 
-    if (role === "vendor_admin") {
-      const rows = await db
-        .select()
-        .from(saker)
-        .where(eq(saker.tiltakslederId, userId))
-        .orderBy(desc(saker.createdAt));
-      return res.json(await enrichSaker(rows));
-    }
-
-    // super_admin
-    const rows = await db.select().from(saker).orderBy(desc(saker.createdAt));
-    return res.json(await enrichSaker(rows));
+    // Ukjent/uhåndtert rolle: fail-closed, ikke fall gjennom til
+    // "se alt" slik super_admin-grenen implisitt gjorde tidligere.
+    return res.json([]);
   } catch (e) {
     res.status(500).json({ error: String(e) });
   }

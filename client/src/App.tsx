@@ -159,7 +159,7 @@ function Router() {
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/reports">{() => <AuthGuard><Redirect to="/rapporter/godkjenning" /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
-        <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Cases /></AuthGuard>}</Route>
+        <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder", "vendor_admin", "miljoarbeider", "case_manager", "teamleder", "member", "user", "super_admin"]}><Cases /></AuthGuard>}</Route>
         <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
         <Route path="/profile">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
