@@ -37,6 +37,24 @@ export async function runTaskEscalations(): Promise<{ escalated: number }> {
   let escalated = 0;
   for (const task of overdue) {
     try {
+      // Claim the row before notifying, conditioned on escalated_at still
+      // being NULL: two overlapping runs (a manual admin trigger racing the
+      // 08:00 cron, or a brief two-instance overlap during a deploy) would
+      // otherwise both see the same overdue row and both notify. Only the
+      // run that actually flips escalated_at proceeds to notify.
+      const [claimed] = await db
+        .update(dashboardTasks)
+        .set({ escalatedAt: new Date(), updatedAt: new Date() })
+        .where(and(eq(dashboardTasks.id, task.id), isNull(dashboardTasks.escalatedAt)))
+        .returning({ id: dashboardTasks.id });
+      if (!claimed) continue;
+
+      // createNotification() catches and swallows its own errors (never
+      // throws), so escalated_at above is set regardless of whether the
+      // notification actually got persisted — "escalated" here means
+      // "attempted", not "delivered". Accepted limitation (see progress
+      // ledger for this feature); fixing it would mean changing
+      // createNotification's error contract for every caller in the app.
       await createNotification({
         userId: task.assignedByUserId!,
         type: "task_overdue",
@@ -44,10 +62,6 @@ export async function runTaskEscalations(): Promise<{ escalated: number }> {
         message: task.title,
         link: "/dashboard",
       });
-      await db
-        .update(dashboardTasks)
-        .set({ escalatedAt: new Date(), updatedAt: new Date() })
-        .where(eq(dashboardTasks.id, task.id));
       escalated++;
     } catch (err) {
       console.error(`Failed to escalate task ${task.id}:`, err);

@@ -5457,6 +5457,17 @@ export async function registerRoutes(
         if (!allowed) {
           return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
         }
+        const actorVendorId = req.user?.vendorId;
+        if (!actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const [targetUser] = await db
+          .select({ vendorId: users.vendorId })
+          .from(users)
+          .where(eq(users.id, assigneeUserId));
+        if (!targetUser || targetUser.vendorId !== actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
         targetUserId = assigneeUserId;
         assignedByUserId = userId;
       }
