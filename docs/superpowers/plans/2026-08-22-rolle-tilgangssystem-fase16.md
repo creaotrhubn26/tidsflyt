@@ -550,7 +550,10 @@ git commit -m "feat: erstatt canManageRole/canManageUsers med rangbasert versjon
 - Test: `server/lib/__tests__/manageable-roles-endpoint.test.ts`
 
 **Interfaces:**
-- Konsumerer: `canManageRoleDynamic`, `getRoleRank` (Task 1), `resolveActorRoleForCompany` (uendret, eksisterende), `normalizeRole` (`@shared/roles`).
+- Konsumerer fra `server/lib/permissions.ts` (Task 1, ENDELIG signatur, samme som Task 2 måtte korrigeres til):
+  `canManageRoleDynamic(actorRoleName: string, targetRoleName: string, rankCache?: Map<string, number>, canManageOthersCache?: Map<string, boolean>): Promise<boolean>` (4 parametre, IKKE 3),
+  `canManageUsersDynamic(actorRoleName: string, cache?: Map<string, boolean>): Promise<boolean>`.
+  Også `getRoleRank`, `resolveActorRoleForCompany` (uendret, eksisterende), `normalizeRole` (`@shared/roles`).
 - Produserer: `GET /api/company/users/manageable-roles?company_id=<id>&preview_role=<rolle>` → `{ roles: string[] }`. Task 4 (klient) konsumerer dette endepunktet direkte.
 
 - [ ] **Step 1: Skriv endepunktet**
@@ -585,11 +588,12 @@ Sett inn i `server/smartTimingRoutes.ts` rett etter DELETE-routen (linje 2493, f
         }
       }
 
-      const cache = new Map<string, number>();
+      const rankCache = new Map<string, number>();
+      const canManageOthersCache = new Map<string, boolean>();
       const results = await Promise.all(
         TIDUM_ROLES.map(async (candidate) => ({
           role: candidate,
-          allowed: await canManageRoleDynamic(roleForLookup, candidate, cache),
+          allowed: await canManageRoleDynamic(roleForLookup, candidate, rankCache, canManageOthersCache),
         })),
       );
 
