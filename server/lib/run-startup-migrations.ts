@@ -43,6 +43,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "058_role_hierarchy_rank.sql",
   "059_task_assignment.sql",
   "060_notifications_drop_stale_user_id_not_null.sql",
+  "061_notifications_drop_remaining_stale_not_null.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

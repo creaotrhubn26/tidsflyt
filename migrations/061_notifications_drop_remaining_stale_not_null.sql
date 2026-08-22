@@ -1,0 +1,13 @@
+-- Migration 061: notifications.message is a legacy column from before the
+-- recipient_type/recipient_id/body/payload redesign (migration 020's original
+-- schema, same story as user_id in migration 060). createNotification()
+-- (server/routes/notification-routes.ts) writes to body, not message, but
+-- message is still NOT NULL with no default, so every insert throws
+-- internally and is silently swallowed — no notification ever gets written.
+-- Drop the NOT NULL constraint so inserts succeed; the column itself is left
+-- in place (no data loss), same rationale as 060.
+--
+-- type and title are also legacy-schema NOT NULL columns, but
+-- createNotification() does write both (opts.type, opts.title), so they are
+-- not orphaned and are left untouched here.
+ALTER TABLE notifications ALTER COLUMN message DROP NOT NULL;
