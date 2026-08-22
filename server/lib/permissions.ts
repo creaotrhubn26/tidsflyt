@@ -1,6 +1,7 @@
 import { db } from "../db";
 import { roles, rolePermissions, permissions } from "@shared/models/permissions";
 import { eq, and } from "drizzle-orm";
+import { normalizeRole } from "@shared/roles";
 
 export async function hasPermission(
   roleId: string | null | undefined,
@@ -35,39 +36,41 @@ export async function getRoleById(roleId: string) {
 }
 
 export async function getRoleRank(roleName: string, cache?: Map<string, number>): Promise<number> {
-  if (cache?.has(roleName)) return cache.get(roleName)!;
+  const normalizedRoleName = normalizeRole(roleName);
+  if (cache?.has(normalizedRoleName)) return cache.get(normalizedRoleName)!;
 
   try {
     const [row] = await db
       .select({ rank: roles.rank })
       .from(roles)
-      .where(and(eq(roles.scope, "global"), eq(roles.name, roleName), eq(roles.isSystemDefault, true)))
+      .where(and(eq(roles.scope, "global"), eq(roles.name, normalizedRoleName), eq(roles.isSystemDefault, true)))
       .limit(1);
 
     const result = row?.rank ?? -1;
-    cache?.set(roleName, result);
+    cache?.set(normalizedRoleName, result);
     return result;
   } catch (err) {
-    console.error("[permissions] getRoleRank query failed", roleName, err);
+    console.error("[permissions] getRoleRank query failed", normalizedRoleName, err);
     return -1;
   }
 }
 
 export async function getRoleCanManageOthers(roleName: string, cache?: Map<string, boolean>): Promise<boolean> {
-  if (cache?.has(roleName)) return cache.get(roleName)!;
+  const normalizedRoleName = normalizeRole(roleName);
+  if (cache?.has(normalizedRoleName)) return cache.get(normalizedRoleName)!;
 
   try {
     const [row] = await db
       .select({ canManageOthers: roles.canManageOthers })
       .from(roles)
-      .where(and(eq(roles.scope, "global"), eq(roles.name, roleName), eq(roles.isSystemDefault, true)))
+      .where(and(eq(roles.scope, "global"), eq(roles.name, normalizedRoleName), eq(roles.isSystemDefault, true)))
       .limit(1);
 
     const result = row?.canManageOthers ?? false;
-    cache?.set(roleName, result);
+    cache?.set(normalizedRoleName, result);
     return result;
   } catch (err) {
-    console.error("[permissions] getRoleCanManageOthers query failed", roleName, err);
+    console.error("[permissions] getRoleCanManageOthers query failed", normalizedRoleName, err);
     return false;
   }
 }
