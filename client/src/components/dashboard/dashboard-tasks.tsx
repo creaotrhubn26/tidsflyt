@@ -399,7 +399,12 @@ export function DashboardTasks({ tasks, navigate, mode = "default" }: DashboardT
       linkedUrl: draftLink?.url ?? null,
       linkedLabel: draftLink?.label ?? null,
       assigneeUserId: assigneeId ?? undefined,
-      dueAt: dueDate ? new Date(dueDate).toISOString() : undefined,
+      // "Frist 25. aug" should mean the recipient has all of the 25th —
+      // <input type="date"> gives "2026-08-25", which new Date() parses as
+      // UTC midnight at the START of that day, making the escalation cron
+      // (runs 08:00) treat the task as overdue the same morning. Anchor to
+      // end-of-day locally instead.
+      dueAt: dueDate ? new Date(`${dueDate}T23:59:59`).toISOString() : undefined,
     });
   };
 

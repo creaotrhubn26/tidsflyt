@@ -24,6 +24,7 @@ import { pool } from "../../db";
 describe("oppgavetildeling: POST /api/tasks + GET /api/tasks/assignable-colleagues", () => {
   const cleanupTaskIds: number[] = [];
   const cleanupNotificationUserIds: string[] = [];
+  const cleanupUserIds: string[] = [];
   afterEach(async () => {
     for (const id of cleanupTaskIds.splice(0)) {
       await pool.query(`DELETE FROM tidum_dashboard_tasks WHERE id = $1`, [id]);
@@ -31,7 +32,24 @@ describe("oppgavetildeling: POST /api/tasks + GET /api/tasks/assignable-colleagu
     for (const uid of cleanupNotificationUserIds.splice(0)) {
       await pool.query(`DELETE FROM notifications WHERE recipient_id = $1`, [uid]);
     }
+    for (const id of cleanupUserIds.splice(0)) {
+      await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+    }
   });
+
+  // POST /api/tasks requires the target of an assignment to exist as a real
+  // `users` row with the SAME vendor_id as the actor (tenant-scoping fix) —
+  // a bare string id like the pre-fix tests used no longer qualifies as a
+  // valid assignment target.
+  async function insertUser(vendorId: number | null): Promise<string> {
+    const email = `test_assignee_${Date.now()}_${Math.random().toString(36).slice(2)}@example.com`;
+    const { rows: [row] } = await pool.query(
+      `INSERT INTO users (username, password, email, vendor_id) VALUES ($1, 'x', $2, $3) RETURNING id`,
+      [email, email, vendorId],
+    );
+    cleanupUserIds.push(row.id);
+    return row.id;
+  }
 
   async function appWithUser(user: { id: string; role: string; vendorId?: number | null }) {
     const { registerRoutes } = await import("../../routes");
@@ -46,11 +64,11 @@ describe("oppgavetildeling: POST /api/tasks + GET /api/tasks/assignable-colleagu
     return app;
   }
 
-  it("vendor_admin kan tildele en oppgave til en annen bruker, mottakeren får en notifikasjon", async () => {
+  it("vendor_admin kan tildele en oppgave til en annen bruker i samme vendor, mottakeren får en notifikasjon", async () => {
     const assignerId = `test_assigner_${Date.now()}`;
-    const assigneeId = `test_assignee_${Date.now()}`;
+    const assigneeId = await insertUser(42);
     cleanupNotificationUserIds.push(assigneeId);
-    const app = await appWithUser({ id: assignerId, role: "vendor_admin" });
+    const app = await appWithUser({ id: assignerId, role: "vendor_admin", vendorId: 42 });
 
     const res = await request(app)
       .post("/api/tasks")
@@ -66,6 +84,30 @@ describe("oppgavetildeling: POST /api/tasks + GET /api/tasks/assignable-colleagu
       [assigneeId],
     );
     expect(rows.length).toBe(1);
+  });
+
+  it("vendor_admin kan IKKE tildele en oppgave til en bruker i en ANNEN vendor (403)", async () => {
+    const assignerId = `test_assigner_x_${Date.now()}`;
+    const foreignAssigneeId = await insertUser(99);
+    const app = await appWithUser({ id: assignerId, role: "vendor_admin", vendorId: 42 });
+
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ title: "Skal feile på tenant-grense", assigneeUserId: foreignAssigneeId });
+
+    expect(res.status).toBe(403);
+  });
+
+  it("vendor_admin uten egen vendorId kan IKKE tildele til noen (403, fail-closed)", async () => {
+    const assignerId = `test_assigner_novendor_${Date.now()}`;
+    const targetId = await insertUser(42);
+    const app = await appWithUser({ id: assignerId, role: "vendor_admin", vendorId: null });
+
+    const res = await request(app)
+      .post("/api/tasks")
+      .send({ title: "Skal feile, aktør mangler vendorId", assigneeUserId: targetId });
+
+    expect(res.status).toBe(403);
   });
 
   it("member kan IKKE tildele en oppgave til noen andre (403)", async () => {

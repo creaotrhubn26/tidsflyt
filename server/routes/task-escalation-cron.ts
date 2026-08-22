@@ -12,18 +12,24 @@
 import type { Express, Request, Response } from "express";
 import cron from "node-cron";
 import { db } from "../db";
-import { and, eq, isNull, isNotNull, lt } from "drizzle-orm";
+import { and, eq, isNull, isNotNull, lt, inArray } from "drizzle-orm";
 import { dashboardTasks } from "@shared/schema";
 import { createNotification } from "./notification-routes";
-import { requireAuth, ADMIN_ROLES } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
 
-function isAdminRole(req: Request): boolean {
+function isSuperAdmin(req: Request): boolean {
   const role = String(((req as any).authUser ?? (req as any).user)?.role || "")
     .toLowerCase().replace(/[\s-]/g, "_");
-  return ADMIN_ROLES.includes(role);
+  return role === "super_admin";
 }
 
-export async function runTaskEscalations(): Promise<{ escalated: number }> {
+// taskIds is test-only: runTaskEscalations() with no filter scans every
+// vendor's overdue tasks (needed for the real daily cron), which makes it
+// unsafe for tests to call unfiltered against the shared database — a test
+// run would escalate real users' real overdue tasks and permanently burn
+// their idempotency guard. Tests pass their own inserted ids to scope the
+// scan to rows they own and can clean up.
+export async function runTaskEscalations(taskIds?: number[]): Promise<{ escalated: number }> {
   const overdue = await db
     .select()
     .from(dashboardTasks)
@@ -32,6 +38,7 @@ export async function runTaskEscalations(): Promise<{ escalated: number }> {
       eq(dashboardTasks.done, false),
       isNull(dashboardTasks.escalatedAt),
       isNotNull(dashboardTasks.assignedByUserId),
+      ...(taskIds ? [inArray(dashboardTasks.id, taskIds)] : []),
     ));
 
   let escalated = 0;
@@ -82,11 +89,16 @@ export function setupTaskEscalationCron() {
   console.log("✅ Task escalation cron scheduled (daily 08:00)");
 }
 
-/** Manuell trigger-rute for admins til å teste + tvinge en kjøring. */
+// Manuell trigger-rute til å teste + tvinge en kjøring. runTaskEscalations()
+// er ikke vendor-scopet (den ekte daglige cronen skal treffe alle
+// tenanter), så denne ruten kan tvinge eskalering av ENHVER tenants
+// forfalte oppgaver — begrenset til super_admin, ikke ADMIN_ROLES for
+// øvrig (som inkluderer vendor-lokale roller som tiltaksleder/teamleder,
+// som ellers kunne tvinge kryss-tenant-varsling på et tidspunkt de velger).
 export function registerTaskEscalationRoutes(app: Express) {
   app.post("/api/task-escalations/run", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!isAdminRole(req)) return res.status(403).json({ error: "Kun admin+ kan kjøre eskalering manuelt" });
+      if (!isSuperAdmin(req)) return res.status(403).json({ error: "Kun super_admin kan kjøre eskalering manuelt" });
       const result = await runTaskEscalations();
       res.json({ ok: true, ...result });
     } catch (e: any) {
