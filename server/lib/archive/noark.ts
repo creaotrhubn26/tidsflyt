@@ -157,6 +157,69 @@ export function buildRapportJournalpost(
   };
 }
 
+export interface JournalEntryLike {
+  id: string;
+  content: string;
+  createdAt?: string | Date | null;
+}
+
+export interface JournalAttachmentLike {
+  originalName: string;
+  mimeType: string;
+  content: Buffer;
+}
+
+/**
+ * Journalpost for én sak-journal-oppføring. Alltid organinternt (X) — en
+ * journaloppføring har ingen godkjennings-/ekspederingsflyt slik rapporter
+ * har. Selve journalteksten er ALLTID første fil (Produksjonsformat, ikke
+ * Arkivformat — ren tekst uten PDF/A-konvertering i denne runden); eventuelle
+ * vedlegg følger etter i sin opprinnelige mimeType.
+ */
+export function buildJournalJournalpost(
+  entry: JournalEntryLike,
+  sak: SakLike | null,
+  attachments: JournalAttachmentLike[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const klient = sak?.klientRef || null;
+  const parts = [
+    "Journalnotat",
+    sak ? `— sak ${sak.saksnummer}` : null,
+    klient ? `(${klient})` : null,
+  ].filter(Boolean);
+
+  const dokumentdato = entry.createdAt
+    ? new Date(entry.createdAt).toISOString().slice(0, 10)
+    : undefined;
+
+  const textFile: ArchiveDocumentFile = {
+    filename: `journal-${sak?.saksnummer ?? entry.id}.txt`.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: "text/plain",
+    content: Buffer.from(entry.content, "utf-8"),
+    variantformat: "Produksjonsformat",
+  };
+
+  const attachmentFiles: ArchiveDocumentFile[] = attachments.map((a) => ({
+    filename: a.originalName.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: a.mimeType,
+    content: a.content,
+    variantformat: a.mimeType === "application/pdf" ? "Arkivformat" : "Produksjonsformat",
+  }));
+
+  return {
+    tittel: parts.join(" "),
+    offentligTittel: "Journalnotat",
+    journalposttype: "X",
+    eksternId: `tidum:journal:${entry.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files: [textFile, ...attachmentFiles],
+  };
+}
+
 /** Eksponentiell backoff for arkiv-outboxen: 5 min · 2^attempts, tak 24 t. */
 export function nextAttemptDelayMs(attempts: number): number {
   const base = 5 * 60 * 1000;
