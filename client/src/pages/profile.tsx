@@ -38,6 +38,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { IntegrationRequestsPanel } from "@/components/integrations/integration-requests-panel";
 import { PowerOfficeConnectCard } from "@/components/integrations/poweroffice-connect-card";
+import { ArkivConnectCard } from "@/components/integrations/arkiv-connect-card";
 import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
@@ -1036,6 +1037,8 @@ export default function ProfilePage() {
         <IntegrationRequestsPanel showAdminTools={canAccessVendorApiAdmin(normalizedRole)} />
 
         {canAccessVendorApiAdmin(normalizedRole) && <PowerOfficeConnectCard />}
+
+        {canAccessVendorApiAdmin(normalizedRole) && <ArkivConnectCard />}
 
         {/* ── Notifications ── */}
         <Card data-testid="notifications-card">
