@@ -41,6 +41,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "055_admin_users_role_id_unification.sql",
   "056_admin_activity_log.sql",
   "058_role_hierarchy_rank.sql",
+  "059_task_assignment.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
