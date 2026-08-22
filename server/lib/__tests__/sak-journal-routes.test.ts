@@ -156,6 +156,42 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     expect(leak.status).toBe(404);
   });
 
+  it("kan liste alle vedlegg på en journaloppføring", async () => {
+    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
+    const app = await appWithUser({ id: 42, role: "user" });
+
+    const entry = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Med to vedlegg." });
+    cleanupJournalIds.push(entry.body.id);
+
+    const upload1 = await request(app)
+      .post(`/api/saker/${sakId}/journal/${entry.body.id}/attachments`)
+      .attach("file", Buffer.from("fake-pdf-bytes"), { filename: "dok1.pdf", contentType: "application/pdf" });
+    const upload2 = await request(app)
+      .post(`/api/saker/${sakId}/journal/${entry.body.id}/attachments`)
+      .attach("file", Buffer.from("fake-pdf-bytes"), { filename: "dok2.pdf", contentType: "application/pdf" });
+    expect(upload1.status).toBe(201);
+    expect(upload2.status).toBe(201);
+
+    const list = await request(app).get(`/api/saker/${sakId}/journal/${entry.body.id}/attachments`);
+    expect(list.status).toBe(200);
+    expect(list.body).toHaveLength(2);
+    const names = list.body.map((a: any) => a.originalName).sort();
+    expect(names).toEqual(["dok1.pdf", "dok2.pdf"]);
+    expect(list.body[0]).toHaveProperty("id");
+    expect(list.body[0]).toHaveProperty("mimeType");
+  });
+
+  it("bruker uten tilgang til saken får 403 på vedleggs-liste-endepunktet", async () => {
+    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
+    const owner = await appWithUser({ id: 42, role: "user" });
+    const entry = await request(owner).post(`/api/saker/${sakId}/journal`).send({ content: "Beskyttet." });
+    cleanupJournalIds.push(entry.body.id);
+
+    const outsider = await appWithUser({ id: 7, role: "user" });
+    const res = await request(outsider).get(`/api/saker/${sakId}/journal/${entry.body.id}/attachments`);
+    expect(res.status).toBe(403);
+  });
+
   it("ingen PATCH- eller DELETE-rute finnes for en journaloppføring", async () => {
     const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
     const app = await appWithUser({ id: 42, role: "user" });

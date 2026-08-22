@@ -312,6 +312,29 @@ sakerRouter.get("/:id/journal", requireAuth, async (req: any, res) => {
 });
 
 /**
+ * GET /api/saker/:id/journal/:entryId/attachments
+ * List alle vedlegg på én journaloppføring.
+ */
+sakerRouter.get("/:id/journal/:entryId/attachments", requireAuth, async (req: any, res) => {
+  try {
+    const { allowed, sak } = await canAccessSakJournal(req, req.params.id);
+    if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
+    if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
+
+    const [entry] = await db.select().from(sakJournal).where(eq(sakJournal.id, req.params.entryId)).limit(1);
+    if (!entry || entry.sakId !== sak.id) return res.status(404).json({ error: "Journaloppføring ikke funnet" });
+
+    const attachments = await db
+      .select()
+      .from(sakJournalAttachments)
+      .where(eq(sakJournalAttachments.journalEntryId, entry.id));
+    res.json(attachments);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/**
  * POST /api/saker/:id/journal/:entryId/attachments
  * Last opp ett vedlegg til en eksisterende journaloppføring.
  */
