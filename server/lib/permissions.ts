@@ -53,15 +53,41 @@ export async function getRoleRank(roleName: string, cache?: Map<string, number>)
   }
 }
 
+export async function getRoleCanManageOthers(roleName: string, cache?: Map<string, boolean>): Promise<boolean> {
+  if (cache?.has(roleName)) return cache.get(roleName)!;
+
+  try {
+    const [row] = await db
+      .select({ canManageOthers: roles.canManageOthers })
+      .from(roles)
+      .where(and(eq(roles.scope, "global"), eq(roles.name, roleName), eq(roles.isSystemDefault, true)))
+      .limit(1);
+
+    const result = row?.canManageOthers ?? false;
+    cache?.set(roleName, result);
+    return result;
+  } catch (err) {
+    console.error("[permissions] getRoleCanManageOthers query failed", roleName, err);
+    return false;
+  }
+}
+
 export async function canManageRoleDynamic(
   actorRoleName: string,
   targetRoleName: string,
-  cache?: Map<string, number>,
+  rankCache?: Map<string, number>,
+  canManageOthersCache?: Map<string, boolean>,
 ): Promise<boolean> {
-  const [actorRank, targetRank] = await Promise.all([
-    getRoleRank(actorRoleName, cache),
-    getRoleRank(targetRoleName, cache),
+  const [canManage, actorRank, targetRank] = await Promise.all([
+    getRoleCanManageOthers(actorRoleName, canManageOthersCache),
+    getRoleRank(actorRoleName, rankCache),
+    getRoleRank(targetRoleName, rankCache),
   ]);
+  // rank alene kan ikke uttrykke "administrerer aldri noen" (prototype_tester:
+  // rank 85, men can_manage_others FALSE) — se migrations/058 og
+  // task-1-report.md fixround 1. can_manage_others er en egen, uavhengig
+  // guard fra rank-sammenligningen under.
+  if (!canManage) return false;
   // -1 betyr ukjent rolle (rekke ikke funnet, eller DB-feil) — en ukjent
   // rolle kan aldri administrere noe, og kan aldri bli administrert.
   // Uten denne guarden ville -1 < 0 (miljoarbeider) feilaktig gitt true.
@@ -69,7 +95,6 @@ export async function canManageRoleDynamic(
   return targetRank < actorRank;
 }
 
-export async function canManageUsersDynamic(actorRoleName: string, cache?: Map<string, number>): Promise<boolean> {
-  const actorRank = await getRoleRank(actorRoleName, cache);
-  return actorRank > 0;
+export async function canManageUsersDynamic(actorRoleName: string, cache?: Map<string, boolean>): Promise<boolean> {
+  return getRoleCanManageOthers(actorRoleName, cache);
 }

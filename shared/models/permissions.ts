@@ -18,6 +18,7 @@ export const roles = pgTable(
     vendorId: integer("vendor_id"),
     isSystemDefault: boolean("is_system_default").notNull().default(false),
     rank: integer("rank").notNull().default(0),
+    canManageOthers: boolean("can_manage_others").notNull().default(false),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at").notNull().defaultNow(),
   },
