@@ -18,12 +18,15 @@ import {
   insertSakSchema, insertRapportSchema,
   insertMaalSchema, insertAktivitetSchema,
   logRow,
+  sakJournal, sakJournalAttachments, insertSakJournalSchema,
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
 import { emailService } from "./lib/email-service";
-import { queueRapportArchiving } from "./lib/archive/archive-service";
+import { queueRapportArchiving, queueJournalEntryArchiving } from "./lib/archive/archive-service";
+import { uploadJournalAttachment, downloadJournalAttachment, generateAttachmentKey } from "./lib/journal-attachment-storage";
 import { users } from "../shared/schema";
 import OpenAI from "openai";
+import multer from "multer";
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +45,22 @@ function requireRole(...roles: string[]) {
 
 function getUserVendorId(req: any): number | null {
   return req.user?.vendorId ?? null;
+}
+
+const journalAttachmentUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+/** Samme rad-nivå-tilgang som rapporter: forfatter, tiltaksleder på saken, eller super_admin. */
+async function canAccessSakJournal(req: any, sakId: string): Promise<{ allowed: boolean; sak?: any }> {
+  const [sak] = await db.select().from(saker).where(eq(saker.id, sakId)).limit(1);
+  if (!sak) return { allowed: false };
+  if (req.user.role === "super_admin") return { allowed: true, sak };
+  if (sak.tiltakslederId === Number(req.user.id)) return { allowed: true, sak };
+  const tildelt = (sak.tildelteUserId as number[]) ?? [];
+  if (tildelt.includes(Number(req.user.id))) return { allowed: true, sak };
+  return { allowed: false, sak };
 }
 
 /**
@@ -241,6 +260,127 @@ sakerRouter.post(
       res.status(500).json({ error: String(e) });
     }
   }
+);
+
+/**
+ * POST /api/saker/:id/journal
+ * Opprett en ny, uforanderlig journaloppføring på saken.
+ */
+sakerRouter.post("/:id/journal", requireAuth, async (req: any, res) => {
+  try {
+    const { allowed, sak } = await canAccessSakJournal(req, req.params.id);
+    if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
+    if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
+
+    const data = insertSakJournalSchema.parse({
+      sakId: sak.id,
+      userId: Number(req.user.id),
+      content: req.body.content,
+      correctsEntryId: req.body.correctsEntryId ?? null,
+    });
+    const [entry] = await db.insert(sakJournal).values(data).returning();
+
+    queueJournalEntryArchiving(entry.id).catch((err) =>
+      console.error(`[journal] arkivering feilet for ${entry.id}:`, err?.message ?? err),
+    );
+
+    res.status(201).json(entry);
+  } catch (e) {
+    res.status(400).json({ error: String(e) });
+  }
+});
+
+/**
+ * GET /api/saker/:id/journal
+ * List alle journaloppføringer på saken, kronologisk.
+ */
+sakerRouter.get("/:id/journal", requireAuth, async (req: any, res) => {
+  try {
+    const { allowed, sak } = await canAccessSakJournal(req, req.params.id);
+    if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
+    if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
+
+    const entries = await db
+      .select()
+      .from(sakJournal)
+      .where(eq(sakJournal.sakId, sak.id))
+      .orderBy(sakJournal.createdAt);
+    res.json(entries);
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
+
+/**
+ * POST /api/saker/:id/journal/:entryId/attachments
+ * Last opp ett vedlegg til en eksisterende journaloppføring.
+ */
+sakerRouter.post(
+  "/:id/journal/:entryId/attachments",
+  requireAuth,
+  journalAttachmentUpload.single("file"),
+  async (req: any, res) => {
+    try {
+      const { allowed, sak } = await canAccessSakJournal(req, req.params.id);
+      if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
+      if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
+      if (!req.file) return res.status(400).json({ error: 'Ingen fil mottatt (feltnavn må være "file")' });
+
+      const [entry] = await db.select().from(sakJournal).where(eq(sakJournal.id, req.params.entryId)).limit(1);
+      if (!entry || entry.sakId !== sak.id) return res.status(404).json({ error: "Journaloppføring ikke funnet" });
+
+      const key = generateAttachmentKey(entry.id, req.file.originalname);
+      await uploadJournalAttachment(key, req.file.buffer, req.file.mimetype);
+
+      const [attachment] = await db
+        .insert(sakJournalAttachments)
+        .values({
+          journalEntryId: entry.id,
+          filename: key,
+          originalName: req.file.originalname,
+          mimeType: req.file.mimetype,
+          sizeBytes: req.file.size,
+          uploadedBy: Number(req.user.id),
+        })
+        .returning();
+
+      res.status(201).json(attachment);
+    } catch (e) {
+      res.status(400).json({ error: String(e) });
+    }
+  },
+);
+
+/**
+ * GET /api/saker/:id/journal/:entryId/attachments/:attachmentId
+ * Last ned ett vedlegg — proxy fra S3, samme tilgangssjekk som journalen selv.
+ */
+sakerRouter.get(
+  "/:id/journal/:entryId/attachments/:attachmentId",
+  requireAuth,
+  async (req: any, res) => {
+    try {
+      const { allowed, sak } = await canAccessSakJournal(req, req.params.id);
+      if (!sak) return res.status(404).json({ error: "Sak ikke funnet" });
+      if (!allowed) return res.status(403).json({ error: "Ikke tilgang til denne sakens journal" });
+
+      const [attachment] = await db
+        .select()
+        .from(sakJournalAttachments)
+        .where(eq(sakJournalAttachments.id, req.params.attachmentId))
+        .limit(1);
+      if (!attachment || attachment.journalEntryId !== req.params.entryId) {
+        return res.status(404).json({ error: "Vedlegg ikke funnet" });
+      }
+
+      const bytes = await downloadJournalAttachment(attachment.filename);
+      res.setHeader("Content-Type", attachment.mimeType);
+      res.setHeader("Content-Disposition", `attachment; filename="${attachment.originalName}"`);
+      res.send(bytes);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  },
 );
 
 /**
