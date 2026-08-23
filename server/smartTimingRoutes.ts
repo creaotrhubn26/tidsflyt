@@ -94,12 +94,17 @@ function getRequestUserEmail(req: AuthRequest): string | null {
 }
 
 async function syncCompanyUserToPortalAccess(email: string, role: string, companyId: number) {
+  const normalizedEmail = email.trim().toLowerCase();
   const normalizedRole = normalizeRole(role);
   const roleId = await resolveSystemRoleIdByName(normalizedRole);
 
+  // LOWER(email) matcher det case-insensitive innloggingsoppslaget i
+  // custom-auth.ts — en case-eksakt WHERE her ville la en annen-case
+  // e-post smette forbi tenant-sjekken under og opprette en duplisert
+  // users-rad med angriperens vendor_id (kontoovertakelse).
   const {
     rows: [existingUser],
-  } = await pool.query(`SELECT id, vendor_id FROM users WHERE email = $1 LIMIT 1`, [email]);
+  } = await pool.query(`SELECT id, vendor_id FROM users WHERE LOWER(email) = $1 LIMIT 1`, [normalizedEmail]);
 
   if (existingUser) {
     if (existingUser.vendor_id !== companyId) {
@@ -110,7 +115,7 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
     }
     await pool.query(
       `UPDATE users SET email = $1, role = $2, role_id = $3, vendor_id = $4, updated_at = NOW() WHERE id = $5`,
-      [email, normalizedRole, roleId, companyId, existingUser.id],
+      [normalizedEmail, normalizedRole, roleId, companyId, existingUser.id],
     );
   } else {
     // username/password are NOT NULL columns on the shared public.users
@@ -123,7 +128,7 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
     await pool.query(
       `INSERT INTO users (username, password, email, role, role_id, vendor_id)
        VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4, $5)`,
-      [email, email, normalizedRole, roleId, companyId],
+      [normalizedEmail, normalizedEmail, normalizedRole, roleId, companyId],
     );
   }
 }
@@ -159,7 +164,7 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
   }
 
   const actorRoleResult = await pool.query(
-    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
+    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) ORDER BY id ASC LIMIT 1`,
     [companyId, actorEmail]
   );
 
@@ -2389,7 +2394,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (!email) return res.json({ companyId: null });
 
       const result = await pool.query(
-        `SELECT company_id FROM tidum_company_users WHERE user_email = $1 LIMIT 1`,
+        `SELECT company_id FROM tidum_company_users WHERE LOWER(user_email) = LOWER($1) LIMIT 1`,
         [email]
       );
 
@@ -2626,7 +2631,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.patch("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { role, approved } = req.body;
-      const companyId = Number(req.body.company_id || req.query.company_id) || 1;
+      const rawCompanyId = req.body.company_id ?? req.query.company_id;
+      if (rawCompanyId == null) {
+        return res.status(400).json({ error: 'company_id er påkrevd' });
+      }
+      const companyId = Number(rawCompanyId);
+      if (!Number.isFinite(companyId)) {
+        return res.status(400).json({ error: 'company_id må være et tall' });
+      }
       const actorRole = await resolveActorRoleForCompany(req, companyId);
 
       if (!(await canManageUsersDynamic(actorRole))) {
@@ -2642,20 +2654,23 @@ export function registerSmartTimingRoutes(app: Express) {
         }
       }
 
-      const result = await pool.query(
-        `UPDATE tidum_company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
-         WHERE id = $3 AND company_id = $4 RETURNING *`,
-        [role ? normalizeRole(role) : null, approved, req.params.id, companyId]
+      const currentResult = await pool.query(
+        `SELECT * FROM tidum_company_users WHERE id = $1 AND company_id = $2`,
+        [req.params.id, companyId]
       );
-      if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      if (currentResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const currentRow = currentResult.rows[0];
 
-      if (result.rows[0].approved === true && result.rows[0].user_email) {
+      const finalRole = role != null ? normalizeRole(role) : currentRow.role;
+      const finalApproved = approved ?? currentRow.approved;
+
+      // Valider (og fail closed på TENANT_MISMATCH) FØR vi muterer
+      // tidum_company_users — ellers persisteres rolle/approved-endringen
+      // selv om syncen under svarer 409 (tidum_company_users brukes selv
+      // som autorisasjonskilde av resolveActorRoleForCompany).
+      if (finalApproved === true && currentRow.user_email) {
         try {
-          await syncCompanyUserToPortalAccess(
-            result.rows[0].user_email,
-            result.rows[0].role || 'member',
-            companyId
-          );
+          await syncCompanyUserToPortalAccess(currentRow.user_email, finalRole || 'member', companyId);
         } catch (syncErr: any) {
           if (syncErr?.message === 'TENANT_MISMATCH') {
             return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
@@ -2663,6 +2678,13 @@ export function registerSmartTimingRoutes(app: Express) {
           throw syncErr;
         }
       }
+
+      const result = await pool.query(
+        `UPDATE tidum_company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
+         WHERE id = $3 AND company_id = $4 RETURNING *`,
+        [role ? normalizeRole(role) : null, approved, req.params.id, companyId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
       // Send email when user is approved
       if (approved === true && result.rows[0].user_email) {
@@ -2697,7 +2719,14 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const companyId = Number(req.body?.company_id || req.query.company_id) || 1;
+      const rawCompanyId = req.body?.company_id ?? req.query.company_id;
+      if (rawCompanyId == null) {
+        return res.status(400).json({ error: 'company_id er påkrevd' });
+      }
+      const companyId = Number(rawCompanyId);
+      if (!Number.isFinite(companyId)) {
+        return res.status(400).json({ error: 'company_id må være et tall' });
+      }
       const actorRole = await resolveActorRoleForCompany(req, companyId);
       if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });

@@ -385,4 +385,115 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     expect(res.body.some((row: any) => row.user_email === ownEmail)).toBe(true);
     expect(res.body.every((row: any) => row.company_id === ownVendorId)).toBe(true);
   });
+
+  // BOLA-fiks runde 3, Fiks 1: syncCompanyUserToPortalAccess sitt
+  // tenant-vern (TENANT_MISMATCH) matchet tidligere users.email med
+  // case-eksakt likhet, mens innloggingsoppslaget (custom-auth.ts) og
+  // users_email_unique-indeksen ikke er case-konsistente med hverandre.
+  // En invitasjon med ANNEN case enn en eksisterende, fremmed-virksomhets
+  // rad så derfor "ingen eksisterende bruker" og opprettet en ny,
+  // duplisert users-rad med angriperens company_id i stedet for å 409'e.
+  it("kan IKKE invitere en e-post med ANNEN case enn en eksisterende bruker i en annen virksomhet (TENANT_MISMATCH -> 409, ingen duplisert rad)", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const actorVendorId = 504001;
+    const foreignVendorId = 504002;
+    const targetEmailLower = `test_case_mismatch_${Date.now()}@example.com`;
+    const targetEmailMixedCase = targetEmailLower.replace("test_case_mismatch", "Test_Case_Mismatch");
+    cleanupEmails.push(targetEmailLower);
+
+    // Eksisterende bruker, lagret med LOWERCASE e-post, tilknyttet en
+    // HELT ANNEN virksomhet.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id) VALUES ($1, 'unused', $2, 'member', $3)`,
+      [targetEmailLower, targetEmailLower, foreignVendorId],
+    );
+
+    const token = jwt.sign(
+      {
+        id: "test-actor-case-mismatch",
+        email: "case-mismatch-actor@example.com",
+        role: "vendor_admin",
+        vendorId: actorVendorId,
+      },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .post("/api/company/users")
+      .set("Authorization", `Bearer ${token}`)
+      // Samme e-post, men med annen case enn den lagrede raden.
+      .send({ company_id: actorVendorId, user_email: targetEmailMixedCase, role: "miljoarbeider", sendInvite: false });
+
+    expect(res.status).toBe(409);
+
+    // Fortsatt kun ÉN users-rad for denne (case-insensitivt like) e-posten,
+    // og den skal fortsatt tilhøre den opprinnelige, fremmede virksomheten.
+    const { rows } = await pool.query(`SELECT vendor_id, role FROM users WHERE LOWER(email) = LOWER($1)`, [
+      targetEmailLower,
+    ]);
+    expect(rows.length).toBe(1);
+    expect(rows[0].vendor_id).toBe(foreignVendorId);
+    expect(rows[0].role).toBe("member");
+  });
+
+  // BOLA-fiks runde 3, Fiks 3: PATCH sin TENANT_MISMATCH-409 skjedde
+  // tidligere ETTER at UPDATE tidum_company_users allerede var committet —
+  // en aktør som forsøkte å godkjenne en e-post som (case-insensitivt)
+  // tilhører en annen virksomhet fikk 409, men rollen/godkjenningen sto
+  // likevel persistert i tidum_company_users (som selv er
+  // autorisasjonskilden for resolveActorRoleForCompany).
+  it("PATCH med approved:true som fører til TENANT_MISMATCH: 409 OG tidum_company_users-raden forblir UENDRET", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const actorVendorId = 504011;
+    const foreignVendorId = 504012;
+    const targetEmail = `test_patch_tenant_mismatch_${Date.now()}@example.com`;
+    cleanupEmails.push(targetEmail);
+
+    // Raden som skal godkjennes, hører til AKTØRENS EGEN virksomhet i
+    // tidum_company_users …
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'member', false) RETURNING id, role, approved`,
+      [actorVendorId, targetEmail],
+    );
+    const rowId = inserted[0].id;
+
+    // … men samme e-post er allerede registrert i den delte users-tabellen
+    // under en HELT ANNEN virksomhet — godkjenningen skal derfor utløse
+    // syncCompanyUserToPortalAccess sin TENANT_MISMATCH.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id) VALUES ($1, 'unused', $2, 'member', $3)`,
+      [targetEmail, targetEmail, foreignVendorId],
+    );
+
+    const token = jwt.sign(
+      { id: "test-patch-tenant-mismatch-actor", email: "patch-mismatch-actor@example.com", role: "vendor_admin", vendorId: actorVendorId },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .patch(`/api/company/users/${rowId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: actorVendorId, approved: true });
+
+    expect(res.status).toBe(409);
+
+    const { rows } = await pool.query(
+      `SELECT role, approved FROM tidum_company_users WHERE id = $1`,
+      [rowId],
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].role).toBe("member");
+    expect(rows[0].approved).toBe(false);
+  });
 });
