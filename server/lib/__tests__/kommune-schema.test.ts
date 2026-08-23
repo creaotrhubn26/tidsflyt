@@ -42,5 +42,10 @@ describe("kommune-tenant datamodell", () => {
     expect(await canManageRoleDynamic("barnevernsleder", "kommune_saksbehandler")).toBe(true);
     expect(await canManageRoleDynamic("kommune_saksbehandler", "barnevernsleder")).toBe(false);
     expect(await canManageRoleDynamic("super_admin", "barnevernsleder")).toBe(true);
+    // Regresjonsvern: rank 85/82 må holde disse rollene utenfor rekkevidde
+    // for vendor-side roller (canManageRoleDynamic er tenant-blind, se
+    // migrations/063_kommuner.sql).
+    expect(await canManageRoleDynamic("vendor_admin", "kommune_saksbehandler")).toBe(false);
+    expect(await canManageRoleDynamic("hovedadmin", "barnevernsleder")).toBe(false);
   });
 });

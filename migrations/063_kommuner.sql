@@ -21,11 +21,17 @@ CREATE TABLE IF NOT EXISTS tidum_kommuner (
 ALTER TABLE users ADD COLUMN IF NOT EXISTS kommune_id INTEGER;
 
 -- Nye roller — speiler shared/roles.ts sin MANAGEABLE_BY_ROLE-tabell
--- eksakt (samme mønster som migrations/058). barnevernsleder rang 70
--- (samme nivå som vendor_admin), kommune_saksbehandler rang 60 (samme
--- nivå som tiltaksleder/teamleder/case_manager).
+-- eksakt (samme mønster som migrations/058). rank 70/60 (samme nivå som
+-- vendor_admin / tiltaksleder-teamleder-case_manager) kolliderte med
+-- vendor-side rangene: canManageRoleDynamic er en global, tenant-blind
+-- targetRank<actorRank-sjekk, så en vendor_admin/hovedadmin ville dermed
+-- kunne administrere disse kommune-rollene på tvers av tenant-grensen.
+-- Løftet til samme mønster som prototype_tester (migrations/058): rang
+-- MELLOM hovedadmin (80) og super_admin (90), slik at kun super_admin
+-- kan nå dem via rangsammenligningen. barnevernsleder > kommune_saksbehandler
+-- bevarer det interne kommune-hierarkiet (82 < 85).
 INSERT INTO tidum_roles (name, scope, is_system_default, rank, can_manage_others) VALUES
-  ('barnevernsleder', 'global', TRUE, 70, TRUE),
-  ('kommune_saksbehandler', 'global', TRUE, 60, FALSE)
+  ('barnevernsleder', 'global', TRUE, 85, TRUE),
+  ('kommune_saksbehandler', 'global', TRUE, 82, FALSE)
 ON CONFLICT (scope, COALESCE(vendor_id, -1), name)
   DO UPDATE SET rank = EXCLUDED.rank, can_manage_others = EXCLUDED.can_manage_others;
