@@ -208,6 +208,41 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     expect(rows[0].role).toBe("member");
   });
 
+  // BOLA-fiks A, oppfølging: resolveActorRoleForCompanys fallback-oppslag
+  // returnerte tidligere aktørens opprinnelige, uverifiserte rolle når
+  // aktøren ikke hadde noen rad i target-company_id (0 rader). Dette gjorde
+  // hoved-fail-closed-sjekken over (actorVendorId === companyId) tannløs:
+  // en ekte, gyldig innlogget vendor_admin for company 111 kunne bytte ut
+  // company_id i requesten med en HELT FREMMED virksomhet (222, der de
+  // aldri har hatt noen relasjon) og likevel få sin egen rolle tilbake.
+  // Fallback-veien fail-closer nå til "member" på 0 rader, akkurat som
+  // isKommuneRole-guarden lenger opp.
+  it("vendor_admin med vendorId 111 kan IKKE administrere en fremmed virksomhet (company_id 222) den ikke har noen relasjon til", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const token = jwt.sign(
+      { id: "test-foreign-tenant-attack", email: "foreign_attacker@example.com", role: "vendor_admin", vendorId: 111 },
+      JWT_SECRET,
+    );
+    const targetEmail = `test_foreign_tenant_${Date.now()}@example.com`;
+
+    const res = await request(app)
+      .post("/api/company/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: 222, user_email: targetEmail, role: "member", sendInvite: false });
+
+    expect(res.status).toBe(403);
+
+    // Bekreft at raden faktisk ikke ble opprettet for den fremmede
+    // virksomheten (ikke bare feil statuskode).
+    const { rows } = await pool.query(`SELECT id FROM tidum_company_users WHERE user_email = $1`, [targetEmail]);
+    expect(rows.length).toBe(0);
+  });
+
   // BOLA-fiks D (GET /api/company/users): ruten manglet tenant-scoping —
   // enhver autentisert aktør kunne lese EN VILKÅRLIG virksomhets brukerliste
   // ved å endre company_id-query-parameteren.

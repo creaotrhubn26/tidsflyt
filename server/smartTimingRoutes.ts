@@ -153,7 +153,9 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
 
   const actorEmail = getRequestUserEmail(req);
   if (!actorEmail) {
-    return normalizedAuthRole;
+    // Ingen e-post å slå opp aktørens medlemskap for denne company_id-en —
+    // fail closed i stedet for å returnere en uverifisert rolle.
+    return "member";
   }
 
   const actorRoleResult = await pool.query(
@@ -162,7 +164,13 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
   );
 
   if (actorRoleResult.rows.length === 0) {
-    return normalizedAuthRole;
+    // Aktøren har ingen rad i tidum_company_users for DENNE company_id-en —
+    // ingen bekreftet medlemskap. Fail closed (samme mønster som
+    // isKommuneRole-guarden over) i stedet for å returnere aktørens
+    // opprinnelige, uverifiserte rolle (BOLA: en gyldig aktør kan ellers
+    // bytte company_id i requesten og beholde sin egen rolle på en fremmed
+    // virksomhet).
+    return "member";
   }
 
   const dbRole = normalizeRole(actorRoleResult.rows[0].role);
