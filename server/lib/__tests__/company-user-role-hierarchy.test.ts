@@ -3,6 +3,23 @@ import request from "supertest";
 import express from "express";
 import jwt from "jsonwebtoken";
 import { pool } from "../../db";
+import { isKommuneRole } from "@shared/roles";
+
+describe("isKommuneRole", () => {
+  it("gjenkjenner begge kommune-rollene", () => {
+    expect(isKommuneRole("barnevernsleder")).toBe(true);
+    expect(isKommuneRole("kommune_saksbehandler")).toBe(true);
+  });
+
+  it("er false for vendor-roller, tomme/ukjente verdier", () => {
+    expect(isKommuneRole("hovedadmin")).toBe(false);
+    expect(isKommuneRole("vendor_admin")).toBe(false);
+    expect(isKommuneRole("super_admin")).toBe(false);
+    expect(isKommuneRole(null)).toBe(false);
+    expect(isKommuneRole(undefined)).toBe(false);
+    expect(isKommuneRole("noe-ukjent")).toBe(false);
+  });
+});
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
 
@@ -102,5 +119,37 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
       .send({ company_id: 1, user_email: targetEmail, role: "miljoarbeider", sendInvite: false });
 
     expect(res.status).toBe(201);
+  });
+
+  // Regresjonstest for det kritiske funnet i "Final whole-branch review":
+  // barnevernsleder (rank 85, can_manage_others=true) rangerer over
+  // hovedadmin (80)/vendor_admin (70) i canManageRoleDynamic sin globale,
+  // tenant-blinde rank-skala. Uten resolveActorRoleForCompanys
+  // isKommuneRole-vakt ville en barnevernsleder som logget seg inn (f.eks.
+  // via magic-link, se progress.md) kunne opphøye seg selv til hovedadmin
+  // på en VILKÅRLIG leverandørs company_id, uten noen medlemskapssjekk.
+  it("barnevernsleder kan IKKE invitere/oppgradere en company-user til hovedadmin (privilegie-eskalering lukket)", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const token = jwt.sign(
+      { id: "test-barnevernsleder", email: "bvl@example.com", role: "barnevernsleder" },
+      JWT_SECRET,
+    );
+    const targetEmail = `test_priv_esc_${Date.now()}@example.com`;
+
+    const res = await request(app)
+      .post("/api/company/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: 999999, user_email: targetEmail, role: "hovedadmin", sendInvite: false });
+
+    expect(res.status).toBe(403);
+
+    // Bekreft at raden faktisk ikke ble opprettet (ikke bare feil statuskode).
+    const { rows } = await pool.query(`SELECT id FROM tidum_company_users WHERE user_email = $1`, [targetEmail]);
+    expect(rows.length).toBe(0);
   });
 });

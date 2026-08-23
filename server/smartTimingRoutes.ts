@@ -6,7 +6,7 @@ import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
-import { normalizeRole, TIDUM_ROLES } from "@shared/roles";
+import { normalizeRole, TIDUM_ROLES, isKommuneRole } from "@shared/roles";
 import { canManageRoleDynamic, canManageUsersDynamic } from "./lib/permissions";
 import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
@@ -124,6 +124,17 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
 
 async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): Promise<string> {
   const normalizedAuthRole = normalizeRole((req.user as any)?.role || req.admin?.role);
+  // Fail-closed: kommune-roller (barnevernsleder/kommune_saksbehandler) skal
+  // ALDRI kvalifisere som aktør i vendor-side company-user-administrasjon,
+  // uansett rang — canManageRoleDynamic sin globale rank-skala kan ikke
+  // uttrykke at kommune- og vendor-hierarkiet er disjunkte (se
+  // .superpowers/sdd/2026-08-23-kommune-tenant-roller/progress.md, "Final
+  // whole-branch review: CRITICAL privilege escalation found"). "member" har
+  // ingen manageable roller (MANAGEABLE_BY_ROLE.member = []), så dette
+  // stopper alle nedstrøms rang-/medlemskapssjekk umiddelbart.
+  if (isKommuneRole(normalizedAuthRole)) {
+    return "member";
+  }
   if (await canManageUsersDynamic(normalizedAuthRole)) {
     return normalizedAuthRole;
   }
@@ -1555,6 +1566,11 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       if (role !== 'barnevernsleder' && role !== 'kommune_saksbehandler') {
         return res.status(400).json({ error: 'Ugyldig rolle — må være barnevernsleder eller kommune_saksbehandler' });
+      }
+
+      const kommuneExists = await pool.query(`SELECT 1 FROM tidum_kommuner WHERE id = $1`, [kommuneId]);
+      if (kommuneExists.rows.length === 0) {
+        return res.status(404).json({ error: 'Kommune ikke funnet' });
       }
 
       // Kun super_admin i denne runden. En ekte barnevernslederes selvbetjente

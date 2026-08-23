@@ -134,6 +134,15 @@ describe("kommune-administrasjon API", () => {
     cleanupUserIds.push(res.body.id);
   });
 
+  it("invitasjon til en kommune som ikke finnes gir 404", async () => {
+    const app = await appWithAdmin({ roleId: null, role: "super_admin" });
+
+    const res = await request(app)
+      .post(`/api/kommuner/999999999/admins`)
+      .send({ email: `nokommune-${Date.now()}@example.com`, role: "barnevernsleder", sendInvite: false });
+    expect(res.status).toBe(404);
+  });
+
   it("ugyldig rolle på invitasjon gir 400", async () => {
     const app = await appWithAdmin({ roleId: null, role: "super_admin" });
     const kommune = await request(app).post("/api/kommuner").send({ navn: "Ugyldig rolle-test", orgNummer: "978901234" });

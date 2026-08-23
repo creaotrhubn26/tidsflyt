@@ -15,6 +15,17 @@ export const TIDUM_ROLES = [
 
 export type TidumRole = (typeof TIDUM_ROLES)[number];
 
+const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler"]);
+
+/** Kommune-roller skal ALDRI telle som gyldig aktør i vendor-side-administrasjon,
+ * uansett rang — de to tenant-hierarkiene (kommune/vendor) deler samme globale
+ * rank-navnerom i canManageRoleDynamic, som ikke kan uttrykke at de er disjunkte.
+ * Se .superpowers/sdd/2026-08-23-kommune-tenant-roller/progress.md, "Final
+ * whole-branch review" for den fulle hendelsen dette lukker. */
+export function isKommuneRole(role: string | null | undefined): boolean {
+  return KOMMUNE_ROLES.has(normalizeRole(role));
+}
+
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Systemadmin",
   hovedadmin: "Hovedadmin",

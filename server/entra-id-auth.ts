@@ -39,6 +39,10 @@ const ENTRA_LOGIN_PATH = "/api/auth/entra-id/login";
 const ENTRA_CALLBACK_PATH = "/api/auth/entra-id/callback";
 const ENTRA_SCOPE = "openid profile email";
 
+// NB: returverdien (AuthUser) bærer bevisst ikke kommuneId — den brukes kun
+// til å slå opp raden her, aldri lagret på sesjonen. En fremtidig kommune-
+// scopet autorisasjonssjekk MÅ hente kommuneId på nytt fra `users` via
+// req.user.id og MÅ feile lukket hvis den mangler — se auth-types.ts.
 async function resolveInvitedUser(kommuneId: number, email: string): Promise<AuthUser | null> {
   const [user] = await db
     .select()

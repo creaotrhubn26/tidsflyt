@@ -59,7 +59,7 @@ import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOr
 import { setupEidAuth } from "./eid-auth";
 import { setupEntraIdAuth } from "./entra-id-auth";
 import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
-import { canAccessVendorApiAdmin, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { canAccessVendorApiAdmin, isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
 import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
@@ -4369,7 +4369,10 @@ export async function registerRoutes(
   app.get("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      // Fail-closed: kommune-roller skal aldri kunne lese/endre disse globale,
+      // vendor-brede innstillingene — se resolveActorRoleForCompany i
+      // smartTimingRoutes.ts for samme guard og full begrunnelse.
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const defaults = await readSuggestionTeamDefaults();
@@ -4382,7 +4385,7 @@ export async function registerRoutes(
   app.patch("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
 
@@ -5456,7 +5459,13 @@ export async function registerRoutes(
 
       if (assigneeUserId && assigneeUserId !== userId) {
         const actorRole = String(req.user?.role || "");
-        const allowed = await canManageUsersDynamic(actorRole);
+        // Fail-closed defense-in-depth: kommune-roller skal aldri kvalifisere
+        // som aktør her, uansett rang — samme guard som
+        // resolveActorRoleForCompany (smartTimingRoutes.ts). Ikke i dag
+        // umiddelbart utnyttbart alene (vendorId-sjekket under stopper
+        // kommune-brukere, som alltid har vendorId=null), men lukker samme
+        // rangkollisjon som gjorde den andre stien kritisk.
+        const allowed = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
         if (!allowed) {
           return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
         }
@@ -5507,7 +5516,8 @@ export async function registerRoutes(
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
       const actorRole = String(req.user?.role || "");
-      const canAssign = await canManageUsersDynamic(actorRole);
+      // Fail-closed defense-in-depth, same guard/rationale as POST /api/tasks above.
+      const canAssign = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
       if (!canAssign) {
         return res.json({ canAssign: false, colleagues: [] });
       }
