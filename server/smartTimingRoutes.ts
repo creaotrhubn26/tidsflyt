@@ -1557,11 +1557,14 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Ugyldig rolle — må være barnevernsleder eller kommune_saksbehandler' });
       }
 
-      // super_admin kan alltid invitere; en barnevernsleder kan invitere
-      // kommune_saksbehandler til EGEN kommune (rang-sjekk + kommune-
-      // avgrensning, håndhevet her, ikke i permissions.ts).
-      const allowed = req.admin.role === 'super_admin'
-        || (req.admin.role === 'barnevernsleder' && req.admin.kommuneId === kommuneId && (await canManageRoleDynamic('barnevernsleder', role)));
+      // Kun super_admin i denne runden. En ekte barnevernslederes selvbetjente
+      // invitasjon av kommune_saksbehandler krever en sesjonsbasert rute
+      // (req.user, ikke req.admin/authenticateAdmin sitt interne admin-panel-
+      // JWT-system) — kan først bygges korrekt når Task 3 (Entra ID) etablerer
+      // hvordan en ekte innlogget kommune-bruker-sesjon faktisk ser ut. Bevisst
+      // utelatt her fremfor å skipe en ikke-fungerende gren som ville sett ut
+      // som den virket.
+      const allowed = req.admin.role === 'super_admin';
       if (!allowed) {
         return res.status(403).json({ error: 'Ikke tilgang til å invitere denne rollen på denne kommunen' });
       }
@@ -1577,7 +1580,7 @@ export function registerSmartTimingRoutes(app: Express) {
         `INSERT INTO users (id, username, password, email, first_name, last_name, role, role_id, kommune_id)
          VALUES (gen_random_uuid(), $1, 'unused-admin-users-pairing', $2, $3, $4, $5, $6, $7)
          ON CONFLICT (email) DO UPDATE
-         SET role = $5, role_id = $6, kommune_id = $7, updated_at = NOW()
+         SET role = $5, role_id = $6, kommune_id = $7, vendor_id = NULL, updated_at = NOW()
          RETURNING id, email, role, kommune_id`,
         [normalizedEmail, normalizedEmail, firstName || null, rest.join(' ') || null, role, roleId, kommuneId]
       );
