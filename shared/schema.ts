@@ -493,6 +493,27 @@ export const vendors = pgTable("vendors", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// Bestiller-side tenant-type (kommunal barnevernstjeneste). Egen tabell,
+// parallell til vendors — se migrations/063_kommuner.sql for hvorfor.
+export const kommuner = pgTable("tidum_kommuner", {
+  id:              serial("id").primaryKey(),
+  navn:            text("navn").notNull(),
+  orgNummer:       text("org_nummer").notNull().unique(),
+  kommunenummer:   text("kommunenummer"),
+  entraIdTenantId: text("entra_id_tenant_id"),
+  status:          text("status").notNull().default("active"),
+  createdAt:       timestamp("created_at").defaultNow(),
+  updatedAt:       timestamp("updated_at").defaultNow(),
+});
+
+export type Kommune = typeof kommuner.$inferSelect;
+
+export const insertKommuneSchema = createInsertSchema(kommuner, {
+  navn: z.string().min(1).max(200),
+  orgNummer: z.string().regex(/^\d{9}$/, "Organisasjonsnummer må være 9 siffer"),
+  kommunenummer: z.string().max(10).optional(),
+});
+
 // API Keys table - for vendor API access
 export const apiKeys = pgTable("api_keys", {
   id: serial("id").primaryKey(),

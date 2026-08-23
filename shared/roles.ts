@@ -9,6 +9,8 @@ export const TIDUM_ROLES = [
   "prototype_tester",
   "member",
   "user",
+  "barnevernsleder",
+  "kommune_saksbehandler",
 ] as const;
 
 export type TidumRole = (typeof TIDUM_ROLES)[number];
@@ -25,6 +27,8 @@ export const ROLE_LABELS: Record<string, string> = {
   prototype_tester: "Prototype-tester",
   member: "Medlem",
   user: "Bruker",
+  barnevernsleder: "Barnevernsleder",
+  kommune_saksbehandler: "Saksbehandler",
 };
 
 const ROLE_ALIASES: Record<string, TidumRole> = {
@@ -41,6 +45,8 @@ const ROLE_ALIASES: Record<string, TidumRole> = {
   "prototype-tester": "prototype_tester",
   member: "member",
   user: "user",
+  barnevernsleder: "barnevernsleder",
+  kommune_saksbehandler: "kommune_saksbehandler",
 };
 
 export function normalizeRole(role?: string | null): TidumRole {
@@ -60,6 +66,8 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
     "prototype_tester",
     "member",
     "user",
+    "barnevernsleder",
+    "kommune_saksbehandler",
   ],
   hovedadmin: ["vendor_admin", "tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
   vendor_admin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
@@ -70,6 +78,8 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   prototype_tester: [],
   member: [],
   user: [],
+  barnevernsleder: ["kommune_saksbehandler"],
+  kommune_saksbehandler: [],
 };
 
 export function canManageRole(managerRole: string | null | undefined, targetRole: string | null | undefined): boolean {
