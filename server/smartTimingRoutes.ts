@@ -153,7 +153,8 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
     return normalizedAuthRole;
   }
 
-  return normalizeRole(actorRoleResult.rows[0].role);
+  const dbRole = normalizeRole(actorRoleResult.rows[0].role);
+  return isKommuneRole(dbRole) ? "member" : dbRole;
 }
 
 const isDevMode = process.env.NODE_ENV !== 'production';
@@ -1568,11 +1569,6 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Ugyldig rolle — må være barnevernsleder eller kommune_saksbehandler' });
       }
 
-      const kommuneExists = await pool.query(`SELECT 1 FROM tidum_kommuner WHERE id = $1`, [kommuneId]);
-      if (kommuneExists.rows.length === 0) {
-        return res.status(404).json({ error: 'Kommune ikke funnet' });
-      }
-
       // Kun super_admin i denne runden. En ekte barnevernslederes selvbetjente
       // invitasjon av kommune_saksbehandler krever en sesjonsbasert rute
       // (req.user, ikke req.admin/authenticateAdmin sitt interne admin-panel-
@@ -1580,9 +1576,21 @@ export function registerSmartTimingRoutes(app: Express) {
       // hvordan en ekte innlogget kommune-bruker-sesjon faktisk ser ut. Bevisst
       // utelatt her fremfor å skipe en ikke-fungerende gren som ville sett ut
       // som den virket.
+      //
+      // Autorisasjonssjekken (403) kjører FØR eksistenssjekken (404) —
+      // ellers kan en hvilken som helst autentisert admin-token-innehaver
+      // (ikke bare super_admin) skille eksisterende fra ikke-eksisterende
+      // kommune-IDer via 404-vs-403, uten å ha rettigheter til ruten i det
+      // hele tatt. Samme rekkefølge som søsken-rutene POST /api/kommuner og
+      // PATCH /api/kommuner/:id.
       const allowed = req.admin.role === 'super_admin';
       if (!allowed) {
         return res.status(403).json({ error: 'Ikke tilgang til å invitere denne rollen på denne kommunen' });
+      }
+
+      const kommuneExists = await pool.query(`SELECT 1 FROM tidum_kommuner WHERE id = $1`, [kommuneId]);
+      if (kommuneExists.rows.length === 0) {
+        return res.status(404).json({ error: 'Kommune ikke funnet' });
       }
 
       const normalizedEmail = email.toLowerCase().trim();
