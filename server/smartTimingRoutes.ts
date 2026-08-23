@@ -102,7 +102,7 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
   } = await pool.query(`SELECT id, vendor_id FROM users WHERE email = $1 LIMIT 1`, [email]);
 
   if (existingUser) {
-    if (existingUser.vendor_id != null && existingUser.vendor_id !== companyId) {
+    if (existingUser.vendor_id !== companyId) {
       // E-posten tilhører allerede en bruker i en ANNEN virksomhet — ikke
       // overskriv rolle/vendor stille (kontoovertakelse på tvers av
       // virksomheter). Kallstedene fanger denne meldingen og svarer 409.
@@ -159,7 +159,7 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
   }
 
   const actorRoleResult = await pool.query(
-    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND user_email = $2 LIMIT 1`,
+    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
     [companyId, actorEmail]
   );
 
@@ -2410,10 +2410,15 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.get("/api/company/users", requireAuth, async (req, res) => {
     try {
-      const companyId = req.query.company_id || 1;
-      const actorRole = normalizeRole((req.user as any)?.role);
-      const actorVendorId = (req.user as any)?.vendorId;
-      if (actorRole !== 'super_admin' && actorVendorId !== Number(companyId)) {
+      const actorRole = normalizeRole((req.user as any)?.role || (req as any).admin?.role);
+      const actorVendorId = (req.user as any)?.vendorId ?? (req as any).admin?.vendorId;
+      const requestedCompanyId = req.query.company_id != null ? Number(req.query.company_id) : undefined;
+      const companyId = requestedCompanyId ?? actorVendorId;
+
+      if (companyId == null) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens brukere' });
+      }
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
         return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens brukere' });
       }
       const result = await pool.query(
@@ -2458,6 +2463,7 @@ export function registerSmartTimingRoutes(app: Express) {
           await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
         } catch (syncErr: any) {
           if (syncErr?.message === 'TENANT_MISMATCH') {
+            await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [result.rows[0].id]);
             return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
           }
           throw syncErr;
@@ -2580,6 +2586,7 @@ export function registerSmartTimingRoutes(app: Express) {
               await syncCompanyUserToPortalAccess(email, targetRole, companyId);
             } catch (syncErr: any) {
               if (syncErr?.message === 'TENANT_MISMATCH') {
+                await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [result.rows[0].id]);
                 skipped.push({ email, reason: 'E-postadressen tilhører allerede en annen virksomhet' });
                 created.pop();
                 continue;
@@ -2637,8 +2644,8 @@ export function registerSmartTimingRoutes(app: Express) {
 
       const result = await pool.query(
         `UPDATE tidum_company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
-         WHERE id = $3 RETURNING *`,
-        [role ? normalizeRole(role) : null, approved, req.params.id]
+         WHERE id = $3 AND company_id = $4 RETURNING *`,
+        [role ? normalizeRole(role) : null, approved, req.params.id, companyId]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
@@ -2696,7 +2703,11 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });
       }
 
-      await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [req.params.id]);
+      const delResult = await pool.query(
+        'DELETE FROM tidum_company_users WHERE id = $1 AND company_id = $2',
+        [req.params.id, companyId]
+      );
+      if (delResult.rowCount === 0) return res.status(404).json({ error: 'User not found' });
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });

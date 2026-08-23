@@ -271,4 +271,118 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     expect(ownRes.status).toBe(200);
     expect(Array.isArray(ownRes.body)).toBe(true);
   });
+
+  // BOLA-fiks runde 2, Fiks 1: PATCH-spørringen scopet ikke på company_id —
+  // en aktør med rett rolle for SIN egen company_id kunne sende en
+  // ANNEN virksomhets rad-id (serial, trivielt gjettbar) og endre den.
+  it("PATCH /api/company/users/:id kan IKKE endre en rad som tilhører en annen company_id (404, uendret rad)", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const actorVendorId = 503001;
+    const foreignCompanyId = 503002;
+    const foreignEmail = `test_cross_tenant_patch_${Date.now()}@example.com`;
+    cleanupEmails.push(foreignEmail);
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'teamleder', true) RETURNING id`,
+      [foreignCompanyId, foreignEmail],
+    );
+    const foreignRowId = inserted[0].id;
+
+    const token = jwt.sign(
+      { id: "test-cross-tenant-patch-actor", email: "cross-patch-actor@example.com", role: "vendor_admin", vendorId: actorVendorId },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .patch(`/api/company/users/${foreignRowId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: actorVendorId, role: "miljoarbeider", approved: false });
+
+    expect(res.status).toBe(404);
+
+    const { rows } = await pool.query(
+      `SELECT role, approved, company_id FROM tidum_company_users WHERE id = $1`,
+      [foreignRowId],
+    );
+    expect(rows.length).toBe(1);
+    expect(rows[0].role).toBe("teamleder");
+    expect(rows[0].approved).toBe(true);
+    expect(rows[0].company_id).toBe(foreignCompanyId);
+  });
+
+  // BOLA-fiks runde 2, Fiks 1: samme mangel som over, for DELETE.
+  it("DELETE /api/company/users/:id kan IKKE slette en rad som tilhører en annen company_id (404, raden består)", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const actorVendorId = 503011;
+    const foreignCompanyId = 503012;
+    const foreignEmail = `test_cross_tenant_delete_${Date.now()}@example.com`;
+    cleanupEmails.push(foreignEmail);
+
+    const { rows: inserted } = await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'teamleder', true) RETURNING id`,
+      [foreignCompanyId, foreignEmail],
+    );
+    const foreignRowId = inserted[0].id;
+
+    const token = jwt.sign(
+      { id: "test-cross-tenant-delete-actor", email: "cross-delete-actor@example.com", role: "vendor_admin", vendorId: actorVendorId },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .delete(`/api/company/users/${foreignRowId}`)
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: actorVendorId });
+
+    expect(res.status).toBe(404);
+
+    const { rows } = await pool.query(`SELECT id FROM tidum_company_users WHERE id = $1`, [foreignRowId]);
+    expect(rows.length).toBe(1);
+  });
+
+  // BOLA-fiks runde 2, Fiks 4: klienten sender i praksis IKKE company_id som
+  // query-param til GET /api/company/users, så ruten falt tilbake til
+  // hardkodet company_id=1 og 403'et enhver legitim aktør med en annen
+  // vendorId. Uten company_id skal ruten falle tilbake til aktørens EGEN
+  // vendorId og returnere 200 med deres egen virksomhets brukere.
+  it("GET /api/company/users uten company_id-param returnerer 200 med aktørens EGEN virksomhet (ikke 403, ikke hardkodet company 1)", async () => {
+    const ownVendorId = 503101;
+    const ownEmail = `test_get_no_param_${Date.now()}@example.com`;
+    cleanupEmails.push(ownEmail);
+
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [ownVendorId, ownEmail],
+    );
+
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    app.use((req: any, _res, next) => {
+      req.user = { id: "test-reader-no-param", email: "reader-no-param@example.com", role: "vendor_admin", vendorId: ownVendorId };
+      req.isAuthenticated = () => true;
+      next();
+    });
+    registerSmartTimingRoutes(app);
+
+    const res = await request(app).get("/api/company/users");
+
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body)).toBe(true);
+    expect(res.body.some((row: any) => row.user_email === ownEmail)).toBe(true);
+    expect(res.body.every((row: any) => row.company_id === ownVendorId)).toBe(true);
+  });
 });
