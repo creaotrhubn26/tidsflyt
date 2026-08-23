@@ -99,9 +99,15 @@ async function syncCompanyUserToPortalAccess(email: string, role: string, compan
 
   const {
     rows: [existingUser],
-  } = await pool.query(`SELECT id FROM users WHERE email = $1 LIMIT 1`, [email]);
+  } = await pool.query(`SELECT id, vendor_id FROM users WHERE email = $1 LIMIT 1`, [email]);
 
   if (existingUser) {
+    if (existingUser.vendor_id != null && existingUser.vendor_id !== companyId) {
+      // E-posten tilhører allerede en bruker i en ANNEN virksomhet — ikke
+      // overskriv rolle/vendor stille (kontoovertakelse på tvers av
+      // virksomheter). Kallstedene fanger denne meldingen og svarer 409.
+      throw new Error('TENANT_MISMATCH');
+    }
     await pool.query(
       `UPDATE users SET email = $1, role = $2, role_id = $3, vendor_id = $4, updated_at = NOW() WHERE id = $5`,
       [email, normalizedRole, roleId, companyId, existingUser.id],
@@ -136,7 +142,13 @@ async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): 
     return "member";
   }
   if (await canManageUsersDynamic(normalizedAuthRole)) {
-    return normalizedAuthRole;
+    const actorVendorId = (req.admin as any)?.vendorId ?? (req.user as any)?.vendorId;
+    if (normalizedAuthRole === 'super_admin' || actorVendorId === companyId) {
+      return normalizedAuthRole;
+    }
+    // Ikke medlem av denne company_id-en — IKKE returner denne rollen.
+    // Fall videre til tidum_company_users-oppslaget under, som allerede
+    // korrekt scoper på company_id + e-post.
   }
 
   const actorEmail = getRequestUserEmail(req);
@@ -408,7 +420,13 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
-    req.admin = { id: user.id, email: user.email, role: user.role, roleId: user.roleId ?? undefined };
+    req.admin = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      roleId: user.roleId ?? undefined,
+      vendorId: (user as any).vendorId ?? undefined,
+    };
     // AuthUser (server/lib/auth-types.ts) doesn't carry roleId today, so
     // look it up the same way the JWT branch does rather than touching
     // custom-auth.ts. Fail closed on a DB error instead of hanging the
@@ -2385,11 +2403,16 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/company/users", requireAuth, async (req, res) => {
     try {
       const companyId = req.query.company_id || 1;
+      const actorRole = normalizeRole((req.user as any)?.role);
+      const actorVendorId = (req.user as any)?.vendorId;
+      if (actorRole !== 'super_admin' && actorVendorId !== Number(companyId)) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens brukere' });
+      }
       const result = await pool.query(
-        `SELECT cu.*, 
+        `SELECT cu.*,
           (SELECT json_agg(uc.*) FROM tidum_user_cases uc WHERE uc.company_user_id = cu.id) as cases
-         FROM tidum_company_users cu 
-         WHERE cu.company_id = $1 
+         FROM tidum_company_users cu
+         WHERE cu.company_id = $1
          ORDER BY cu.created_at DESC`,
         [companyId]
       );
@@ -2423,7 +2446,14 @@ export function registerSmartTimingRoutes(app: Express) {
       );
 
       if (user_email) {
-        await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+        try {
+          await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+        } catch (syncErr: any) {
+          if (syncErr?.message === 'TENANT_MISMATCH') {
+            return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+          }
+          throw syncErr;
+        }
       }
 
       // Insert-time seat-overrun-check (T17). Best-effort — skal aldri
@@ -2538,7 +2568,16 @@ export function registerSmartTimingRoutes(app: Express) {
           );
           if (result.rows[0]) {
             created.push(result.rows[0]);
-            await syncCompanyUserToPortalAccess(email, targetRole, companyId);
+            try {
+              await syncCompanyUserToPortalAccess(email, targetRole, companyId);
+            } catch (syncErr: any) {
+              if (syncErr?.message === 'TENANT_MISMATCH') {
+                skipped.push({ email, reason: 'E-postadressen tilhører allerede en annen virksomhet' });
+                created.pop();
+                continue;
+              }
+              throw syncErr;
+            }
             // Best-effort invite email
             emailService.sendCompanyInviteEmail(email, targetRole, inviterName)
               .catch(err => console.error(`bulk invite email failed for ${email}:`, err));
@@ -2596,11 +2635,18 @@ export function registerSmartTimingRoutes(app: Express) {
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
 
       if (result.rows[0].approved === true && result.rows[0].user_email) {
-        await syncCompanyUserToPortalAccess(
-          result.rows[0].user_email,
-          result.rows[0].role || 'member',
-          companyId
-        );
+        try {
+          await syncCompanyUserToPortalAccess(
+            result.rows[0].user_email,
+            result.rows[0].role || 'member',
+            companyId
+          );
+        } catch (syncErr: any) {
+          if (syncErr?.message === 'TENANT_MISMATCH') {
+            return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+          }
+          throw syncErr;
+        }
       }
 
       // Send email when user is approved

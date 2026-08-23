@@ -42,7 +42,13 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     app.use(express.json());
     registerSmartTimingRoutes(app);
 
-    const token = jwt.sign({ id: "test-tiltaksleder", email: "t@example.com", role: "tiltaksleder" }, JWT_SECRET);
+    // vendorId: 1 matcher company_id i requesten under — en ekte tiltaksleder
+    // ville hatt sin egen vendorId på JWT-et (resolveActorRoleForCompanys
+    // fast-vei krever nå dette, se Fix A / BOLA-fiks).
+    const token = jwt.sign(
+      { id: "test-tiltaksleder", email: "t@example.com", role: "tiltaksleder", vendorId: 1 },
+      JWT_SECRET,
+    );
     const email = `test_f16_${Date.now()}@example.com`;
     cleanupEmails.push(email);
 
@@ -151,5 +157,83 @@ describe("company-user routes bruker canManageRoleDynamic/canManageUsersDynamic"
     // Bekreft at raden faktisk ikke ble opprettet (ikke bare feil statuskode).
     const { rows } = await pool.query(`SELECT id FROM tidum_company_users WHERE user_email = $1`, [targetEmail]);
     expect(rows.length).toBe(0);
+  });
+
+  // BOLA-fiks C (syncCompanyUserToPortalAccess): en e-post som allerede
+  // tilhører en bruker i en ANNEN virksomhet (annen vendor_id på
+  // public.users) skal IKKE stille kunne overskrives av en invitasjon fra
+  // en fremmed virksomhet — det ville vært en kontooverdragelse på tvers
+  // av leverandører. Se TENANT_MISMATCH-guarden i syncCompanyUserToPortalAccess.
+  it("kan IKKE invitere en e-post som allerede tilhører en annen virksomhet (TENANT_MISMATCH -> 409, ingen overskriving)", async () => {
+    process.env.NODE_ENV = "production";
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    registerSmartTimingRoutes(app);
+
+    const actorVendorId = 501001;
+    const foreignVendorId = 501002;
+    const targetEmail = `test_tenant_mismatch_${Date.now()}@example.com`;
+    cleanupEmails.push(targetEmail);
+
+    // Brukeren finnes allerede, tilknyttet en HELT ANNEN virksomhet.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id) VALUES ($1, 'unused', $2, 'member', $3)`,
+      [targetEmail, targetEmail, foreignVendorId],
+    );
+
+    const token = jwt.sign(
+      {
+        id: "test-actor-tenant-mismatch",
+        email: "tm-actor@example.com",
+        role: "vendor_admin",
+        vendorId: actorVendorId,
+      },
+      JWT_SECRET,
+    );
+
+    const res = await request(app)
+      .post("/api/company/users")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ company_id: actorVendorId, user_email: targetEmail, role: "miljoarbeider", sendInvite: false });
+
+    expect(res.status).toBe(409);
+
+    // Den opprinnelige raden i public.users (den DELTE, urelaterte tabellen)
+    // skal stå helt uendret — verken vendor_id eller role skal ha blitt
+    // overskrevet av den fremmede invitasjonen.
+    const { rows } = await pool.query(`SELECT vendor_id, role FROM users WHERE email = $1`, [targetEmail]);
+    expect(rows.length).toBe(1);
+    expect(rows[0].vendor_id).toBe(foreignVendorId);
+    expect(rows[0].role).toBe("member");
+  });
+
+  // BOLA-fiks D (GET /api/company/users): ruten manglet tenant-scoping —
+  // enhver autentisert aktør kunne lese EN VILKÅRLIG virksomhets brukerliste
+  // ved å endre company_id-query-parameteren.
+  it("GET /api/company/users er tenant-scoped: aktør kan lese egen virksomhet, ikke en fremmed", async () => {
+    const ownVendorId = 502001;
+    const foreignVendorId = 502002;
+
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const app = express();
+    app.use(express.json());
+    // GET /api/company/users bruker den LOKALE requireAuth (ikke
+    // authenticateAdmin), som leser aktøren fra req.user — samme
+    // injiserings-mønster som server/lib/__tests__/task-assignment-routes.test.ts
+    // sin appWithUser-helper.
+    app.use((req: any, _res, next) => {
+      req.user = { id: "test-reader", email: "reader@example.com", role: "vendor_admin", vendorId: ownVendorId };
+      req.isAuthenticated = () => true;
+      next();
+    });
+    registerSmartTimingRoutes(app);
+
+    const foreignRes = await request(app).get(`/api/company/users?company_id=${foreignVendorId}`);
+    expect(foreignRes.status).toBe(403);
+
+    const ownRes = await request(app).get(`/api/company/users?company_id=${ownVendorId}`);
+    expect(ownRes.status).toBe(200);
+    expect(Array.isArray(ownRes.body)).toBe(true);
   });
 });

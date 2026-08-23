@@ -38,7 +38,12 @@ describe("syncCompanyUserToPortalAccess (server/smartTimingRoutes.ts)", () => {
     app.use(express.json());
     registerSmartTimingRoutes(app);
 
-    const token = jwt.sign({ id: "test-vendor-admin-sync", email: "va-sync@example.com", role: "vendor_admin" }, JWT_SECRET);
+    // vendorId: 1 matcher company_id under (BOLA-fiks A krever nå at aktørens
+    // egen vendorId matcher target-company_id for den raske godkjenningsveien).
+    const token = jwt.sign(
+      { id: "test-vendor-admin-sync", email: "va-sync@example.com", role: "vendor_admin", vendorId: 1 },
+      JWT_SECRET,
+    );
     const email = `test_sync_new_${Date.now()}@example.com`;
     cleanupEmails.push(email);
 
@@ -67,7 +72,10 @@ describe("syncCompanyUserToPortalAccess (server/smartTimingRoutes.ts)", () => {
     app.use(express.json());
     registerSmartTimingRoutes(app);
 
-    const token = jwt.sign({ id: "test-vendor-admin-sync-2", email: "va-sync-2@example.com", role: "vendor_admin" }, JWT_SECRET);
+    const token = jwt.sign(
+      { id: "test-vendor-admin-sync-2", email: "va-sync-2@example.com", role: "vendor_admin", vendorId: 1 },
+      JWT_SECRET,
+    );
     const email = `test_sync_update_${Date.now()}@example.com`;
     cleanupEmails.push(email);
 
