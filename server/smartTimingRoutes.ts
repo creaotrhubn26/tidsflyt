@@ -75,7 +75,7 @@ const upload = multer({
 });
 
 interface AuthRequest extends Request {
-  admin?: any & { roleId?: string };
+  admin?: any & { roleId?: string; kommuneId?: number | null };
   companyUser?: any;
 }
 
@@ -1482,6 +1482,127 @@ export function registerSmartTimingRoutes(app: Express) {
     } catch (err: any) {
       if (String(err?.code) === '23505') {
         return res.status(409).json({ error: 'Brukernavn eller e-post finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/kommuner", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Kun super_admin kan opprette kommuner' });
+      }
+
+      const { navn, orgNummer, kommunenummer } = req.body;
+      if (!navn?.trim()) {
+        return res.status(400).json({ error: 'navn er påkrevd' });
+      }
+      if (!orgNummer || !/^\d{9}$/.test(String(orgNummer))) {
+        return res.status(400).json({ error: 'Organisasjonsnummer må være 9 siffer' });
+      }
+
+      const result = await pool.query(
+        `INSERT INTO tidum_kommuner (navn, org_nummer, kommunenummer)
+         VALUES ($1, $2, $3) RETURNING *`,
+        [navn, orgNummer, kommunenummer || null]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Kommune med samme organisasjonsnummer finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/kommuner/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Kun super_admin kan endre kommuner' });
+      }
+
+      const kommuneId = parseInt(req.params.id);
+      const { navn, kommunenummer, entraIdTenantId, status } = req.body;
+
+      const result = await pool.query(
+        `UPDATE tidum_kommuner SET
+          navn = COALESCE($1, navn),
+          kommunenummer = COALESCE($2, kommunenummer),
+          entra_id_tenant_id = COALESCE($3, entra_id_tenant_id),
+          status = COALESCE($4, status),
+          updated_at = NOW()
+         WHERE id = $5 RETURNING *`,
+        [navn, kommunenummer, entraIdTenantId, status, kommuneId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Kommune ikke funnet' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Inviter en barnevernsleder eller kommune_saksbehandler til en kommune.
+  // Speiler POST /api/vendors/:id/admins, men enklere: kommune-brukere
+  // skriver KUN til users (ikke tidum_admin_users/tidum_company_users, som
+  // er vendor-spesifikke legacy-tabeller uten mening for en kommune-tenant).
+  app.post("/api/kommuner/:id/admins", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const kommuneId = parseInt(req.params.id);
+      const { email, fullName, role = 'barnevernsleder', sendInvite = true } = req.body;
+
+      if (!email?.trim()) {
+        return res.status(400).json({ error: 'E-post er påkrevd' });
+      }
+      if (role !== 'barnevernsleder' && role !== 'kommune_saksbehandler') {
+        return res.status(400).json({ error: 'Ugyldig rolle — må være barnevernsleder eller kommune_saksbehandler' });
+      }
+
+      // super_admin kan alltid invitere; en barnevernsleder kan invitere
+      // kommune_saksbehandler til EGEN kommune (rang-sjekk + kommune-
+      // avgrensning, håndhevet her, ikke i permissions.ts).
+      const allowed = req.admin.role === 'super_admin'
+        || (req.admin.role === 'barnevernsleder' && req.admin.kommuneId === kommuneId && (await canManageRoleDynamic('barnevernsleder', role)));
+      if (!allowed) {
+        return res.status(403).json({ error: 'Ikke tilgang til å invitere denne rollen på denne kommunen' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const roleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = $1 AND scope = 'global' AND is_system_default = true`,
+        [role],
+      )).rows[0]?.id ?? null;
+
+      const [firstName, ...rest] = (fullName || '').split(' ');
+      const userResult = await pool.query(
+        `INSERT INTO users (id, username, password, email, first_name, last_name, role, role_id, kommune_id)
+         VALUES (gen_random_uuid(), $1, 'unused-admin-users-pairing', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (email) DO UPDATE
+         SET role = $5, role_id = $6, kommune_id = $7, updated_at = NOW()
+         RETURNING id, email, role, kommune_id`,
+        [normalizedEmail, normalizedEmail, firstName || null, rest.join(' ') || null, role, roleId, kommuneId]
+      );
+
+      let emailSent = false;
+      if (sendInvite !== false) {
+        try {
+          const loginUrl = buildEmailLoginUrl(normalizedEmail);
+          await emailService.sendVendorAdminMagicLinkInviteEmail({
+            to: normalizedEmail,
+            fullName: fullName || normalizedEmail,
+            company: null,
+            institutionType: null,
+            loginUrl,
+          });
+          emailSent = true;
+        } catch (e) {
+          console.error('⚠️ Kommune-invitasjon e-post feilet:', e);
+        }
+      }
+
+      res.status(201).json({ ...userResult.rows[0], emailSent });
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'E-post finnes allerede' });
       }
       res.status(400).json({ error: err.message });
     }
