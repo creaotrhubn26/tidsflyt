@@ -1,4 +1,7 @@
 import type { Express, Request, Response } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { pool } from "../db";
 import { isKommuneRole, normalizeRole } from "../../shared/roles";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
@@ -6,6 +9,30 @@ import { registerFrist, cancelFrist } from "../lib/frist-engine";
 const MELDER_KATEGORIER = new Set([
   "skole", "barnehage", "helsepersonell", "lege", "politi", "nav", "familie_nabo", "anonym", "annet",
 ]);
+
+const BARNEVERN_UPLOAD_DIR = path.join(process.cwd(), "uploads", "barnevern-meldinger");
+if (!fs.existsSync(BARNEVERN_UPLOAD_DIR)) fs.mkdirSync(BARNEVERN_UPLOAD_DIR, { recursive: true });
+
+const ALLOWED_VEDLEGG_MIME = new Set([
+  "application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp",
+]);
+
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: BARNEVERN_UPLOAD_DIR,
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_VEDLEGG_MIME.has(file.mimetype)) {
+      return cb(new Error("Ikke tillatt filtype."));
+    }
+    cb(null, true);
+  },
+});
 
 interface KommuneActor {
   userId: string;
@@ -215,4 +242,70 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       res.status(500).json({ error: err.message });
     }
   });
+
+  app.post(
+    "/api/barnevern/meldinger/:id/vedlegg",
+    upload.single("file"),
+    async (req: Request, res: Response) => {
+      const actor = requireKommuneActor(req);
+      if (!actor) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(403).json({ error: "Ikke tilgang." });
+      }
+
+      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+      if (!melding) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      if (!req.file) return res.status(400).json({ error: "Ingen fil sendt." });
+
+      try {
+        const { rows: [row] } = await pool.query(
+          `INSERT INTO tidum_barnevern_melding_vedlegg
+             (melding_id, filename, original_name, mime_type, size_bytes, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [
+            req.params.id, req.file.filename, req.file.originalname,
+            req.file.mimetype, req.file.size, actor.userId,
+          ],
+        );
+        res.status(201).json({
+          id: row.id,
+          filename: row.filename,
+          originalName: row.original_name,
+          mimeType: row.mime_type,
+          sizeBytes: row.size_bytes,
+          uploadedAt: row.uploaded_at,
+        });
+      } catch (err: any) {
+        fs.unlink(req.file.path, () => {});
+        res.status(500).json({ error: err.message });
+      }
+    },
+  );
+
+  app.get(
+    "/api/barnevern/meldinger/:id/vedlegg/:vedleggId",
+    async (req: Request, res: Response) => {
+      const actor = requireKommuneActor(req);
+      if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+      if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
+
+      const { rows: [vedlegg] } = await pool.query(
+        `SELECT * FROM tidum_barnevern_melding_vedlegg WHERE id = $1 AND melding_id = $2`,
+        [req.params.vedleggId, req.params.id],
+      );
+      if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });
+
+      const filePath = path.join(BARNEVERN_UPLOAD_DIR, vedlegg.filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Fil ikke funnet på disk." });
+
+      res.setHeader("Content-Type", vedlegg.mime_type);
+      res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
+      fs.createReadStream(filePath).pipe(res);
+    },
+  );
 }
