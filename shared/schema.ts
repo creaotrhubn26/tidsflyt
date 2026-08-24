@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { users } from "./models/auth";
 
 // Companies table
 export const companies = pgTable("tidum_companies", {

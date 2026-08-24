@@ -4,11 +4,17 @@
 -- tiltaksbedrift-bundet, NOT NULL vendor_id/tiltaksleder_id).
 -- Se docs/superpowers/specs/2026-08-23-barnevern-meldingsmottak-design.md.
 
-CREATE TYPE tidum_barnevern_melding_status AS ENUM (
-  'mottatt', 'under_avklaring', 'henlagt', 'sendt_til_undersokelse'
-);
+DO $$ BEGIN
+  CREATE TYPE tidum_barnevern_melding_status AS ENUM (
+    'mottatt', 'under_avklaring', 'henlagt', 'sendt_til_undersokelse'
+  );
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
-CREATE TYPE tidum_barnevern_melding_kilde AS ENUM ('manuell', 'fiks_io');
+DO $$ BEGIN
+  CREATE TYPE tidum_barnevern_melding_kilde AS ENUM ('manuell', 'fiks_io');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 -- Én delt sekvens (ikke per-kommune) — antall aktive kommuner er lite nok
 -- denne runden at dynamisk CREATE SEQUENCE ved runtime ville vært
@@ -52,7 +58,10 @@ CREATE TABLE IF NOT EXISTS tidum_barnevern_melding_vedlegg (
   uploaded_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TYPE tidum_frist_status AS ENUM ('aktiv', 'oppfylt', 'brutt', 'kansellert');
+DO $$ BEGIN
+  CREATE TYPE tidum_frist_status AS ENUM ('aktiv', 'oppfylt', 'brutt', 'kansellert');
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;
 
 CREATE TABLE IF NOT EXISTS tidum_frister (
   id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
