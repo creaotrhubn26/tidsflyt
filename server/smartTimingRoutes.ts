@@ -1451,7 +1451,17 @@ export function registerSmartTimingRoutes(app: Express) {
         `SELECT vendor_id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
         [normalizedEmail],
       );
-      if (existingUser && existingUser.vendor_id !== vendorId) {
+      const { rows: [existingCompanyUser] } = await pool.query(
+        `SELECT vendor_id FROM tidum_company_users WHERE LOWER(user_email) = $1 LIMIT 1`,
+        [normalizedEmail],
+      );
+      const { rows: [existingAdminUser] } = await pool.query(
+        `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = $1 LIMIT 1`,
+        [normalizedEmail],
+      );
+      const conflictingVendorId = [existingUser, existingCompanyUser, existingAdminUser]
+        .find((row) => row && row.vendor_id !== vendorId)?.vendor_id;
+      if (conflictingVendorId !== undefined) {
         return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
       }
 
@@ -1465,7 +1475,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const adminResult = await pool.query(
         `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'vendor_admin', $4) RETURNING id, username, email, role, vendor_id, created_at`,
-        [username, email, passwordHash, vendorId]
+        [username, normalizedEmail, passwordHash, vendorId]
       );
 
       // 2. Portal user (users table) — magic-link logs in against this.

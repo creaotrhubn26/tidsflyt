@@ -186,4 +186,60 @@ describe("vendor routes use hasPermission()", () => {
       await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
     }
   });
+
+  it("POST /api/vendors/:id/admins rejects takeover of an email that only exists in tidum_company_users (bulk-imported employee, no users row yet)", async () => {
+    // Follow-up BOLA regression: the takeover guard above only checked the
+    // `users` table. Bulk-imported employees (server/routes/employee-import-routes.ts)
+    // are written straight into tidum_company_users and never get a `users`
+    // row (syncCompanyUserToPortalAccess is never called there) — so a
+    // freshly-imported employee of vendor A had NO `users` row yet, and the
+    // single-table guard let a different vendor "invite" that same email,
+    // creating a fresh `users` row that bound the victim's email to the
+    // attacker's vendor_id with an attacker-chosen password.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-bulk-takeover-${suffix}@example.com`;
+    const victimVendorId = 910000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+
+    // Bulk-imported employee: a tidum_company_users row, but deliberately NO
+    // `users` row for this email.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [victimVendorId, email],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      // vendor_admin for the ATTACKING vendor — `req.admin.vendorId === vendorId`
+      // alone satisfies this route's `allowed` check, no roleId/hasPermission needed.
+      const token = signAdminToken({ id: "test-bulk-attacker", email: "attacker-bulk@example.com", role: "vendor_admin", vendorId: attackerVendorId } as any);
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_bulk_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const { rows: userRows } = await pool.query(`SELECT id FROM users WHERE email = $1`, [email]);
+      expect(userRows.length).toBe(0);
+      const { rows: adminRows } = await pool.query(`SELECT id FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+      expect(adminRows.length).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+    }
+  });
 });
