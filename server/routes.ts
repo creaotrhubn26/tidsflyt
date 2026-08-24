@@ -16,6 +16,7 @@ import { registerRapportReminderRoutes, setupRapportReminderCron } from "./route
 import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
 import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
 import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
+import { setupFiksIoReceiver } from "./fiks-io/receiver";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -6673,6 +6674,7 @@ export async function registerRoutes(
   registerNotificationRoutes(app);
   registerFristEscalationRoutes(app);
   registerBarnevernMeldingRoutes(app);
+  setupFiksIoReceiver(app);
   registerPricingRoutes(app);
   registerAnalyticsRoutes(app);
   registerStripeRoutes(app);
