@@ -1,0 +1,125 @@
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
+import { pool } from "../../db";
+import { registerFrist, cancelFrist, runFristEscalations } from "../frist-engine";
+import * as notificationRoutes from "../../routes/notification-routes";
+
+describe("frist-engine", () => {
+  const cleanupEntityIds: string[] = [];
+  // tidum_frister.notify_user_id has a real FK to users.id (unlike
+  // tidum_dashboard_tasks.assigned_by_user_id, which has none) — these two
+  // fixture users must exist for the FK to accept them.
+  const testUserIds = ["test-user-1", "test-user-2"];
+
+  beforeAll(async () => {
+    for (const id of testUserIds) {
+      await pool.query(
+        `INSERT INTO users (id, username, password) VALUES ($1, $2, 'unused') ON CONFLICT (id) DO NOTHING`,
+        [id, id],
+      );
+    }
+  });
+
+  afterAll(async () => {
+    for (const id of testUserIds) {
+      await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+    }
+  });
+
+  afterEach(async () => {
+    for (const id of cleanupEntityIds.splice(0)) {
+      await pool.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
+    }
+    vi.restoreAllMocks();
+  });
+
+  it("registerFrist oppretter en aktiv rad", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    await registerFrist({
+      entityType: "test_entity",
+      entityId,
+      kommuneId: undefined,
+      fristType: "avklaring",
+      dueAt: new Date(Date.now() + 7 * 86400000),
+    });
+    const { rows } = await pool.query(
+      `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
+      [entityId],
+    );
+    expect(rows[0].status).toBe("aktiv");
+  });
+
+  it("cancelFrist setter status til kansellert", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    await registerFrist({ entityType: "test_entity", entityId, fristType: "avklaring", dueAt: new Date() });
+    await cancelFrist("test_entity", entityId, "avklaring");
+    const { rows } = await pool.query(
+      `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
+      [entityId],
+    );
+    expect(rows[0].status).toBe("kansellert");
+  });
+
+  it("runFristEscalations varsler ved offset 0 (på forfallsdagen) for fristType 'avklaring', ikke to ganger", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    const createSpy = vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
+    const dueAt = new Date();
+    await registerFrist({
+      entityType: "test_entity",
+      entityId,
+      fristType: "avklaring",
+      dueAt,
+      notifyUserId: "test-user-1",
+    });
+
+    const first = await runFristEscalations(dueAt);
+    expect(first.notified).toBeGreaterThanOrEqual(1);
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "test-user-1", type: "frist_eskalering" }),
+    );
+
+    const callCountAfterFirst = createSpy.mock.calls.length;
+    await runFristEscalations(dueAt);
+    expect(createSpy.mock.calls.length).toBe(callCountAfterFirst); // ingen ny varsling samme offset
+  });
+
+  it("runFristEscalations rører ALDRI status (kun domenekoden avgjør oppfylt/brutt)", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
+    const overdue = new Date(Date.now() - 10 * 86400000);
+    await registerFrist({ entityType: "test_entity", entityId, fristType: "avklaring", dueAt: overdue });
+    await runFristEscalations();
+    const { rows } = await pool.query(
+      `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
+      [entityId],
+    );
+    expect(rows[0].status).toBe("aktiv");
+  });
+
+  it("en sterkt oversittet frist får ALLE 4 eskaleringsterskler i én kjøring (-2, 0, 1, 3)", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    const createSpy = vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
+    const dueAt = new Date(Date.now() - 10 * 86400000); // 10 dager oversittet — alle 4 offsets ligger i fortiden
+    await registerFrist({
+      entityType: "test_entity",
+      entityId,
+      fristType: "avklaring",
+      dueAt,
+      notifyUserId: "test-user-2",
+    });
+
+    const result = await runFristEscalations();
+    expect(result.notified).toBeGreaterThanOrEqual(4);
+    expect(createSpy).toHaveBeenCalledTimes(4);
+
+    const { rows } = await pool.query(
+      `SELECT varslet_offsets FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
+      [entityId],
+    );
+    expect(rows[0].varslet_offsets.sort((a: number, b: number) => a - b)).toEqual([-2, 0, 1, 3]);
+  });
+});

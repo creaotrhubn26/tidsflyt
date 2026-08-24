@@ -14,6 +14,7 @@ import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
 import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
+import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -6668,6 +6669,8 @@ export async function registerRoutes(
   registerForwardRoutes(app);
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
+  registerFristEscalationRoutes(app);
+  setupFristEscalationCron();
   registerPricingRoutes(app);
   registerAnalyticsRoutes(app);
   registerStripeRoutes(app);
