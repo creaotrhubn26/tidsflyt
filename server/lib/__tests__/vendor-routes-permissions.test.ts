@@ -135,4 +135,55 @@ describe("vendor routes use hasPermission()", () => {
       await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
     }
   });
+
+  it("POST /api/vendors/:id/admins rejects account takeover of an email already belonging to another vendor", async () => {
+    // BOLA regression: a vendor_admin with vendor.admin.create permission
+    // for their own vendor could previously invite ANY email address —
+    // including one that already had a `users` row scoped to a different
+    // vendor_id — and the route's ON CONFLICT (email) DO UPDATE would
+    // silently reassign that existing account to the attacker's vendor_id.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-takeover-${suffix}@example.com`;
+    const victimVendorId = 900000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+
+    // Pre-existing users row scoped to the victim's vendor.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, 'vendor_admin', $3)`,
+      [`victim_${suffix}`, email, victimVendorId],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      const token = signAdminToken({ id: "test-super-admin-2", email: "sa2@example.com", role: "super_admin", roleId: superAdminRole.id });
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const {
+        rows: [userRow],
+      } = await pool.query(`SELECT vendor_id FROM users WHERE email = $1`, [email]);
+      expect(userRow.vendor_id).toBe(victimVendorId);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
+    }
+  });
 });

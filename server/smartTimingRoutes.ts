@@ -1445,6 +1445,16 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Brukernavn og e-post er påkrevd' });
       }
 
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const { rows: [existingUser] } = await pool.query(
+        `SELECT vendor_id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
+        [normalizedEmail],
+      );
+      if (existingUser && existingUser.vendor_id !== vendorId) {
+        return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+      }
+
       // Password is optional — if omitted we generate a strong random one.
       // The admin logs in via magic link; password is a fallback.
       const effectivePassword = password?.trim()
@@ -1472,7 +1482,6 @@ export function registerSmartTimingRoutes(app: Express) {
       // point is to deliberately overwrite it: a vendor explicitly invites
       // this person as vendor_admin, same intent as the tidum_company_users
       // insert right below.
-      const normalizedEmail = email.toLowerCase().trim();
       const vendorAdminRoleId = (await pool.query(
         `SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND scope = 'global' AND is_system_default = true`,
       )).rows[0]?.id ?? null;
@@ -2789,14 +2798,20 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/company/logs", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
       const { company_id, user_email, month, year } = req.query;
-      
+      const companyId = Number(company_id) || 1;
+      const actorRole = (req as any).authUser?.role;
+      const actorVendorId = (req as any).authUser?.vendorId;
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens logger' });
+      }
+
       let query = `
         SELECT lr.*, cu.user_email, cu.role
         FROM tidum_log_row lr
         JOIN tidum_company_users cu ON lr.user_id = cu.user_email
         WHERE cu.company_id = $1
       `;
-      const params: any[] = [company_id || 1];
+      const params: any[] = [companyId];
       let paramIndex = 2;
       
       if (user_email) {
@@ -2821,7 +2836,12 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== COMPANY AUDIT LOG ==========
   app.get("/api/company/audit", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
-      const companyId = req.query.company_id || 1;
+      const companyId = Number(req.query.company_id) || 1;
+      const actorRole = (req as any).authUser?.role;
+      const actorVendorId = (req as any).authUser?.vendorId;
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens revisjonslogg' });
+      }
       const result = await pool.query(
         `SELECT cal.*, cu.user_email as actor_email
          FROM tidum_company_audit_log cal
