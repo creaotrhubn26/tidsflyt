@@ -76,7 +76,9 @@ describe("Barnevern melding-vedlegg", () => {
     return { id, app: await appWithUser({ id }) };
   }
 
-  it("kan laste opp og laste ned et vedlegg på egen kommunes melding", async () => {
+  // Fullt registerRoutes-app + multer-disk-IO — 5 s standardtimeout er for knapp
+  // under full-suite-belastning (passerer isolert, flaket i full kjøring).
+  it("kan laste opp og laste ned et vedlegg på egen kommunes melding", { timeout: 15000 }, async () => {
     const kommuneId = await insertTestKommune();
     const { app } = await actorApp("sb-vedlegg", kommuneId, "kommune_saksbehandler");
     const created = await request(app).post("/api/barnevern/meldinger").send({
