@@ -2,11 +2,20 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { pool } from "../../db";
 import { onBekymringsmeldingRaw } from "../../fiks-io/receiver";
 
+// secret-box cacher nøkkelen ved første oppslag, så isSecretBoxConfigured kan
+// ikke styres med stubEnv i etterkant — den mockes i stedet per test.
+let secretBoxConfigured = true;
+vi.mock("../../lib/secret-box", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../lib/secret-box")>();
+  return { ...actual, isSecretBoxConfigured: () => secretBoxConfigured };
+});
+
 describe("fiks-io/receiver: onBekymringsmeldingRaw", () => {
   const cleanupKommuneIds: number[] = [];
 
   afterEach(async () => {
     vi.unstubAllEnvs();
+    secretBoxConfigured = true;
     for (const id of cleanupKommuneIds.splice(0)) {
       await pool.query(`DELETE FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`, [id]);
       await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
@@ -34,5 +43,22 @@ describe("fiks-io/receiver: onBekymringsmeldingRaw", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].processed_at).toBeNull();
     expect(rows[0].raw_payload_encrypted).not.toContain("ukjentFelt"); // kryptert, ikke klartekst
+  });
+
+  it("kaster og lagrer INGENTING uten TIDUM_SECRET_KEY (aldri klartekst)", async () => {
+    secretBoxConfigured = false;
+    const { rows: [kommune] } = await pool.query(
+      `INSERT INTO tidum_kommuner (navn, org_nummer) VALUES ($1, $2) RETURNING id`,
+      [`Testkommune ${Date.now()}`, `${900000000 + Math.floor(Math.random() * 99999999)}`],
+    );
+    cleanupKommuneIds.push(kommune.id);
+
+    await expect(onBekymringsmeldingRaw(kommune.id, { barn: "PII" })).rejects.toThrow(/TIDUM_SECRET_KEY/);
+
+    const { rows } = await pool.query(
+      `SELECT count(*) FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`,
+      [kommune.id],
+    );
+    expect(Number(rows[0].count)).toBe(0);
   });
 });

@@ -38,17 +38,26 @@ describe("Barnevern melding-vedlegg", () => {
     return row.id;
   }
 
-  // uploaded_by har FK til users.id (NOT NULL, Task 1-skjema). Samme mønster
-  // som insertTestUser() i barnevern-melding-routes.test.ts (Task 3).
-  async function insertTestUser(id: string, kommuneId: number): Promise<void> {
+  // Må speile BARNEVERN_UPLOAD_DIR i server/routes/barnevern-melding-routes.ts
+  // (bevisst UTENFOR den offentlig monterte uploads/-roten).
+  const uploadedFilePath = (filename: string) =>
+    path.join(process.cwd(), "private-uploads", "barnevern-meldinger", filename);
+
+  // Unik id per kjøring så suiten er re-kjørbar etter en avbrutt kjøring.
+  const uniqueId = (prefix: string) =>
+    `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  // uploaded_by har FK til users.id (NOT NULL, Task 1-skjema), og rutene henter
+  // rolle/kommune fra users via req.user.id — aktøren MÅ finnes i databasen.
+  async function insertTestUser(id: string, kommuneId: number, role: string): Promise<void> {
     await pool.query(
-      `INSERT INTO users (id, username, password, email, kommune_id) VALUES ($1, $2, 'x', $3, $4)`,
-      [id, id, `${id}@example.com`, kommuneId],
+      `INSERT INTO users (id, username, password, email, kommune_id, role) VALUES ($1, $2, 'x', $3, $4, $5)`,
+      [id, id, `${id}@example.com`, kommuneId, role],
     );
     cleanupUserIds.push(id);
   }
 
-  async function appWithUser(user: { id: string; role: string; kommuneId?: number }) {
+  async function appWithUser(user: { id: string }) {
     const { registerRoutes } = await import("../../routes");
     const app = express();
     app.use(express.json());
@@ -61,10 +70,15 @@ describe("Barnevern melding-vedlegg", () => {
     return app;
   }
 
+  async function actorApp(prefix: string, kommuneId: number, role: string) {
+    const id = uniqueId(prefix);
+    await insertTestUser(id, kommuneId, role);
+    return { id, app: await appWithUser({ id }) };
+  }
+
   it("kan laste opp og laste ned et vedlegg på egen kommunes melding", async () => {
     const kommuneId = await insertTestKommune();
-    await insertTestUser("sb-vedlegg-1", kommuneId);
-    const app = await appWithUser({ id: "sb-vedlegg-1", role: "kommune_saksbehandler", kommuneId });
+    const { app } = await actorApp("sb-vedlegg", kommuneId, "kommune_saksbehandler");
     const created = await request(app).post("/api/barnevern/meldinger").send({
       melderKategori: "skole", beskrivelse: "Test vedlegg",
     });
@@ -74,6 +88,7 @@ describe("Barnevern melding-vedlegg", () => {
       .post(`/api/barnevern/meldinger/${created.body.id}/vedlegg`)
       .attach("file", Buffer.from("test-innhold"), "notat.pdf");
     expect(upload.status).toBe(201);
+    cleanupFilePaths.push(uploadedFilePath(upload.body.filename));
     expect(upload.body.originalName).toBe("notat.pdf");
 
     const download = await request(app).get(
@@ -84,12 +99,11 @@ describe("Barnevern melding-vedlegg", () => {
     expect(Buffer.from(download.body).toString()).toBe("test-innhold");
   });
 
-  it("aktør i kommune B kan IKKE laste ned vedlegg fra en melding i kommune A", async () => {
+  // To fulle registerRoutes-apper i én test — 5 s standardtimeout er for knapp.
+  it("aktør i kommune B kan IKKE laste ned vedlegg fra en melding i kommune A", { timeout: 15000 }, async () => {
     const kommuneA = await insertTestKommune();
     const kommuneB = await insertTestKommune();
-    await insertTestUser("sb-vedlegg-a", kommuneA);
-    await insertTestUser("sb-vedlegg-b", kommuneB);
-    const appA = await appWithUser({ id: "sb-vedlegg-a", role: "kommune_saksbehandler", kommuneId: kommuneA });
+    const { app: appA } = await actorApp("sb-vedlegg-a", kommuneA, "kommune_saksbehandler");
     const created = await request(appA).post("/api/barnevern/meldinger").send({
       melderKategori: "skole", beskrivelse: "Test tverr-kommune",
     });
@@ -97,8 +111,9 @@ describe("Barnevern melding-vedlegg", () => {
     const upload = await request(appA)
       .post(`/api/barnevern/meldinger/${created.body.id}/vedlegg`)
       .attach("file", Buffer.from("hemmelig"), "hemmelig.pdf");
+    cleanupFilePaths.push(uploadedFilePath(upload.body.filename));
 
-    const appB = await appWithUser({ id: "sb-vedlegg-b", role: "kommune_saksbehandler", kommuneId: kommuneB });
+    const { app: appB } = await actorApp("sb-vedlegg-b", kommuneB, "kommune_saksbehandler");
     const res = await request(appB).get(
       `/api/barnevern/meldinger/${created.body.id}/vedlegg/${upload.body.id}`,
     );
