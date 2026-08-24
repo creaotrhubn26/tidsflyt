@@ -32,3 +32,8 @@ Brief-testen bruker `notifyUserId: "test-user-1"` / `"test-user-2"` direkte. `ti
 - `server/routes/frist-escalation-cron.ts` (ny)
 - `server/lib/__tests__/frist-engine.test.ts` (ny)
 - `server/routes.ts` (import + montering)
+
+## Oppfølging: cron-gate (etter tilbakemelding fra koordinator)
+`server/routes.ts:6654-6665` har en etablert, håndhevet konvensjon: ALLE daglige cron-oppsett (inkl. `setupTaskEscalationCron()`) kjøres inni `if (process.env.RECURRING_CRON_DISABLED !== 'true') { ... }`. Første commit av denne oppgaven kalte `setupFristEscalationCron()` utenfor denne blokken, ved siden av rene rute-registreringer — brief-en nevnte ikke gaten eksplisitt.
+
+Fikset: `setupFristEscalationCron();` flyttet inn i samme gate, rett etter `setupTaskEscalationCron();`. `registerFristEscalationRoutes(app);` (rute-registreringen) ble stående der den var — kun cron-starten ble flyttet. `npx tsc --noEmit` (hele repo) og begge testfiler (`frist-engine.test.ts` 5/5, `barnevern-meldingsmottak-schema.test.ts` 5/5) bekreftet grønt etter flyttingen.

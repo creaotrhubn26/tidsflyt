@@ -6661,6 +6661,7 @@ export async function registerRoutes(
     setupActivityLogCron();
     setupSeatOverrunCron();
     setupTaskEscalationCron();
+    setupFristEscalationCron();
     setupArchiveCron();
   }
   // Seed system rapport templates (idempotent — safe to run on every boot)
@@ -6670,7 +6671,6 @@ export async function registerRoutes(
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
   registerFristEscalationRoutes(app);
-  setupFristEscalationCron();
   registerPricingRoutes(app);
   registerAnalyticsRoutes(app);
   registerStripeRoutes(app);
