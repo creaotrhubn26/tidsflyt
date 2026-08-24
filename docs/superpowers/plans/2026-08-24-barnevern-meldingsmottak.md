@@ -189,7 +189,7 @@ CREATE TABLE IF NOT EXISTS tidum_frister (
   entity_type       TEXT NOT NULL,
   entity_id         TEXT NOT NULL,
   kommune_id        INTEGER REFERENCES tidum_kommuner(id),
-  vendor_id         INTEGER REFERENCES vendors(id),
+  vendor_id         VARCHAR REFERENCES vendors(id), -- vendors.id er varchar/UUID i live DB, se ledger
   frist_type        TEXT NOT NULL,
   due_at            TIMESTAMPTZ NOT NULL,
   status            tidum_frist_status NOT NULL DEFAULT 'aktiv',
@@ -298,7 +298,7 @@ export const frister = pgTable("tidum_frister", {
   entityType: text("entity_type").notNull(),
   entityId: text("entity_id").notNull(),
   kommuneId: integer("kommune_id").references(() => kommuner.id),
-  vendorId: integer("vendor_id").references(() => vendors.id),
+  vendorId: varchar("vendor_id").references(() => vendors.id), // vendors.id er varchar/UUID i live DB, IKKE integer (avvik fra shared/schema.ts:474 sin serial()-erklæring — verifisert av Task 1-implementøren, se ledger)
   fristType: text("frist_type").notNull(),
   dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
   status: fristStatusEnum("status").notNull().default("aktiv"),
@@ -482,7 +482,7 @@ export async function registerFrist(params: {
   entityType: string;
   entityId: string;
   kommuneId?: number;
-  vendorId?: number;
+  vendorId?: string; // vendors.id er varchar/UUID i live DB (avvik fra shared/schema.ts:474 sin serial()-erklæring — se Task 1-ruling i ledger), IKKE number
   fristType: string;
   dueAt: Date;
   notifyUserId?: string;
