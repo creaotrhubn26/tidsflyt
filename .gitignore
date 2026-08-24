@@ -15,6 +15,9 @@ uploads/
 private-uploads/
 .claude/
 
+# Superpowers SDD scratch workspaces (ledger/briefs/reports — git history is the record)
+.superpowers/sdd/
+
 # Playwright artifacts
 test-results/
 playwright-report/
