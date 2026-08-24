@@ -172,6 +172,25 @@ async function ensureHovedadminForAccessRequest(
   hovedadminName: string | null,
 ): Promise<void> {
   const email = hovedadminEmail.trim().toLowerCase();
+
+  // tidum_admin_users.vendor_id er character varying (ikke integer) —
+  // sammenlign som tekst. Fail closed FØR INSERT-en: uten denne vakten
+  // overskriver ON CONFLICT (email) DO UPDATE under ubetinget vendor_id,
+  // role OG password_hash på en HVILKEN SOM HELST eksisterende rad som
+  // matcher e-posten — inkludert en rad som tilhører en annen vendor
+  // (kontoovertakelse via en angripers alt_hovedadmin_email, se
+  // applyAccessRequestDecision). Kallstedene fanger denne meldingen og
+  // svarer 409.
+  const {
+    rows: [existingAdmin],
+  } = await pool.query(
+    `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = $1 LIMIT 1`,
+    [email],
+  );
+  if (existingAdmin && String(existingAdmin.vendor_id) !== String(vendorId)) {
+    throw new Error("HOVEDADMIN_TENANT_MISMATCH");
+  }
+
   const usernameBase =
     slugifyVendorName(hovedadminName || request.company || email.split("@")[0] || "hovedadmin") ||
     "hovedadmin";
@@ -197,6 +216,14 @@ async function syncApprovedPortalUser(email: string, role: string, vendorId: num
   const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
 
   if (existingUser) {
+    // Fail closed FØR UPDATE-en: uten denne vakten overskriver denne
+    // ubetinget role/vendorId for en hvilken som helst eksisterende
+    // users-rad matchet på e-post, uansett eksisterende vendorId
+    // (kontoovertakelse — samme angrepsvei som over). Kallstedene fanger
+    // denne meldingen og svarer 409.
+    if (existingUser.vendorId !== vendorId) {
+      throw new Error("PORTAL_USER_TENANT_MISMATCH");
+    }
     await db
       .update(users)
       .set({
@@ -410,17 +437,37 @@ async function applyAccessRequestDecision({
     : (request.altHovedadminName || request.fullName);
 
   if (status === "approved" && hovedadminEmail) {
-    await ensureHovedadminForAccessRequest(
-      request,
-      effectiveVendorId as number,
-      hovedadminEmail,
-      hovedadminName,
-    );
-    await syncApprovedPortalUser(
-      hovedadminEmail,
-      "hovedadmin",
-      effectiveVendorId,
-    );
+    try {
+      await ensureHovedadminForAccessRequest(
+        request,
+        effectiveVendorId as number,
+        hovedadminEmail,
+        hovedadminName,
+      );
+      await syncApprovedPortalUser(
+        hovedadminEmail,
+        "hovedadmin",
+        effectiveVendorId,
+      );
+    } catch (err: any) {
+      if (String(err?.message || "").includes("TENANT_MISMATCH")) {
+        // Vi allerede satte accessRequests.status = 'approved' over — revert
+        // til requestens opprinnelige tilstand (fra FØR db.update over) slik
+        // at en avvist hovedadmin-tilknytning ikke etterlater forespørselen
+        // stående som "godkjent" i databasen.
+        await db
+          .update(accessRequests)
+          .set({
+            status: request.status,
+            vendorId: request.vendorId,
+            reviewedBy: request.reviewedBy,
+            reviewedAt: request.reviewedAt,
+            updatedAt: new Date(),
+          })
+          .where(eq(accessRequests.id, requestId));
+      }
+      throw err;
+    }
 
     // Insert-time seat-overrun-check (T17). Approval skaper en hovedadmin
     // som teller mot seat-cap. Best-effort — skal ikke blokkere approval.
@@ -3860,6 +3907,9 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
       }
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
+      }
       res.status(500).json({ error: error.message });
     }
   });
@@ -3916,6 +3966,9 @@ export async function registerRoutes(
     } catch (error: any) {
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
+      }
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
       }
       console.error("CreatorHub status sync error:", error);
       res.status(500).json({ error: error.message || "Could not update request" });
