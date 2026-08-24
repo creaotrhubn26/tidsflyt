@@ -47,6 +47,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "061_notifications_drop_remaining_stale_not_null.sql",
   "062_sak_journal.sql",
   "063_kommuner.sql",
+  "064_barnevern_meldingsmottak.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
