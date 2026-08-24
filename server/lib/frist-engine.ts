@@ -50,42 +50,51 @@ export async function runFristEscalations(now: Date = new Date()): Promise<{ not
   let expired = 0;
 
   for (const row of rows) {
-    const config = FRIST_TYPE_CONFIG[row.frist_type];
-    if (!config) continue;
-    if (!row.notify_user_id) continue;
+    // Feilisolasjon per rad (samme mønster som task-escalation-cron.ts): ett kast
+    // skal ikke stanse behandlingen av resten av fristene i kjøringen.
+    try {
+      const config = FRIST_TYPE_CONFIG[row.frist_type];
+      if (!config) continue;
+      if (!row.notify_user_id) continue;
 
-    const daysDiff = Math.floor((now.getTime() - new Date(row.due_at).getTime()) / 86400000);
-    const alreadySent: number[] = row.varslet_offsets || [];
-    const dueOffsets = config.escalationOffsetDays.filter(
-      (offset) => offset <= daysDiff && !alreadySent.includes(offset),
-    );
-    if (dueOffsets.length === 0) continue;
+      const daysDiff = Math.floor((now.getTime() - new Date(row.due_at).getTime()) / 86400000);
+      const alreadySent: number[] = row.varslet_offsets || [];
+      const dueOffsets = config.escalationOffsetDays.filter(
+        (offset) => offset <= daysDiff && !alreadySent.includes(offset),
+      );
+      if (dueOffsets.length === 0) continue;
 
-    // Claim FØR varsling, ikke etter: to samtidige kjøringer (manuell trigger
-    // som race'r 08:00-cronen, eller flere serverinstanser) kan begge lese
-    // samme rad før noen skriver tilbake. Den betingede WHERE gjør claimet
-    // atomisk mot databasen — kun kjøringen som faktisk oppdaterer raden
-    // fortsetter til å varsle. `&&` sjekker array-overlapp.
-    const claimResult = await pool.query(
-      `UPDATE tidum_frister SET varslet_offsets = varslet_offsets || $1::integer[], updated_at = NOW()
-       WHERE id = $2 AND NOT (varslet_offsets && $1::integer[])
-       RETURNING id`,
-      [dueOffsets, row.id],
-    );
-    if (claimResult.rows.length === 0) continue; // en annen samtidig kjøring claimet allerede disse offsetene
+      // Claim FØR varsling, ikke etter: to samtidige kjøringer (manuell trigger
+      // som race'r 08:00-cronen, eller flere serverinstanser) kan begge lese
+      // samme rad før noen skriver tilbake. Den betingede WHERE gjør claimet
+      // atomisk mot databasen — kun kjøringen som faktisk oppdaterer raden
+      // fortsetter til å varsle. `&&` sjekker array-overlapp.
+      const claimResult = await pool.query(
+        `UPDATE tidum_frister SET varslet_offsets = varslet_offsets || $1::integer[], updated_at = NOW()
+         WHERE id = $2 AND NOT (varslet_offsets && $1::integer[])
+         RETURNING id`,
+        [dueOffsets, row.id],
+      );
+      if (claimResult.rows.length === 0) continue; // en annen samtidig kjøring claimet allerede disse offsetene
 
-    for (const offset of dueOffsets) {
-      await createNotification({
-        userId: row.notify_user_id,
-        type: "frist_eskalering",
-        title: `Frist nærmer seg eller er oversittet (${row.frist_type})`,
-        message: `Frist for ${row.entity_type} ${row.entity_id} har passert offset ${offset} dager fra forfall.`,
-        metadata: { entityType: row.entity_type, entityId: row.entity_id, fristType: row.frist_type, offset },
-      });
-      notified += 1;
+      for (const offset of dueOffsets) {
+        await createNotification({
+          userId: row.notify_user_id,
+          type: "frist_eskalering",
+          title: `Frist nærmer seg eller er oversittet (${row.frist_type})`,
+          message: `Frist for ${row.entity_type} ${row.entity_id} har passert offset ${offset} dager fra forfall.`,
+          metadata: { entityType: row.entity_type, entityId: row.entity_id, fristType: row.frist_type, offset },
+        });
+        notified += 1;
+      }
+
+      if (daysDiff > 0) expired += 1;
+    } catch (rowErr) {
+      // ponytail: claimet står igjen som sendt selv om varselet feilet — offset
+      // må da rulles tilbake manuelt. Aksepteres framfor å risikere dobbeltvarsling.
+      console.error(`[frist-engine] Feil ved behandling av frist ${row.id}:`, rowErr);
+      continue;
     }
-
-    if (daysDiff > 0) expired += 1;
   }
 
   return { notified, expired };

@@ -5,12 +5,16 @@ import fs from "fs";
 import { pool } from "../db";
 import { isKommuneRole, normalizeRole } from "../../shared/roles";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
+import { requireAuth } from "../middleware/auth";
 
 const MELDER_KATEGORIER = new Set([
   "skole", "barnehage", "helsepersonell", "lege", "politi", "nav", "familie_nabo", "anonym", "annet",
 ]);
 
-const BARNEVERN_UPLOAD_DIR = path.join(process.cwd(), "uploads", "barnevern-meldinger");
+// IKKE under uploads/ — den roten monteres som statisk, UAUTENTISERT katalog i
+// server/smartTimingRoutes.ts ("/uploads"). Barnevernsvedlegg inneholder PII og
+// skal kun ut via den kommune-scopede GET .../vedlegg/:vedleggId-ruten under.
+const BARNEVERN_UPLOAD_DIR = path.join(process.cwd(), "private-uploads", "barnevern-meldinger");
 if (!fs.existsSync(BARNEVERN_UPLOAD_DIR)) fs.mkdirSync(BARNEVERN_UPLOAD_DIR, { recursive: true });
 
 const ALLOWED_VEDLEGG_MIME = new Set([
@@ -40,12 +44,23 @@ interface KommuneActor {
   kommuneId: number;
 }
 
-function requireKommuneActor(req: Request): KommuneActor | null {
+/**
+ * Rolle og kommunetilhørighet hentes ALLTID på nytt fra users via req.user.id —
+ * aldri fra et sesjonsbåret felt (AuthUser har bevisst ingen kommuneId, se
+ * server/lib/auth-types.ts). Feiler lukket: mangler bruker, kommune_id eller
+ * kommune-rolle, er svaret null → 403.
+ */
+async function requireKommuneActor(req: Request): Promise<KommuneActor | null> {
   const user = (req as any).user;
-  const role = normalizeRole(user?.role);
-  const kommuneId = user?.kommuneId;
-  if (!user?.id || !isKommuneRole(role) || kommuneId == null) return null;
-  return { userId: user.id, role, kommuneId };
+  if (!user?.id) return null;
+  const { rows: [row] } = await pool.query(
+    `SELECT role, kommune_id FROM users WHERE id = $1`,
+    [user.id],
+  );
+  if (!row) return null;
+  const role = normalizeRole(row.role);
+  if (!isKommuneRole(role) || row.kommune_id == null) return null;
+  return { userId: user.id, role, kommuneId: row.kommune_id };
 }
 
 async function nextMeldingsnummer(kommunenummer: string | null): Promise<string> {
@@ -85,7 +100,7 @@ function toApiShape(row: any) {
 
 export function registerBarnevernMeldingRoutes(app: Express): void {
   app.post("/api/barnevern/meldinger", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const { melderKategori, melderNavn, melderKontakt, barnFodselsnummer, barnNavn, beskrivelse } = req.body;
@@ -121,13 +136,30 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
         ],
       );
 
-      await registerFrist({
-        entityType: "barnevern_melding",
-        entityId: row.id,
-        kommuneId: actor.kommuneId,
-        fristType: "avklaring",
-        dueAt: avklaringsfrist,
-      });
+      // Utildelt melding må også kunne eskaleres: frist-engine hopper over rader
+      // uten notify_user_id, så barnevernsleder i kommunen er mottaker inntil
+      // tildel-ruten overskriver med faktisk saksbehandler.
+      const { rows: [leder] } = await pool.query(
+        `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
+        [actor.kommuneId],
+      );
+
+      try {
+        await registerFrist({
+          entityType: "barnevern_melding",
+          entityId: row.id,
+          kommuneId: actor.kommuneId,
+          fristType: "avklaring",
+          dueAt: avklaringsfrist,
+          notifyUserId: leder?.id,
+        });
+      } catch (fristErr) {
+        // En melding uten frist ville aldri blitt eskalert (bvl. § 2-1) — rull
+        // derfor tilbake innsettingen framfor å etterlate en stille melding.
+        console.error("[barnevern] registerFrist feilet, ruller tilbake melding:", fristErr);
+        await pool.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [row.id]);
+        return res.status(500).json({ error: "Kunne ikke opprette frist for meldingen, prøv igjen." });
+      }
 
       res.status(201).json(toApiShape(row));
     } catch (err: any) {
@@ -136,7 +168,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   });
 
   app.get("/api/barnevern/meldinger", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     try {
@@ -157,7 +189,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   });
 
   app.get("/api/barnevern/meldinger/:id", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const row = await loadMeldingScoped(req.params.id, actor.kommuneId);
@@ -166,7 +198,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   });
 
   app.patch("/api/barnevern/meldinger/:id/tildel", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
     if (actor.role !== "barnevernsleder") {
       return res.status(403).json({ error: "Kun barnevernsleder kan tildele." });
@@ -197,7 +229,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   });
 
   app.post("/api/barnevern/meldinger/:id/henlegg", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const existing = await loadMeldingScoped(req.params.id, actor.kommuneId);
@@ -215,7 +247,14 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
          WHERE id = $3 AND kommune_id = $4 RETURNING *`,
         [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
       );
-      await cancelFrist("barnevern_melding", req.params.id, "avklaring");
+      // Statusendringen er kilden til sannhet: meldingen ER henlagt selv om
+      // fristkanselleringen feiler. En gjenværende aktiv frist gir på sitt verste
+      // et overflødig varsel, og skal ikke velte responsen.
+      try {
+        await cancelFrist("barnevern_melding", req.params.id, "avklaring");
+      } catch (fristErr) {
+        console.error("[barnevern] cancelFrist feilet etter henleggelse:", fristErr);
+      }
       res.json(toApiShape(row));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -223,7 +262,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   });
 
   app.post("/api/barnevern/meldinger/:id/send-til-undersokelse", async (req: Request, res: Response) => {
-    const actor = requireKommuneActor(req);
+    const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const existing = await loadMeldingScoped(req.params.id, actor.kommuneId);
@@ -236,7 +275,12 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
          WHERE id = $2 AND kommune_id = $3 RETURNING *`,
         [actor.userId, req.params.id, actor.kommuneId],
       );
-      await cancelFrist("barnevern_melding", req.params.id, "avklaring");
+      // Samme resonnement som i henlegg: UPDATE-en er kilden til sannhet.
+      try {
+        await cancelFrist("barnevern_melding", req.params.id, "avklaring");
+      } catch (fristErr) {
+        console.error("[barnevern] cancelFrist feilet etter videresending:", fristErr);
+      }
       res.json(toApiShape(row));
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -245,9 +289,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
   app.post(
     "/api/barnevern/meldinger/:id/vedlegg",
+    requireAuth, // FØR multer: uautentiserte skal ikke kunne skrive 20 MB til disk
     upload.single("file"),
     async (req: Request, res: Response) => {
-      const actor = requireKommuneActor(req);
+      const actor = await requireKommuneActor(req);
       if (!actor) {
         if (req.file) fs.unlink(req.file.path, () => {});
         return res.status(403).json({ error: "Ikke tilgang." });
@@ -288,7 +333,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
   app.get(
     "/api/barnevern/meldinger/:id/vedlegg/:vedleggId",
     async (req: Request, res: Response) => {
-      const actor = requireKommuneActor(req);
+      const actor = await requireKommuneActor(req);
       if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
       const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);

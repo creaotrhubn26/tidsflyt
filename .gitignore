@@ -12,6 +12,7 @@ vite.config.ts.*
 
 # Runtime-generated directories
 uploads/
+private-uploads/
 .claude/
 
 # Playwright artifacts

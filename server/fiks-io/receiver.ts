@@ -1,6 +1,6 @@
 import type { Express } from "express";
 import { pool } from "../db";
-import { sealSecret } from "../lib/secret-box";
+import { isSecretBoxConfigured, sealSecret } from "../lib/secret-box";
 
 /**
  * STUB — bekymringsmeldingens innholdsskjema er IKKE offentlig dokumentert
@@ -12,6 +12,11 @@ import { sealSecret } from "../lib/secret-box";
  * processed_at IS NULL (de er allerede trygt lagret og venter).
  */
 export async function onBekymringsmeldingRaw(kommuneId: number, rawPayload: unknown): Promise<void> {
+  // sealSecret faller stille tilbake til klartekst uten nøkkel — en hel
+  // bekymringsmelding (barnets og melders identitet) skal ALDRI lagres slik.
+  if (!isSecretBoxConfigured()) {
+    throw new Error("TIDUM_SECRET_KEY må være satt før Fiks IO-mottak kan lagre bekymringsmeldinger.");
+  }
   await pool.query(
     `INSERT INTO tidum_fiks_raw_intake_log (kommune_id, raw_payload_encrypted) VALUES ($1, $2)`,
     [kommuneId, sealSecret(JSON.stringify(rawPayload))],
