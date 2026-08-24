@@ -242,4 +242,64 @@ describe("vendor routes use hasPermission()", () => {
       await pool.query(`DELETE FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
     }
   });
+
+  it("POST /api/vendors/:id/admins rejects takeover even when the attacker's OWN tidum_company_users row for that email is inserted first", async () => {
+    // Round-3 BOLA regression: tidum_company_users has a per-vendor unique
+    // index (COALESCE(vendor_id,0), lower(user_email)) — the same email can
+    // legally have one row per vendor. The old guard did `SELECT ... LIMIT 1`
+    // with no ORDER BY per table, so an attacker who first planted their OWN
+    // row for the victim's email (e.g. via POST /api/company/users or bulk
+    // import) could make the single arbitrary row returned be their own
+    // (matching vendorId, so no 409), while the victim's real row in another
+    // vendor was never inspected. The fixed guard is a single query that
+    // scans ALL matching rows across all three tables via UNION ALL, so
+    // insertion order can no longer hide a conflicting row.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-plant-row-${suffix}@example.com`;
+    const victimVendorId = 920000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+
+    // Attacker's own row for the victim's email, inserted FIRST so a naive
+    // LIMIT-1-no-ORDER-BY lookup would be likely to return it.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [attackerVendorId, email],
+    );
+    // Victim's real row, in a different vendor, inserted second.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [victimVendorId, email],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      const token = signAdminToken({ id: "test-plant-attacker", email: "attacker-plant@example.com", role: "vendor_admin", vendorId: attackerVendorId } as any);
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_plant_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const { rows: userRows } = await pool.query(`SELECT id FROM users WHERE email = $1`, [email]);
+      expect(userRows.length).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+    }
+  });
 });

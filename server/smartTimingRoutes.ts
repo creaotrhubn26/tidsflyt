@@ -1447,21 +1447,19 @@ export function registerSmartTimingRoutes(app: Express) {
 
       const normalizedEmail = email.toLowerCase().trim();
 
-      const { rows: [existingUser] } = await pool.query(
-        `SELECT vendor_id FROM users WHERE LOWER(email) = $1 LIMIT 1`,
-        [normalizedEmail],
+      const { rows: [conflict] } = await pool.query(
+        `SELECT vendor_id FROM (
+           SELECT vendor_id::text AS vendor_id FROM users WHERE LOWER(TRIM(email)) = $1
+           UNION ALL
+           SELECT vendor_id::text FROM tidum_company_users WHERE LOWER(TRIM(user_email)) = $1
+           UNION ALL
+           SELECT vendor_id::text FROM tidum_admin_users WHERE LOWER(TRIM(email)) = $1
+         ) AS matches
+         WHERE vendor_id IS DISTINCT FROM $2::text
+         LIMIT 1`,
+        [normalizedEmail, String(vendorId)],
       );
-      const { rows: [existingCompanyUser] } = await pool.query(
-        `SELECT vendor_id FROM tidum_company_users WHERE LOWER(user_email) = $1 LIMIT 1`,
-        [normalizedEmail],
-      );
-      const { rows: [existingAdminUser] } = await pool.query(
-        `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = $1 LIMIT 1`,
-        [normalizedEmail],
-      );
-      const conflictingVendorId = [existingUser, existingCompanyUser, existingAdminUser]
-        .find((row) => row && row.vendor_id !== vendorId)?.vendor_id;
-      if (conflictingVendorId !== undefined) {
+      if (conflict) {
         return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
       }
 
