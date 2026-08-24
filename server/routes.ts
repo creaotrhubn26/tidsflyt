@@ -99,6 +99,11 @@ const timerSessionSchema = z.object({
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
 
+// Transaction-client type for the access-request approval helpers below —
+// derived from db.transaction's own callback param so it always matches
+// whatever drizzle-orm/node-postgres actually hands us.
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 function slugifyVendorName(input: string): string {
   return input
     .trim()
@@ -166,6 +171,7 @@ async function ensureVendorForAccessRequest(
 }
 
 async function ensureHovedadminForAccessRequest(
+  tx: DbTx,
   request: typeof accessRequests.$inferSelect,
   vendorId: number,
   hovedadminEmail: string,
@@ -183,9 +189,8 @@ async function ensureHovedadminForAccessRequest(
   // svarer 409.
   const {
     rows: [existingAdmin],
-  } = await pool.query(
-    `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = $1 LIMIT 1`,
-    [email],
+  } = await tx.execute(
+    sql`SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = ${email} LIMIT 1`,
   );
   if (existingAdmin && String(existingAdmin.vendor_id) !== String(vendorId)) {
     throw new Error("HOVEDADMIN_TENANT_MISMATCH");
@@ -196,9 +201,9 @@ async function ensureHovedadminForAccessRequest(
     "hovedadmin";
   const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
 
-  await pool.query(
-    `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
-     VALUES ($1, $2, $3, 'hovedadmin', $4, true, NOW())
+  await tx.execute(
+    sql`INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
+     VALUES (${usernameBase}, ${email}, ${passwordHash}, 'hovedadmin', ${vendorId}, true, NOW())
      ON CONFLICT (email)
      DO UPDATE SET
        username = EXCLUDED.username,
@@ -207,13 +212,22 @@ async function ensureHovedadminForAccessRequest(
        vendor_id = EXCLUDED.vendor_id,
        is_active = true,
        updated_at = NOW()`,
-    [usernameBase, email, passwordHash, vendorId],
   );
 }
 
-async function syncApprovedPortalUser(email: string, role: string, vendorId: number | null) {
+async function syncApprovedPortalUser(tx: DbTx, email: string, role: string, vendorId: number | null) {
   const normalizedRole = normalizeRole(role);
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // LOWER(email) matcher det case-insensitive innloggingsoppslaget i
+  // custom-auth.ts og vakten i ensureHovedadminForAccessRequest — en
+  // case-eksakt WHERE her ville la en annen-case e-post smette forbi
+  // tenant-sjekken under (kontoovertakelse).
+  const [existingUser] = await tx
+    .select()
+    .from(users)
+    .where(sql`LOWER(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
 
   if (existingUser) {
     // Fail closed FØR UPDATE-en: uten denne vakten overskriver denne
@@ -224,41 +238,43 @@ async function syncApprovedPortalUser(email: string, role: string, vendorId: num
     if (existingUser.vendorId !== vendorId) {
       throw new Error("PORTAL_USER_TENANT_MISMATCH");
     }
-    await db
+    await tx
       .update(users)
       .set({
-        email,
+        email: normalizedEmail,
         role: normalizedRole,
         vendorId,
         updatedAt: new Date(),
       })
       .where(eq(users.id, existingUser.id));
   } else {
-    await db.insert(users).values({
-      email,
-      role: normalizedRole,
-      vendorId,
-    });
+    // username/password er NOT NULL-kolonner på det delte public.users-
+    // tabellen (eid av et urelatert produkt) uten default og uten felt i
+    // Drizzle-schemaet — et rått insert uten dem feiler med 23502. Samme
+    // placeholder-mønster som smartTimingRoutes.ts sin identiske
+    // users-insert: magic-link er den reelle auth-veien, så passordet
+    // leses aldri.
+    await tx.execute(
+      sql`INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES (${normalizedEmail}, 'unused-admin-users-pairing', ${normalizedEmail}, ${normalizedRole}, ${vendorId})`,
+    );
   }
 
   if (vendorId) {
-    const existingCompanyUser = await pool.query(
-      `SELECT id FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
-      [vendorId, email]
+    const existingCompanyUser = await tx.execute(
+      sql`SELECT id FROM tidum_company_users WHERE company_id = ${vendorId} AND LOWER(user_email) = LOWER(${normalizedEmail}) LIMIT 1`,
     );
 
     if (existingCompanyUser.rows.length > 0) {
-      await pool.query(
-        `UPDATE tidum_company_users
-         SET role = $1, approved = true, updated_at = NOW()
-         WHERE id = $2`,
-        [normalizedRole, existingCompanyUser.rows[0].id]
+      await tx.execute(
+        sql`UPDATE tidum_company_users
+         SET role = ${normalizedRole}, approved = true, updated_at = NOW()
+         WHERE id = ${existingCompanyUser.rows[0].id}`,
       );
     } else {
-      await pool.query(
-        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
-         VALUES ($1, $1, $2, $3, true)`,
-        [vendorId, email, normalizedRole]
+      await tx.execute(
+        sql`INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES (${vendorId}, ${vendorId}, ${normalizedEmail}, ${normalizedRole}, true)`,
       );
     }
   }
@@ -405,70 +421,70 @@ async function applyAccessRequestDecision({
     throw new Error("Request not found");
   }
 
-  const updateData: Record<string, unknown> = {
-    status,
-    reviewedBy: reviewedBy ?? null,
-    reviewedAt: new Date(),
-    updatedAt: new Date(),
-  };
-
   const effectiveVendorId =
     status === "approved"
       ? (vendorId ? Number(vendorId) : await ensureVendorForAccessRequest(request))
       : null;
 
-  if (status === "approved") {
-    updateData.vendorId = effectiveVendorId;
-  }
-
-  const [updated] = await db
-    .update(accessRequests)
-    .set(updateData)
-    .where(eq(accessRequests.id, requestId))
-    .returning();
-
   // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
   // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
-  const hovedadminEmail = request.isHovedadmin
+  // NB: is_hovedadmin (self-registration) bruker samme guard-vei via
+  // syncApprovedPortalUser/ensureHovedadminForAccessRequest og er dermed
+  // like dekket av transaksjons-fiksen under — manglende
+  // eiendoms-verifisering av selve e-postadressen på POST
+  // /api/access-requests er et separat, større tema (ikke i scope her).
+  const hovedadminEmailRaw = request.isHovedadmin
     ? request.email
     : (request.altHovedadminEmail || request.email);
+  const hovedadminEmail = hovedadminEmailRaw ? hovedadminEmailRaw.trim().toLowerCase() : null;
   const hovedadminName = request.isHovedadmin
     ? request.fullName
     : (request.altHovedadminName || request.fullName);
 
-  if (status === "approved" && hovedadminEmail) {
-    try {
+  // Atomic: request-update + hovedadmin-provisjonering (tidum_admin_users +
+  // users + tidum_company_users) skjer i ÉN Postgres-transaksjon. Kaster en
+  // av guardene (TENANT_MISMATCH) eller en uventet DB-feil ETTER at
+  // access_requests-raden er satt til "approved" inni transaksjonen, ruller
+  // db.transaction automatisk tilbake ALT som ble skrevet via tx — ingen
+  // manuell kompenserende revert nødvendig, og ingen delvis skrevet
+  // tidum_admin_users-rad kan overleve en avvist godkjenning.
+  const updated = await db.transaction(async (tx) => {
+    const updateData: Record<string, unknown> = {
+      status,
+      reviewedBy: reviewedBy ?? null,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (status === "approved") {
+      updateData.vendorId = effectiveVendorId;
+    }
+
+    const [updatedRow] = await tx
+      .update(accessRequests)
+      .set(updateData)
+      .where(eq(accessRequests.id, requestId))
+      .returning();
+
+    if (status === "approved" && hovedadminEmail) {
       await ensureHovedadminForAccessRequest(
+        tx,
         request,
         effectiveVendorId as number,
         hovedadminEmail,
         hovedadminName,
       );
       await syncApprovedPortalUser(
+        tx,
         hovedadminEmail,
         "hovedadmin",
         effectiveVendorId,
       );
-    } catch (err: any) {
-      if (String(err?.message || "").includes("TENANT_MISMATCH")) {
-        // Vi allerede satte accessRequests.status = 'approved' over — revert
-        // til requestens opprinnelige tilstand (fra FØR db.update over) slik
-        // at en avvist hovedadmin-tilknytning ikke etterlater forespørselen
-        // stående som "godkjent" i databasen.
-        await db
-          .update(accessRequests)
-          .set({
-            status: request.status,
-            vendorId: request.vendorId,
-            reviewedBy: request.reviewedBy,
-            reviewedAt: request.reviewedAt,
-            updatedAt: new Date(),
-          })
-          .where(eq(accessRequests.id, requestId));
-      }
-      throw err;
     }
 
+    return updatedRow;
+  });
+
+  if (status === "approved" && hovedadminEmail) {
     // Insert-time seat-overrun-check (T17). Approval skaper en hovedadmin
     // som teller mot seat-cap. Best-effort — skal ikke blokkere approval.
     if (effectiveVendorId != null) {
@@ -3910,7 +3926,8 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("TENANT_MISMATCH")) {
         return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
       }
-      res.status(500).json({ error: error.message });
+      console.error("Access request decision error:", error);
+      res.status(500).json({ error: "Could not update request" });
     }
   });
 
@@ -3971,7 +3988,7 @@ export async function registerRoutes(
         return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
       }
       console.error("CreatorHub status sync error:", error);
-      res.status(500).json({ error: error.message || "Could not update request" });
+      res.status(500).json({ error: "Could not update request" });
     }
   });
   

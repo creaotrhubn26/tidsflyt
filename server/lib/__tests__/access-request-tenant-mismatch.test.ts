@@ -149,6 +149,62 @@ describe("applyAccessRequestDecision: TENANT_MISMATCH-vakt (server/routes.ts)", 
       [requestId],
     );
     expect(reqRow.status).toBe("pending");
+
+    // Regresjon for fix-runde 4: guard 2 (users) kaster ETTER at guard 1
+    // (tidum_admin_users) allerede har INSERT-et en ny admin-rad for
+    // offeret bundet til angriperens vendor. Uten transaksjonen ville denne
+    // raden overlevd 409-en og gjort kontoen kaprbar via
+    // POST /api/auth/email/request-link. db.transaction skal rulle den
+    // tilbake sammen med alt annet.
+    const { rows: adminRows } = await pool.query(
+      `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`,
+      [victimEmail],
+    );
+    expect(adminRows.length).toBe(0);
+  });
+
+  it("case-bypass: alt_hovedadmin_email med annen bokstav-kasing enn offerets lagrede e-post -> 409, ingen overskriving", async () => {
+    const foreignVendorId = 860001 + Math.floor(Math.random() * 10000);
+    const attackerVendorId = 870001 + Math.floor(Math.random() * 10000);
+    const victimEmailLower = `victim_case_${Date.now()}@example.com`;
+    const victimEmailMixedCase = `Victim_Case_${Date.now()}@Example.com`;
+    cleanupUserEmails.push(victimEmailLower);
+    cleanupAdminEmails.push(victimEmailLower);
+
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES ($1, 'unused', $2, 'tiltaksleder', $3)`,
+      [`victim-case-${Date.now()}`, victimEmailLower, foreignVendorId],
+    );
+
+    const requestId = await insertPendingAccessRequest({
+      requesterEmail: `attacker_case_${Date.now()}@example.com`,
+      altHovedadminEmail: victimEmailMixedCase,
+    });
+
+    const app = await buildApp();
+    const res = await approve(app, requestId, attackerVendorId);
+
+    expect(res.status).toBe(409);
+
+    const { rows: [userRow] } = await pool.query(
+      `SELECT vendor_id, role FROM users WHERE LOWER(email) = LOWER($1)`,
+      [victimEmailLower],
+    );
+    expect(userRow.vendor_id).toBe(foreignVendorId);
+    expect(userRow.role).toBe("tiltaksleder");
+
+    const { rows: [reqRow] } = await pool.query(
+      `SELECT status FROM access_requests WHERE id = $1`,
+      [requestId],
+    );
+    expect(reqRow.status).toBe("pending");
+
+    const { rows: adminRows } = await pool.query(
+      `SELECT vendor_id FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`,
+      [victimEmailLower],
+    );
+    expect(adminRows.length).toBe(0);
   });
 
   it("happy path: samme vendor på begge sider -> godkjenning lykkes som før (vakten blokkerer ikke legitim re-godkjenning)", async () => {
