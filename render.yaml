@@ -17,6 +17,8 @@ services:
         sync: false
       - key: JWT_SECRET
         sync: false
+      - key: TIDUM_SECRET_KEY
+        sync: false
       - key: APP_BASE_URL
         sync: false
       - key: APP_URL
