@@ -122,4 +122,22 @@ describe("frist-engine", () => {
     );
     expect(rows[0].varslet_offsets.sort((a: number, b: number) => a - b)).toEqual([-2, 0, 1, 3]);
   });
+
+  it("to samtidige kjøringer av runFristEscalations varsler ikke dobbelt (claim-guard)", async () => {
+    const entityId = `test-${Date.now()}`;
+    cleanupEntityIds.push(entityId);
+    const createSpy = vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
+    const dueAt = new Date(Date.now() - 10 * 86400000); // 4 offsets forfalt
+    await registerFrist({
+      entityType: "test_entity",
+      entityId,
+      fristType: "avklaring",
+      dueAt,
+      notifyUserId: "test-user-1",
+    });
+
+    await Promise.all([runFristEscalations(), runFristEscalations()]);
+
+    expect(createSpy).toHaveBeenCalledTimes(4); // ikke 8 — kun én kjøring claimer hver offset
+  });
 });

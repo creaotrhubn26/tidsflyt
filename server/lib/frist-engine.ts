@@ -61,6 +61,19 @@ export async function runFristEscalations(now: Date = new Date()): Promise<{ not
     );
     if (dueOffsets.length === 0) continue;
 
+    // Claim FØR varsling, ikke etter: to samtidige kjøringer (manuell trigger
+    // som race'r 08:00-cronen, eller flere serverinstanser) kan begge lese
+    // samme rad før noen skriver tilbake. Den betingede WHERE gjør claimet
+    // atomisk mot databasen — kun kjøringen som faktisk oppdaterer raden
+    // fortsetter til å varsle. `&&` sjekker array-overlapp.
+    const claimResult = await pool.query(
+      `UPDATE tidum_frister SET varslet_offsets = varslet_offsets || $1::integer[], updated_at = NOW()
+       WHERE id = $2 AND NOT (varslet_offsets && $1::integer[])
+       RETURNING id`,
+      [dueOffsets, row.id],
+    );
+    if (claimResult.rows.length === 0) continue; // en annen samtidig kjøring claimet allerede disse offsetene
+
     for (const offset of dueOffsets) {
       await createNotification({
         userId: row.notify_user_id,
@@ -72,10 +85,6 @@ export async function runFristEscalations(now: Date = new Date()): Promise<{ not
       notified += 1;
     }
 
-    await pool.query(
-      `UPDATE tidum_frister SET varslet_offsets = varslet_offsets || $1::integer[], updated_at = NOW() WHERE id = $2`,
-      [dueOffsets, row.id],
-    );
     if (daysDiff > 0) expired += 1;
   }
 

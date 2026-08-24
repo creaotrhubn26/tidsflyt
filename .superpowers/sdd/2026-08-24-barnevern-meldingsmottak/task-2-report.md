@@ -37,3 +37,15 @@ Brief-testen bruker `notifyUserId: "test-user-1"` / `"test-user-2"` direkte. `ti
 `server/routes.ts:6654-6665` har en etablert, håndhevet konvensjon: ALLE daglige cron-oppsett (inkl. `setupTaskEscalationCron()`) kjøres inni `if (process.env.RECURRING_CRON_DISABLED !== 'true') { ... }`. Første commit av denne oppgaven kalte `setupFristEscalationCron()` utenfor denne blokken, ved siden av rene rute-registreringer — brief-en nevnte ikke gaten eksplisitt.
 
 Fikset: `setupFristEscalationCron();` flyttet inn i samme gate, rett etter `setupTaskEscalationCron();`. `registerFristEscalationRoutes(app);` (rute-registreringen) ble stående der den var — kun cron-starten ble flyttet. `npx tsc --noEmit` (hele repo) og begge testfiler (`frist-engine.test.ts` 5/5, `barnevern-meldingsmottak-schema.test.ts` 5/5) bekreftet grønt etter flyttingen.
+
+## Oppfølging 2: claim-guard mot samtidige kjøringer (Important-funn fra task-review)
+
+`runFristEscalations` gjorde SELECT-alle-aktive → loop → varsle → UPDATE `varslet_offsets` ETTER varslingen. To samtidige kjøringer (manuell admin-trigger som race'r 08:00-cronen, eller flere serverinstanser — `cronStarted`-guarden i `frist-escalation-cron.ts` beskytter kun én prosess) kunne begge lese samme rad før noen skrev tilbake og begge sende samme varsel til samme bruker. `task-escalation-cron.ts` (filen denne oppgaven speiler) har allerede løst det tilsvarende problemet med "claim-før-varsling"-mønsteret; `frist-engine.ts` manglet det.
+
+**Fiks:** byttet rekkefølge — UPDATE-en som legger til `dueOffsets` i `varslet_offsets` kjøres nå FØR varslingsløkken, betinget på `WHERE id = $2 AND NOT (varslet_offsets && $1::integer[])` (Postgres array-overlapp-operator). Kun kjøringen som faktisk claimer raden (får `RETURNING id`-treff) fortsetter til å varsle; den andre `continue`r. Claimet er all-or-nothing per rad (samme `dueOffsets`-sett claimes atomisk sammen), ikke per enkelt-offset — det er tilstrekkelig siden begge samtidige kjøringer uansett beregner samme `dueOffsets` fra samme (stale) lesning.
+
+**Ny test:** `to samtidige kjøringer av runFristEscalations varsler ikke dobbelt (claim-guard)` i `frist-engine.test.ts` — kjører `Promise.all([runFristEscalations(), runFristEscalations()])` mot samme 10-dager-oversittede frist (alle 4 offsets forfalt), bekrefter `createNotification` kalles nøyaktig 4 ganger, ikke 8. Verifisert stabil over 3 gjentatte kjøringer.
+
+**Feil underveis (fanget selv, fikset i testen — ikke produksjonskoden):** første versjon av race-testen kalte `runFristEscalations(dueAt)` med fristens EGEN `due_at` som `now`-argument, som ga `daysDiff ≈ 0` i stedet for ≈10 (siden `now` og `due_at` da var nesten identiske), og dermed kun 2 av 4 offsets ble ansett forfalt. Rettet til `runFristEscalations()` uten argument (bruker reell systemtid), samme mønster som den eksisterende "alle 4 eskaleringsterskler"-testen.
+
+`npx tsc --noEmit` (hele repo) og begge testfiler (`frist-engine.test.ts` 6/6 inkl. ny race-test, `barnevern-meldingsmottak-schema.test.ts` 5/5) grønt etter fiksen.
