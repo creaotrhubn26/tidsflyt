@@ -1,7 +1,7 @@
 import { db } from "../db";
 import { roles, rolePermissions, permissions } from "@shared/models/permissions";
 import { eq, and } from "drizzle-orm";
-import { normalizeRole } from "@shared/roles";
+import { isPortalRole, normalizeRole } from "@shared/roles";
 
 export async function hasPermission(
   roleId: string | null | undefined,
@@ -81,6 +81,9 @@ export async function canManageRoleDynamic(
   rankCache?: Map<string, number>,
   canManageOthersCache?: Map<string, boolean>,
 ): Promise<boolean> {
+  // Rangskalaen kan ikke uttrykke at portalidentiteter lever i et separat
+  // provisjoneringsdomene. De skal aldri kunne tildeles av en aktørrolle.
+  if (isPortalRole(actorRoleName) || isPortalRole(targetRoleName)) return false;
   const [canManage, actorRank, targetRank] = await Promise.all([
     getRoleCanManageOthers(actorRoleName, canManageOthersCache),
     getRoleRank(actorRoleName, rankCache),

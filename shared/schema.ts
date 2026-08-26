@@ -581,6 +581,162 @@ export const barnevernMeldingVedlegg = pgTable("tidum_barnevern_melding_vedlegg"
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ── SIKKER DIALOG / INNBYGGERPORTAL (migrasjon 071) ────────────────────────
+// E-post er kun varslingsadresse. Tilgang går via portalUserId, verifisert
+// BankID/Buypass-identitet, aktiv sakstilgang og eksplisitt samtaledeltakelse.
+
+export const secureParties = pgTable("tidum_secure_parties", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  portalUserId: varchar("portal_user_id").notNull().references(() => users.id),
+  displayName: text("display_name").notNull(),
+  notificationEmail: text("notification_email"),
+  status: text("status").notNull().default("active"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  revokedBy: varchar("revoked_by").references(() => users.id),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_secure_parties_kommune_user_unique").on(table.kommuneId, table.portalUserId),
+  index("tidum_secure_parties_user_idx").on(table.portalUserId, table.status),
+]);
+
+export const secureCaseAccess = pgTable("tidum_secure_case_access", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  partyId: uuid("party_id").notNull().references(() => secureParties.id),
+  barnevernMeldingId: uuid("barnevern_melding_id").notNull().references(() => barnevernMeldinger.id),
+  partyRole: text("party_role").notNull(),
+  validFrom: timestamp("valid_from", { withTimezone: true }).notNull().defaultNow(),
+  validUntil: timestamp("valid_until", { withTimezone: true }),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  revokedBy: varchar("revoked_by").references(() => users.id),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_secure_case_access_active_uidx")
+    .on(table.partyId, table.barnevernMeldingId)
+    .where(sql`${table.revokedAt} IS NULL`),
+  index("tidum_secure_case_access_case_idx").on(table.kommuneId, table.barnevernMeldingId, table.validFrom),
+]);
+
+export const secureConversations = pgTable("tidum_secure_conversations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  barnevernMeldingId: uuid("barnevern_melding_id").notNull().references(() => barnevernMeldinger.id),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default("open"),
+  createdBy: varchar("created_by").notNull().references(() => users.id),
+  closedBy: varchar("closed_by").references(() => users.id),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_secure_conversations_case_idx").on(table.kommuneId, table.barnevernMeldingId, table.createdAt),
+]);
+
+export const secureConversationParticipants = pgTable("tidum_secure_conversation_participants", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  conversationId: uuid("conversation_id").notNull().references(() => secureConversations.id),
+  partyAccessId: uuid("party_access_id").notNull().references(() => secureCaseAccess.id),
+  grantedBy: varchar("granted_by").notNull().references(() => users.id),
+  revokedBy: varchar("revoked_by").references(() => users.id),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_secure_participants_active_uidx")
+    .on(table.conversationId, table.partyAccessId)
+    .where(sql`${table.revokedAt} IS NULL`),
+  index("tidum_secure_participants_access_idx").on(table.partyAccessId, table.revokedAt),
+]);
+
+export const secureMessages = pgTable("tidum_secure_messages", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  conversationId: uuid("conversation_id").notNull().references(() => secureConversations.id),
+  senderUserId: varchar("sender_user_id").notNull().references(() => users.id),
+  senderPartyId: uuid("sender_party_id").references(() => secureParties.id),
+  senderKind: text("sender_kind").notNull(),
+  bodyEncrypted: text("body_encrypted").notNull(),
+  status: text("status").notNull().default("draft"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_secure_messages_conversation_idx").on(table.conversationId, table.createdAt),
+]);
+
+export const secureMessageAttachments = pgTable("tidum_secure_message_attachments", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  messageId: uuid("message_id").notNull().references(() => secureMessages.id),
+  storageKey: text("storage_key").notNull().unique(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  checksumSha256: text("checksum_sha256").notNull(),
+  uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_secure_attachments_message_idx").on(table.messageId, table.createdAt),
+]);
+
+export const secureMessageReceipts = pgTable("tidum_secure_message_receipts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  messageId: uuid("message_id").notNull().references(() => secureMessages.id),
+  readerUserId: varchar("reader_user_id").notNull().references(() => users.id),
+  readerPartyId: uuid("reader_party_id").references(() => secureParties.id),
+  readAt: timestamp("read_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_secure_receipts_message_reader_unique").on(table.messageId, table.readerUserId),
+]);
+
+export const secureDialogAuditEvents = pgTable("tidum_secure_dialog_audit_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  actorUserId: varchar("actor_user_id"),
+  actorKind: text("actor_kind").notNull(),
+  partyId: uuid("party_id"),
+  conversationId: uuid("conversation_id"),
+  messageId: uuid("message_id"),
+  attachmentId: uuid("attachment_id"),
+  action: text("action").notNull(),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_secure_audit_conversation_idx").on(table.conversationId, table.createdAt),
+  index("tidum_secure_audit_kommune_idx").on(table.kommuneId, table.createdAt),
+]);
+
+export const secureNotificationOutbox = pgTable("tidum_secure_notification_outbox", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  messageId: uuid("message_id").notNull().references(() => secureMessages.id),
+  partyId: uuid("party_id").notNull().references(() => secureParties.id),
+  status: text("status").notNull().default("pending"),
+  attempts: integer("attempts").notNull().default(0),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  lastError: text("last_error"),
+  sentAt: timestamp("sent_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_secure_outbox_message_party_unique").on(table.messageId, table.partyId),
+  index("tidum_secure_outbox_pending_idx")
+    .on(table.status, table.nextAttemptAt)
+    .where(sql`${table.status} IN ('pending', 'failed')`),
+]);
+
+export type SecureParty = typeof secureParties.$inferSelect;
+export type SecureCaseAccess = typeof secureCaseAccess.$inferSelect;
+export type SecureConversation = typeof secureConversations.$inferSelect;
+export type SecureMessage = typeof secureMessages.$inferSelect;
+
 export const fristStatusEnum = pgEnum("tidum_frist_status", [
   "aktiv",
   "oppfylt",

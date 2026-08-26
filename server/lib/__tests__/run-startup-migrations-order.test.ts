@@ -26,10 +26,12 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const caseReport = STARTUP_MIGRATIONS.indexOf("068_case_report_tenant_integrity.sql");
     const emailComposer = STARTUP_MIGRATIONS.indexOf("069_email_composer_tenant_integrity.sql");
     const emailPolicy = STARTUP_MIGRATIONS.indexOf("070_outbound_email_policy.sql");
+    const secureDialog = STARTUP_MIGRATIONS.indexOf("071_secure_dialog_foundation.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
     expect(emailComposer).toBeGreaterThan(caseReport);
     expect(emailPolicy).toBeGreaterThan(emailComposer);
+    expect(secureDialog).toBeGreaterThan(emailPolicy);
   });
 });

@@ -11,11 +11,13 @@ export const TIDUM_ROLES = [
   "user",
   "barnevernsleder",
   "kommune_saksbehandler",
+  "innbygger",
 ] as const;
 
 export type TidumRole = (typeof TIDUM_ROLES)[number];
 
 const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler"]);
+const PORTAL_ROLES = new Set<TidumRole>(["innbygger"]);
 
 /** Kommune-roller skal ALDRI telle som gyldig aktør i vendor-side-administrasjon,
  * uansett rang — de to tenant-hierarkiene (kommune/vendor) deler samme globale
@@ -24,6 +26,12 @@ const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehand
  * whole-branch review" for den fulle hendelsen dette lukker. */
 export function isKommuneRole(role: string | null | undefined): boolean {
   return KOMMUNE_ROLES.has(normalizeRole(role));
+}
+
+/** Portalroller provisjoneres bare gjennom partsflyten og kan aldri deles ut
+ * fra de ordinære brukeradministrasjonsendepunktene. */
+export function isPortalRole(role: string | null | undefined): boolean {
+  return PORTAL_ROLES.has(normalizeRole(role));
 }
 
 export const ROLE_LABELS: Record<string, string> = {
@@ -40,6 +48,7 @@ export const ROLE_LABELS: Record<string, string> = {
   user: "Bruker",
   barnevernsleder: "Barnevernsleder",
   kommune_saksbehandler: "Saksbehandler",
+  innbygger: "Innbygger",
 };
 
 const ROLE_ALIASES: Record<string, TidumRole> = {
@@ -58,6 +67,7 @@ const ROLE_ALIASES: Record<string, TidumRole> = {
   user: "user",
   barnevernsleder: "barnevernsleder",
   kommune_saksbehandler: "kommune_saksbehandler",
+  innbygger: "innbygger",
 };
 
 export function normalizeRole(role?: string | null): TidumRole {
@@ -91,6 +101,7 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   user: [],
   barnevernsleder: ["kommune_saksbehandler"],
   kommune_saksbehandler: [],
+  innbygger: [],
 };
 
 export function canManageRole(managerRole: string | null | undefined, targetRole: string | null | undefined): boolean {

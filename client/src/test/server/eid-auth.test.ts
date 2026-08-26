@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { requiresEidLogin, buildEidStatus } from "../../../../server/eid-auth";
+import { requiresEidLogin, buildEidStatus, eidPostLoginPath } from "../../../../server/eid-auth";
 
 describe("requiresEidLogin", () => {
   it("does not require eID for super_admin", () => {
@@ -34,8 +34,22 @@ describe("requiresEidLogin", () => {
     expect(requiresEidLogin("member")).toBe(true);
   });
 
+  it("requires eID for innbygger", () => {
+    expect(requiresEidLogin("innbygger")).toBe(true);
+  });
+
   it("requires eID for an unknown/null role (defaults to member)", () => {
     expect(requiresEidLogin(null)).toBe(true);
+  });
+});
+
+describe("eidPostLoginPath", () => {
+  it("sender innbygger til sikker portal", () => {
+    expect(eidPostLoginPath("innbygger")).toBe("/innbygger");
+  });
+
+  it("beholder arbeidsflaten for ansatte", () => {
+    expect(eidPostLoginPath("kommune_saksbehandler")).toBe("/dashboard");
   });
 });
 

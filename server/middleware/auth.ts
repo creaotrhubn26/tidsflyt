@@ -42,7 +42,13 @@ function authenticate(req: Request): boolean {
   // Session-based (Google OAuth / passport)
   if (req.isAuthenticated?.() && req.user) {
     const u = req.user as any;
-    (req as any).authUser = { id: u.id, email: u.email, role: u.role, vendorId: u.vendorId };
+    (req as any).authUser = {
+      id: u.id,
+      email: u.email,
+      role: u.role,
+      vendorId: u.vendorId,
+      provider: u.provider,
+    };
     return true;
   }
 

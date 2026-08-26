@@ -12,8 +12,10 @@ funnet og lukket objektlekkasjer i eksport, faktura, saksrapport,
 rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
 067, 068 og 069 er varig brukt og verifisert på utviklingsdatabasen. Den
 ordinære e-postkomponisten er nå også tenantskopet. Sensitive
-barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier;
-neste leveranse er selve funksjonen «Sikker sending».
+barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier.
+Backendgrunnmuren for «Sikker sending» er nå implementert og måltestet;
+innbygger-/ansattflate, arkiv, malwarekarantene og produksjonsprøving gjenstår
+før funksjonen kan åpnes.
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -249,6 +251,70 @@ til samme brukerhandling senere; kanalvalget skal ikke skyves ut til brukeren.
 **Status:** Første sikker-sending-pakke er teknisk ferdig og feiler lukket.
 Kravet om faktisk sikker ekstern dialog er **ikke** ferdig før punktene over er
 implementert og verifisert.
+
+## 8. Sikker dialog — backendgrunnmur for part, eID og dokumentdeling
+
+**Avgrensning:** Første konkrete saksobjekt er kommunens
+`tidum_barnevern_meldinger`. Dette er ikke en påstand om at full
+undersøkelses-/vedtaks-/klagesak er ferdig. API-et er grunnmuren som senere kan
+kobles til disse objektene uten at ordinær e-post blir transport for innholdet.
+
+**Gjennomført:**
+
+- Migrasjon 071 etablerer kommunebundne parter, tidsbegrenset sakstilgang,
+  samtaler, deltakere, meldinger, private vedlegg, lesekvitteringer,
+  append-only audit og transaksjonell varslings-outbox. Sammensatte
+  fremmednøkler binder alle saksobjekter til samme kommune.
+- Portalbrukere har rollen `innbygger`, ingen e-postinnlogging og ingen
+  tenant-/ansattrolle. Fødselsnummer HMAC-es umiddelbart og lagres aldri i
+  klartekst. Portalrollen kan ikke tildeles fra ordinær brukeradministrasjon.
+- Første verifiserte BankID- eller Buypass-innlogging fullfører den
+  forhåndsregistrerte identiteten. Senere bruk av den andre leverandøren
+  kobles til samme bruker. Mobil BankID bruker samme oppløsningslogikk.
+- Partstilgang krever både aktiv sakstildeling, aktiv samtaledeltakelse og en
+  aktuell BankID-/Buypass-autentisert sesjon med tilsvarende eID-rad. E-post-
+  eller Google-sesjon alene gir ikke partsinnsyn. Ansattinnsyn hentes fra
+  brukerens kommune og rolle i databasen; klientens tenantdata brukes ikke.
+- Samtaleemne og meldingstekst lagres AES-256-GCM-forseglet og feiler lukket
+  uten `TIDUM_SECRET_KEY`. Vedlegg lagres privat i objektlager med tilfeldig
+  nøkkel, størrelse-/MIME-/signaturkontroll, SHA-256-verifikasjon og
+  server-side-kryptering.
+- Utkast kan bare endres av forfatteren. Sendte meldinger, sendte vedlegg og
+  auditposter er uforanderlige med database-triggere, også ved direkte SQL.
+  Tilgangstilbakekalling fjerner innsyn umiddelbart og logges i hver berørt
+  samtale.
+- SMTP brukes bare til en låst, nøytral «du har en ny melding»-mal. Mottaker,
+  sak, part, emne, fritekst og vedlegg sendes ikke i e-posten eller audit-
+  metadataene.
+
+**Verifikasjon:** Migrasjon 071 er anvendt og kjørt idempotent mot
+Neon-utviklingsdatabasen. Ende-til-ende-testen dekker samme portalbruker med
+BankID og Buypass, fravær av rått fødselsnummer, kryptert innhold, privat
+vedlegg, nøytralt varsel, lesekvittering, audit, direkte SQL-uforanderlighet,
+kommune B, part uten tildeling, e-postsesjon og umiddelbar tilbakekalling.
+Målrettet rolle-/eID-/dialogsuite er grønn med **162/162 tester**. Hele
+Vitest-suiten består med **514/514 tester i 71/71 testfiler** mot
+utviklingsdatabasen. `tsc`, designkontroll, produksjonsbuild og
+`npm audit --audit-level=moderate` er grønne; audit rapporterer 0 sårbarheter.
+Builden har kun kjente, ikke-blokkerende varsler om nettleserdata, én
+eksisterende Tailwind-verdi, store chunks og Node sin `module.register`-
+deprecation.
+
+**Gjenstår før produksjonsåpning:**
+
+- innbyggerinnboks og ansattflaten «Send sikkert» er ikke bygget i denne
+  backendpakken;
+- malware-/antivirusskanning og karanteneflyt for vedlegg;
+- arkivering av dialog og dokumenter til kundens arkivkjerne, retensjon,
+  juridisk sperring og nøkkelrotasjon;
+- produksjonsbevis mot BankID/Buypass-tenanter og avklaring med Halden dersom
+  anskaffelsen krever ID-porten i stedet;
+- utvidelse fra bekymringsmelding til full barnevernssak, innsyn, klage,
+  fullmakt/samtykke og eventuell SvarUt/SvarInn-ekspedering.
+
+**Status:** De seks backenddelene er implementert og måltestet. Løsningen er
+ikke merket produksjonsklar eller presentert som full oppfyllelse av krav 8 før
+punktene over er levert og akseptert.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 
