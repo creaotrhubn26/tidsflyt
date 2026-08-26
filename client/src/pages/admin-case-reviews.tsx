@@ -129,7 +129,11 @@ export default function AdminCaseReviewsPage() {
     queryKey: ["/api/case-reports", selectedReport?.id, "comments", "admin"],
     queryFn: async () => {
       if (!selectedReport?.id) return [];
-      const res = await fetch(`/api/case-reports/${selectedReport.id}/comments?include_internal=true`);
+      const res = await fetch(`/api/case-reports/${selectedReport.id}/comments?include_internal=true`, {
+        credentials: "include",
+        headers: { "Authorization": `Bearer ${localStorage.getItem("adminToken") || ""}` },
+      });
+      if (!res.ok) throw new Error("Kunne ikke hente kommentarer");
       return res.json();
     },
     enabled: !!selectedReport?.id && reviewDialogOpen,

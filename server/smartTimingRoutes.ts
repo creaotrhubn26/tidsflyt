@@ -494,6 +494,60 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   return res.status(401).json({ error: 'Authentication required' });
 }
 
+type CaseReportActor = {
+  id: string;
+  vendorId: number;
+  role: string;
+};
+
+function caseReportActor(req: AuthRequest): CaseReportActor | null {
+  const identity = (req as any).authUser ?? req.user ?? req.admin;
+  const id = String((identity as any)?.id ?? '').trim();
+  const vendorId = Number((identity as any)?.vendorId ?? (identity as any)?.vendor_id);
+  const role = normalizeRole(String((identity as any)?.role ?? ''));
+  if (!id || !Number.isInteger(vendorId) || vendorId <= 0) return null;
+  return { id, vendorId, role };
+}
+
+function requireCaseReportActor(req: AuthRequest, res: Response): CaseReportActor | null {
+  const actor = caseReportActor(req);
+  if (!actor) {
+    res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+    return null;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return actor;
+}
+
+type CaseReportAdminScope = {
+  actorId: string;
+  vendorId: number | null;
+  isGlobal: boolean;
+};
+
+function requireCaseReportAdminScope(req: AuthRequest, res: Response): CaseReportAdminScope | null {
+  const identity = req.admin ?? (req as any).authUser ?? req.user;
+  const actorId = String((identity as any)?.id ?? '').trim();
+  const role = normalizeRole(String((identity as any)?.role ?? ''));
+  const rawVendorId = Number((identity as any)?.vendorId ?? (identity as any)?.vendor_id);
+  const vendorId = Number.isInteger(rawVendorId) && rawVendorId > 0 ? rawVendorId : null;
+
+  if (!actorId || !ADMIN_ROLES.includes(role)) {
+    res.status(403).json({ error: 'Krever leder- eller administratorrolle' });
+    return null;
+  }
+  if (role === 'super_admin' && vendorId === null) {
+    res.setHeader('Cache-Control', 'no-store');
+    return { actorId, vendorId: null, isGlobal: true };
+  }
+  if (vendorId === null) {
+    res.status(403).json({ error: 'Administrator mangler tenant-tilknytning' });
+    return null;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return { actorId, vendorId, isGlobal: false };
+}
+
 function normalizeBlogMedia<T extends {
   slug: string;
   featured_image?: string | null;
@@ -4642,27 +4696,26 @@ export function registerSmartTimingRoutes(app: Express) {
       `);
       
       if (tableCheck.rows.length > 0) {
-        // Check if it has user_id column (snake_case)
+        // Never drop a live report table from application startup. Schema
+        // repair belongs in a reviewed migration; destructive recreation can
+        // permanently erase child-welfare case documentation.
         const columnCheck = await pool.query(`
           SELECT column_name FROM information_schema.columns 
           WHERE table_name = 'tidum_case_reports' AND column_name = 'user_id'
         `);
         
         if (columnCheck.rows.length === 0) {
-          // Table exists but with wrong column names (camelCase), drop and recreate
-          console.log('Dropping tidum_case_reports table with incorrect schema...');
-          await pool.query('DROP TABLE IF EXISTS tidum_case_reports');
-        } else {
-          console.log('Case reports table already exists with correct schema');
-          return;
+          throw new Error('tidum_case_reports has an unsupported schema; run a reviewed migration');
         }
+        console.log('Case reports table already exists with correct schema');
+        return;
       }
       
       // Create table with snake_case columns
       await pool.query(`
         CREATE TABLE IF NOT EXISTS tidum_case_reports (
           id SERIAL PRIMARY KEY,
-          vendor_id INTEGER,
+          vendor_id INTEGER NOT NULL,
           user_id TEXT NOT NULL,
           user_cases_id INTEGER,
           case_id TEXT NOT NULL,
@@ -4697,7 +4750,10 @@ export function registerSmartTimingRoutes(app: Express) {
   }
 
   // Setup tidum_case_reports table (admin endpoint)
-  app.post("/api/case-reports/setup", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    if (!scope.isGlobal) return res.status(403).json({ error: 'Kun global super_admin kan kjøre skjemaoppsett' });
     try {
       await ensureCaseReportsTable();
       res.json({ success: true, message: 'Case reports table created' });
@@ -4707,41 +4763,50 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get all case reports for a user
-  app.get("/api/case-reports", requireAuth, async (req, res) => {
+  app.get("/api/case-reports", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const { user_id } = req.query;
-      const userId = user_id || 'default';
-      
       const result = await pool.query(
-        `SELECT * FROM tidum_case_reports WHERE user_id = $1 ORDER BY created_at DESC`,
-        [userId]
+        `SELECT * FROM tidum_case_reports
+         WHERE vendor_id = $1 AND user_id = $2
+         ORDER BY created_at DESC`,
+        [actor.vendorId, actor.id]
       );
       res.json({ reports: result.rows });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporter' });
     }
   });
 
   // Get single case report
-  app.get("/api/case-reports/:id", requireAuth, async (req, res, next) => {
+  app.get("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res, next) => {
     // Skip non-numeric IDs so named routes like /suggestions can be handled elsewhere
     if (!/^\d+$/.test(req.params.id)) return next();
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const result = await pool.query(
+        `SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3`,
+        [id, actor.vendorId, actor.id],
+      );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporten' });
     }
   });
 
   // Create new case report
-  app.post("/api/case-reports", requireAuth, async (req, res) => {
+  app.post("/api/case-reports", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const authUserId: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
       const { 
         user_cases_id, case_id, month, background, actions, 
         progress, challenges, factors, assessment, recommendations, notes 
@@ -4752,10 +4817,10 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const result = await pool.query(
         `INSERT INTO tidum_case_reports 
-         (user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
+         (vendor_id, user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft')
          RETURNING *`,
-        [authUserId, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
+        [actor.vendorId, actor.id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
       );
 
       const response: any = result.rows[0];
@@ -4764,19 +4829,21 @@ export function registerSmartTimingRoutes(app: Express) {
         response.pii_warning_message = `Advarsel: ${piiWarnings.length} mulige personopplysninger oppdaget. Navn og personlig informasjon er ikke tillatt i Tidum. Vennligst gjennomgå rapporten.`;
       }
       res.status(201).json(response);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report create error:', err);
+      res.status(400).json({ error: 'Kunne ikke opprette saksrapporten' });
     }
   });
 
   // Update case report
-  app.put("/api/case-reports/:id", requireAuth, async (req, res) => {
+  app.put("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
       const { 
         background, actions, progress, challenges, factors, 
-        assessment, recommendations, notes, status,
-        rejection_reason, rejected_by,
+        assessment, recommendations, notes,
         case_id, month
       } = req.body;
       
@@ -4794,69 +4861,87 @@ export function registerSmartTimingRoutes(app: Express) {
       if (assessment !== undefined) { query += `, assessment = $${paramIndex++}`; values.push(assessment); }
       if (recommendations !== undefined) { query += `, recommendations = $${paramIndex++}`; values.push(recommendations); }
       if (notes !== undefined) { query += `, notes = $${paramIndex++}`; values.push(notes); }
-      if (status !== undefined) { 
-        query += `, status = $${paramIndex++}`; 
-        values.push(status);
-        if (status === 'rejected') {
-          query += `, rejection_reason = $${paramIndex++}, rejected_by = $${paramIndex++}, rejected_at = NOW()`;
-          values.push(rejection_reason || '');
-          values.push(rejected_by || 'admin');
-        } else if (status === 'approved') {
-          query += `, approved_at = NOW()`;
-        }
-      }
-      
-      query += ` WHERE id = $${paramIndex} RETURNING *`;
-      values.push(id);
+      query += ` WHERE id = $${paramIndex++} AND vendor_id = $${paramIndex++} AND user_id = $${paramIndex++}
+                 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`;
+      values.push(id, actor.vendorId, actor.id);
       
       const result = await pool.query(query, values);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report update error:', err);
+      res.status(500).json({ error: 'Kunne ikke oppdatere saksrapporten' });
     }
   });
 
   // Delete case report
-  app.delete("/api/case-reports/:id", requireAuth, async (req, res) => {
+  app.delete("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      await pool.query('DELETE FROM tidum_case_reports WHERE id = $1', [id]);
+      const result = await pool.query(
+        `DELETE FROM tidum_case_reports
+         WHERE id = $1 AND vendor_id = $2 AND user_id = $3 AND status = 'draft'
+         RETURNING id`,
+        [id, actor.vendorId, actor.id],
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
       res.status(204).send();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette saksrapporten' });
     }
   });
 
   // Admin: Get all reports for review
   app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { status } = req.query;
       let query = 'SELECT * FROM tidum_case_reports';
       const params: any[] = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
+
+      const conditions: string[] = [];
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        conditions.push(`vendor_id = $${params.length}`);
       }
+      if (status) {
+        params.push(status);
+        conditions.push(`status = $${params.length}`);
+      }
+      if (conditions.length > 0) query += ` WHERE ${conditions.join(' AND ')}`;
       query += ' ORDER BY created_at DESC';
       
       const result = await pool.query(query, params);
       res.json({ reports: result.rows });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporter' });
     }
   });
 
   // Admin: Approve report
   app.post("/api/admin/case-reports/:id/approve", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
+      const params: any[] = [req.admin?.username || scope.actorId, id];
+      let where = `id = $2 AND status IN ('pending', 'submitted')`;
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        where += ` AND vendor_id = $3`;
+      }
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
-        [req.admin?.username || 'admin', id]
+        `UPDATE tidum_case_reports
+         SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
+         WHERE ${where} RETURNING *`,
+        params,
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
@@ -4865,30 +4950,45 @@ export function registerSmartTimingRoutes(app: Express) {
       // Notify the report author
       const cr = result.rows[0];
       if (cr.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: 'report_approved',
-          title: 'Saksrapport godkjent',
-          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er godkjent.`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: 'report_approved',
+            title: 'Saksrapport godkjent',
+            message: `Din saksrapport «${cr.title || 'Uten tittel'}» er godkjent.`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id },
+          });
+        } catch (notificationError) {
+          console.error('Case report approval notification error:', notificationError);
+        }
       }
 
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report approve error:', err);
+      res.status(500).json({ error: 'Kunne ikke godkjenne saksrapporten' });
     }
   });
 
   // Admin: Reject report
   app.post("/api/admin/case-reports/:id/reject", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
       const { reason } = req.body;
+      const params: any[] = [reason, req.admin?.username || scope.actorId, id];
+      let where = `id = $3 AND status IN ('pending', 'submitted')`;
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        where += ` AND vendor_id = $4`;
+      }
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW() WHERE id = $3 RETURNING *`,
-        [reason, req.admin?.username || 'admin', id]
+        `UPDATE tidum_case_reports
+         SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW()
+         WHERE ${where} RETURNING *`,
+        params,
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
@@ -4897,19 +4997,24 @@ export function registerSmartTimingRoutes(app: Express) {
       // Notify the report author
       const cr = result.rows[0];
       if (cr.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: 'report_rejected',
-          title: 'Saksrapport avvist',
-          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er avvist.${reason ? ` Grunn: ${reason}` : ''}`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id, reason },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: 'report_rejected',
+            title: 'Saksrapport avvist',
+            message: `Din saksrapport «${cr.title || 'Uten tittel'}» er avvist.${reason ? ` Grunn: ${reason}` : ''}`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id, reason },
+          });
+        } catch (notificationError) {
+          console.error('Case report rejection notification error:', notificationError);
+        }
       }
 
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report reject error:', err);
+      res.status(500).json({ error: 'Kunne ikke avvise saksrapporten' });
     }
   });
 
@@ -4920,7 +5025,7 @@ export function registerSmartTimingRoutes(app: Express) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tidum_report_comments (
         id SERIAL PRIMARY KEY,
-        report_id INTEGER NOT NULL,
+        report_id INTEGER NOT NULL REFERENCES tidum_case_reports(id) ON DELETE CASCADE,
         author_id TEXT NOT NULL,
         author_name TEXT,
         author_role TEXT DEFAULT 'user',
@@ -4936,44 +5041,54 @@ export function registerSmartTimingRoutes(app: Express) {
   ensureReportCommentsTable();
 
   // Get comments for a report (user must own the report or be admin)
-  app.get("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
+  app.get("/api/case-reports/:id/comments", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { include_internal, user_id } = req.query;
-      
-      // Verify user owns this report (basic auth check)
-      if (user_id) {
-        const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
-        if (reportCheck.rows.length === 0) {
-          return res.status(404).json({ error: 'Report not found' });
-        }
-        if (reportCheck.rows[0].user_id !== user_id) {
-          return res.status(403).json({ error: 'Access denied' });
-        }
+      const identity = req.admin ?? (req as any).authUser ?? req.user;
+      const role = normalizeRole(String((identity as any)?.role ?? ''));
+      const isAdminViewer = ADMIN_ROLES.includes(role);
+
+      if (isAdminViewer) {
+        const scope = requireCaseReportAdminScope(req, res);
+        if (!scope) return;
+        const reportCheck = scope.isGlobal
+          ? await pool.query('SELECT id FROM tidum_case_reports WHERE id = $1', [id])
+          : await pool.query('SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2', [id, scope.vendorId]);
+        if (reportCheck.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      } else {
+        const actor = requireCaseReportActor(req, res);
+        if (!actor) return;
+        const reportCheck = await pool.query(
+          'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+          [id, actor.vendorId, actor.id],
+        );
+        if (reportCheck.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
       }
       
       let query = `SELECT * FROM tidum_report_comments WHERE report_id = $1`;
-      if (!include_internal) {
+      if (!isAdminViewer || req.query.include_internal !== 'true') {
         query += ` AND is_internal = false`;
       }
       query += ` ORDER BY created_at ASC`;
       
       const result = await pool.query(query, [id]);
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comments read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente kommentarer' });
     }
   });
 
   // Add comment to a report (user must own the report)
-  app.post("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/comments", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const { author_name, author_role, content, is_internal, parent_id } = req.body;
-      const author_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
+      const { content, parent_id } = req.body;
       
-      if (!content || !author_id) {
-        return res.status(400).json({ error: 'Content and author_id are required' });
+      if (!content || typeof content !== 'string') {
+        return res.status(400).json({ error: 'Content is required' });
       }
 
       // Validate content length
@@ -4982,86 +5097,93 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
-      if (reportCheck.rows[0].user_id !== author_id) {
-        return res.status(403).json({ error: 'Access denied - you can only comment on your own reports' });
-      }
-
-      // Users cannot add internal notes
-      const finalIsInternal = author_role === 'admin' ? (is_internal || false) : false;
       
       const result = await pool.query(
         `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal, parent_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [id, author_id, author_name, author_role || 'user', content, finalIsInternal, parent_id]
+         SELECT $1, $2, $3, $4, $5, $6, $7
+         WHERE $7::integer IS NULL
+            OR EXISTS (
+              SELECT 1 FROM tidum_report_comments parent
+              WHERE parent.id = $7 AND parent.report_id = $1
+            )
+         RETURNING *`,
+        [id, actor.id, actor.id, 'user', content, false, parent_id]
       );
+      if (result.rows.length === 0) {
+        return res.status(400).json({ error: 'Parent comment must belong to the same report' });
+      }
       res.status(201).json(result.rows[0]);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comment create error:', err);
+      res.status(400).json({ error: 'Kunne ikke opprette kommentaren' });
     }
   });
 
   // Mark comments as read (user must own the report)
-  app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const reader_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
-
-      if (!reader_id) {
-        return res.status(400).json({ error: 'reader_id required' });
-      }
-      
-      // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
-      }
-      if (reportCheck.rows[0].user_id !== reader_id) {
-        return res.status(403).json({ error: 'Access denied' });
       }
       
       await pool.query(
         `UPDATE tidum_report_comments SET read_at = NOW() WHERE report_id = $1 AND author_id != $2 AND read_at IS NULL`,
-        [id, reader_id]
+        [id, actor.id]
       );
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comments mark-read error:', err);
+      res.status(500).json({ error: 'Kunne ikke markere kommentarer som lest' });
     }
   });
 
   // Get unread comment count for authenticated user
-  app.get("/api/case-reports/unread-count", requireAuth, async (req, res) => {
+  app.get("/api/case-reports/unread-count", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const user_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
-      if (!user_id) {
-        return res.status(400).json({ error: 'user_id required' });
-      }
-      
       // Get reports owned by user that have unread comments from others
       const result = await pool.query(`
         SELECT COUNT(DISTINCT rc.id) as unread_count
         FROM tidum_report_comments rc
         JOIN tidum_case_reports cr ON rc.report_id = cr.id
-        WHERE cr.user_id = $1 AND rc.author_id != $1 AND rc.read_at IS NULL AND rc.is_internal = false
-      `, [user_id]);
+        WHERE cr.vendor_id = $1 AND cr.user_id = $2
+          AND rc.author_id != $2 AND rc.read_at IS NULL AND rc.is_internal = false
+      `, [actor.vendorId, actor.id]);
       
       res.json({ unread_count: parseInt(result.rows[0].unread_count) || 0 });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report unread count error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente uleste kommentarer' });
     }
   });
 
   // Submit report for review (change status from draft to pending)
-  app.post("/api/case-reports/:id/submit", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/submit", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
 
       // Fetch the report content for PII scanning before submission
-      const reportCheck = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -5088,61 +5210,87 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
-        [id]
+        `UPDATE tidum_case_reports SET status = 'pending', updated_at = NOW()
+         WHERE id = $1 AND vendor_id = $2 AND user_id = $3
+           AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
+        [id, actor.vendorId, actor.id]
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found or cannot be submitted' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report submit error:', err);
+      res.status(500).json({ error: 'Kunne ikke sende inn saksrapporten' });
     }
   });
 
   // Admin: Add feedback comment and optionally request revision
   app.post("/api/admin/case-reports/:id/feedback", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    const client = await pool.connect();
     try {
       const { id } = req.params;
       const { content, request_revision, is_internal } = req.body;
-      
-      // Add comment
+      if (content != null && (typeof content !== 'string' || content.length > 5000)) {
+        return res.status(400).json({ error: 'Kommentar må være tekst på maksimalt 5000 tegn' });
+      }
+
+      await client.query('BEGIN');
+      const reportCheck = scope.isGlobal
+        ? await client.query('SELECT * FROM tidum_case_reports WHERE id = $1 FOR UPDATE', [id])
+        : await client.query('SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 FOR UPDATE', [id, scope.vendorId]);
+      if (reportCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Report not found' });
+      }
+
       if (content) {
-        await pool.query(
+        await client.query(
           `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal)
            VALUES ($1, $2, $3, 'admin', $4, $5)`,
-          [id, req.admin?.username || 'admin', req.admin?.username || 'Administrator', content, is_internal || false]
+          [id, scope.actorId, req.admin?.username || scope.actorId, content, is_internal === true]
         );
       }
-      
-      // Optionally set status to needs_revision
+
       if (request_revision) {
-        await pool.query(
+        await client.query(
           `UPDATE tidum_case_reports SET status = 'needs_revision', updated_at = NOW() WHERE id = $1`,
           [id]
         );
       }
-      
-      const report = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const report = await client.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
       const cr = report.rows[0];
+      await client.query('COMMIT');
 
       // Notify the report author about feedback / revision request
       if (cr?.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: request_revision ? 'report_revision' : 'report_feedback',
-          title: request_revision ? 'Saksrapport returnert for revidering' : 'Ny tilbakemelding på saksrapport',
-          message: request_revision
-            ? `Din saksrapport «${cr.title || 'Uten tittel'}» er sendt tilbake for revidering.${content ? ` Kommentar: ${content}` : ''}`
-            : `Ny kommentar på saksrapport «${cr.title || 'Uten tittel'}»: ${content?.substring(0, 100) || ''}`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: request_revision ? 'report_revision' : 'report_feedback',
+            title: request_revision ? 'Saksrapport returnert for revidering' : 'Ny tilbakemelding på saksrapport',
+            message: request_revision
+              ? `Din saksrapport «${cr.title || 'Uten tittel'}» er sendt tilbake for revidering.${content ? ` Kommentar: ${content}` : ''}`
+              : `Ny kommentar på saksrapport «${cr.title || 'Uten tittel'}»: ${content?.substring(0, 100) || ''}`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id },
+          });
+        } catch (notificationError) {
+          // The feedback transaction is already committed. A notification
+          // outage must not turn that successful write into a false 500.
+          console.error('Case report feedback notification error:', notificationError);
+        }
       }
 
       res.json(report.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      console.error('Admin case report feedback error:', err);
+      res.status(500).json({ error: 'Kunne ikke lagre tilbakemeldingen' });
+    } finally {
+      client.release();
     }
   });
 
@@ -7136,7 +7284,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       await pool.query(`
         CREATE TABLE IF NOT EXISTS tidum_report_generated (
           id SERIAL PRIMARY KEY,
-          case_report_id INTEGER NOT NULL,
+          case_report_id INTEGER NOT NULL REFERENCES tidum_case_reports(id) ON DELETE CASCADE,
           template_id INTEGER NOT NULL,
           generated_by TEXT,
           pdf_url TEXT,
@@ -7173,36 +7321,56 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   }
 
   // Get all report templates
-  app.get("/api/report-templates", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const result = await pool.query(
-        `SELECT * FROM tidum_report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
-      );
+      const result = scope.isGlobal
+        ? await pool.query(`SELECT * FROM tidum_report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`)
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE is_active = true
+               AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $1)
+             ORDER BY is_default DESC, name ASC`,
+            [scope.vendorId],
+          );
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportmaler' });
     }
   });
 
   // Get single report template
   app.get("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [id])
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE id = $1 AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $2)`,
+            [id, scope.vendorId],
+          );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportmalen' });
     }
   });
 
   // Create report template
   app.post("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const {
-        name, description, company_id, paper_size, orientation,
+        name, description, paper_size, orientation,
         margin_top, margin_bottom, margin_left, margin_right,
         header_enabled, header_height, header_logo_url, header_logo_position,
         header_title, header_subtitle, header_show_date, header_show_page_numbers,
@@ -7211,6 +7379,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         blocks, is_default,
         template_type, privacy_notice_enabled, privacy_notice_text
       } = req.body;
+      const scopedCompanyId = scope.isGlobal ? null : scope.vendorId;
 
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       let finalPrivacyEnabled = privacy_notice_enabled;
@@ -7235,7 +7404,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
         RETURNING *`,
         [
-          name, description, company_id, paper_size || 'A4', orientation || 'portrait',
+          name, description, scopedCompanyId, paper_size || 'A4', orientation || 'portrait',
           margin_top || '20mm', margin_bottom || '20mm', margin_left || '15mm', margin_right || '15mm',
           header_enabled !== false, header_height || '25mm', header_logo_url, header_logo_position || 'left',
           header_title, header_subtitle, header_show_date !== false, header_show_page_numbers !== false,
@@ -7247,13 +7416,16 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ]
       );
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template create error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette rapportmalen' });
     }
   });
 
   // Update report template
   app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
       const updates = { ...req.body };
@@ -7280,33 +7452,50 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
       const values = fields.map(f => f === 'blocks' ? JSON.stringify(updates[f]) : updates[f]);
 
+      const scopeFilter = scope.isGlobal
+        ? ''
+        : ` AND COALESCE(vendor_id, company_id) = $${values.length + 2}`;
       const result = await pool.query(
-        `UPDATE tidum_report_templates SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
-        [id, ...values]
+        `UPDATE tidum_report_templates SET ${setClause}, updated_at = NOW()
+         WHERE id = $1${scopeFilter} RETURNING *`,
+        scope.isGlobal ? [id, ...values] : [id, ...values, scope.vendorId]
       );
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template update error:', err);
+      res.status(500).json({ error: 'Kunne ikke oppdatere rapportmalen' });
     }
   });
 
   // Delete report template
   app.delete("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      await pool.query('UPDATE tidum_report_templates SET is_active = false WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('UPDATE tidum_report_templates SET is_active = false WHERE id = $1 RETURNING id', [id])
+        : await pool.query(
+            `UPDATE tidum_report_templates SET is_active = false
+             WHERE id = $1 AND COALESCE(vendor_id, company_id) = $2 RETURNING id`,
+            [id, scope.vendorId],
+          );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette rapportmalen' });
     }
   });
 
   // Get available block types
-  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const result = await pool.query('SELECT * FROM tidum_report_block_types WHERE is_active = true ORDER BY name');
       if (result.rows.length === 0) {
@@ -7336,7 +7525,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Seed default block types
-  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    if (!scope.isGlobal) return res.status(403).json({ error: 'Kun global super_admin kan endre systemblokker' });
     try {
       const defaultBlocks = [
         { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
@@ -7372,13 +7564,15 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
   // Get report assets
   app.get("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const { company_id, type } = req.query;
+      const { type } = req.query;
       let query = 'SELECT * FROM tidum_report_assets WHERE is_active = true';
       const params: any[] = [];
-      
-      if (company_id) {
-        params.push(company_id);
+
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
         query += ` AND (company_id = $${params.length} OR company_id IS NULL)`;
       }
       if (type) {
@@ -7389,51 +7583,79 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       query += ' ORDER BY created_at DESC';
       const result = await pool.query(query, params);
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportressurser' });
     }
   });
 
   // Upload report asset
   app.post("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { name, type, url, mime_type, size, width, height, company_id } = req.body;
+      const requestedCompanyId = Number(company_id);
+      const scopedCompanyId = scope.isGlobal && Number.isInteger(requestedCompanyId) && requestedCompanyId > 0
+        ? requestedCompanyId
+        : scope.vendorId;
       const result = await pool.query(
         `INSERT INTO tidum_report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [name, type, url, mime_type, size, width, height, company_id, req.admin?.username]
+        [name, type, url, mime_type, size, width, height, scopedCompanyId, req.admin?.username || scope.actorId]
       );
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset create error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette rapportressursen' });
     }
   });
 
   // Delete report asset
   app.delete("/api/report-assets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      await pool.query('UPDATE tidum_report_assets SET is_active = false WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('UPDATE tidum_report_assets SET is_active = false WHERE id = $1 RETURNING id', [id])
+        : await pool.query(
+            'UPDATE tidum_report_assets SET is_active = false WHERE id = $1 AND company_id = $2 RETURNING id',
+            [id, scope.vendorId],
+          );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Asset not found' });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette rapportressursen' });
     }
   });
 
   // Generate PDF from template
   app.post("/api/report-templates/:templateId/generate/:caseReportId", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { templateId, caseReportId } = req.params;
 
       // Get template
-      const templateResult = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [templateId]);
+      const templateResult = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1 AND is_active = true', [templateId])
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE id = $1 AND is_active = true
+               AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $2)`,
+            [templateId, scope.vendorId],
+          );
       if (templateResult.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       const template = templateResult.rows[0];
 
       // Get case report data
-      const reportResult = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [caseReportId]);
+      const reportResult = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [caseReportId])
+        : await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2', [caseReportId, scope.vendorId]);
       if (reportResult.rows.length === 0) {
         return res.status(404).json({ error: 'Case report not found' });
       }
@@ -7642,36 +7864,53 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       await pool.query(
         `INSERT INTO tidum_report_generated (case_report_id, template_id, generated_by, metadata)
          VALUES ($1, $2, $3, $4)`,
-        [caseReportId, templateId, req.admin?.username, JSON.stringify({ generated_at: new Date() })]
+        [caseReportId, templateId, req.admin?.username || scope.actorId, JSON.stringify({ generated_at: new Date() })]
       );
 
       doc.end();
-    } catch (err: any) {
+    } catch (err) {
       console.error('PDF generation error:', err);
-      res.status(500).json({ error: err.message });
+      if (!res.headersSent) res.status(500).json({ error: 'Kunne ikke generere rapport-PDF' });
+      else res.end();
     }
   });
 
   // Get generation history
   app.get("/api/report-generated", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
-      const result = await pool.query(
-        `SELECT g.*, t.name as template_name, r.case_id, r.month
-         FROM tidum_report_generated g
-         LEFT JOIN tidum_report_templates t ON g.template_id = t.id
-         LEFT JOIN tidum_case_reports r ON g.case_report_id = r.id
-         ORDER BY g.created_at DESC LIMIT $1`,
-        [limit]
-      );
+      const requestedLimit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+      const limit = Math.min(100, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50));
+      const result = scope.isGlobal
+        ? await pool.query(
+            `SELECT g.*, t.name as template_name, r.case_id, r.month
+             FROM tidum_report_generated g
+             LEFT JOIN tidum_report_templates t ON g.template_id = t.id
+             JOIN tidum_case_reports r ON g.case_report_id = r.id
+             ORDER BY g.created_at DESC LIMIT $1`,
+            [limit],
+          )
+        : await pool.query(
+            `SELECT g.*, t.name as template_name, r.case_id, r.month
+             FROM tidum_report_generated g
+             LEFT JOIN tidum_report_templates t ON g.template_id = t.id
+             JOIN tidum_case_reports r ON g.case_report_id = r.id
+             WHERE r.vendor_id = $1
+             ORDER BY g.created_at DESC LIMIT $2`,
+            [scope.vendorId, limit],
+          );
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Generated report history error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente genereringshistorikk' });
     }
   });
 
   // Seed a default template
   app.post("/api/report-templates/seed-default", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const defaultBlocks = [
         { id: '1', type: 'section', config: { title: 'Bakgrunn', field: 'background' } },
@@ -7691,23 +7930,25 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       ];
 
       const result = await pool.query(
-        `INSERT INTO tidum_report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
-         VALUES ($1, $2, $3, $4, $5, true, $6)
+        `INSERT INTO tidum_report_templates (name, description, company_id, header_title, header_subtitle, blocks, is_default, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7)
          ON CONFLICT DO NOTHING
          RETURNING *`,
         [
           'Standard Saksrapport',
           'Standard mal for saksrapporter med alle felter',
+          scope.vendorId,
           'Saksrapport',
           'Smart Timing - Timeføringssystem',
           JSON.stringify(defaultBlocks),
-          req.admin?.username
+          req.admin?.username || scope.actorId,
         ]
       );
 
       res.json({ success: true, template: result.rows[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template seed error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette standardmal' });
     }
   });
 

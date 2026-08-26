@@ -38,9 +38,15 @@ Følgende regler gjelder uten unntak:
 
 ### 2.1 Dokumentert ferdig eller vesentlig påbegynt
 
-- PR #21, head `94f46c5`, inneholder de verifiserte BOLA-fiksene beskrevet i `progress.md`.
-- Lokal arbeidsflate etter PR-head lukker også bulkimport-/samtidighetsrestene
-  i access-request-flyten og etablerer separat Tidum-eid leverandørskjema.
+- PR #21 og den etterfølgende herdingen er samlet i
+  `codex/halden-krav-integrasjon` commit `7562c5d`, pushet uten å berøre den
+  produksjonsdeployende `main`-grenen.
+- Samlecommiten lukker bulkimport-/samtidighetsrestene i access-request-flyten
+  og etablerer separat Tidum-eid leverandørskjema.
+- En ny BOLA/IDOR-pakke tenantskoper eksport, faktura, saksrapport,
+  kommentarer, rapportmaler/-ressurser, PDF og historikk. 18/18 målrettede
+  tester er grønne; migrasjon 067/068 er varig anvendt og verifisert i
+  utviklingsdatabasen, inkludert faktura-E2E med to tenants.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -56,8 +62,9 @@ Følgende regler gjelder uten unntak:
 
 ### 2.2 Kritiske avvik ved planstart
 
-- PR #21 er portet og verifisert i en lokal integrasjonsarbeidsflate, men er ikke
-  commitet, pushet eller produksjonsdeployet.
+- Integrasjonsgrunnmuren er committet og pushet som `7562c5d`, men ikke
+  reviewet, merget eller produksjonsdeployet. Render-secrets må etableres før
+  en eventuell produksjonsmerge.
 - To G10-pakker er integrert lokalt med PR #21: eksplisitt dev-bypass,
   separate påkrevde tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og
   sesjonsbasert CSRF-vern med klientdekning for fetch, offline-kø, XHR og
@@ -66,12 +73,14 @@ Følgende regler gjelder uten unntak:
   direkte/transitive oppgraderinger, Node 24-baseline og ren `npm ci`.
   `npm audit --audit-level=moderate` er gjort blokkerende i lokal CI-endring;
   48/48 sikkerhetstester, 5/5 bibliotekrøykprøver, typesjekk og build er grønne.
-  Hele Vitest-suiten er også verifisert mot oppgitt Neon-utviklingsdatabase:
+  Baselinesuiten er verifisert mot oppgitt Neon-utviklingsdatabase:
   443/443 tester i 63/63 testfiler besto. Før/etter-kontroll viste identiske
   radtall i de fulgte bruker-, rolle-, tenant- og fristtabellene; ingen nye
   testfiksurer ble stående. Åtte pre-eksisterende company-user-rader ble
   bevisst ikke slettet uten egen dataryddingsbeslutning. Isolert,
-  blokkerende DB-suite i CI gjenstår fortsatt.
+  blokkerende DB-suite i CI gjenstår fortsatt. Etter siste BOLA-pakke
+  består 18/18 nye tester. En full suite fikk tre forbindelses-timeouter etter
+  454 beståtte tester; alle berørte filer besto isolert 8/8, 7/7 og 13/13.
 - QA-grenen `dashboard-visual-qa-dbejmt` er 156 commits bak `main`, men inneholder
   54 umergede fikscommits. SQL-injection, CMS-auth/opplasting og
   systemmal-seeding er rettet lokalt; flere falske/mockede CMS-paneler og øvrige
@@ -80,8 +89,15 @@ Følgende regler gjelder uten unntak:
 - Full barnevernssaksgang, autoritativt/versjonert planobjekt, vedtak, oppfølging og myndighetsrapportering mangler. Dagens § 6-3-planmal og mål-/aktivitetsmodell skal gjenbrukes, men er ikke en ferdig kommunal planmodul.
 - ID-porten, FREG, Elements, Visma Enterprise Plus, full Documaster og DigiBarnevern er ikke produksjonsklare.
 - Journalvedlegg i PR #21 bruker S3 i EU, mens bekymringsmeldingsvedlegg bruker lokal disk; ingen av løsningene dokumenterer Haldens norske målarkitektur eller eksplisitt KMS-oppsett.
-- Fakturaflyten i `main` har inkompatible klient-/API-feltnavn, mangler objektsikring og leverer HTML med `.pdf`-navn. Den må behandles som prototype.
-- Saks-, rapport-, eksport-, faktura- og flere CMS-ruter har åpne objekt-/tenantkontroller og kan ikke brukes med ekte eksterne data før sikkerhetsfikser er portert.
+- Fakturaflyten i `main` er en prototype. Integrasjonspakken samstemmer
+  klient/API, skiller data fra CreatorHub-tabellen, tenantskoper alle
+  operasjoner og leverer reell PDF. Migrasjon og faktura-E2E er verifisert;
+  full klientøkonomi er fortsatt ikke levert.
+- Generisk eksport og eldre saksrapport-/rapportdesignerruter er herdet i
+  integrasjonsarbeidsflaten.
+  Øvrige saker, rapportmål/-aktiviteter, e-postmaler, filer, søk,
+  bakgrunnsjobber og CMS/admin har fortsatt åpne objekt-/tenantkontroller og
+  kan ikke brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
 - Offentlig integrasjonsside hevder at Documaster er testet mot en ekte instans, mens integrasjonsdokumentasjonen uttrykkelig sier at sandkasseverifisering gjenstår.
 - Dagens underdatabehandleroppsett omfatter USA/Storbritannia og oppfyller ikke Norges-utgangspunktet i Haldens databehandleravtale.
 - Dagens backup-plan har RPO 24 timer; kontrakten krever maksimalt 2 timers datatap.
@@ -247,7 +263,11 @@ Tiltak:
    og Docker til Node 24 og gjør dependency audit blokkerende. Full audit: 0.
 6. Innfør TOTP/MFA for administrative roller og Entra MFA-krav via kundens policy.
 7. Gjennomfør RLS/tenant-isolering i database og applikasjon; alle request-paths må få tenant-kontekst.
-8. Revider alle ruter for BOLA/IDOR, med eksplisitt prioritet på saker, rapportmål/-aktiviteter, rapportmaler, eksport, faktura, e-postmaler, filer, søk, logger, bakgrunnsjobber og administrasjon.
+8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura og
+   eldre saksrapporter/kommentarer er herdet med to-tenant-tester. Migrasjon
+   067/068 og faktura-E2E er gjennomført; fortsett deretter med saker,
+   rapportmål/-aktiviteter, e-postmaler, filer, søk, logger,
+   bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er
@@ -558,7 +578,7 @@ Følgende må være komplett før G2:
 | G-10 og PR #21 konflikter | Sikkerhetsregresjon | Integrasjonsbranch, full authz/E2E-regresjon og uavhengig review |
 | Kritiske QA-fikser blir liggende i gammel gren | SQL-injection, uautentisert innhold/opplasting og ustabile maler | Selektiv port med konflikt-/migrasjonsgjennomgang før demo; ingen hel-merge av 156 commits gammel gren |
 | Økonomimodulen undervurderes | Lav kvalitet/krav 27 feiler | Egen trepersoners strøm + Visma-/bankpartner; prioriter evalueringsdemo |
-| Prototyper telles som ferdig funksjon | Feil Bilag 2-svar og demorisiko | Merk faktura og Visual Builder-paneler som prototype/mock; krev API-/DB-/E2E-bevis før status grønn |
+| Prototyper telles som ferdig funksjon | Feil Bilag 2-svar og demorisiko | Fakturagrunnlaget har API-/DB-/E2E-bevis, men skal fortsatt beskrives som smal leverandørfakturering; merk øvrige prototyper/mockflater og krev domenedekkende bevis før grønn status |
 | Repo-dokumentasjon lover mer enn bevis | Avvisning/kontraktsbrudd | Påstandskontroll; fjern eller kvalifiser udokumenterte påstander |
 | Drift oppfyller ikke 500 ms/RPO 2 t | SLA-brudd | Lasttest, PITR, norsk observability og DR-prøve før produksjon |
 | Sladding kan reverseres | Forretningshemmeligheter lekker | Flatten/redaction-verktøy + uavhengig tekst-/metadata-kontroll |

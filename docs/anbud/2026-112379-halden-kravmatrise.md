@@ -34,8 +34,11 @@ Kontrollen er gjort mot:
 
 ### Lokal integrasjonsstatus 26.08.2026
 
-Det finnes nå en verifisert, men **ikke commitet eller pushet**, lokal
-integrasjonsarbeidsflate basert på `main` commit `2caed44`:
+Det finnes nå en verifisert integrasjonsgren,
+`codex/halden-krav-integrasjon`, med samlecommit `7562c5d`. Grenen er pushet,
+men deployer ikke produksjon; `main` er urørt. Etter denne commiten er en
+ny BOLA/IDOR-pakke ferdigstilt for eksport, faktura, saksrapporter og
+rapportdesigner:
 
 - PR #21 er portet inn, inkludert migrasjon 059–064. Lokal migrasjon 065
   stabiliserer rapportmaler, og migrasjon 066 etablerer en separat Tidum-eid
@@ -55,7 +58,7 @@ integrasjonsarbeidsflate basert på `main` commit `2caed44`:
   oppgradert, ubrukt `react-quill` er fjernet, Quill er låst til sikker 2.0.2,
   ExcelJS bruker sikker `uuid`, og Node-/Docker-baseline er løftet til Node 24.
   Full `npm audit --audit-level=low` rapporterer 0 funn etter ren `npm ci`.
-- Bevis i arbeidsflaten: hele Vitest-suiten er grønn mot oppgitt
+- Bevis for pushet baseline: hele Vitest-suiten er grønn mot oppgitt
   Neon-utviklingsdatabase (**443/443 tester i 63/63 testfiler**), i tillegg til
   48/48 DB-uavhengige sikkerhetstester og 5/5 bibliotekrøykprøver.
   Før/etter-kontroll viste identiske radtall for `users`, roller,
@@ -63,10 +66,15 @@ integrasjonsarbeidsflate basert på `main` commit `2caed44`:
   tilgangstest-rader ble stående. Åtte eksisterende `tidum_company_users`-rader
   var til stede før løpet og er ikke slettet uten en egen dataryddingsbeslutning.
   `npm run check` og produksjonsbygg er grønne. CI-endringen gjør dependency
-  audit blokkerende.
+  audit blokkerende. Den nye BOLA-pakken har 18/18 målrettede tester,
+  inkludert ekte databaseflyt med to tenants. En full ny kjøring ga 454
+  beståtte og tre DB-timeouter/ECONNRESET; alle tre berørte filer besto
+  umiddelbart isolert (8/8, 7/7 og 13/13). Migrasjon 067/068 er varig anvendt
+  og constraint-verifisert i utviklingsdatabasen. Fakturaflyten er testet
+  ende-til-ende mot de nye tabellene med to tenants og opprydding av fiksurer.
 
-Dette endrer ikke statusen til den offisielle `main`-grenen før endringene er
-reviewet, commitet, pushet og CI-verifisert. Den grønne DB-kjøringen er et
+Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
+reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
 lokalt verifikasjonsbevis, ikke en erstatning for isolert CI-testdatabase,
 akseptansetest eller produksjonsbevis.
 
@@ -102,7 +110,11 @@ Følgende er reelle, gjenbrukbare produktkomponenter:
 - direkte BankID- og Buypass ID-innlogging i `main`, med OIDC, PKCE/state/nonce, FNR-hash, forhåndskobling av forventet identitet og web-/mobilløp;
 - PowerOffice-integrasjon for godkjente timelister, leverandørspesifikk ansattmapping og automatisk/manuell push;
 - vendor-avgrenset lønnseksport til CSV-formater for Tripletex, Visma Lønn, PowerOffice og Fiken;
-- ansattimport med forhåndsvisning, validering, bekreftelse og rollback, samt en fakturafunksjon i kildekoden. Fakturaflyten har imidlertid kontraktbrudd mellom klient og API og mangler objektsikring, og kan ikke regnes som fungerende leveranse;
+- ansattimport med forhåndsvisning, validering, bekreftelse og rollback, samt
+  en fakturaprototype. BOLA-pakken samstemmer klient/API, skiller ut
+  Tidum-eide fakturatabeller, tenantskoper alle operasjoner og produserer reell
+  PDF. Migrasjon og DB-ende-til-ende-test er gjennomført, men dette er fortsatt
+  en smal leverandørfakturaflyt og ikke full klientøkonomi;
 - e-postmaler, vedlegg, utkast, planlagt utsendelse og historikk. Dette er ordinær SMTP, ikke sikker ekstern barnevernsdialog eller Outlook-integrasjon;
 - avviksmodul med alvorlighetsgrad, kategori, oppfølging, ledervarsling og valgfri navnemaskering;
 - BRREG-oppslag for leverandører, institusjoner og oppdragsgivere. Dette er Enhetsregisteret, ikke Folkeregisteret/FREG;
@@ -129,6 +141,10 @@ PR #21 tilfører:
 - fungerende, transaksjonell auto-opprettelse av Tidum-vendor gjennom migrasjon
   066, kryptografisk tilfeldig legacy-passord og fjerning av hardkodet
   `admin123`-reset fra CMS-oppsettet.
+- etterfølgende BOLA/IDOR-pakke for tenantavgrenset generisk eksport,
+  faktura, saksrapport, kommentarer, rapportmaler/-ressurser,
+  PDF-generering og genereringshistorikk. 18/18 målrettede tester er grønne;
+  migrasjon 067/068 er varig anvendt og verifisert i utviklingsdatabasen.
 
 Viktige begrensninger i PR #21:
 
@@ -157,7 +173,9 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 
 ### 3.4 Dokumenter og tester som ikke må overvurderes
 
-- `progress.md` dokumenterer to avgrensede BOLA-funn godt, men er ikke en full sikkerhetsattest for løsningen.
+- `progress.md` dokumenterer de to opprinnelige BOLA-funnene og første brede
+  eksport-/faktura-/saksrapportpakke, men er ikke en full sikkerhetsattest for
+  løsningen.
 - PR #21 har grønne type-, design- og byggekontroller. Den lokale CI-endringen
   blokkerer nå på dependency audit og kjører bibliotekrøykprøven, men enhets-,
   DB-integrasjons- og E2E-suitene er fortsatt ikke generelt blokkerende.
@@ -172,13 +190,19 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   uavhengig pentest gjenstår fortsatt.
 - Den offisielle `main`-grenen har fortsatt den SQL-injection-sårbare dynamiske
   `PUT /api/report-templates/:id`-spørringen og flere CMS-ruter som QA-grenen
-  dokumenterer som uautentiserte. Begge er rettet og testet i lokal
+  dokumenterer som uautentiserte. Begge er rettet og testet i
   integrasjonsarbeidsflate, men er fortsatt et sikkerhetsstopp før endringene er
-  reviewet og pushet.
+  reviewet og merget til `main`.
 - De ni systemmalene finnes i kildekoden, men `main` mangler startup-migrasjonen/indeksen som gjør `ON CONFLICT (vendor_id, slug)` gyldig på en frisk database. Funksjonen må derfor beskrives som implementert kildekode med kjent provisjoneringsfeil, ikke som stabil produksjonsfunksjon.
 - Documaster-koden og dokumentasjonen viser en sterk adapter, men ikke godkjent test mot Haldens/Documasters sandkasse. Den offentlige integrasjonssiden sier samtidig «Testet mot en ekte Documaster-instans»; påstanden motsies av `docs/integrations/documaster.md` og må fjernes eller bevises.
-- Fakturasiden sender andre feltnavn enn API-et krever, presenterer HTML som PDF og mangler eierskaps-/tenantfilter. Den er en prototype, ikke en fungerende økonomimodul.
-- Eksisterende saks-, mål-, aktivitet-, rapport-, eksport- og fakturaruter har flere objekt-/tenantkontroller som må gjennom en samlet BOLA-gjennomgang før gjenbruk i kommunal løsning.
+- Fakturaflyten i `main` sender andre feltnavn enn API-et krever, presenterer
+  HTML som PDF og mangler eierskaps-/tenantfilter. Integrasjonsgrenen retter
+  dette med egne tabeller og DB-test, men er fortsatt en smal
+  leverandørfakturaflyt, ikke en komplett klientøkonomimodul.
+- Generisk eksport, faktura og den eldre saksrapport-/rapportdesignerflyten er
+  herdet i integrasjonsgrenen. Øvrige saker, mål, aktiviteter, e-postmaler, filer, søk,
+  bakgrunnsjobber og CMS/admin må fortsatt gjennom den samlede
+  BOLA/IDOR-matrisen før gjenbruk i kommunal løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -214,8 +238,8 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 8 | Skal | Interne varsler og sikker melding med eksterne | Interne varsler, frist-/rapportpåminnelser og e-post med maler, vedlegg, utkast, planlegging og historikk finnes. SMTP-e-post er ikke sikker ekstern barnevernsdialog. Ingen ID-porten-portal eller SvarUt/SvarInn. | Delvis – intern del | Bygg partsmodell, sikker innbyggerdialog/dokumentdeling, varslingspreferanser, SvarUt/SvarInn og audit; forby sensitivt innhold i ordinær e-post. |
 | 9 | E | Kundens egen, leverandørnøytrale SMS-gateway | Tekst og telefonfelt finnes, men ingen SMS-gatewayimplementasjon ble funnet. | Mangler | Definer adaptergrensesnitt; konfigurer Halden-gateway; kø, levering/feil, reservasjon og personvernbevis. |
 | 10 | Skal | Standardrapporter til ledelse, Bufdir/Statsforvalter og SSB; planlegging | Generiske rapporter og dashboards finnes. Ingen identifisert myndighetsrapportpakke eller planlagt innrapportering. | Mangler barnevernsrapportering | Datakatalog, autoritative skjema/kodeverk, standardrapporter, scheduler, validering, kvittering og avstemming. |
-| 11 | E | Egne rapporter | Avansert rapportbygger, malredigering, filtre/visninger og analyse finnes i `main`. QA-grenen viser både reell funksjon og åpne feil; enkelte saksrapport-ruter mangler objektkontroll. | Delvis – sterk, men usikret byggekloss | Porter QA-fikser; koble til kommunale barnevernsdata; felt-/rolle-/saksscope; lagrede versjoner; store datamengder; demo og sikkerhetstest. |
-| 12 | E | Ad hoc, CSV/Excel og rapporterings-API | CSV/Excel og flere API-er finnes, primært for tids-/rapportdata. Eksport-ruter har kjente scopingbehov. | Delvis – main | Barnevernsdatasett; tenant/sak/rollefilter; formålsstyring; masking; audit; tidsbegrenset eksport og BOLA-test. |
+| 11 | E | Egne rapporter | Avansert rapportbygger, malredigering, filtre/visninger og analyse finnes. BOLA-pakken tenantskoper saksrapporter, kommentarer, maler, ressurser, PDF og historikk med anvendt migrasjon og DB-test, men gjelder den eldre rapportflyten. | Delvis – sterkere, fortsatt ikke barnevernsferdig | Porter øvrige QA-fikser; koble til kommunale barnevernsdata; felt-/rolle-/saksscope; lagrede versjoner; store datamengder; demo og sikkerhetstest. |
+| 12 | E | Ad hoc, CSV/Excel og rapporterings-API | CSV/Excel og flere API-er finnes, primært for tids-/rapportdata. Fiksen gjør egenbruk til standard og leder-`all` eksplisitt tenantavgrenset, samt nøytraliserer regnearkformler og HTML. | Delvis – objektkontroll styrket | Barnevernsdatasett; sak/rolle/formålsfilter; masking; audit; tidsbegrenset eksport og komplett systemomfattende BOLA-test. |
 | 13 | E | Beskriv hvordan nøkkeltall hentes | Analysekomponenter og dashboards finnes for eksisterende domene. | Delvis – byggekloss | Definer barneverns-KPI-er, kilde/formel/eier/frekvens, datakvalitet, tilgang og demonstrer sporbar beregning. |
 | 14 | E | RBAC og juridisk avgrenset innsyn; minst tre roller | `main` har omfattende RBAC. PR #21 har kommune-tenant og to kommuneroller med DB-oppslag. G10-grenen har RLS. | Delvis – flere grener | Integrer grenene; legg administrator; saksnivå «need-to-know», delegasjon/fravær, nødtilgang, skjermet adresse og komplett authz/BOLA-matrise. |
 | 15 | Skal | Alle saksendringer og dokumentoppslag logges søkbart | Flere append-/auditlogger finnes; PR #21 journal er append-only og BOLA på company audit er fikset. | Delvis | Ett dekningskart for alle saksobjekter; logg alle lesinger/nedlastinger; søk/revisorrapport; integritet, retensjon, tenant-scope og testbevis. |
@@ -230,7 +254,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 24 | Skal | Sikker loggforvaltning og definerte oppbevaringsperioder | Flere logger, noe retensjonskode og audit-UI finnes. Retensjon er inkonsistent og ingen samlet SIEM-/tilgangsmodell er bevist. | Delvis | Loggklassifisering, formål, retention, manipulasjonsvern, tilgang/review, alarm/SIEM, slettetest og samsvar med arkiv/DPA. |
 | 25 | Skal | SLA i Bilag 4 | Database-healthcheck, Render-healthprobe, maskert klient-Sentry, operasjonelle driftsmailer, backup-/restore-skript og runbook finnes. Det er ikke funnet produksjonsbevis for aktiv overvåking/backup/restore, og RPO står som 24 timer. | Mangler / motstrid | Fyll Bilag 4; 99,5 %, 500 ms, RPO ≤2 t, utilgjengelighet ≤24 t, supportmål, kreditt; målbar monitorering, vakt, DR-, backup- og lasttest. |
 | 26 | E | Elements, Documaster, Visma, KS FIKS, Entra, ID-porten, ev. Intune | Documaster-adapter og direkte BankID/Buypass i `main`; Entra og Maskinporten i PR #21; BRREG-/PowerOffice-byggeklosser. FIKS-receiver er stub. | Delvis – stor restanse | Sandkasse/kontraktstest for Elements, Documaster, Visma Enterprise Plus og full FIKS-portefølje; uttrykkelig ID-porten eller skriftlig akseptert eID-alternativ; Entra; FREG; Intune-avklaring og E2E-avstemming. |
-| 27 | E | Full klientøkonomi, bank, lønn, EHF, avstemming og Visma | Vendor-skopet CSV-lønnseksport for fire systemer og PowerOffice-push av godkjente timelister med ansattmapping er reell kode. Fakturautkast finnes, men klient/API er inkompatible og rutene mangler objektsikring. Ingen reskontro, remittering, EHF, bank eller Visma Enterprise Plus-klientøkonomi. | Delvis – smal økonomikjerne | Stabiliser og test eksisterende lønns-/PowerOffice-flyt. Lever via partner eller eget økonomisubsystem: fire-øyne, bank, norsk/utenlandsk konto, fosterhjemslønn, EHF, skann, avvik og Visma-avstemming. |
+| 27 | E | Full klientøkonomi, bank, lønn, EHF, avstemming og Visma | Vendor-skopet CSV-lønnseksport for fire systemer og PowerOffice-push av godkjente timelister med ansattmapping er reell kode. Integrasjonsgrenen har nå en tenantsikret, DB-testet leverandørfakturaflyt med reell PDF. Ingen reskontro, remittering, EHF, bank eller Visma Enterprise Plus-klientøkonomi. | Delvis – smal økonomikjerne | Stabiliser og test eksisterende lønns-/PowerOffice-flyt. Lever via partner eller eget økonomisubsystem: fire-øyne, bank, norsk/utenlandsk konto, fosterhjemslønn, EHF, skann, avvik og Visma-avstemming. |
 | 28 | Skal | Nasjonal portal, BFK og rapporteringsbank | Maskinporten-token og rålogg i PR #21. Receiver er uttrykkelig inert; BFK og Barnevernsregister/rapporteringsbank mangler. | Mangler | KS-avtaler/sertifikat; full portaltransport; BFK-versjonering; gjeldende rapporteringsskjema, daglig innsending, kvittering, feilretting og avstemming. |
 | 29 | E | Ønsket KI, KS-tjenester, e-sign, Outlook, huskelister, kart, prosjekt/generell sak, barnevernvakt, video og vedlegg/anonymisering | Reelt: huskelister/oppgaver, generell sak, rapportmål/-aktiviteter, avvik, vedlegg, PII-søk/maskering, intern kalenderflate, e-postmaler/planlagt SMTP og enkel KI-tekstassistanse. Ikke funnet: transkripsjon, Microsoft Graph/Outlook, nettverkskart, barnevernvakt, videomøte, KS innbyggertjenester eller godkjent e-sign. | Delvis | Besvar hvert underpunkt separat, og skill intern kalender/SMTP/KI-tekst fra de uttrykkelig etterspurte integrasjonene. Ikke presenter planer eller Visual Builder-mockups som ferdig. |
 | 30 | Skal | Implementering, migrering og opplæring i Bilag 3 | Fullføringsplan og gammel intern gap-/veikartdokumentasjon finnes. Ingen ferdig tilbudsbesvarelse eller Modulus-migreringsbevis. | Mangler tilbudsdokument/bevis | Fyll Bilag 3 med ansvar, bemanning, pilot, to prøvemigreringer, avstemming, rollback, opplæring, leverings-/produksjonsdato og kundens avhengigheter. |
@@ -267,14 +291,17 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
 
 1. **Utført lokalt:** porter PR #21 kontrollert på dagens `main`; opprett og
    push integrasjonsgren etter review.
-2. **Pågår:** integrer G10-herdingen uten å miste BOLA-fiksene i `94f46c5`.
+2. **Pågår:** integrer resterende G10-herding uten å miste BOLA-fiksene.
    Dev-bypass, tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og CSRF er
    ferdige lokalt; hemmelighetskryptering, TOTP/MFA og tilpasset RLS gjenstår.
 3. **Delvis utført lokalt:** SQL-injection-fiks, CMS-auth/opplasting og
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156
    commits gamle grenen samlet.
-4. Revider saks-, rapportmål/aktivitet-, eksport-, faktura- og e-postmalrutene for objekt-/tenantautorisasjon.
+4. **Utført i denne avgrensningen:** generisk eksport, faktura og eldre
+   saksrapport-/rapportdesignerruter er tenant-/eierskopet med 18/18 nye
+   tester. Migrasjon 067/068 og faktura-E2E er gjennomført; fortsett med saker,
+   rapportmål/-aktiviteter, e-postmaler, filer, søk og øvrig CMS/admin.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; full lokal Vitest-suite er grønn 443/443 mot utviklingsdatabase.
    Gjør deretter enhets-, DB-integrasjons-, BOLA- og E2E-tester generelt

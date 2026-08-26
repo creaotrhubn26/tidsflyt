@@ -1092,7 +1092,7 @@ export const pageAnalytics = pgTable("tidum_page_analytics", {
 // Case Reports table
 export const caseReports = pgTable("tidum_case_reports", {
   id: serial("id").primaryKey(),
-  vendorId: integer("vendor_id"),
+  vendorId: integer("vendor_id").notNull(),
   userId: text("user_id").notNull(),
   userCasesId: integer("user_cases_id"),
   caseId: text("case_id").notNull(),
@@ -1829,36 +1829,38 @@ export type UserTaskPrefs = typeof userTaskPrefs.$inferSelect;
 
 // ========== INVOICES ==========
 
-export const invoices = pgTable("invoices", {
+export const invoices = pgTable("tidum_invoices", {
   id: uuid("id").defaultRandom().primaryKey(),
+  vendorId: integer("vendor_id").notNull(),
   invoiceNumber: text("invoice_number").notNull(),
-  userId: text("user_id").notNull().default("default"),
+  userId: varchar("user_id").notNull(),
   clientName: text("client_name").notNull(),
+  clientOrgNumber: text("client_org_number"),
   clientEmail: text("client_email"),
   clientAddress: text("client_address"),
-  invoiceDate: text("invoice_date").notNull(),
-  dueDate: text("due_date").notNull(),
-  periodStart: text("period_start"),
-  periodEnd: text("period_end"),
-  subtotal: text("subtotal").default("0"),
-  taxRate: text("tax_rate").default("25"),
-  taxAmount: text("tax_amount").default("0"),
-  totalAmount: text("total_amount").default("0"),
-  currency: text("currency").default("NOK"),
-  status: text("status").default("draft"),
+  invoiceDate: date("invoice_date").notNull(),
+  dueDate: date("due_date").notNull(),
+  periodStart: date("period_start").notNull(),
+  periodEnd: date("period_end").notNull(),
+  subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
+  taxRate: numeric("tax_rate", { precision: 5, scale: 2 }).notNull().default("25"),
+  taxAmount: numeric("tax_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  totalAmount: numeric("total_amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  currency: varchar("currency", { length: 3 }).notNull().default("NOK"),
+  status: varchar("status", { length: 20 }).notNull().default("draft"),
   notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
 
-export const invoiceLineItems = pgTable("tidum_invoice_line_items", {
+export const invoiceLineItems = pgTable("tidum_invoice_items", {
   id: serial("id").primaryKey(),
   invoiceId: uuid("invoice_id").notNull(),
   description: text("description").notNull(),
-  quantity: text("quantity").default("0"),
-  unitPrice: text("unit_price").default("0"),
-  amount: text("amount").default("0"),
-  displayOrder: integer("display_order").default(0),
+  quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull().default("0"),
+  unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull().default("0"),
+  displayOrder: integer("display_order").notNull().default(0),
 });
 
 // ========== LEAVE MANAGEMENT ==========

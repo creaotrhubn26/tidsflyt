@@ -1,11 +1,16 @@
 # BOLA-sikkerhetsfikser — fremdriftsstatus
 
-Branch: `claude/integrasjoner-innhold` (PR #21)
+Branch: `codex/halden-krav-integrasjon` (første samlecommit `7562c5d`)
 Sist oppdatert: 2026-08-26
 
 ## Oppsummering
 
-To uavhengige BOLA-funn (broken object-level authorization) ble diagnostisert og fikset, hver gjennom flere runder der nye sikkerhetsgjennomganger fant hull i forrige runders fiks. De fire opprinnelige rundene er pushet. Den lokale arbeidsflaten etter `94f46c5` inneholder i tillegg database-/transaksjonsherding og en femte sikkerhetsrunde som er verifisert mot ekte utviklingsdatabase, men ennå ikke committet eller pushet.
+De to opprinnelige BOLA-funnene og den etterfølgende database-, transaksjons-
+og avhengighetsherdingen er samlet i commit `7562c5d` og pushet til den
+ikke-deployerende integrasjonsgrenen. En ny bred BOLA/IDOR-runde har deretter
+funnet og lukket objektlekkasjer i eksport, faktura, saksrapport,
+rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
+067 og 068 er varig brukt og verifisert på utviklingsdatabasen.
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -37,9 +42,12 @@ To uavhengige BOLA-funn (broken object-level authorization) ble diagnostisert og
    - gjøre `tidum_admin_users`-UPSERT-en atomisk med tenant-vilkår og kontroll av `RETURNING`;
    - validere leverandør-ID og teste to samtidige godkjenninger av samme e-post.
 
-**Status:** Lukket i lokal arbeidsflate. Runde 4s live probe bekreftet den opprinnelige kjeden død. Runde 5 har 8/8 dedikerte integrasjonstester, inkludert bulkimport og samtidighet. Hele suiten er grønn 443/443, `tsc` er rent og produksjonsbuild er grønn. Runde 5 er ikke committet eller pushet.
+**Status:** Lukket og pushet i `7562c5d`. Runde 4s live probe bekreftet den
+opprinnelige kjeden død. Runde 5 har 8/8 dedikerte integrasjonstester,
+inkludert bulkimport og samtidighet. Baselinesuiten var grønn 443/443,
+`tsc` var rent og produksjonsbuild var grønn før push.
 
-## 3. Lokal avhengighetsherding etter `94f46c5` (ikke pushet)
+## 3. Avhengighetsherding etter `94f46c5` (pushet i `7562c5d`)
 
 - Oppgradert sikkerhetsberørte direkte og transitive avhengigheter, blant annet
   Express, Multer, DOMPurify, Nodemailer, Sharp, WebSocket, Vite og Vitest.
@@ -60,9 +68,9 @@ tabellene (`users=5`, `tidum_roles=12`, `tidum_role_permissions=9`,
 produksjonsbuild er grønn. Testharnesset har i tillegg fått test-only
 `SESSION_SECRET`, eksplisitt auth-bypass i testene som trenger det, og vern mot
 at midlertidige testapper starter cronjobber eller seedere, også når en test
-midlertidig endrer `NODE_ENV`. Endringene er ikke committet eller pushet.
+midlertidig endrer `NODE_ENV`. Endringene er pushet i `7562c5d`.
 
-## 4. Leverandørskjema og tilgrensende herding etter `94f46c5` (ikke pushet)
+## 4. Leverandørskjema og tilgrensende herding (pushet i `7562c5d`)
 
 - Migrasjon `066_tidum_vendors.sql` oppretter den kanoniske, Tidum-eide
   `tidum_vendors`-tabellen. Den eksisterende CreatorHub-eide `vendors`-tabellen
@@ -85,14 +93,71 @@ midlertidig endrer `NODE_ENV`. Endringene er ikke committet eller pushet.
 skjematestene bekrefter tabellseparasjon, typer, unik organisasjonsnummerindeks
 og validert fremmednøkkel.
 
+## 5. Bred BOLA/IDOR-runde — eksport, faktura og saksrapport
+
+**Funn:**
+
+- `GET /api/export/{excel,csv,pdf}` godtok vilkårlig `userId`; `all` fjernet
+  alle bruker- og tenantvilkår og ga enhver innlogget bruker global eksport.
+- Fakturarutene brukte bare objekt-ID og stolte på klientstyrt `userId`.
+  Liste, lesing, endring, sletting, generering og «PDF» kunne krysse brukere og
+  tenants. PATCH var mass assignment, sletting var ikke eierskapskontrollert,
+  og «PDF» var usanitert HTML. Koden pekte dessuten på CreatorHubs
+  inkompatible `invoices`-tabell, slik at normal opprettelse var brukket.
+- Saksrapporter kunne listes for vilkårlig `user_id` og leses, endres, slettes
+  eller sendes inn ved å endre ID. Klienten kunne sette `approved` selv.
+  Interne kommentarer kunne hentes med `include_internal=true`, og
+  `authenticateAdmin`-rutene manglet både rollekontroll og tenant-filter.
+  Samme mønster gjaldt rapportmaler, ressurser, PDF-generering og historikk.
+- Oppstartsfunksjonen kunne droppe hele `tidum_case_reports` dersom den fant et
+  eldre skjema.
+
+**Fiks:**
+
+- Eksport er egenbruk som standard. Bare lederroller med gyldig `vendor_id`
+  kan velge annen bruker eller `all`, og databasespørringen beholder alltid
+  tenantvilkåret. Datoer og periode valideres, rå databasefeil skjules,
+  regnearkformler nøytraliseres og HTML-felt escapes.
+- Migrasjon 067 oppretter egne `tidum_invoices`/`tidum_invoice_items` uten å
+  endre CreatorHub-tabellen. Alle fakturaoperasjoner bruker serveravledet
+  bruker + tenant, PATCH har feltliste, opprettelse er transaksjonell, FK-
+  cascade gjør sletting atomisk, klient/API-kontrakten er samstemt og PDFKit
+  produserer en reell PDF.
+- Saksrapport- og kommentaroperasjoner bruker serveridentitet, eier og tenant.
+  Status kan bare endres gjennom eksplisitte arbeidsflytruter. Adminruter
+  krever leder/adminrolle og er tenantskopet; globale systemblokker kan bare
+  seedes av global `super_admin`. Maler, ressurser, generering og historikk har
+  samme scope. Destruktiv startup-drop er fjernet.
+- Migrasjon 068 gjør `case_reports.vendor_id` obligatorisk etter entydig
+  backfill og legger validerte cascade-FK-er fra kommentarer og historikk.
+
+**Bevis:** 18/18 nye sikkerhetstester består. Saksrapporttestene bruker to
+tenants i ekte Neon-utviklingsdatabase og dekker rapporter, kommentarer,
+maler, ressurser, PDF-generering og historikk. Fire fakturatester verifiserer
+liste/lese/endre/slette/PDF, avvist fremmed `userId`, serveravledet eierskap,
+tenantavgrensede timelinjer, beløpsberegning, reell PDF og FK-cascade.
+Migrasjon 067/068 er både rollback-prøvd og varig anvendt; `vendor_id` er
+obligatorisk, fremmednøkler er validerte og CreatorHubs eldre fakturatabell er
+urørt. Testfiksurer er ryddet. En full kjøring ga 454 beståtte og tre
+timeout/ECONNRESET-feil under en treg delt DB-forbindelse; de tre berørte
+filene besto deretter isolert 8/8, 7/7 og 13/13. `tsc` er rent.
+
+Produksjonsbuild og `tsc` er grønne etter endringene.
+
+**Status:** Denne avgrensede runden er lukket med migrasjon og
+databaseintegrasjonstest. Full systemomfattende BOLA-matrise og ekstern
+uavhengig pentest gjenstår som egne leveranseaktiviteter.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
   transaksjon og predikerbar passordentropi) er nå rettet.
 - De åtte eksisterende radene i `tidum_company_users` var til stede før dette
   testløpet og ble ikke slettet uten uttrykkelig beslutning om datarydding.
-- Den brede BOLA/IDOR-gjennomgangen av alle øvrige saks-, rapport-, eksport-,
-  faktura-, fil- og CMS-ruter gjenstår som eget anskaffelses-/sikkerhetsspor.
+- Første brede BOLA/IDOR-pakke er gjennomført for generisk eksport, faktura og
+  den eldre saksrapport-/rapportdesignerflyten. Øvrige saker, rapportmål og
+  aktiviteter, e-postmaler, filer, søk, bakgrunnsjobber og CMS/adminflater
+  gjenstår i den systematiske endepunktsmatrisen.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede
   korrekt username/password-håndtering; ingen handling er nødvendig for akkurat
   dette punktet.
