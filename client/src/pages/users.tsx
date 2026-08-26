@@ -260,7 +260,7 @@ export default function UsersPage() {
 
   const approveMutation = useMutation({
     mutationFn: async ({ id, approved }: { id: number; approved: boolean }) => {
-      return apiRequest('PATCH', `/api/company/users/${id}`, { approved });
+      return apiRequest('PATCH', `/api/company/users/${id}`, { approved, company_id: companyId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });
@@ -270,7 +270,7 @@ export default function UsersPage() {
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      return apiRequest('DELETE', `/api/company/users/${id}`);
+      return apiRequest('DELETE', `/api/company/users/${id}`, { company_id: companyId });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/company/users'] });

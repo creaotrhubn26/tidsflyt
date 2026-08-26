@@ -1,6 +1,7 @@
 import type { Express } from "express";
 import express from "express";
 import { type Server } from "http";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
 
@@ -13,6 +14,10 @@ import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/rec
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
+import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
+import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
+import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
+import { setupFiksIoReceiver } from "./fiks-io/receiver";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -48,7 +53,7 @@ import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
 import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users, pricingTiers, salesRoutingRules, leadPipelineStages } from "@shared/schema";
-import { eq, and, isNull, desc, sql, asc, lte, gte, or } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, asc, lte, gte, or, ne } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -56,8 +61,9 @@ import sharp from "sharp";
 import { z } from "zod";
 import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
-import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
-import { canAccessVendorApiAdmin, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { setupEntraIdAuth } from "./entra-id-auth";
+import { requireAuth as requireAnyAuth, requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
+import { canAccessVendorApiAdmin, isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
 import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
@@ -94,6 +100,11 @@ const timerSessionSchema = z.object({
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
 
+// Transaction-client type for the access-request approval helpers below —
+// derived from db.transaction's own callback param so it always matches
+// whatever drizzle-orm/node-postgres actually hands us.
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 function slugifyVendorName(input: string): string {
   return input
     .trim()
@@ -106,6 +117,7 @@ function slugifyVendorName(input: string): string {
 }
 
 async function ensureVendorForAccessRequest(
+  tx: DbTx,
   request: typeof accessRequests.$inferSelect,
 ): Promise<number> {
   const companyName = request.company?.trim() || request.fullName.trim();
@@ -113,22 +125,43 @@ async function ensureVendorForAccessRequest(
     throw new Error("Access request is missing organization details");
   }
 
-  const [existingByName] = await db
-    .select({ id: vendors.id })
-    .from(vendors)
-    .where(sql`lower(${vendors.name}) = lower(${companyName})`)
-    .limit(1);
-
-  if (existingByName) {
-    return existingByName.id;
+  const orgNumber = request.orgNumber?.replace(/\s/g, "") || null;
+  if (orgNumber && !/^\d{9}$/.test(orgNumber)) {
+    throw new Error("INVALID_ORG_NUMBER");
   }
 
   const slugBase = slugifyVendorName(companyName) || "vendor";
+  // Serialize all candidates that normalize to the same slug. This removes
+  // the SELECT-then-INSERT race without taking a table-wide lock.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`tidum-vendor:${slugBase}`}))`,
+  );
+
+  if (orgNumber) {
+    const [existingByOrgNumber] = await tx
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(eq(vendors.orgNumber, orgNumber))
+      .limit(1);
+    if (existingByOrgNumber) {
+      return existingByOrgNumber.id;
+    }
+  } else {
+    const [existingByName] = await tx
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(sql`lower(${vendors.name}) = lower(${companyName})`)
+      .limit(1);
+    if (existingByName) {
+      return existingByName.id;
+    }
+  }
+
   let slug = slugBase;
-  let counter = 1;
+  let counter = 0;
 
   while (true) {
-    const [existingSlug] = await db
+    const [existingSlug] = await tx
       .select({ id: vendors.id })
       .from(vendors)
       .where(eq(vendors.slug, slug))
@@ -139,15 +172,15 @@ async function ensureVendorForAccessRequest(
     }
 
     counter += 1;
-    slug = `${slugBase}-${counter}`;
+    slug = `${slugBase}-${request.id}${counter > 1 ? `-${counter}` : ""}`;
   }
 
-  const [createdVendor] = await db
+  const [createdVendor] = await tx
     .insert(vendors)
     .values({
       name: companyName,
       slug,
-      orgNumber: request.orgNumber ?? null,
+      orgNumber,
       institutionType: request.institutionType ?? null,
       email: request.email ?? null,
       phone: request.phone ?? null,
@@ -161,20 +194,42 @@ async function ensureVendorForAccessRequest(
 }
 
 async function ensureHovedadminForAccessRequest(
+  tx: DbTx,
   request: typeof accessRequests.$inferSelect,
   vendorId: number,
   hovedadminEmail: string,
   hovedadminName: string | null,
 ): Promise<void> {
   const email = hovedadminEmail.trim().toLowerCase();
+
+  // Fail closed FØR INSERT-en: uten denne vakten
+  // overskriver ON CONFLICT (email) DO UPDATE under ubetinget vendor_id,
+  // role OG password_hash på en HVILKEN SOM HELST eksisterende rad som
+  // matcher e-posten — inkludert en rad som tilhører en annen vendor
+  // (kontoovertakelse via en angripers alt_hovedadmin_email, se
+  // applyAccessRequestDecision). Kallstedene fanger denne meldingen og
+  // svarer 409.
+  const conflictingAdmin = await tx.execute(
+    sql`SELECT 1 FROM tidum_admin_users
+        WHERE LOWER(email) = ${email}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingAdmin.rows.length > 0) {
+    throw new Error("HOVEDADMIN_TENANT_MISMATCH");
+  }
+
   const usernameBase =
     slugifyVendorName(hovedadminName || request.company || email.split("@")[0] || "hovedadmin") ||
     "hovedadmin";
-  const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
+  // The password is never shown or used for login (magic-link is the real
+  // invite path), but the legacy NOT NULL column must still receive a secret
+  // that cannot be guessed from email address and invitation time.
+  const passwordHash = await bcrypt.hash(randomBytes(32).toString("base64url"), 10);
 
-  await pool.query(
-    `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
-     VALUES ($1, $2, $3, 'hovedadmin', $4, true, NOW())
+  const upsertedAdmin = await tx.execute(
+    sql`INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
+     VALUES (${usernameBase}, ${email}, ${passwordHash}, 'hovedadmin', ${vendorId}, true, NOW())
      ON CONFLICT (email)
      DO UPDATE SET
        username = EXCLUDED.username,
@@ -182,53 +237,98 @@ async function ensureHovedadminForAccessRequest(
        role = 'hovedadmin',
        vendor_id = EXCLUDED.vendor_id,
        is_active = true,
-       updated_at = NOW()`,
-    [usernameBase, email, passwordHash, vendorId],
+       updated_at = NOW()
+     WHERE tidum_admin_users.vendor_id IS NOT DISTINCT FROM EXCLUDED.vendor_id
+     RETURNING id`,
   );
+  // The pre-check gives a clear fast failure, while the conditional UPSERT is
+  // the actual race-safe guard if another tenant claims the email between
+  // SELECT and INSERT.
+  if (upsertedAdmin.rows.length === 0) {
+    throw new Error("HOVEDADMIN_TENANT_MISMATCH");
+  }
 }
 
-async function syncApprovedPortalUser(email: string, role: string, vendorId: number | null) {
+async function syncApprovedPortalUser(tx: DbTx, email: string, role: string, vendorId: number) {
   const normalizedRole = normalizeRole(role);
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // A bulk-imported employee may exist only in tidum_company_users. Treat
+  // that ownership as authoritative too; otherwise approval could create a
+  // new admin/users identity for the same email under another tenant.
+  const conflictingCompanyUser = await tx.execute(
+    sql`SELECT 1 FROM tidum_company_users
+        WHERE LOWER(user_email) = ${normalizedEmail}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingCompanyUser.rows.length > 0) {
+    throw new Error("COMPANY_USER_TENANT_MISMATCH");
+  }
+
+  const conflictingPortalUser = await tx.execute(
+    sql`SELECT 1 FROM users
+        WHERE LOWER(email) = ${normalizedEmail}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingPortalUser.rows.length > 0) {
+    throw new Error("PORTAL_USER_TENANT_MISMATCH");
+  }
+
+  // LOWER(email) matcher det case-insensitive innloggingsoppslaget i
+  // custom-auth.ts og vakten i ensureHovedadminForAccessRequest — en
+  // case-eksakt WHERE her ville la en annen-case e-post smette forbi
+  // tenant-sjekken under (kontoovertakelse).
+  const [existingUser] = await tx
+    .select()
+    .from(users)
+    .where(sql`LOWER(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
 
   if (existingUser) {
-    await db
+    // Fail closed FØR UPDATE-en: uten denne vakten overskriver denne
+    // ubetinget role/vendorId for en hvilken som helst eksisterende
+    // users-rad matchet på e-post, uansett eksisterende vendorId
+    // (kontoovertakelse — samme angrepsvei som over). Kallstedene fanger
+    // denne meldingen og svarer 409.
+    await tx
       .update(users)
       .set({
-        email,
+        email: normalizedEmail,
         role: normalizedRole,
         vendorId,
         updatedAt: new Date(),
       })
       .where(eq(users.id, existingUser.id));
   } else {
-    await db.insert(users).values({
-      email,
-      role: normalizedRole,
-      vendorId,
-    });
+    // username/password er NOT NULL-kolonner på det delte public.users-
+    // tabellen (eid av et urelatert produkt) uten default og uten felt i
+    // Drizzle-schemaet — et rått insert uten dem feiler med 23502. Samme
+    // placeholder-mønster som smartTimingRoutes.ts sin identiske
+    // users-insert: magic-link er den reelle auth-veien, så passordet
+    // leses aldri.
+    await tx.execute(
+      sql`INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES (${normalizedEmail}, 'unused-admin-users-pairing', ${normalizedEmail}, ${normalizedRole}, ${vendorId})`,
+    );
   }
 
-  if (vendorId) {
-    const existingCompanyUser = await pool.query(
-      `SELECT id FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
-      [vendorId, email]
-    );
+  const existingCompanyUser = await tx.execute(
+    sql`SELECT id FROM tidum_company_users WHERE company_id = ${vendorId} AND LOWER(user_email) = LOWER(${normalizedEmail}) LIMIT 1`,
+  );
 
-    if (existingCompanyUser.rows.length > 0) {
-      await pool.query(
-        `UPDATE tidum_company_users
-         SET role = $1, approved = true, updated_at = NOW()
-         WHERE id = $2`,
-        [normalizedRole, existingCompanyUser.rows[0].id]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
-         VALUES ($1, $1, $2, $3, true)`,
-        [vendorId, email, normalizedRole]
-      );
-    }
+  if (existingCompanyUser.rows.length > 0) {
+    await tx.execute(
+      sql`UPDATE tidum_company_users
+         SET role = ${normalizedRole}, approved = true, updated_at = NOW()
+         WHERE id = ${existingCompanyUser.rows[0].id}`,
+    );
+  } else {
+    await tx.execute(
+      sql`INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES (${vendorId}, ${vendorId}, ${normalizedEmail}, ${normalizedRole}, true)`,
+    );
   }
 }
 
@@ -361,62 +461,100 @@ async function applyAccessRequestDecision({
   role?: string | null;
   reviewedBy?: string | null;
 }) {
-  const approvedRole = normalizeRole(role || "tiltaksleder");
+  // Atomic: request lock/read + optional vendor creation + request update +
+  // hovedadmin provisioning all happen in one transaction. No orphan vendor,
+  // admin or portal row can survive a later guard or write failure.
+  const decision = await db.transaction(async (tx) => {
+    const [request] = await tx
+      .select()
+      .from(accessRequests)
+      .where(eq(accessRequests.id, requestId))
+      .limit(1)
+      .for("update");
 
-  const [request] = await db
-    .select()
-    .from(accessRequests)
-    .where(eq(accessRequests.id, requestId))
-    .limit(1);
+    if (!request) {
+      throw new Error("Request not found");
+    }
 
-  if (!request) {
-    throw new Error("Request not found");
-  }
+    const effectiveVendorId =
+      status === "approved"
+        ? (vendorId != null
+            ? Number(vendorId)
+            : await ensureVendorForAccessRequest(tx, request))
+        : null;
+    if (
+      status === "approved" &&
+      (!Number.isSafeInteger(effectiveVendorId) || (effectiveVendorId ?? 0) <= 0)
+    ) {
+      throw new Error("INVALID_VENDOR_ID");
+    }
 
-  const updateData: Record<string, unknown> = {
-    status,
-    reviewedBy: reviewedBy ?? null,
-    reviewedAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const effectiveVendorId =
-    status === "approved"
-      ? (vendorId ? Number(vendorId) : await ensureVendorForAccessRequest(request))
+    // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
+    // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
+    const hovedadminEmailRaw = request.isHovedadmin
+      ? request.email
+      : (request.altHovedadminEmail || request.email);
+    const hovedadminEmail = hovedadminEmailRaw
+      ? hovedadminEmailRaw.trim().toLowerCase()
       : null;
+    const hovedadminName = request.isHovedadmin
+      ? request.fullName
+      : (request.altHovedadminName || request.fullName);
 
-  if (status === "approved") {
-    updateData.vendorId = effectiveVendorId;
-  }
+    const updateData: Record<string, unknown> = {
+      status,
+      reviewedBy: reviewedBy ?? null,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (status === "approved") {
+      updateData.vendorId = effectiveVendorId;
+    }
 
-  const [updated] = await db
-    .update(accessRequests)
-    .set(updateData)
-    .where(eq(accessRequests.id, requestId))
-    .returning();
+    const [updatedRow] = await tx
+      .update(accessRequests)
+      .set(updateData)
+      .where(eq(accessRequests.id, requestId))
+      .returning();
 
-  // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
-  // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
-  const hovedadminEmail = request.isHovedadmin
-    ? request.email
-    : (request.altHovedadminEmail || request.email);
-  const hovedadminName = request.isHovedadmin
-    ? request.fullName
-    : (request.altHovedadminName || request.fullName);
+    if (status === "approved" && hovedadminEmail) {
+      const approvedVendorId = effectiveVendorId;
+      if (approvedVendorId == null) {
+        throw new Error("INVALID_VENDOR_ID");
+      }
+      await ensureHovedadminForAccessRequest(
+        tx,
+        request,
+        approvedVendorId,
+        hovedadminEmail,
+        hovedadminName,
+      );
+      await syncApprovedPortalUser(
+        tx,
+        hovedadminEmail,
+        "hovedadmin",
+        approvedVendorId,
+      );
+    }
 
-  if (status === "approved" && hovedadminEmail) {
-    await ensureHovedadminForAccessRequest(
+    return {
+      updated: updatedRow,
       request,
-      effectiveVendorId as number,
+      effectiveVendorId,
       hovedadminEmail,
       hovedadminName,
-    );
-    await syncApprovedPortalUser(
-      hovedadminEmail,
-      "hovedadmin",
-      effectiveVendorId,
-    );
+    };
+  });
 
+  const {
+    updated,
+    request,
+    effectiveVendorId,
+    hovedadminEmail,
+    hovedadminName,
+  } = decision;
+
+  if (status === "approved" && hovedadminEmail) {
     // Insert-time seat-overrun-check (T17). Approval skaper en hovedadmin
     // som teller mot seat-cap. Best-effort — skal ikke blokkere approval.
     if (effectiveVendorId != null) {
@@ -1551,12 +1689,14 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   const hasDatabaseConnection = hasDatabaseConnectionString();
+  const shouldRunStartupJobs = process.env.NODE_ENV !== "test" && !process.env.VITEST;
   const shouldSeedLocalData =
     process.env.NODE_ENV !== "production" && !hasDatabaseConnection;
   
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
   await setupEidAuth(app);
+  await setupEntraIdAuth(app);
 
   // Never seed data automatically in production.
   if (shouldSeedLocalData) {
@@ -1704,7 +1844,7 @@ export async function registerRoutes(
       `SELECT data_type, udt_name
          FROM information_schema.columns
         WHERE table_schema = current_schema()
-          AND table_name = 'vendors'
+          AND table_name = 'tidum_vendors'
           AND column_name = 'id'
         LIMIT 1`,
     );
@@ -1718,7 +1858,7 @@ export async function registerRoutes(
       vendorIdColumn?.udt_name === "int4" ||
       vendorIdColumn?.udt_name === "int8";
     const integrationVendorReferenceSql = vendorIdSupportsIntegerForeignKey
-      ? "REFERENCES vendors(id)"
+      ? "REFERENCES tidum_vendors(id)"
       : "";
 
     await pool.query(`
@@ -2008,7 +2148,7 @@ export async function registerRoutes(
     if (Number.isFinite(vendorIdRaw) && vendorIdRaw > 0) {
       try {
         const logoResult = await pool.query(
-          `SELECT logo_url FROM vendors WHERE id = $1 LIMIT 1`,
+          `SELECT logo_url FROM tidum_vendors WHERE id = $1 LIMIT 1`,
           [vendorIdRaw],
         );
         hasLogo = Boolean(String(logoResult.rows[0]?.logo_url || "").trim());
@@ -2510,7 +2650,7 @@ export async function registerRoutes(
                         END * GREATEST(COALESCE(v.max_users, 0), 0)
                       )::float8 AS estimated_mrr_value
                  FROM tidum_integration_interest_primary p
-                 JOIN vendors v ON v.id::text = p.vendor_id::text
+                 JOIN tidum_vendors v ON v.id = p.vendor_id
              GROUP BY p.integration_key
               ) mrr_values
            ON mrr_values.integration_key = c.key
@@ -3048,7 +3188,7 @@ export async function registerRoutes(
                   p.updated_at
              FROM tidum_integration_interest_primary p
         LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = p.vendor_id
             WHERE p.requested_by_user_id = $1
          ORDER BY p.created_at DESC`,
           [authUserId],
@@ -3064,7 +3204,7 @@ export async function registerRoutes(
                   s.updated_at
              FROM tidum_integration_interest_signals s
         LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = s.vendor_id
             WHERE s.user_id = $1
          ORDER BY s.created_at DESC`,
           [authUserId],
@@ -3137,7 +3277,7 @@ export async function registerRoutes(
                   p.updated_at
              FROM tidum_integration_interest_primary p
         LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = p.vendor_id
         LEFT JOIN users requester ON requester.id = p.requested_by_user_id
             ${primaryConditions.length ? `WHERE ${primaryConditions.join(" AND ")}` : ""}
          ORDER BY p.created_at DESC`,
@@ -3158,7 +3298,7 @@ export async function registerRoutes(
                   s.updated_at
              FROM tidum_integration_interest_signals s
         LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = s.vendor_id
         LEFT JOIN users signal_user ON signal_user.id = s.user_id
             ${signalConditions.length ? `WHERE ${signalConditions.join(" AND ")}` : ""}
          ORDER BY s.created_at DESC`,
@@ -3854,7 +3994,17 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
       }
-      res.status(500).json({ error: error.message });
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
+      }
+      if (String(error?.message || "").includes("INVALID_ORG_NUMBER")) {
+        return res.status(400).json({ error: "Organisasjonsnummer må være 9 siffer" });
+      }
+      if (String(error?.message || "").includes("INVALID_VENDOR_ID")) {
+        return res.status(400).json({ error: "Ugyldig leverandør-ID" });
+      }
+      console.error("Access request decision error:", error);
+      res.status(500).json({ error: "Could not update request" });
     }
   });
 
@@ -3865,7 +4015,7 @@ export async function registerRoutes(
       }
 
       const { rows } = await pool.query(
-        `SELECT id, name FROM vendors ORDER BY LOWER(name) ASC`,
+        `SELECT id, name FROM tidum_vendors ORDER BY LOWER(name) ASC`,
       );
       res.json(rows);
     } catch (error: any) {
@@ -3911,8 +4061,17 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
       }
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
+      }
+      if (String(error?.message || "").includes("INVALID_ORG_NUMBER")) {
+        return res.status(400).json({ error: "Organisasjonsnummer må være 9 siffer" });
+      }
+      if (String(error?.message || "").includes("INVALID_VENDOR_ID")) {
+        return res.status(400).json({ error: "Ugyldig leverandør-ID" });
+      }
       console.error("CreatorHub status sync error:", error);
-      res.status(500).json({ error: error.message || "Could not update request" });
+      res.status(500).json({ error: "Could not update request" });
     }
   });
   
@@ -4366,7 +4525,10 @@ export async function registerRoutes(
   app.get("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      // Fail-closed: kommune-roller skal aldri kunne lese/endre disse globale,
+      // vendor-brede innstillingene — se resolveActorRoleForCompany i
+      // smartTimingRoutes.ts for samme guard og full begrunnelse.
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const defaults = await readSuggestionTeamDefaults();
@@ -4379,7 +4541,7 @@ export async function registerRoutes(
   app.patch("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
 
@@ -5442,12 +5604,96 @@ export async function registerRoutes(
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
-      const { title, linkedUrl, linkedLabel } = req.body;
+      const { title, linkedUrl, linkedLabel, assigneeUserId, dueAt } = req.body;
       if (!title || typeof title !== "string" || !title.trim()) {
         return res.status(400).json({ error: "title is required" });
       }
-      const task = await storage.createDashboardTask(userId, title.trim(), linkedUrl, linkedLabel);
+
+      let targetUserId = userId;
+      let assignedByUserId: string | undefined;
+      const parsedDueAt = dueAt ? new Date(dueAt) : undefined;
+
+      if (assigneeUserId && assigneeUserId !== userId) {
+        const actorRole = String(req.user?.role || "");
+        // Fail-closed defense-in-depth: kommune-roller skal aldri kvalifisere
+        // som aktør her, uansett rang — samme guard som
+        // resolveActorRoleForCompany (smartTimingRoutes.ts). Ikke i dag
+        // umiddelbart utnyttbart alene (vendorId-sjekket under stopper
+        // kommune-brukere, som alltid har vendorId=null), men lukker samme
+        // rangkollisjon som gjorde den andre stien kritisk.
+        const allowed = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
+        if (!allowed) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const actorVendorId = req.user?.vendorId;
+        if (!actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const [targetUser] = await db
+          .select({ vendorId: users.vendorId })
+          .from(users)
+          .where(eq(users.id, assigneeUserId));
+        if (!targetUser || targetUser.vendorId !== actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        targetUserId = assigneeUserId;
+        assignedByUserId = userId;
+      }
+
+      const task = await storage.createDashboardTask(
+        targetUserId,
+        title.trim(),
+        linkedUrl,
+        linkedLabel,
+        assignedByUserId,
+        parsedDueAt,
+      );
+
+      if (assignedByUserId) {
+        await createNotification({
+          userId: targetUserId,
+          type: "task_assigned",
+          title: "Ny oppgave tildelt",
+          message: title.trim(),
+          link: "/dashboard",
+          createdBy: assignedByUserId,
+        });
+      }
+
       res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/tasks/assignable-colleagues", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const actorRole = String(req.user?.role || "");
+      // Fail-closed defense-in-depth, same guard/rationale as POST /api/tasks above.
+      const canAssign = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
+      if (!canAssign) {
+        return res.json({ canAssign: false, colleagues: [] });
+      }
+
+      const vendorId = req.user?.vendorId;
+      if (!vendorId) {
+        return res.json({ canAssign: true, colleagues: [] });
+      }
+
+      const colleagueRows = await db
+        .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email })
+        .from(users)
+        .where(and(eq(users.vendorId, vendorId), ne(users.id, userId)));
+
+      const colleagues = colleagueRows.map((u) => ({
+        id: u.id,
+        name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || u.id,
+      }));
+
+      res.json({ canAssign: true, colleagues });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -6085,8 +6331,8 @@ export async function registerRoutes(
   // Builder Pages CRUD (Visual Editor)
   // ═══════════════════════════════════════════
 
-  // List all builder pages
-  app.get("/api/cms/builder-pages", async (_req, res) => {
+  // List all builder pages, including drafts and scheduled content (admin only).
+  app.get("/api/cms/builder-pages", requireAdminRole, async (_req, res) => {
     try {
       const pages = await db.select().from(builderPages).orderBy(desc(builderPages.updatedAt));
       res.json(pages);
@@ -6095,11 +6341,17 @@ export async function registerRoutes(
     }
   });
 
-  // Get a single builder page by id
-  app.get("/api/cms/builder-pages/:id", async (req, res) => {
+  // The public slug route must be registered before /:id. Otherwise Express
+  // treats the literal "slug" segment as an id and never reaches this route.
+  app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
     try {
-      const id = parseInt(req.params.id);
-      const [page] = await db.select().from(builderPages).where(eq(builderPages.id, id));
+      const [page] = await db
+        .select()
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.slug, req.params.slug),
+          eq(builderPages.status, "published"),
+        ));
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
     } catch (error: any) {
@@ -6107,10 +6359,14 @@ export async function registerRoutes(
     }
   });
 
-  // Get a builder page by slug (for public rendering)
-  app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
+  // Get a single builder page by id, including non-public content (admin only).
+  app.get("/api/cms/builder-pages/:id", requireAdminRole, async (req, res) => {
     try {
-      const [page] = await db.select().from(builderPages).where(eq(builderPages.slug, req.params.slug));
+      const id = parseInt(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: "Invalid page id" });
+      }
+      const [page] = await db.select().from(builderPages).where(eq(builderPages.id, id));
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
     } catch (error: any) {
@@ -6413,7 +6669,10 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cms/upload", cmsUpload.single('image'), async (req: any, res) => {
+  // Shared by the CMS, report-logo editor and authenticated email composer.
+  // Requiring an authenticated user closes public disk writes without
+  // breaking legitimate non-admin attachment/logo flows.
+  app.post("/api/cms/upload", requireAnyAuth, cmsUpload.single('image'), async (req: any, res) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const originalPath = req.file.path;
@@ -6531,8 +6790,10 @@ export async function registerRoutes(
     }
   };
 
-  // Check every minute
-  setInterval(checkScheduledPages, 60 * 1000);
+  // Check every minute in the real server process, not in temporary test apps.
+  if (shouldRunStartupJobs) {
+    setInterval(checkScheduledPages, 60 * 1000);
+  }
 
   // Register feature routes
   registerLeaveRoutes(app);
@@ -6559,8 +6820,9 @@ export async function registerRoutes(
   registerArchiveRoutes(app);
   registerEmployeeImportRoutes(app);
   registerSeatOverrunRoutes(app);
+  registerTaskEscalationRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
-  if (process.env.RECURRING_CRON_DISABLED !== 'true') {
+  if (shouldRunStartupJobs && process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
     setupRapportReminderCron();
     setupLeaveRolloverCron();
@@ -6568,14 +6830,21 @@ export async function registerRoutes(
     setupGdprCron();
     setupActivityLogCron();
     setupSeatOverrunCron();
+    setupTaskEscalationCron();
+    setupFristEscalationCron();
     setupArchiveCron();
   }
-  // Seed system rapport templates (idempotent — safe to run on every boot)
-  seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));
+  // Seed system rapport templates once per real server boot, never per test app.
+  if (shouldRunStartupJobs) {
+    void seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));
+  }
   registerExportRoutes(app);
   registerForwardRoutes(app);
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
+  registerFristEscalationRoutes(app);
+  registerBarnevernMeldingRoutes(app);
+  setupFiksIoReceiver(app);
   registerPricingRoutes(app);
   registerAnalyticsRoutes(app);
   registerStripeRoutes(app);

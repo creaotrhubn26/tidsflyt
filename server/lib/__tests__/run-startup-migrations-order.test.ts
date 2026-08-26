@@ -8,4 +8,16 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
   it("057_tidum_table_rename.sql er første oppføring", () => {
     expect(STARTUP_MIGRATIONS[0]).toBe("057_tidum_table_rename.sql");
   });
+
+  it("registrerer rapportmal-constrainten etter PR #21-migrasjonene", () => {
+    expect(STARTUP_MIGRATIONS).toContain("065_rapport_templates_constraints.sql");
+    expect(STARTUP_MIGRATIONS.indexOf("065_rapport_templates_constraints.sql"))
+      .toBeGreaterThan(STARTUP_MIGRATIONS.indexOf("064_barnevern_meldingsmottak.sql"));
+  });
+
+  it("oppretter Tidums vendor-tabell før 064 lager vendor-FK", () => {
+    expect(STARTUP_MIGRATIONS).toContain("066_tidum_vendors.sql");
+    expect(STARTUP_MIGRATIONS.indexOf("066_tidum_vendors.sql"))
+      .toBeLessThan(STARTUP_MIGRATIONS.indexOf("064_barnevern_meldingsmottak.sql"));
+  });
 });

@@ -1,7 +1,8 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, timestamp, real, numeric, date, time, serial, jsonb, uuid, varchar, uniqueIndex, index, pgEnum } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import { users } from "./models/auth";
 
 // Companies table
 export const companies = pgTable("tidum_companies", {
@@ -195,21 +196,34 @@ export const userSettings = pgTable("tidum_user_settings", {
 // Rapport templates — define which sections a saksrapport has for different
 // sectors (barnevern, NAV, kommune, helse, generell). System templates are
 // seeded by Tidum; vendors can clone and customize.
-export const rapportTemplates = pgTable("tidum_rapport_templates", {
-  id:                        uuid("id").defaultRandom().primaryKey(),
-  vendorId:                  integer("vendor_id"),
-  slug:                      text("slug").notNull(),
-  name:                      text("name").notNull(),
-  description:               text("description"),
-  suggestedInstitutionType:  text("suggested_institution_type"),
-  sections:                  jsonb("sections").notNull().default([]),
-  branding:                  jsonb("branding").default({}),
-  isSystem:                  boolean("is_system").default(false),
-  isActive:                  boolean("is_active").default(true),
-  createdBy:                 text("created_by"),
-  createdAt:                 timestamp("created_at").defaultNow(),
-  updatedAt:                 timestamp("updated_at").defaultNow(),
-});
+export const rapportTemplates = pgTable(
+  "tidum_rapport_templates",
+  {
+    id:                        uuid("id").defaultRandom().primaryKey(),
+    vendorId:                  integer("vendor_id"),
+    slug:                      text("slug").notNull(),
+    name:                      text("name").notNull(),
+    description:               text("description"),
+    suggestedInstitutionType:  text("suggested_institution_type"),
+    sections:                  jsonb("sections").notNull().default([]),
+    branding:                  jsonb("branding").default({}),
+    isSystem:                  boolean("is_system").default(false),
+    isActive:                  boolean("is_active").default(true),
+    createdBy:                 text("created_by"),
+    createdAt:                 timestamp("created_at").defaultNow(),
+    updatedAt:                 timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    // NULL vendor_id values are distinct in a normal compound UNIQUE index,
+    // so system and tenant templates need separate partial indexes.
+    uniqueVendorSlug: uniqueIndex("tidum_rapport_templates_vendor_slug_unique")
+      .on(table.vendorId, table.slug)
+      .where(sql`${table.vendorId} IS NOT NULL`),
+    uniqueSystemSlug: uniqueIndex("tidum_rapport_templates_system_slug_unique")
+      .on(table.slug)
+      .where(sql`${table.vendorId} IS NULL`),
+  }),
+);
 
 // Institutions a vendor (leverandør) works with — shared across all users in the vendor.
 // Used in "Ny sak", as a dropdown, for auto-forwarding rapporter, and for overtime rules.
@@ -470,7 +484,7 @@ export const quickTemplates = pgTable("tidum_quick_templates", {
 });
 
 // Vendors table - Leverandører som bruker Smart Timing
-export const vendors = pgTable("vendors", {
+export const vendors = pgTable("tidum_vendors", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
   slug: text("slug").notNull().unique(), // URL-vennlig identifikator
@@ -491,6 +505,113 @@ export const vendors = pgTable("vendors", {
   apiMonthlyPrice: numeric("api_monthly_price", { precision: 10, scale: 2 }).default("99.00"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Bestiller-side tenant-type (kommunal barnevernstjeneste). Egen tabell,
+// parallell til vendors — se migrations/063_kommuner.sql for hvorfor.
+export const kommuner = pgTable("tidum_kommuner", {
+  id:              serial("id").primaryKey(),
+  navn:            text("navn").notNull(),
+  orgNummer:       text("org_nummer").notNull().unique(),
+  kommunenummer:   text("kommunenummer"),
+  entraIdTenantId: text("entra_id_tenant_id"),
+  status:          text("status").notNull().default("active"),
+  createdAt:       timestamp("created_at").defaultNow(),
+  updatedAt:       timestamp("updated_at").defaultNow(),
+});
+
+export type Kommune = typeof kommuner.$inferSelect;
+
+export const insertKommuneSchema = createInsertSchema(kommuner, {
+  navn: z.string().min(1).max(200),
+  orgNummer: z.string().regex(/^\d{9}$/, "Organisasjonsnummer må være 9 siffer"),
+  kommunenummer: z.string().max(10).optional(),
+});
+
+export const barnevernMeldingStatusEnum = pgEnum("tidum_barnevern_melding_status", [
+  "mottatt",
+  "under_avklaring",
+  "henlagt",
+  "sendt_til_undersokelse",
+]);
+
+export const barnevernMeldingKildeEnum = pgEnum("tidum_barnevern_melding_kilde", [
+  "manuell",
+  "fiks_io",
+]);
+
+export const barnevernMeldinger = pgTable("tidum_barnevern_meldinger", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  meldingsnummer: text("meldingsnummer").notNull().unique(),
+  kilde: barnevernMeldingKildeEnum("kilde").notNull().default("manuell"),
+  mottattDato: timestamp("mottatt_dato", { withTimezone: true }).notNull(),
+  melderKategori: text("melder_kategori").notNull(),
+  melderNavn: text("melder_navn"),
+  melderKontakt: text("melder_kontakt"),
+  barnFodselsnummer: text("barn_fodselsnummer"),
+  barnNavn: text("barn_navn"),
+  beskrivelse: text("beskrivelse").notNull(),
+  status: barnevernMeldingStatusEnum("status").notNull().default("mottatt"),
+  tildeltSaksbehandlerId: varchar("tildelt_saksbehandler_id").references(() => users.id),
+  avklaringsfrist: timestamp("avklaringsfrist", { withTimezone: true }).notNull(),
+  avklartDato: timestamp("avklart_dato", { withTimezone: true }),
+  avklartAvUserId: varchar("avklart_av_user_id").references(() => users.id),
+  henleggelseBegrunnelse: text("henleggelse_begrunnelse"),
+  fiksMeldingId: text("fiks_melding_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_meldinger_kommune_idx").on(table.kommuneId, table.status),
+]);
+
+export type BarnevernMelding = typeof barnevernMeldinger.$inferSelect;
+
+export const barnevernMeldingVedlegg = pgTable("tidum_barnevern_melding_vedlegg", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  meldingId: uuid("melding_id").notNull().references(() => barnevernMeldinger.id, { onDelete: "cascade" }),
+  filename: text("filename").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const fristStatusEnum = pgEnum("tidum_frist_status", [
+  "aktiv",
+  "oppfylt",
+  "brutt",
+  "kansellert",
+]);
+
+export const frister = pgTable("tidum_frister", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  entityType: text("entity_type").notNull(),
+  entityId: text("entity_id").notNull(),
+  kommuneId: integer("kommune_id").references(() => kommuner.id),
+  vendorId: integer("vendor_id").references(() => vendors.id),
+  fristType: text("frist_type").notNull(),
+  dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+  status: fristStatusEnum("status").notNull().default("aktiv"),
+  varsletOffsets: integer("varslet_offsets").array().notNull().default(sql`'{}'::integer[]`),
+  notifyUserId: varchar("notify_user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_frister_active_idx").on(table.status, table.dueAt),
+  uniqueIndex("tidum_frister_entity_type_key").on(table.entityType, table.entityId, table.fristType),
+]);
+
+export type Frist = typeof frister.$inferSelect;
+
+export const fiksRawIntakeLog = pgTable("tidum_fiks_raw_intake_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  rawPayloadEncrypted: text("raw_payload_encrypted").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  processedAt: timestamp("processed_at", { withTimezone: true }),
+  processingError: text("processing_error"),
 });
 
 // API Keys table - for vendor API access
@@ -1685,6 +1806,9 @@ export const dashboardTasks = pgTable("tidum_dashboard_tasks", {
   linkedUrl: text("linked_url"),
   linkedLabel: text("linked_label"),
   snoozedUntil: timestamp("snoozed_until"),
+  assignedByUserId: text("assigned_by_user_id"),
+  dueAt: timestamp("due_at"),
+  escalatedAt: timestamp("escalated_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
@@ -2048,6 +2172,32 @@ export const rapporter = pgTable("tidum_rapporter", {
   updatedAt:       timestamp("updated_at").defaultNow(),
 });
 
+// Uforanderlig sak-journal — se migrations/062_sak_journal.sql. Ingen
+// updatedAt-kolonne: en rad som aldri kan endres trenger ingen
+// "sist endret"-tidsstempel; fraværet ER garantien gjort synlig i skjemaet.
+export const sakJournal = pgTable("tidum_sak_journal", {
+  id:               uuid("id").defaultRandom().primaryKey(),
+  sakId:            uuid("sak_id").notNull(),
+  userId:           integer("user_id").notNull(),
+  content:          text("content").notNull(),
+  correctsEntryId:  uuid("corrects_entry_id"),
+  createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const sakJournalAttachments = pgTable("tidum_sak_journal_attachments", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  journalEntryId:  uuid("journal_entry_id").notNull(),
+  filename:        text("filename").notNull(),
+  originalName:    text("original_name").notNull(),
+  mimeType:        text("mime_type").notNull(),
+  sizeBytes:       integer("size_bytes").notNull(),
+  uploadedBy:      integer("uploaded_by").notNull(),
+  uploadedAt:      timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
+});
+
+export type SakJournalEntry = typeof sakJournal.$inferSelect;
+export type SakJournalAttachment = typeof sakJournalAttachments.$inferSelect;
+
 // ── RAPPORT-MÅL ───────────────────────────────────────────────────────────────
 
 export const rapportMaal = pgTable("tidum_rapport_maal", {
@@ -2263,6 +2413,10 @@ export const insertRapportSchema = createInsertSchema(rapporter, {
   innledning:    z.string().max(5000).optional(),
   avslutning:    z.string().max(5000).optional(),
   dynamiskeFelter: z.record(z.string()).optional(),
+});
+
+export const insertSakJournalSchema = createInsertSchema(sakJournal, {
+  content: z.string().min(1).max(10000),
 });
 
 export const insertMaalSchema = createInsertSchema(rapportMaal, {

@@ -5,8 +5,19 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
-const isDevMode = process.env.NODE_ENV !== 'production';
+// Bearer tokens use a dedicated secret. A compromised session or magic-link
+// secret must not be sufficient to forge an API bearer token.
+export function requireAuthJwtSecret(): string {
+  const secret = process.env.AUTH_JWT_SECRET;
+  if (!secret) {
+    throw new Error("AUTH_JWT_SECRET er ikke konfigurert");
+  }
+  return secret;
+}
+
+export function isDevAuthBypassAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" && process.env.ALLOW_DEV_AUTH_BYPASS === "true";
+}
 
 /** Roles considered "admin-level" (can approve, manage users, etc.) */
 export const ADMIN_ROLES = ['tiltaksleder', 'teamleder', 'hovedadmin', 'admin', 'super_admin'];
@@ -23,7 +34,7 @@ function normalizeRoleName(role: string): string {
  * Returns true if the request is authenticated, false otherwise.
  */
 function authenticate(req: Request): boolean {
-  if (isDevMode) {
+  if (isDevAuthBypassAllowed()) {
     (req as any).authUser = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
     return true;
   }
@@ -31,7 +42,7 @@ function authenticate(req: Request): boolean {
   // Session-based (Google OAuth / passport)
   if (req.isAuthenticated?.() && req.user) {
     const u = req.user as any;
-    (req as any).authUser = { id: u.id, email: u.email, role: u.role };
+    (req as any).authUser = { id: u.id, email: u.email, role: u.role, vendorId: u.vendorId };
     return true;
   }
 
@@ -39,7 +50,7 @@ function authenticate(req: Request): boolean {
   const authHeader = req.headers.authorization;
   if (authHeader?.startsWith('Bearer ')) {
     try {
-      const decoded = jwt.verify(authHeader.split(' ')[1], JWT_SECRET) as any;
+      const decoded = jwt.verify(authHeader.split(' ')[1], requireAuthJwtSecret()) as any;
       (req as any).authUser = decoded;
       return true;
     } catch {

@@ -12,7 +12,11 @@ vite.config.ts.*
 
 # Runtime-generated directories
 uploads/
+private-uploads/
 .claude/
+
+# Superpowers SDD scratch workspaces (ledger/briefs/reports — git history is the record)
+.superpowers/sdd/
 
 # Playwright artifacts
 test-results/
@@ -27,3 +31,4 @@ ios/Tidum/Tidum.xcodeproj/
 ios/Tidum/*.xcworkspace/
 ios/Tidum/DerivedData/
 ios/Tidum/Tidum/Info.plist
+.opencode

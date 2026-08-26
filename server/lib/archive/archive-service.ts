@@ -24,15 +24,19 @@ import {
   rapportMaal,
   rapportTemplates,
   rapporter,
+  sakJournal,
+  sakJournalAttachments,
   saker,
   vendorTemplates,
   type ArchiveConfig,
   type ArchiveEntry,
 } from "@shared/schema";
 import { generateRapportPDF } from "../../rapportGenerator";
+import { downloadJournalAttachment } from "../journal-attachment-storage";
 import { openSecret } from "../secret-box";
 import { createArchiveProvider, type ArchiveProvider } from "./documaster-client";
 import {
+  buildJournalJournalpost,
   buildRapportJournalpost,
   buildSaksmappeSpec,
   nextAttemptDelayMs,
@@ -126,6 +130,55 @@ export async function queueRapportArchiving(
   return { queued: true, entryId: entry.id };
 }
 
+/**
+ * Legg en journaloppføring i arkiv-outboxen. Kalles umiddelbart ved
+ * opprettelse (ingen godkjenningsflyt å vente på, i motsetning til
+ * rapporter) — best-effort, samme outbox/backoff-mekanikk.
+ */
+export async function queueJournalEntryArchiving(
+  journalEntryId: string,
+): Promise<{ queued: boolean; reason?: string; entryId?: string }> {
+  const [entry] = await db.select().from(sakJournal).where(eq(sakJournal.id, journalEntryId)).limit(1);
+  if (!entry) return { queued: false, reason: "Journaloppføring ikke funnet" };
+
+  const [sak] = await db.select().from(saker).where(eq(saker.id, entry.sakId)).limit(1);
+  if (!sak) return { queued: false, reason: "Sak ikke funnet" };
+
+  const cfg = await getArchiveConfig(sak.vendorId);
+  if (!cfg || cfg.status !== "active") return { queued: false, reason: "Arkivintegrasjon ikke konfigurert" };
+
+  const [archiveEntry] = await db
+    .insert(archiveEntries)
+    .values({
+      vendorId: sak.vendorId,
+      entityType: "journal",
+      entityId: journalEntryId,
+      sakId: sak.id,
+      status: "pending",
+      triggerKind: "manual",
+      nextAttemptAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [archiveEntries.entityType, archiveEntries.entityId],
+      set: {
+        status: sql`CASE WHEN ${archiveEntries.status} = 'archived' THEN 'archived' ELSE 'pending' END`,
+        attempts: sql`CASE WHEN ${archiveEntries.status} = 'archived' THEN ${archiveEntries.attempts} ELSE 0 END`,
+        nextAttemptAt: new Date(),
+        error: null,
+        updatedAt: new Date(),
+      },
+    })
+    .returning();
+
+  if (archiveEntry.status === "archived") return { queued: false, reason: "Allerede arkivert", entryId: archiveEntry.id };
+
+  processArchiveEntry(archiveEntry.id).catch((err) =>
+    console.error(`[arkiv] umiddelbar prosessering feilet for ${archiveEntry.id}:`, err?.message ?? err),
+  );
+
+  return { queued: true, entryId: archiveEntry.id };
+}
+
 /** Prosesser én outbox-rad. Trygg å kalle flere ganger. */
 export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry> {
   const [entry] = await db.select().from(archiveEntries).where(eq(archiveEntries.id, entryId)).limit(1);
@@ -138,84 +191,131 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
     const provider = providerFor(cfg);
     const defaults = skjermingDefaults(cfg);
 
-    if (entry.entityType !== "rapport") throw new Error(`Ustøttet entity_type: ${entry.entityType}`);
+    if (entry.entityType === "rapport") {
+      const [rapport] = await db.select().from(rapporter).where(eq(rapporter.id, entry.entityId)).limit(1);
+      if (!rapport) throw new Error("Rapporten finnes ikke lenger");
+      if (!rapport.sakId) throw new Error("Rapporten er ikke knyttet til en sak");
+      const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
+      if (!sak) throw new Error("Saken finnes ikke lenger");
 
-    const [rapport] = await db.select().from(rapporter).where(eq(rapporter.id, entry.entityId)).limit(1);
-    if (!rapport) throw new Error("Rapporten finnes ikke lenger");
-    if (!rapport.sakId) throw new Error("Rapporten er ikke knyttet til en sak");
+      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
 
-    const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
-    if (!sak) throw new Error("Saken finnes ikke lenger");
+      if (!link) {
+        const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
+        [link] = await db
+          .insert(archiveCaseLinks)
+          .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
+          .onConflictDoUpdate({
+            target: archiveCaseLinks.sakId,
+            set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+          })
+          .returning();
+      }
 
-    // 1) Saksmappe: gjenbruk lenke, ellers finn/opprett i arkivkjernen.
-    let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
-    if (!link) {
-      const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
-      [link] = await db
-        .insert(archiveCaseLinks)
-        .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
-        .onConflictDoUpdate({
-          target: archiveCaseLinks.sakId,
-          set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+      const [aktiviteter, maal] = await Promise.all([
+        db.select().from(rapportAktiviteter).where(eq(rapportAktiviteter.rapportId, rapport.id)).orderBy(rapportAktiviteter.dato),
+        db.select().from(rapportMaal).where(eq(rapportMaal.rapportId, rapport.id)).orderBy(rapportMaal.nummer),
+      ]);
+      const template = rapport.templateId
+        ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, rapport.templateId)).limit(1))[0]
+        : undefined;
+      const rapportTemplate = rapport.rapportTemplateId
+        ? (await db.select().from(rapportTemplates).where(eq(rapportTemplates.id, rapport.rapportTemplateId)).limit(1))[0]
+        : null;
+      const pdf = await generateRapportPDF(template, { rapport, aktiviteter, maal, rapportTemplate: rapportTemplate as any });
+
+      const spec = buildRapportJournalpost(rapport, sak, pdf, defaults, { journalenhet: cfg.journalenhet ?? undefined });
+      const jp = await provider.createJournalpost(link.eksternMappeId, spec);
+
+      const [done] = await db
+        .update(archiveEntries)
+        .set({
+          status: "archived",
+          eksternMappeId: link.eksternMappeId,
+          eksternJournalpostId: jp.id,
+          journalpostIdent: jp.journalpostIdent,
+          payloadHash: createHash("sha256").update(pdf).digest("hex"),
+          skjerming: spec.skjerming as any,
+          error: null,
+          archivedAt: new Date(),
+          updatedAt: new Date(),
         })
+        .where(eq(archiveEntries.id, entry.id))
         .returning();
+
+      await db
+        .insert(rapportAuditLog)
+        .values({
+          rapportId: rapport.id,
+          userId: null,
+          userName: "Tidum (system)",
+          userRole: "system",
+          eventType: "archived",
+          eventLabel: `Arkivert som journalpost${jp.journalpostIdent ? ` ${jp.journalpostIdent}` : ""}`,
+          details: { provider: cfg.provider, eksternJournalpostId: jp.id, eksternMappeId: link.eksternMappeId, skjerming: spec.skjerming },
+        })
+        .catch((e: unknown) => console.error("[arkiv] audit-logg feilet:", e));
+
+      console.log(`📁 Arkiverte rapport ${rapport.id} → journalpost ${jp.id}`);
+      return done;
     }
 
-    // 2) PDF — samme datagrunnlag som videresending til oppdragsgiver.
-    const [aktiviteter, maal] = await Promise.all([
-      db.select().from(rapportAktiviteter).where(eq(rapportAktiviteter.rapportId, rapport.id)).orderBy(rapportAktiviteter.dato),
-      db.select().from(rapportMaal).where(eq(rapportMaal.rapportId, rapport.id)).orderBy(rapportMaal.nummer),
-    ]);
-    const template = rapport.templateId
-      ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, rapport.templateId)).limit(1))[0]
-      : undefined;
-    const rapportTemplate = rapport.rapportTemplateId
-      ? (await db.select().from(rapportTemplates).where(eq(rapportTemplates.id, rapport.rapportTemplateId)).limit(1))[0]
-      : null;
-    const pdf = await generateRapportPDF(template, { rapport, aktiviteter, maal, rapportTemplate: rapportTemplate as any });
+    if (entry.entityType === "journal") {
+      const [journalEntry] = await db.select().from(sakJournal).where(eq(sakJournal.id, entry.entityId)).limit(1);
+      if (!journalEntry) throw new Error("Journaloppføringen finnes ikke lenger");
+      const [sak] = await db.select().from(saker).where(eq(saker.id, journalEntry.sakId)).limit(1);
+      if (!sak) throw new Error("Saken finnes ikke lenger");
 
-    // 3) Journalpost med skjerming.
-    const spec = buildRapportJournalpost(rapport, sak, pdf, defaults, {
-      journalenhet: cfg.journalenhet ?? undefined,
-    });
-    const jp = await provider.createJournalpost(link.eksternMappeId, spec);
+      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
 
-    const [done] = await db
-      .update(archiveEntries)
-      .set({
-        status: "archived",
-        eksternMappeId: link.eksternMappeId,
-        eksternJournalpostId: jp.id,
-        journalpostIdent: jp.journalpostIdent,
-        payloadHash: createHash("sha256").update(pdf).digest("hex"),
-        skjerming: spec.skjerming as any,
-        error: null,
-        archivedAt: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(archiveEntries.id, entry.id))
-      .returning();
+      if (!link) {
+        const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
+        [link] = await db
+          .insert(archiveCaseLinks)
+          .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
+          .onConflictDoUpdate({
+            target: archiveCaseLinks.sakId,
+            set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+          })
+          .returning();
+      }
 
-    await db
-      .insert(rapportAuditLog)
-      .values({
-        rapportId: rapport.id,
-        userId: null,
-        userName: "Tidum (system)",
-        userRole: "system",
-        eventType: "archived",
-        eventLabel: `Arkivert som journalpost${jp.journalpostIdent ? ` ${jp.journalpostIdent}` : ""}`,
-        details: {
-          provider: cfg.provider,
-          eksternJournalpostId: jp.id,
+      const attachmentRows = await db
+        .select()
+        .from(sakJournalAttachments)
+        .where(eq(sakJournalAttachments.journalEntryId, journalEntry.id));
+      const attachments = await Promise.all(
+        attachmentRows.map(async (a) => ({
+          originalName: a.originalName,
+          mimeType: a.mimeType,
+          content: await downloadJournalAttachment(a.filename),
+        })),
+      );
+
+      const spec = buildJournalJournalpost(journalEntry, sak, attachments, defaults, { journalenhet: cfg.journalenhet ?? undefined });
+      const jp = await provider.createJournalpost(link.eksternMappeId, spec);
+
+      const [done] = await db
+        .update(archiveEntries)
+        .set({
+          status: "archived",
           eksternMappeId: link.eksternMappeId,
-          skjerming: spec.skjerming,
-        },
-      })
-      .catch((e: unknown) => console.error("[arkiv] audit-logg feilet:", e));
+          eksternJournalpostId: jp.id,
+          journalpostIdent: jp.journalpostIdent,
+          payloadHash: createHash("sha256").update(journalEntry.content).digest("hex"),
+          skjerming: spec.skjerming as any,
+          error: null,
+          archivedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(archiveEntries.id, entry.id))
+        .returning();
 
-    console.log(`📁 Arkiverte rapport ${rapport.id} → journalpost ${jp.id}`);
-    return done;
+      console.log(`📁 Arkiverte journalnotat ${journalEntry.id} → journalpost ${jp.id}`);
+      return done;
+    }
+
+    throw new Error(`Ustøttet entity_type: ${entry.entityType}`);
   } catch (err: any) {
     const attempts = entry.attempts + 1;
     const terminal = attempts >= MAX_ATTEMPTS;

@@ -113,7 +113,7 @@ interface VendorRetentionConfig {
 async function readVendorRetention(vendorId: number | null): Promise<VendorRetentionConfig> {
   if (!vendorId) return { ...GDPR_DEFAULTS };
   try {
-    const r = await pool.query('SELECT settings FROM vendors WHERE id = $1::text OR id::text = $1::text LIMIT 1', [String(vendorId)]);
+    const r = await pool.query('SELECT settings FROM tidum_vendors WHERE id = $1 LIMIT 1', [vendorId]);
     const settings = (r.rows[0]?.settings ?? {}) as Record<string, any>;
     const g = (settings.gdpr ?? {}) as Record<string, any>;
     const num = (v: any, d: number) => Number.isFinite(Number(v)) ? Number(v) : d;

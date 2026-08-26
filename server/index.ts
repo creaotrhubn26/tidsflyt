@@ -4,6 +4,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { runStartupMigrations } from "./lib/run-startup-migrations";
 import { createServer } from "http";
+import { createSecurityHeadersMiddleware } from "./lib/security-headers";
 
 const app = express();
 const httpServer = createServer(app);
@@ -29,6 +30,8 @@ app.use((_req, res, next) => {
   res.setHeader("Access-Control-Allow-Private-Network", "true");
   next();
 });
+
+app.use(createSecurityHeadersMiddleware());
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

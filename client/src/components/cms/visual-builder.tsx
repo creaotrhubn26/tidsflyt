@@ -15,6 +15,7 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfTokenForRequest } from "@/lib/csrf";
 import { TimeTrackingPdfDesigner } from "@/components/reports/time-tracking-pdf-designer";
 import { 
   ChevronRight, ChevronDown, Eye, EyeOff, Minus, Plus, Monitor, Tablet, Smartphone,
@@ -2214,11 +2215,13 @@ function MediaLibraryPanel() {
 
     try {
       const token = getAdminToken();
+      const csrfToken = await getCsrfTokenForRequest();
 
       const data = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/cms/upload');
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        if (csrfToken) xhr.setRequestHeader('x-csrf-token', csrfToken);
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {

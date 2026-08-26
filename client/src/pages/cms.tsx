@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfTokenForRequest } from "@/lib/csrf";
 import { 
   Loader2, Save, Plus, Trash2, GripVertical, Eye, ExternalLink, ArrowLeft,
   ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
@@ -341,12 +342,14 @@ function ImageUploader({
 
     try {
       const token = getAdminToken();
+      const csrfToken = await getCsrfTokenForRequest();
 
       // Use XMLHttpRequest for progress tracking
       const data = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/cms/upload');
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        if (csrfToken) xhr.setRequestHeader('x-csrf-token', csrfToken);
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -4491,9 +4494,7 @@ function BlogEditor() {
     queryKey: ['/api/cms/posts', filterStatus],
     queryFn: async () => {
       const url = filterStatus ? `/api/cms/posts?status=${filterStatus}&limit=100` : '/api/cms/posts?limit=100';
-      const res = await fetch(url);
-      const data = await res.json();
-      return data;
+      return authenticatedApiRequest(url);
     }
   });
   const posts: BlogPost[] = Array.isArray(postsResponse) ? postsResponse : (postsResponse?.posts ?? []);

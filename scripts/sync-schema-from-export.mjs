@@ -253,7 +253,7 @@ async function main() {
   const isLocal = /localhost|127\.0\.0\.1/.test(connectionString);
   const pool = new Pool({
     connectionString,
-    ssl: !sslDisabled && !isLocal ? { rejectUnauthorized: false } : false,
+    ssl: !sslDisabled && !isLocal ? { rejectUnauthorized: true } : false,
   });
 
   try {

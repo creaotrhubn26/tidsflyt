@@ -7,8 +7,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'jsdom',
-    // Many server-side test files run integration tests against the real,
-    // shared production database (no test DB exists in this environment)
+    // Many server-side test files run integration tests against an explicitly
+    // supplied, shared development database (never a production database)
     // and assert GLOBAL invariants — e.g. "removing the only role.manage
     // holder is blocked" — that the code under test deliberately checks
     // system-wide, not scoped to one test file's own fixtures. Vitest's
@@ -26,6 +26,13 @@ export default defineConfig({
       // live database; pg.Pool does not connect eagerly, so an unreachable
       // placeholder is safe for tests that never issue a query.
       DATABASE_URL: process.env.DATABASE_URL || 'postgresql://user:password@localhost:5432/tidum_test_unreachable',
+      // Legacy route tests sign with JWT_SECRET. Keep the test-only values
+      // aligned while production code requires AUTH_JWT_SECRET explicitly.
+      AUTH_JWT_SECRET: process.env.AUTH_JWT_SECRET || process.env.JWT_SECRET || process.env.SESSION_SECRET || 'test-auth-jwt-secret',
+      JWT_SECRET: process.env.JWT_SECRET || process.env.AUTH_JWT_SECRET || process.env.SESSION_SECRET || 'test-auth-jwt-secret',
+      SESSION_SECRET: process.env.SESSION_SECRET || 'test-session-secret-for-vitest',
+      EMAIL_MAGIC_LINK_SECRET: process.env.EMAIL_MAGIC_LINK_SECRET || 'test-email-magic-link-secret',
+      CSRF_SECRET: process.env.CSRF_SECRET || 'test-csrf-secret-for-vitest',
     },
     // tests/ er Playwright-specs (npm run test:e2e) — ikke vitest-tester
     exclude: ['**/node_modules/**', '**/dist/**', 'tests/**', 'tidsflyt-mobile/**'],

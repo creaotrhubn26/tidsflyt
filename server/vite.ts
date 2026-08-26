@@ -16,15 +16,36 @@ export async function setupVite(server: Server, app: Express) {
     allowedHosts: true as const,
   };
 
+  // vite.config.ts exports an async config FUNCTION (needed to await
+  // loadEnv() and dynamically import Replit-only plugins) — Vite's own
+  // CLI resolves this automatically before use, but createViteServer()
+  // here needs the resolved config OBJECT, not the function itself.
+  // Spreading the raw function silently drops root/plugins/resolve.alias
+  // (a function has no enumerable own properties), which made this dev
+  // server default to the repo root instead of client/ and fail to find
+  // client/src/main.tsx.
+  const resolvedViteConfig =
+    typeof viteConfig === "function"
+      ? await (viteConfig as (env: { mode: string; command: "serve" | "build" }) => Promise<Record<string, unknown>>)({
+          mode: process.env.NODE_ENV ?? "development",
+          command: "serve",
+        })
+      : viteConfig;
+
   const vite = await createViteServer({
-    ...viteConfig,
+    ...resolvedViteConfig,
     configFile: false,
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
         viteLogger.error(msg, options);
-        // Only exit on truly fatal errors, not CSS/plugin warnings
-        if (options?.error) {
+        // "Pre-transform error: ... Does the file exist?" is a transient
+        // dependency-discovery race on a cold optimizeDeps cache (e.g.
+        // right after clearing node_modules/.vite) — Vite's own client
+        // normally recovers from this with an automatic full-reload.
+        // Only exit on other, genuinely fatal Vite errors (plugin
+        // crashes, config errors), not this self-healing one.
+        if (options?.error && !msg.includes("Pre-transform error")) {
           process.exit(1);
         }
       },

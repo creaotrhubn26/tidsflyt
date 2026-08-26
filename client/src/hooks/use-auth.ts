@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { User } from "@shared/models/auth";
+import { clearCsrfToken } from "@/lib/csrf";
 
 async function fetchUser(): Promise<User | null> {
   const response = await fetch("/api/auth/user", {
@@ -18,7 +19,17 @@ async function fetchUser(): Promise<User | null> {
 }
 
 async function logout(): Promise<void> {
-  window.location.href = "/api/logout";
+  const response = await fetch("/api/logout", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status}: Kunne ikke logge ut`);
+  }
+
+  const body = await response.json().catch(() => ({})) as { redirectUrl?: unknown };
+  clearCsrfToken();
+  window.location.assign(typeof body.redirectUrl === "string" ? body.redirectUrl : "/");
 }
 
 export function useAuth() {

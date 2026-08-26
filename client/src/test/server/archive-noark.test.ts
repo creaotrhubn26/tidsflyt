@@ -4,6 +4,7 @@
  */
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
+  buildJournalJournalpost,
   buildRapportJournalpost,
   buildSaksmappeSpec,
   formatPeriode,
@@ -55,6 +56,28 @@ describe("noark builders", () => {
     expect(spec.files[0].content).toBe(pdf);
     // Filnavn skal være trygt (ingen mellomrom/spesialtegn utover tillatt sett)
     expect(spec.files[0].filename).toMatch(/^[a-zA-Z0-9åæøÅÆØ._-]+\.pdf$/);
+  });
+
+  it("bygger journalpost for en sak-journaloppføring med tekstinnhold og eventuelle vedlegg", () => {
+    const entry = {
+      id: "33333333-3333-3333-3333-333333333333",
+      content: "Hjemmebesøk gjennomført, ingen bekymringer.",
+      createdAt: new Date("2026-03-10T09:00:00Z"),
+    };
+    const attachments = [
+      { filename: "journal/x/y.pdf", originalName: "vedtak.pdf", mimeType: "application/pdf", content: Buffer.from("%PDF-1.4") },
+    ];
+    const spec = buildJournalJournalpost(entry, SAK, attachments, DEFAULTS);
+
+    expect(spec.tittel).toBe("Journalnotat — sak SAK-2026-042 (Kund-7)");
+    expect(spec.journalposttype).toBe("X");
+    expect(spec.eksternId).toBe(`tidum:journal:${entry.id}`);
+    expect(spec.dokumentdato).toBe("2026-03-10");
+    expect(spec.files).toHaveLength(2);
+    expect(spec.files[0].mimeType).toBe("text/plain");
+    expect(spec.files[0].content.toString()).toBe(entry.content);
+    expect(spec.files[0].variantformat).toBe("Produksjonsformat");
+    expect(spec.files[1].originalName ?? spec.files[1].filename).toContain("vedtak");
   });
 
   it("tåler rapport uten sak og uten periode", () => {

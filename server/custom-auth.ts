@@ -15,6 +15,12 @@ import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
+import { isDevAuthBypassAllowed } from "./middleware/auth";
+import {
+  generateCsrfToken,
+  requireCsrfSecret,
+  sessionCsrfProtection,
+} from "./lib/csrf";
 
 type EmailIdentityInput = {
   email: string;
@@ -43,13 +49,14 @@ function isSuperAdminEmail(email: string): boolean {
   return getSuperAdminEmails().has(email.trim().toLowerCase());
 }
 
-function getEmailLoginSecret(): string {
-  return (
-    process.env.EMAIL_MAGIC_LINK_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.SESSION_SECRET ||
-    ""
-  );
+// Magic links have their own signing secret. Do not fall back to session,
+// bearer or mobile secrets: token types must remain cryptographically split.
+export function requireEmailLoginSecret(): string {
+  const secret = process.env.EMAIL_MAGIC_LINK_SECRET;
+  if (!secret) {
+    throw new Error("EMAIL_MAGIC_LINK_SECRET er ikke konfigurert");
+  }
+  return secret;
 }
 
 function sanitizeReturnTo(value: unknown): string | null {
@@ -81,10 +88,10 @@ function getPostAuthRedirect(req: Request, fallback?: unknown): string {
 
 export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
   const normalizedEmail = email.trim().toLowerCase();
-  const secret = getEmailLoginSecret();
+  const secret = requireEmailLoginSecret();
   const sanitizedReturnTo = sanitizeReturnTo(returnTo);
 
-  if (!normalizedEmail || !secret) {
+  if (!normalizedEmail) {
     throw new Error("Email magic link is not configured.");
   }
 
@@ -272,8 +279,6 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
   });
 }
 
-const isDev = process.env.NODE_ENV !== "production";
-
 const DEV_USER: AuthUser = {
   id: "1",
   email: "dev@tidum.no",
@@ -317,14 +322,32 @@ export async function handleMobileLogout(req: Request, res: any) {
 }
 
 export async function setupCustomAuth(app: Express) {
+  // Fail at startup instead of discovering a missing CSRF signing secret on
+  // the first authenticated write request.
+  requireCsrfSecret();
+
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
   app.use(resolveBearerUser);
 
-  // DEV MODE: inject a mock user so all API routes work without OAuth
-  if (isDev) {
+  app.get("/api/csrf-token", (req, res, next) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Pragma", "no-cache");
+      res.json({ token: generateCsrfToken(req, res) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // This inspects req.session.passport directly. req.isAuthenticated() is
+  // not sufficient here because resolveBearerUser also populates req.user.
+  app.use(sessionCsrfProtection);
+
+  // Local super-admin injection is opt-in as well as non-production.
+  if (isDevAuthBypassAllowed()) {
     app.use((req, _res, next) => {
       if (!req.user) {
         req.user = DEV_USER;
@@ -498,9 +521,9 @@ export async function setupCustomAuth(app: Express) {
   app.get("/api/auth/email/verify", async (req, res, next) => {
     try {
       const token = typeof req.query?.token === "string" ? req.query.token : "";
-      const secret = getEmailLoginSecret();
+      const secret = requireEmailLoginSecret();
 
-      if (!token || !secret) {
+      if (!token) {
         return res.redirect("/?error=magic_link_invalid");
       }
 
@@ -543,7 +566,7 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.user) {
+    if (isDevAuthBypassAllowed() && !req.user) {
       return res.json(DEV_USER);
     }
     if (req.user) {
@@ -565,16 +588,9 @@ export async function setupCustomAuth(app: Express) {
     });
   });
 
-  app.get("/api/logout", (req, res) => {
-    req.logout((err) => {
-      if (err) {
-        return res.redirect("/?error=logout_failed");
-      }
-      req.session.destroy((_err) => {
-        res.clearCookie("connect.sid");
-        res.redirect("/");
-      });
-    });
+  app.get("/api/logout", (_req, res) => {
+    res.setHeader("Allow", "POST");
+    res.status(405).json({ message: "Bruk POST for å logge ut" });
   });
 }
 
@@ -594,7 +610,7 @@ export function hasSessionAuth(req: Request): boolean {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (hasSessionAuth(req) && req.user) {
     return next();
   }
@@ -633,13 +649,13 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
 };
 
 export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (req.user) return next();
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
 export const requireVendorAuth: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
@@ -653,7 +669,7 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
 };
 
 export const requireSuperAdmin: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }

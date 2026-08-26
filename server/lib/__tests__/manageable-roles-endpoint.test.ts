@@ -12,7 +12,11 @@ describe("GET /api/company/users/manageable-roles", () => {
     const app = express();
     registerSmartTimingRoutes(app);
 
-    const token = jwt.sign({ id: "test-va", email: "va@example.com", role: "vendor_admin" }, JWT_SECRET);
+    // vendorId: 1 matcher company_id under (BOLA-fiks A).
+    const token = jwt.sign(
+      { id: "test-va", email: "va@example.com", role: "vendor_admin", vendorId: 1 },
+      JWT_SECRET,
+    );
     const res = await request(app)
       .get("/api/company/users/manageable-roles?company_id=1")
       .set("Authorization", `Bearer ${token}`);

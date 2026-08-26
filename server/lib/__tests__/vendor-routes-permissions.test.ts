@@ -135,4 +135,171 @@ describe("vendor routes use hasPermission()", () => {
       await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
     }
   });
+
+  it("POST /api/vendors/:id/admins rejects account takeover of an email already belonging to another vendor", async () => {
+    // BOLA regression: a vendor_admin with vendor.admin.create permission
+    // for their own vendor could previously invite ANY email address —
+    // including one that already had a `users` row scoped to a different
+    // vendor_id — and the route's ON CONFLICT (email) DO UPDATE would
+    // silently reassign that existing account to the attacker's vendor_id.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-takeover-${suffix}@example.com`;
+    const victimVendorId = 900000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+
+    // Pre-existing users row scoped to the victim's vendor.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, 'vendor_admin', $3)`,
+      [`victim_${suffix}`, email, victimVendorId],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      const token = signAdminToken({ id: "test-super-admin-2", email: "sa2@example.com", role: "super_admin", roleId: superAdminRole.id });
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const {
+        rows: [userRow],
+      } = await pool.query(`SELECT vendor_id FROM users WHERE email = $1`, [email]);
+      expect(userRow.vendor_id).toBe(victimVendorId);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE email = $1`, [email]);
+    }
+  });
+
+  it("POST /api/vendors/:id/admins rejects takeover of an email that only exists in tidum_company_users (bulk-imported employee, no users row yet)", async () => {
+    // Follow-up BOLA regression: the takeover guard above only checked the
+    // `users` table. Bulk-imported employees (server/routes/employee-import-routes.ts)
+    // are written straight into tidum_company_users and never get a `users`
+    // row (syncCompanyUserToPortalAccess is never called there) — so a
+    // freshly-imported employee of vendor A had NO `users` row yet, and the
+    // single-table guard let a different vendor "invite" that same email,
+    // creating a fresh `users` row that bound the victim's email to the
+    // attacker's vendor_id with an attacker-chosen password.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-bulk-takeover-${suffix}@example.com`;
+    const victimVendorId = 910000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+
+    // Bulk-imported employee: a tidum_company_users row, but deliberately NO
+    // `users` row for this email.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [victimVendorId, email],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      // vendor_admin for the ATTACKING vendor — `req.admin.vendorId === vendorId`
+      // alone satisfies this route's `allowed` check, no roleId/hasPermission needed.
+      const token = signAdminToken({ id: "test-bulk-attacker", email: "attacker-bulk@example.com", role: "vendor_admin", vendorId: attackerVendorId } as any);
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_bulk_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const { rows: userRows } = await pool.query(`SELECT id FROM users WHERE email = $1`, [email]);
+      expect(userRows.length).toBe(0);
+      const { rows: adminRows } = await pool.query(`SELECT id FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+      expect(adminRows.length).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+    }
+  });
+
+  it("POST /api/vendors/:id/admins rejects takeover even when the attacker's OWN tidum_company_users row for that email is inserted first", async () => {
+    // Round-3 BOLA regression: tidum_company_users has a per-vendor unique
+    // index (COALESCE(vendor_id,0), lower(user_email)) — the same email can
+    // legally have one row per vendor. The old guard did `SELECT ... LIMIT 1`
+    // with no ORDER BY per table, so an attacker who first planted their OWN
+    // row for the victim's email (e.g. via POST /api/company/users or bulk
+    // import) could make the single arbitrary row returned be their own
+    // (matching vendorId, so no 409), while the victim's real row in another
+    // vendor was never inspected. The fixed guard is a single query that
+    // scans ALL matching rows across all three tables via UNION ALL, so
+    // insertion order can no longer hide a conflicting row.
+    const prevNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = "production";
+    vi.resetModules();
+    const { registerSmartTimingRoutes } = await import("../../smartTimingRoutes");
+    const { pool: dynamicDbPool } = await import("../../db");
+    dynamicDbPools.push(dynamicDbPool);
+    process.env.NODE_ENV = prevNodeEnv;
+
+    const suffix = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const email = `test-plant-row-${suffix}@example.com`;
+    const victimVendorId = 920000000 + Math.floor(Math.random() * 99999999);
+    const attackerVendorId = victimVendorId + 1;
+
+    // Attacker's own row for the victim's email, inserted FIRST so a naive
+    // LIMIT-1-no-ORDER-BY lookup would be likely to return it.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [attackerVendorId, email],
+    );
+    // Victim's real row, in a different vendor, inserted second.
+    await pool.query(
+      `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+       VALUES ($1, $1, $2, 'miljoarbeider', true)`,
+      [victimVendorId, email],
+    );
+
+    try {
+      const app = express();
+      app.use(express.json());
+      registerSmartTimingRoutes(app);
+
+      const token = signAdminToken({ id: "test-plant-attacker", email: "attacker-plant@example.com", role: "vendor_admin", vendorId: attackerVendorId } as any);
+      const res = await request(app)
+        .post(`/api/vendors/${attackerVendorId}/admins`)
+        .set("Authorization", `Bearer ${token}`)
+        .send({ username: `attacker_plant_${suffix}`, email, sendInvite: false });
+
+      expect(res.status).toBe(409);
+
+      const { rows: userRows } = await pool.query(`SELECT id FROM users WHERE email = $1`, [email]);
+      expect(userRows.length).toBe(0);
+    } finally {
+      await pool.query(`DELETE FROM tidum_company_users WHERE user_email = $1`, [email]);
+      await pool.query(`DELETE FROM users WHERE email = $1`, [email]);
+      await pool.query(`DELETE FROM tidum_admin_users WHERE LOWER(email) = LOWER($1)`, [email]);
+    }
+  });
 });

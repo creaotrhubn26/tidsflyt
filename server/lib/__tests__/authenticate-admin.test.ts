@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import request from "supertest";
 import express from "express";
 import jwt from "jsonwebtoken";
-import { registerSmartTimingRoutes, authenticateAdmin } from "../../smartTimingRoutes";
+import { authenticateAdmin } from "../../smartTimingRoutes";
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
 
@@ -24,29 +24,44 @@ describe("authenticateAdmin sets req.admin.roleId", () => {
   });
 
   it("dev-mode branch resolves the migrated super_admin role's real id", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousBypass = process.env.ALLOW_DEV_AUTH_BYPASS;
     process.env.NODE_ENV = "development";
+    process.env.ALLOW_DEV_AUTH_BYPASS = "true";
 
-    // Real super_admin id, read fresh from the DB rather than hardcoded —
-    // it can differ across environments/reseeds.
-    const [superAdmin] = await db
-      .select()
-      .from(roles)
-      .where(eq(roles.name, "super_admin"));
-    expect(superAdmin?.id).toBeTruthy();
+    try {
+      // Real super_admin id, read fresh from the DB rather than hardcoded —
+      // it can differ across environments/reseeds.
+      const [superAdmin] = await db
+        .select()
+        .from(roles)
+        .where(eq(roles.name, "super_admin"));
+      expect(superAdmin?.id).toBeTruthy();
 
-    const app = express();
-    // Test-only route that runs the real authenticateAdmin middleware and
-    // echoes what it set — proves actual roleId resolution, not just that
-    // some unrelated route didn't 403 (that route only checks the legacy
-    // `role` string, so it would pass regardless of roleId).
-    app.get("/__test/roleId", authenticateAdmin, (req: any, res) => {
-      res.json({ roleId: req.admin.roleId });
-    });
-    registerSmartTimingRoutes(app);
+      const app = express();
+      // Test-only route that runs the real authenticateAdmin middleware and
+      // echoes what it set — proves actual roleId resolution, not just that
+      // some unrelated route didn't 403 (that route only checks the legacy
+      // `role` string, so it would pass regardless of roleId).
+      app.get("/__test/roleId", authenticateAdmin, (req: any, res) => {
+        res.json({ roleId: req.admin.roleId });
+      });
 
-    const res = await request(app).get("/__test/roleId");
-    expect(res.status).toBe(200);
-    expect(res.body.roleId).toBe(superAdmin.id);
+      const res = await request(app).get("/__test/roleId");
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBe(superAdmin.id);
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      if (previousBypass === undefined) {
+        delete process.env.ALLOW_DEV_AUTH_BYPASS;
+      } else {
+        process.env.ALLOW_DEV_AUTH_BYPASS = previousBypass;
+      }
+    }
   });
 });
 
@@ -67,7 +82,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     const prevNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     vi.resetModules();
-    const { registerSmartTimingRoutes: register, authenticateAdmin: authAdmin } = await import(
+    const { authenticateAdmin: authAdmin } = await import(
       "../../smartTimingRoutes"
     );
     ({ db: dynamicDb, pool: dynamicDbPool } = await import("../../db"));
@@ -77,7 +92,6 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     app.get("/__test/roleId", authAdmin, (req: any, res) => {
       res.json({ roleId: req.admin.roleId });
     });
-    register(app);
   });
 
   afterEach(async () => {
@@ -238,6 +252,32 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     } finally {
       if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
       if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
+    }
+  });
+
+  it("string-shaped users JWT skips the integer admin-id lookup without logging a database cast error", async () => {
+    const [vendorAdminRole] = await dynamicDb
+      .select()
+      .from(roles)
+      .where(eq(roles.name, "vendor_admin"));
+    expect(vendorAdminRole?.id).toBeTruthy();
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const token = jwt.sign(
+        { id: `test-string-jwt-${Date.now()}`, role: "vendor_admin" },
+        JWT_SECRET,
+      );
+      const res = await request(app).get("/__test/roleId").set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBe(vendorAdminRole.id);
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        "[authenticateAdmin] failed tidum_admin_users email-join roleId lookup",
+        expect.anything(),
+      );
+    } finally {
+      errorSpy.mockRestore();
     }
   });
 });
