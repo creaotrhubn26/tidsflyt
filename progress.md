@@ -13,9 +13,10 @@ rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
 067, 068 og 069 er varig brukt og verifisert på utviklingsdatabasen. Den
 ordinære e-postkomponisten er nå også tenantskopet. Sensitive
 barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier.
-Backendgrunnmuren for «Sikker sending» er nå implementert og måltestet;
-innbygger-/ansattflate, arkiv, malwarekarantene og produksjonsprøving gjenstår
-før funksjonen kan åpnes.
+Backendgrunnmuren og første operative brukerflyt for «Sikker sending» er nå
+implementert og måltestet for både kommuneansatt og innbygger. Arkiv,
+malwarekarantene, formell tilgjengelighetsverifikasjon og produksjonsprøving
+gjenstår før funksjonen kan merkes produksjonsklar.
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -242,11 +243,13 @@ Neon-utviklingsdatabasen. 21/21 målrettede tester og hele Vitest-suiten på
 og produksjonsbuild er grønne. Bygget har kun kjente, ikke-blokkerende varsler
 om nettleserdata, én eksisterende Tailwind-verdi og store chunks.
 
-**Gjenstår før knappen kan åpnes:** parts-/mottakermodell, sikker dialog og
-innboks, kryptert dokumentlagring, autorisasjon og oppslagslogg for mottaker,
-nøytral varselutsending, åpne-/leveringskvittering, retensjon/sletting og
-ende-til-ende-verifisering med BankID/Buypass. Kommunal ekspedering kan kobles
-til samme brukerhandling senere; kanalvalget skal ikke skyves ut til brukeren.
+**Videre før produksjonsåpning:** Handlingen «Sikker sending» er nå koblet til
+parts-/mottakermodell, sikker dialog, innbyggerinnboks, kryptert lagring,
+autorisasjon, oppslagslogg, nøytralt varsel og lesekvittering. Retensjon,
+arkiv, malwarekarantene, formell WCAG-verifikasjon og ende-til-ende-prøving mot
+produksjonstenantene for BankID/Buypass gjenstår. Kommunal ekspedering kan
+kobles til samme brukerhandling senere; kanalvalget skal ikke skyves ut til
+brukeren.
 
 **Status:** Første sikker-sending-pakke er teknisk ferdig og feiler lukket.
 Kravet om faktisk sikker ekstern dialog er **ikke** ferdig før punktene over er
@@ -286,13 +289,28 @@ kobles til disse objektene uten at ordinær e-post blir transport for innholdet.
 - SMTP brukes bare til en låst, nøytral «du har en ny melding»-mal. Mottaker,
   sak, part, emne, fritekst og vedlegg sendes ikke i e-posten eller audit-
   metadataene.
+- Migrasjon 072 legger til indeks for tenantavgrenset partsoppslag og en egen
+  append-only `party_listed`-hendelse. Ansatt-API-et lister bare aktive parter
+  fra serveravledet kommune, verifiserer valgt melding i samme kommune og
+  returnerer aldri fødselsnummer eller fødselsnummerhash.
+- Kommuneansatte med rollen `barnevernsleder` eller `kommune_saksbehandler`
+  har nå en responsiv «Sikker sending»-flate. De velger bekymringsmelding,
+  registrerer eller velger part, gir sakstilgang og sender kryptert melding og
+  eventuelt privat vedlegg uten å velge SMTP eller sende `kommuneId` fra
+  klienten.
+- Innbyggere har en separat `/innbygger`-portal for å lese og svare i aktive
+  samtaler, laste ned autoriserte vedlegg og få enkel BankID-/Buypass-
+  veiledning ved avvist tilgang. Leverandørmenyer og offentlig analyse er
+  fjernet fra både innbyggerflaten og kommuneportalens desktop-/mobilmeny.
 
-**Verifikasjon:** Migrasjon 071 er anvendt og kjørt idempotent mot
-Neon-utviklingsdatabasen. Ende-til-ende-testen dekker samme portalbruker med
+**Verifikasjon:** Migrasjon 071 og 072 er anvendt og kjørt idempotent mot
+Neon-utviklingsdatabasen. API-ende-til-ende-testen dekker samme portalbruker med
 BankID og Buypass, fravær av rått fødselsnummer, kryptert innhold, privat
 vedlegg, nøytralt varsel, lesekvittering, audit, direkte SQL-uforanderlighet,
 kommune B, part uten tildeling, e-postsesjon og umiddelbar tilbakekalling.
-Målrettet rolle-/eID-/dialogsuite er grønn med **162/162 tester**. Hele
+Nye Playwright-scenarier dekker ansattsending, innbyggersvar, avvist innboks og
+rolleisolert mobilnavigasjon med **4/4 bestått**; testen bekrefter også at
+klienten ikke sender tenant-ID. Hele
 Vitest-suiten består med **514/514 tester i 71/71 testfiler** mot
 utviklingsdatabasen. `tsc`, designkontroll, produksjonsbuild og
 `npm audit --audit-level=moderate` er grønne; audit rapporterer 0 sårbarheter.
@@ -302,8 +320,8 @@ deprecation.
 
 **Gjenstår før produksjonsåpning:**
 
-- innbyggerinnboks og ansattflaten «Send sikkert» er ikke bygget i denne
-  backendpakken;
+- formell WCAG 2.2-verifikasjon med tastatur, skjermleser og dokumentert
+  akseptanse hos fagbrukere/innbyggere;
 - malware-/antivirusskanning og karanteneflyt for vedlegg;
 - arkivering av dialog og dokumenter til kundens arkivkjerne, retensjon,
   juridisk sperring og nøkkelrotasjon;
@@ -312,9 +330,10 @@ deprecation.
 - utvidelse fra bekymringsmelding til full barnevernssak, innsyn, klage,
   fullmakt/samtykke og eventuell SvarUt/SvarInn-ekspedering.
 
-**Status:** De seks backenddelene er implementert og måltestet. Løsningen er
-ikke merket produksjonsklar eller presentert som full oppfyllelse av krav 8 før
-punktene over er levert og akseptert.
+**Status:** De seks backenddelene og begge første brukerflater er implementert
+og måltestet. Løsningen er fortsatt ikke merket produksjonsklar eller
+presentert som full oppfyllelse av krav 8 før punktene over er levert og
+akseptert.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 

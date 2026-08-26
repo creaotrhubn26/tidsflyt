@@ -190,6 +190,25 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
 
   it("oppretter eID-only part og kobler både BankID og Buypass til samme portalbruker", async () => {
     const scenario = await createPartyAndAccess();
+    const partyList = await request(scenario.staffApp)
+      .get(`/api/secure-dialog/parties?meldingId=${scenario.meldingId}`);
+    expect(partyList.status).toBe(200);
+    expect(partyList.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        id: scenario.partyId,
+        displayName: "Test Forelder",
+        eidLinked: false,
+        access: expect.objectContaining({ id: scenario.accessId, partyRole: "forelder" }),
+      }),
+    ]));
+    expect(JSON.stringify(partyList.body)).not.toContain(scenario.personnummer);
+    const partyListAudit = await pool.query(
+      `SELECT action FROM tidum_secure_dialog_audit_events
+        WHERE kommune_id = $1 AND party_id = $2 AND action = 'party_listed'`,
+      [scenario.kommuneId, scenario.partyId],
+    );
+    expect(partyListAudit.rowCount).toBeGreaterThan(0);
+
     const before = await pool.query(
       `SELECT email, role, expected_ssn_hash FROM users WHERE id = $1`,
       [scenario.portalUserId],
@@ -330,6 +349,10 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
     const staffB = await createStaff(kommuneB);
     const staffBApp = appFor({ id: staffB, provider: "entra_id" });
     expect((await request(staffBApp).get(`/api/secure-dialog/conversations/${conversation.body.id}`)).status).toBe(404);
+    const partiesB = await request(staffBApp).get("/api/secure-dialog/parties");
+    expect(partiesB.status).toBe(200);
+    expect(partiesB.body.map((party: any) => party.id)).not.toContain(scenario.partyId);
+    expect((await request(staffBApp).get(`/api/secure-dialog/parties?meldingId=${scenario.meldingId}`)).status).toBe(404);
 
     const other = await createPartyAndAccess({
       kommuneId: scenario.kommuneId,
@@ -340,6 +363,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
     expect((await request(otherPartyApp).get(`/api/secure-dialog/conversations/${conversation.body.id}`)).status).toBe(404);
 
     const emailOnlyApp = appFor({ id: scenario.portalUserId, provider: "email" });
+    expect((await request(partyApp).get("/api/secure-dialog/parties")).status).toBe(403);
     expect((await request(emailOnlyApp).get(`/api/secure-dialog/conversations/${conversation.body.id}`)).status).toBe(404);
     expect((await request(emailOnlyApp).get("/api/secure-dialog/conversations")).status).toBe(403);
     expect((await request(partyApp).get(`/api/secure-dialog/conversations/${conversation.body.id}`)).status).toBe(200);

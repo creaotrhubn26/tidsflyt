@@ -16,10 +16,12 @@ import {
   Building2,
   Settings,
   ClipboardCheck,
+  ShieldCheck,
 } from "lucide-react";
 import { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { useRolePreview } from "@/hooks/use-role-preview";
+import { isKommuneRole } from "@shared/roles";
 
 interface MobileNavItem {
   path: string;
@@ -33,6 +35,7 @@ const primaryItems: MobileNavItem[] = [
   { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
   { path: "/time", icon: Clock, label: "Timer" },
   { path: "/rapporter", icon: FileText, label: "Rapporter" },
+  { path: "/sikker-sending", icon: ShieldCheck, label: "Sikker sending", roles: ["barnevernsleder", "kommune_saksbehandler"] },
 ];
 
 // Secondary items shown in the "More" sheet
@@ -58,13 +61,14 @@ export function MobileBottomNav() {
   const [moreOpen, setMoreOpen] = useState(false);
   const sheetRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const kommunePortal = isKommuneRole(normalizedUserRole);
 
   const filterByRole = (items: MobileNavItem[]) =>
-    items.filter(
-      (item) =>
-        !(item.path === "/time" && normalizedUserRole === "tiltaksleder") &&
-        (!item.roles || item.roles.includes(normalizedUserRole))
-    );
+    items.filter((item) => {
+      if (item.path === "/time" && normalizedUserRole === "tiltaksleder") return false;
+      const roleMatch = item.roles?.includes(normalizedUserRole) ?? false;
+      return kommunePortal ? roleMatch : !item.roles || roleMatch;
+    });
 
   const visiblePrimary = useMemo(() => filterByRole(primaryItems), [normalizedUserRole]);
   const visibleSecondary = useMemo(() => filterByRole(secondaryItems), [normalizedUserRole]);
@@ -165,27 +169,29 @@ export function MobileBottomNav() {
           })}
 
           {/* More button */}
-          <button
-            ref={triggerRef}
-            type="button"
-            aria-expanded={moreOpen}
-            aria-haspopup="dialog"
-            aria-label="Flere navigasjonsvalg"
-            className={cn(
-              "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[64px] min-h-[44px]",
-              isSecondaryActive || moreOpen
-                ? "text-primary bg-primary/10"
-                : "text-muted-foreground hover-elevate"
-            )}
-            onClick={() => setMoreOpen((v) => !v)}
-            data-testid="nav-more"
-          >
-            {moreOpen
-              ? <X className="h-5 w-5 text-primary" />
-              : <MoreHorizontal className={cn("h-5 w-5", (isSecondaryActive || moreOpen) && "text-primary")} />
-            }
-            <span className="text-xs font-medium">Mer</span>
-          </button>
+          {visibleSecondary.length > 0 && (
+            <button
+              ref={triggerRef}
+              type="button"
+              aria-expanded={moreOpen}
+              aria-haspopup="dialog"
+              aria-label="Flere navigasjonsvalg"
+              className={cn(
+                "flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-lg transition-colors min-w-[64px] min-h-[44px]",
+                isSecondaryActive || moreOpen
+                  ? "text-primary bg-primary/10"
+                  : "text-muted-foreground hover-elevate"
+              )}
+              onClick={() => setMoreOpen((v) => !v)}
+              data-testid="nav-more"
+            >
+              {moreOpen
+                ? <X className="h-5 w-5 text-primary" />
+                : <MoreHorizontal className={cn("h-5 w-5", (isSecondaryActive || moreOpen) && "text-primary")} />
+              }
+              <span className="text-xs font-medium">Mer</span>
+            </button>
+          )}
         </div>
       </nav>
     </>

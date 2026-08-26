@@ -364,6 +364,12 @@ Akseptanse:
 
 **Krav:** 7–9, 16–17, 20, 29.
 
+Status 26.08.2026: Første operative flyt for krav 8 er levert for
+bekymringsmelding. Kommuneansatte kan bruke én «Sikker sending»-handling, og
+innbyggeren leser/svarer i en separat BankID-/Buypass-beskyttet portal.
+Innhold og vedlegg sendes ikke i e-post. Dette dekker ikke de øvrige punktene
+i arbeidsstrømmen eller produksjonsakseptansen nedenfor.
+
 - ID-porten-/eID-innlogget portal for foresatte, barn og fullmektiger.
 - Sikker toveis melding og dokumentdeling med varsel uten sensitivt innhold.
 - Samtykke, fullmakt, lest-status, tidsstempel og komplett audit.

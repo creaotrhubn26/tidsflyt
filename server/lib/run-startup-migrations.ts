@@ -57,6 +57,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "069_email_composer_tenant_integrity.sql",
   "070_outbound_email_policy.sql",
   "071_secure_dialog_foundation.sql",
+  "072_secure_dialog_ui_support.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

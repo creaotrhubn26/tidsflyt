@@ -370,6 +370,74 @@ export async function processSecureNotificationOutbox(messageId?: string, limit 
 export function registerSecureDialogRoutes(app: Express): void {
   const common = [requireAuth, apiRateLimit] as const;
 
+  app.get("/api/secure-dialog/parties", ...common, async (req: Request, res: Response) => {
+    try {
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireStaff(actor);
+      const meldingId = req.query.meldingId == null ? null : uuidSchema.parse(req.query.meldingId);
+      const result = await withTransaction(async (client) => {
+        if (meldingId) {
+          const scopedCase = await client.query(
+            `SELECT id FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
+            [meldingId, kommuneId],
+          );
+          if (!scopedCase.rowCount) {
+            throw new SecureDialogRouteError(404, "Melding ikke funnet", "CASE_NOT_FOUND");
+          }
+        }
+
+        const { rows } = await client.query(
+          `SELECT party.id, party.display_name, party.notification_email, party.status, party.created_at,
+                  EXISTS (
+                    SELECT 1 FROM tidum_eid_identities eid WHERE eid.user_id = party.portal_user_id
+                  ) AS eid_linked,
+                  access.id AS access_id, access.party_role, access.valid_from, access.valid_until
+             FROM tidum_secure_parties party
+             LEFT JOIN LATERAL (
+               SELECT id, party_role, valid_from, valid_until
+                 FROM tidum_secure_case_access
+                WHERE party_id = party.id
+                  AND ($2::uuid IS NOT NULL AND barnevern_melding_id = $2)
+                  AND revoked_at IS NULL AND valid_from <= NOW()
+                  AND (valid_until IS NULL OR valid_until > NOW())
+                ORDER BY created_at DESC
+                LIMIT 1
+             ) access ON TRUE
+            WHERE party.kommune_id = $1 AND party.status = 'active'
+            ORDER BY party.display_name, party.created_at`,
+          [kommuneId, meldingId],
+        );
+        for (const party of rows) {
+          await appendAudit(client, {
+            kommuneId,
+            actorUserId: actor.userId,
+            actorKind: "staff",
+            action: "party_listed",
+            partyId: String(party.id),
+            metadata: { status: String(party.status) },
+          });
+        }
+        return rows.map((party) => ({
+          id: party.id,
+          displayName: party.display_name,
+          notificationEmail: party.notification_email,
+          status: party.status,
+          eidLinked: party.eid_linked === true,
+          createdAt: party.created_at,
+          access: party.access_id ? {
+            id: party.access_id,
+            partyRole: party.party_role,
+            validFrom: party.valid_from,
+            validUntil: party.valid_until,
+          } : null,
+        }));
+      });
+      res.json(result);
+    } catch (error) {
+      routeError(res, "party list", error);
+    }
+  });
+
   app.post("/api/secure-dialog/parties", ...common, async (req: Request, res: Response) => {
     try {
       const actor = await resolveSecureActor(req);
