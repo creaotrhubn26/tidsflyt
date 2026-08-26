@@ -6,12 +6,32 @@ import { pool } from "../../db";
 import { hashSsn } from "../eid-hash";
 
 const storageState = vi.hoisted(() => ({ objects: new Map<string, Buffer>(), sequence: 0 }));
+const malwareState = vi.hoisted(() => ({ mode: "clean" as "clean" | "infected" | "unavailable" }));
+
+vi.mock("../secure-attachment-malware-scanner", () => {
+  class MalwareScannerUnavailableError extends Error {}
+  return {
+    MalwareScannerUnavailableError,
+    scanSecureAttachmentForMalware: async () => {
+      if (malwareState.mode === "unavailable") throw new MalwareScannerUnavailableError();
+      if (malwareState.mode === "infected") {
+        return { status: "infected", engine: "clamav", signature: "Eicar-Signature" };
+      }
+      return { status: "clean", engine: "clamav" };
+    },
+  };
+});
 
 vi.mock("../secure-dialog-storage", () => ({
   generateSecureDialogAttachmentKey: (messageId: string, originalName: string) => {
     storageState.sequence += 1;
     const extension = originalName.includes(".") ? `.${originalName.split(".").pop()}` : "";
     return `secure-dialog/${messageId}/test-${storageState.sequence}${extension}`;
+  },
+  generateSecureDialogQuarantineKey: (messageId: string, originalName: string) => {
+    storageState.sequence += 1;
+    const extension = originalName.includes(".") ? `.${originalName.split(".").pop()}` : "";
+    return `secure-dialog-quarantine/${messageId}/test-${storageState.sequence}${extension}`;
   },
   uploadSecureDialogAttachment: async (key: string, body: Buffer) => {
     storageState.objects.set(key, Buffer.from(body));
@@ -26,7 +46,10 @@ vi.mock("../secure-dialog-storage", () => ({
   },
 }));
 
-import { registerSecureDialogRoutes } from "../../routes/secure-dialog-routes";
+import {
+  processExpiredSecureAttachmentQuarantine,
+  registerSecureDialogRoutes,
+} from "../../routes/secure-dialog-routes";
 import { resolveUserForVerifiedEid } from "../../eid-auth";
 import { emailService } from "../email-service";
 
@@ -41,13 +64,14 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    malwareState.mode = "clean";
     storageState.objects.clear();
     if (cleanupKommuneIds.length === 0) return;
     const ids = cleanupKommuneIds.splice(0);
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      await client.query("LOCK TABLE tidum_secure_dialog_audit_events, tidum_secure_message_attachments, tidum_secure_messages IN ACCESS EXCLUSIVE MODE");
+      await client.query("LOCK TABLE tidum_secure_dialog_audit_events, tidum_secure_attachment_quarantine, tidum_secure_message_attachments, tidum_secure_messages IN ACCESS EXCLUSIVE MODE");
       await client.query("ALTER TABLE tidum_secure_dialog_audit_events DISABLE TRIGGER tidum_secure_audit_immutable_trigger");
       await client.query("ALTER TABLE tidum_secure_message_attachments DISABLE TRIGGER tidum_secure_attachment_draft_trigger");
       await client.query("ALTER TABLE tidum_secure_messages DISABLE TRIGGER tidum_secure_message_immutable_trigger");
@@ -58,6 +82,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       );
       await client.query(`DELETE FROM tidum_secure_notification_outbox WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_message_receipts WHERE kommune_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM tidum_secure_attachment_quarantine WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_message_attachments WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_messages WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_conversation_participants WHERE kommune_id = ANY($1::int[])`, [ids]);
@@ -265,6 +290,16 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       .post(`/api/secure-dialog/messages/${draft.body.id}/attachments`)
       .attach("file", pdfBytes, { filename: "vedtak.pdf", contentType: "application/pdf" });
     expect(attachment.status).toBe(201);
+    const scanEvidence = await pool.query(
+      `SELECT scan_status, scan_engine, scanned_at
+         FROM tidum_secure_message_attachments WHERE id = $1`,
+      [attachment.body.id],
+    );
+    expect(scanEvidence.rows[0]).toEqual(expect.objectContaining({
+      scan_status: "clean",
+      scan_engine: "clamav",
+      scanned_at: expect.any(Date),
+    }));
 
     const notification = vi.spyOn(emailService, "sendSecurePortalNotification").mockResolvedValue(true);
     const sent = await request(scenario.staffApp).post(`/api/secure-dialog/messages/${draft.body.id}/send`).send({});
@@ -319,6 +354,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       "conversation_created",
       "draft_created",
       "draft_updated",
+      "attachment_scanned",
       "attachment_uploaded",
       "message_sent",
       "notification_sent",
@@ -333,6 +369,94 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       `UPDATE tidum_secure_dialog_audit_events SET action = 'draft_updated' WHERE conversation_id = $1`,
       [conversation.body.id],
     )).rejects.toThrow(/immutable/);
+  });
+
+  it("setter skadevare i privat karantene og feiler lukket når skanneren er utilgjengelig", async () => {
+    const scenario = await createPartyAndAccess();
+    const conversation = await request(scenario.staffApp).post("/api/secure-dialog/conversations").send({
+      meldingId: scenario.meldingId,
+      subject: "Karantene",
+      participantPartyIds: [scenario.partyId],
+    });
+    const infectedDraft = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/drafts`)
+      .send({ content: "Skadevare skal ikke følge med" });
+
+    malwareState.mode = "infected";
+    const infected = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/messages/${infectedDraft.body.id}/attachments`)
+      .attach("file", Buffer.from("%PDF-1.7\nEICAR"), { filename: "stoppet.pdf", contentType: "application/pdf" });
+    expect(infected.status).toBe(422);
+    expect(infected.body.code).toBe("ATTACHMENT_QUARANTINED");
+    expect(JSON.stringify(infected.body)).not.toContain("Eicar-Signature");
+
+    const quarantined = await pool.query(
+      `SELECT id, storage_key, detected_signature, status
+         FROM tidum_secure_attachment_quarantine WHERE message_id = $1`,
+      [infectedDraft.body.id],
+    );
+    expect(quarantined.rows).toHaveLength(1);
+    expect(quarantined.rows[0]).toEqual(expect.objectContaining({
+      detected_signature: "Eicar-Signature",
+      status: "quarantined",
+    }));
+    expect(String(quarantined.rows[0].storage_key)).toMatch(/^secure-dialog-quarantine\//);
+    expect(storageState.objects.has(String(quarantined.rows[0].storage_key))).toBe(true);
+
+    await pool.query(
+      `UPDATE tidum_secure_attachment_quarantine
+          SET expires_at = NOW() - INTERVAL '1 minute', next_attempt_at = NOW() - INTERVAL '1 minute'
+        WHERE id = $1`,
+      [quarantined.rows[0].id],
+    );
+    expect(await processExpiredSecureAttachmentQuarantine(1)).toBe(1);
+    expect(storageState.objects.has(String(quarantined.rows[0].storage_key))).toBe(false);
+    const deleted = await pool.query(
+      `SELECT status, deleted_at FROM tidum_secure_attachment_quarantine WHERE id = $1`,
+      [quarantined.rows[0].id],
+    );
+    expect(deleted.rows[0]).toEqual(expect.objectContaining({ status: "deleted", deleted_at: expect.any(Date) }));
+
+    const unavailableDraft = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/drafts`)
+      .send({ content: "Skanneren er nede" });
+    malwareState.mode = "unavailable";
+    const unavailable = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/messages/${unavailableDraft.body.id}/attachments`)
+      .attach("file", Buffer.from("%PDF-1.7\nclean-but-unverified"), { filename: "ukjent.pdf", contentType: "application/pdf" });
+    expect(unavailable.status).toBe(503);
+    expect(unavailable.body.code).toBe("MALWARE_SCANNER_UNAVAILABLE");
+    expect((await pool.query(
+      `SELECT COUNT(*)::int AS count FROM tidum_secure_attachment_quarantine WHERE message_id = $1`,
+      [unavailableDraft.body.id],
+    )).rows[0].count).toBe(0);
+
+    const pendingKey = `secure-dialog/${unavailableDraft.body.id}/legacy-pending.pdf`;
+    storageState.objects.set(pendingKey, Buffer.from("%PDF-1.7\nlegacy"));
+    const pending = await pool.query(
+      `INSERT INTO tidum_secure_message_attachments
+         (kommune_id, message_id, storage_key, original_name, mime_type, size_bytes,
+          checksum_sha256, uploaded_by, scan_status)
+       VALUES ($1, $2, $3, 'legacy.pdf', 'application/pdf', 15, $4, $5, 'pending')
+       RETURNING id`,
+      [scenario.kommuneId, unavailableDraft.body.id, pendingKey, "a".repeat(64), scenario.staffId],
+    );
+    const blockedSend = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/messages/${unavailableDraft.body.id}/send`)
+      .send({});
+    expect(blockedSend.status).toBe(409);
+    expect(blockedSend.body.code).toBe("ATTACHMENT_NOT_CLEAN");
+    expect((await request(scenario.staffApp).get(
+      `/api/secure-dialog/conversations/${conversation.body.id}/attachments/${pending.rows[0].id}`,
+    )).status).toBe(404);
+
+    const audit = await request(scenario.staffApp).get(`/api/secure-dialog/conversations/${conversation.body.id}/audit`);
+    expect(audit.body.map((event: any) => event.action)).toEqual(expect.arrayContaining([
+      "attachment_quarantined",
+      "attachment_quarantine_deleted",
+      "attachment_scan_failed",
+    ]));
+    expect(JSON.stringify(audit.body)).not.toContain("Eicar-Signature");
   });
 
   it("avviser kommune B, ugranted part og e-postautentisert part uten å røpe objektet", async () => {

@@ -57,6 +57,14 @@ services:
         sync: false
       - key: SMTP_REPLY_TO
         sync: false
+      - key: CLAMAV_HOST
+        sync: false
+      - key: CLAMAV_PORT
+        value: "3310"
+      - key: CLAMAV_TIMEOUT_MS
+        value: "15000"
+      - key: SECURE_ATTACHMENT_QUARANTINE_DAYS
+        value: "30"
       - key: MANAGER_EMAIL
         sync: false
       - key: GITHUB_TOKEN

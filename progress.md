@@ -15,8 +15,8 @@ ordinære e-postkomponisten er nå også tenantskopet. Sensitive
 barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier.
 Backendgrunnmuren og første operative brukerflyt for «Sikker sending» er nå
 implementert og måltestet for både kommuneansatt og innbygger. Arkiv,
-malwarekarantene, formell tilgjengelighetsverifikasjon og produksjonsprøving
-gjenstår før funksjonen kan merkes produksjonsklar.
+formell tilgjengelighetsverifikasjon, faktisk ClamAV-produksjonsprøving og
+eID-produksjonsprøving gjenstår før funksjonen kan merkes produksjonsklar.
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -322,7 +322,6 @@ deprecation.
 
 - formell WCAG 2.2-verifikasjon med tastatur, skjermleser og dokumentert
   akseptanse hos fagbrukere/innbyggere;
-- malware-/antivirusskanning og karanteneflyt for vedlegg;
 - arkivering av dialog og dokumenter til kundens arkivkjerne, retensjon,
   juridisk sperring og nøkkelrotasjon;
 - produksjonsbevis mot BankID/Buypass-tenanter og avklaring med Halden dersom
@@ -334,6 +333,45 @@ deprecation.
 og måltestet. Løsningen er fortsatt ikke merket produksjonsklar eller
 presentert som full oppfyllelse av krav 8 før punktene over er levert og
 akseptert.
+
+## 9. Sikre vedlegg — fail-closed malwarekontroll og karantene
+
+**Gjennomført:**
+
+- Migrasjon 073 merker eksisterende vedlegg som `pending`, legger skannebevis
+  på rene vedlegg og etablerer en separat, kommunebundet karantenetabell med
+  tilfeldig privat lagringsnøkkel, utløp, slettestatus og retry.
+- En intern adapter bruker ClamAVs binære `INSTREAM`-protokoll direkte over
+  privat TCP, uten shell-kall eller ny npm-avhengighet. Bare eksplisitt `OK`
+  godtas som rent; `FOUND`, feil, timeout og tvetydige svar feiler lukket.
+- Rene filer beholder eksisterende MIME-, signatur-, størrelse- og SHA-256-
+  kontroll før privat lagring. Et rent skannebevis kreves både ved sending og
+  nedlasting. Eldre/uskannede vedlegg kan derfor ikke passere etter migrasjon.
+- Detekterte filer lagres under `secure-dialog-quarantine/`, eksponeres aldri
+  gjennom API-et og returnerer kun en nøytral 422 til brukeren. Signaturen
+  lagres i karanteneposten, men returneres eller auditlogges ikke.
+- Manglende/utilgjengelig skanner gir 503, ingen fillagring og en ufølsom
+  audit-hendelse. En timejobb sletter utløpt karantene og prøver lagringsfeil
+  på nytt uten filnavn eller innhold i logger.
+- Render-konfigurasjon, `.env.example` og
+  `docs/runbooks/sikre-vedlegg-malware-og-karantene.md` dokumenterer privat
+  nettverk, miljøvariabler, EICAR-akseptanse, signaturoppdatering og alarmkrav.
+
+**Verifikasjon:** Migrasjon 073 er kjørt idempotent mot
+Neon-utviklingsdatabasen. **12/12 målrettede tester** dekker ClamAV-svar,
+rent vedlegg, EICAR-karantene, skjult signatur, skannerutfall, blokkert
+`pending`-vedlegg, manglende nedlasting, audit og utløpt karantenesletting.
+Hele Vitest-suiten består med **518/518 tester i 72/72 testfiler** mot
+utviklingsdatabasen. De fire sikre-dialog-scenariene i Playwright er grønne,
+inkludert at saksbehandleren kan fjerne et vedlegg før sending. `tsc`,
+designkontroll, produksjonsbuild og `npm audit --audit-level=moderate` er
+grønne; audit rapporterer 0 sårbarheter.
+
+**Avgrensning:** Testene bruker en kontrollert skannermock for
+applikasjonsflyten. Før produksjonsåpning må en privat ClamAV-tjeneste
+deployes, signatur-/helseovervåkes og bestå samme EICAR-test i faktisk
+produksjonsarkitektur. Dette er et driftsakseptansepunkt, ikke manglende
+fail-closed applikasjonskontroll.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 

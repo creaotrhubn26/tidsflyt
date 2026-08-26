@@ -58,6 +58,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "070_outbound_email_policy.sql",
   "071_secure_dialog_foundation.sql",
   "072_secure_dialog_ui_support.sql",
+  "073_secure_attachment_malware_quarantine.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

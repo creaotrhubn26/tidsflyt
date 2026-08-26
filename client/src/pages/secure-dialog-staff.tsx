@@ -315,10 +315,20 @@ export default function SecureDialogStaffPage() {
                     data-testid="secure-initial-file"
                   />
                   {attachment && (
-                    <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <FileText className="h-3.5 w-3.5" aria-hidden="true" />
-                      {attachment.name}
-                    </p>
+                      <span className="min-w-0 flex-1 truncate">{attachment.name}</span>
+                      <button
+                        type="button"
+                        className="underline underline-offset-2"
+                        onClick={() => {
+                          setAttachment(null);
+                          if (fileInput.current) fileInput.current.value = "";
+                        }}
+                      >
+                        Fjern
+                      </button>
+                    </div>
                   )}
                 </div>
                 <Button type="submit" className="w-full gap-2" disabled={!canSubmit || createSending.isPending} data-testid="secure-create-send">

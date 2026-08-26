@@ -136,6 +136,14 @@ test.describe("Sikker dialog", () => {
     await page.getByTestId("secure-party-name").fill("Ola Nordmann");
     await page.getByTestId("secure-party-ssn").fill("01019012345");
     await page.getByTestId("secure-party-email").fill("ola@example.no");
+    await page.getByTestId("secure-initial-file").setInputFiles({
+      name: "vedlegg.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.7\nplaywright"),
+    });
+    await expect(page.getByText("vedlegg.pdf", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Fjern" }).click();
+    await expect(page.getByText("vedlegg.pdf", { exact: true })).toHaveCount(0);
     await page.getByTestId("secure-subject").fill("Møteinnkalling");
     await page.getByTestId("secure-message").fill("Du har fått en sikker møteinnkalling.");
     await page.getByTestId("secure-create-send").click();

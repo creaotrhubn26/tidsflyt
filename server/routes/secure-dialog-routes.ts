@@ -1,6 +1,7 @@
 import type { Express, NextFunction, Request, Response } from "express";
 import type { PoolClient } from "pg";
 import multer from "multer";
+import cron from "node-cron";
 import { createHash } from "crypto";
 import { z } from "zod";
 import { pool } from "../db";
@@ -18,9 +19,14 @@ import {
   deleteSecureDialogAttachment,
   downloadSecureDialogAttachment,
   generateSecureDialogAttachmentKey,
+  generateSecureDialogQuarantineKey,
   uploadSecureDialogAttachment,
 } from "../lib/secure-dialog-storage";
 import { emailService } from "../lib/email-service";
+import {
+  MalwareScannerUnavailableError,
+  scanSecureAttachmentForMalware,
+} from "../lib/secure-attachment-malware-scanner";
 
 type SecureActor = {
   userId: string;
@@ -163,6 +169,7 @@ const SAFE_AUDIT_METADATA = new Set([
   "mimeType",
   "sizeBytes",
   "status",
+  "scanEngine",
 ]);
 
 async function appendAudit(
@@ -365,6 +372,85 @@ export async function processSecureNotificationOutbox(messageId?: string, limit 
     processed += 1;
   }
   return processed;
+}
+
+function quarantineRetentionDays(): number {
+  const parsed = Number.parseInt(process.env.SECURE_ATTACHMENT_QUARANTINE_DAYS || "30", 10);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 365 ? parsed : 30;
+}
+
+export async function processExpiredSecureAttachmentQuarantine(limit = 20): Promise<number> {
+  let processed = 0;
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 100));
+  for (let index = 0; index < safeLimit; index += 1) {
+    const claimed = await withTransaction(async (client) => {
+      const { rows: [row] } = await client.query(
+        `WITH candidate AS (
+           SELECT id
+             FROM tidum_secure_attachment_quarantine
+            WHERE status IN ('quarantined', 'delete_failed')
+              AND expires_at <= NOW() AND next_attempt_at <= NOW()
+            ORDER BY expires_at, quarantined_at
+            FOR UPDATE SKIP LOCKED
+            LIMIT 1
+         )
+         UPDATE tidum_secure_attachment_quarantine quarantine
+            SET status = 'deleting', deletion_attempts = deletion_attempts + 1,
+                updated_at = NOW(), last_error = NULL
+           FROM candidate
+          WHERE quarantine.id = candidate.id
+         RETURNING quarantine.*`,
+      );
+      return row ?? null;
+    });
+    if (!claimed) break;
+
+    try {
+      await deleteSecureDialogAttachment(String(claimed.storage_key));
+      await withTransaction(async (client) => {
+        await client.query(
+          `UPDATE tidum_secure_attachment_quarantine
+              SET status = 'deleted', deleted_at = NOW(), updated_at = NOW(), last_error = NULL
+            WHERE id = $1 AND status = 'deleting'`,
+          [claimed.id],
+        );
+        await appendAudit(client, {
+          kommuneId: Number(claimed.kommune_id),
+          actorUserId: null,
+          actorKind: "system",
+          action: "attachment_quarantine_deleted",
+          conversationId: String(claimed.conversation_id),
+          messageId: String(claimed.message_id),
+          attachmentId: String(claimed.id),
+          metadata: { status: "deleted" },
+        });
+      });
+    } catch {
+      await pool.query(
+        `UPDATE tidum_secure_attachment_quarantine
+            SET status = 'delete_failed',
+                next_attempt_at = NOW() + (INTERVAL '15 minutes' * LEAST(deletion_attempts, 16)),
+                updated_at = NOW(), last_error = 'storage_delete_failed'
+          WHERE id = $1 AND status = 'deleting'`,
+        [claimed.id],
+      );
+    }
+    processed += 1;
+  }
+  return processed;
+}
+
+let quarantineCleanupStarted = false;
+export function setupSecureAttachmentQuarantineCleanup(): void {
+  if (quarantineCleanupStarted) return;
+  cron.schedule("17 * * * *", async () => {
+    try {
+      await processExpiredSecureAttachmentQuarantine(50);
+    } catch (error) {
+      console.error("[secure-dialog] quarantine cleanup failed", error instanceof Error ? error.message : "unknown");
+    }
+  });
+  quarantineCleanupStarted = true;
 }
 
 export function registerSecureDialogRoutes(app: Express): void {
@@ -737,7 +823,8 @@ export function registerSecureDialogRoutes(app: Express): void {
                     'sizeBytes', attachment.size_bytes
                   ) ORDER BY attachment.created_at) FILTER (WHERE attachment.id IS NOT NULL), '[]') AS attachments
              FROM tidum_secure_messages message
-             LEFT JOIN tidum_secure_message_attachments attachment ON attachment.message_id = message.id
+             LEFT JOIN tidum_secure_message_attachments attachment
+               ON attachment.message_id = message.id AND attachment.scan_status = 'clean'
             WHERE message.conversation_id = $1
               AND (message.status = 'sent' OR message.sender_user_id = $2)
             GROUP BY message.id
@@ -892,6 +979,88 @@ export function registerSecureDialogRoutes(app: Express): void {
         }
         const safeName = safeAttachmentName(req.file.originalname);
         const checksum = createHash("sha256").update(req.file.buffer).digest("hex");
+        let scanResult;
+        try {
+          scanResult = await scanSecureAttachmentForMalware(req.file.buffer);
+        } catch (error) {
+          await withTransaction(async (client) => {
+            const draft = await loadOwnedDraft(client, req.params.messageId, actor);
+            if (!draft) return;
+            await appendAudit(client, {
+              kommuneId: draft.kommuneId,
+              actorUserId: actor.userId,
+              actorKind: draft.access.actorKind,
+              action: "attachment_scan_failed",
+              partyId: draft.access.partyId,
+              conversationId: draft.conversationId,
+              messageId: draft.id,
+              metadata: { status: "scanner_unavailable", scanEngine: "clamav" },
+            });
+          });
+          if (error instanceof MalwareScannerUnavailableError) {
+            throw new SecureDialogRouteError(
+              503,
+              "Vedlegget kan ikke sikkerhetskontrolleres nå. Prøv igjen senere.",
+              "MALWARE_SCANNER_UNAVAILABLE",
+            );
+          }
+          throw error;
+        }
+
+        if (scanResult.status === "infected") {
+          storageKey = generateSecureDialogQuarantineKey(req.params.messageId, safeName);
+          await uploadSecureDialogAttachment(storageKey, req.file.buffer, req.file.mimetype, checksum);
+          await withTransaction(async (client) => {
+            const draft = await loadOwnedDraft(client, req.params.messageId, actor);
+            if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
+            const { rows: [quarantine] } = await client.query(
+              `INSERT INTO tidum_secure_attachment_quarantine
+                 (kommune_id, conversation_id, message_id, storage_key, original_name,
+                  mime_type, size_bytes, checksum_sha256, scan_engine, detected_signature,
+                  uploaded_by, expires_at)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+                       NOW() + ($12::integer * INTERVAL '1 day'))
+               RETURNING id`,
+              [
+                draft.kommuneId,
+                draft.conversationId,
+                draft.id,
+                storageKey,
+                safeName,
+                req.file!.mimetype,
+                req.file!.size,
+                checksum,
+                scanResult.engine,
+                scanResult.signature,
+                actor.userId,
+                quarantineRetentionDays(),
+              ],
+            );
+            await appendAudit(client, {
+              kommuneId: draft.kommuneId,
+              actorUserId: actor.userId,
+              actorKind: draft.access.actorKind,
+              action: "attachment_quarantined",
+              partyId: draft.access.partyId,
+              conversationId: draft.conversationId,
+              messageId: draft.id,
+              attachmentId: String(quarantine.id),
+              metadata: {
+                status: "quarantined",
+                scanEngine: scanResult.engine,
+                mimeType: req.file!.mimetype,
+                sizeBytes: req.file!.size,
+              },
+            });
+          });
+          storageKey = null;
+          throw new SecureDialogRouteError(
+            422,
+            "Vedlegget ble stoppet av sikkerhetskontrollen og er satt i karantene.",
+            "ATTACHMENT_QUARANTINED",
+          );
+        }
+
         storageKey = generateSecureDialogAttachmentKey(req.params.messageId, safeName);
         await uploadSecureDialogAttachment(storageKey, req.file.buffer, req.file.mimetype, checksum);
         const result = await withTransaction(async (client) => {
@@ -899,8 +1068,9 @@ export function registerSecureDialogRoutes(app: Express): void {
           if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
           const { rows: [attachment] } = await client.query(
             `INSERT INTO tidum_secure_message_attachments
-               (kommune_id, message_id, storage_key, original_name, mime_type, size_bytes, checksum_sha256, uploaded_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               (kommune_id, message_id, storage_key, original_name, mime_type, size_bytes,
+                checksum_sha256, uploaded_by, scan_status, scan_engine, scanned_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'clean', $9, NOW())
              RETURNING id, original_name, mime_type, size_bytes, created_at`,
             [
               draft.kommuneId,
@@ -911,8 +1081,20 @@ export function registerSecureDialogRoutes(app: Express): void {
               req.file!.size,
               checksum,
               actor.userId,
+              scanResult.engine,
             ],
           );
+          await appendAudit(client, {
+            kommuneId: draft.kommuneId,
+            actorUserId: actor.userId,
+            actorKind: draft.access.actorKind,
+            action: "attachment_scanned",
+            partyId: draft.access.partyId,
+            conversationId: draft.conversationId,
+            messageId: draft.id,
+            attachmentId: String(attachment.id),
+            metadata: { status: "clean", scanEngine: scanResult.engine },
+          });
           await appendAudit(client, {
             kommuneId: draft.kommuneId,
             actorUserId: actor.userId,
@@ -932,6 +1114,7 @@ export function registerSecureDialogRoutes(app: Express): void {
             createdAt: attachment.created_at,
           };
         });
+        storageKey = null;
         res.status(201).json(result);
       } catch (error) {
         if (storageKey) await deleteSecureDialogAttachment(storageKey).catch(() => undefined);
@@ -949,6 +1132,19 @@ export function registerSecureDialogRoutes(app: Express): void {
         if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
         if (draft.access.status !== "open") {
           throw new SecureDialogRouteError(409, "Samtalen er lukket", "CONVERSATION_CLOSED");
+        }
+        const unsafeAttachments = await client.query(
+          `SELECT 1 FROM tidum_secure_message_attachments
+            WHERE message_id = $1 AND scan_status <> 'clean'
+            LIMIT 1`,
+          [messageId],
+        );
+        if (unsafeAttachments.rowCount) {
+          throw new SecureDialogRouteError(
+            409,
+            "Meldingen har et vedlegg som ikke er ferdig sikkerhetskontrollert",
+            "ATTACHMENT_NOT_CLEAN",
+          );
         }
         const { rows: [sent] } = await client.query(
           `UPDATE tidum_secure_messages
@@ -1008,9 +1204,10 @@ export function registerSecureDialogRoutes(app: Express): void {
             `SELECT attachment.id, attachment.storage_key, attachment.original_name,
                     attachment.mime_type, attachment.size_bytes, attachment.checksum_sha256,
                     message.id AS message_id, message.status, message.sender_user_id
-               FROM tidum_secure_message_attachments attachment
+              FROM tidum_secure_message_attachments attachment
                JOIN tidum_secure_messages message ON message.id = attachment.message_id
               WHERE attachment.id = $1 AND message.conversation_id = $2
+                AND attachment.scan_status = 'clean'
                 AND (message.status = 'sent' OR message.sender_user_id = $3)`,
             [attachmentId, conversationId, actor.userId],
           );

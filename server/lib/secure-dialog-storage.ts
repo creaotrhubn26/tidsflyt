@@ -22,6 +22,11 @@ export function generateSecureDialogAttachmentKey(messageId: string, originalNam
   return `secure-dialog/${messageId}/${randomBytes(16).toString("hex")}${ext}`;
 }
 
+export function generateSecureDialogQuarantineKey(messageId: string, originalName: string): string {
+  const ext = path.extname(originalName).toLowerCase().replace(/[^a-z0-9.]/g, "");
+  return `secure-dialog-quarantine/${messageId}/${randomBytes(16).toString("hex")}${ext}`;
+}
+
 export async function uploadSecureDialogAttachment(
   key: string,
   body: Buffer,
