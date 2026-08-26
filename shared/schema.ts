@@ -498,6 +498,9 @@ export const vendors = pgTable("tidum_vendors", {
   settings: jsonb("settings").default({}), // Custom settings per vendor
   maxUsers: integer("max_users").default(50), // Maks antall brukere
   subscriptionPlan: text("subscription_plan").default("standard"), // basic, standard, premium
+  // Sticky compliance control set when a tenant handles barnevern. It is not
+  // exposed in the vendor self-service update API.
+  sensitiveSmtpBlocked: boolean("sensitive_smtp_blocked").notNull().default(false),
   // API Access fields
   apiAccessEnabled: boolean("api_access_enabled").default(false),
   apiSubscriptionStart: timestamp("api_subscription_start"),
@@ -1371,6 +1374,30 @@ export const emailSendHistory = pgTable("tidum_email_composer_history", {
 });
 
 export const insertEmailSendHistorySchema = createInsertSchema(emailSendHistory).omit({ id: true, createdAt: true });
+
+// Fail-closed SMTP policy audit. Message bodies, subjects and recipient
+// addresses are intentionally excluded from this table.
+export const outboundEmailPolicyEvents = pgTable("tidum_outbound_email_policy_events", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  actorUserId: text("actor_user_id"),
+  vendorId: integer("vendor_id"),
+  kommuneId: integer("kommune_id"),
+  route: text("route").notNull(),
+  purpose: text("purpose").notNull(),
+  reasonCode: text("reason_code").notNull(),
+  metadata: jsonb("metadata").notNull().default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => ({
+  vendorCreatedIdx: index("tidum_outbound_email_policy_events_vendor_idx")
+    .on(table.vendorId, table.createdAt)
+    .where(sql`${table.vendorId} IS NOT NULL`),
+  kommuneCreatedIdx: index("tidum_outbound_email_policy_events_kommune_idx")
+    .on(table.kommuneId, table.createdAt)
+    .where(sql`${table.kommuneId} IS NOT NULL`),
+  reasonCreatedIdx: index("tidum_outbound_email_policy_events_reason_idx").on(table.reasonCode, table.createdAt),
+}));
+
+export type OutboundEmailPolicyEvent = typeof outboundEmailPolicyEvents.$inferSelect;
 
 // Email Settings (SMTP config)
 export const emailSettings = pgTable("tidum_email_settings", {

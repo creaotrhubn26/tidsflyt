@@ -16,6 +16,12 @@ describe("email composer tenant and object authorization", () => {
   const ownerA: TestIdentity = { id: `email-a-${nonce}`, email: `email-a-${nonce}@example.no`, role: "miljoarbeider", vendorId: 970_001 };
   const leaderA: TestIdentity = { id: `email-leader-a-${nonce}`, email: `email-leader-a-${nonce}@example.no`, role: "teamleder", vendorId: ownerA.vendorId };
   const ownerB: TestIdentity = { id: `email-b-${nonce}`, email: `email-b-${nonce}@example.no`, role: "miljoarbeider", vendorId: 980_001 };
+  const barnevernOwner: TestIdentity = {
+    id: `email-barnevern-${nonce}`,
+    email: `email-barnevern-${nonce}@example.no`,
+    role: "miljoarbeider",
+    vendorId: 990_001,
+  };
   const uploadDir = path.join(process.cwd(), "private-uploads", "email");
   const storedName = `${randomBytes(24).toString("hex")}.pdf`;
   const attachmentContent = Buffer.from("%PDF-1.7\nemail-composer-tenant-test\n", "utf8");
@@ -54,6 +60,16 @@ describe("email composer tenant and object authorization", () => {
         leaderA.id, leaderA.email, leaderA.role,
         ownerB.id, ownerB.email, ownerB.vendorId,
       ],
+    );
+    await pool.query(
+      `INSERT INTO users (id, username, password, email, first_name, last_name, role, vendor_id)
+       VALUES ($1::varchar, $1::text, 'unused-test-password', $2, 'Barnevern', 'Bruker', $3, $4)`,
+      [barnevernOwner.id, barnevernOwner.email, barnevernOwner.role, barnevernOwner.vendorId],
+    );
+    await pool.query(
+      `INSERT INTO tidum_vendor_institutions (vendor_id, name, institution_type, active, created_by)
+       VALUES ($1, $2, 'barnevern', true, $3)`,
+      [barnevernOwner.vendorId, `Barnevern ${nonce}`, barnevernOwner.id],
     );
 
     const templates = await pool.query(
@@ -109,14 +125,19 @@ describe("email composer tenant and object authorization", () => {
     for (const row of attachmentRows.rows) createdStoredNames.add(row.stored_name);
 
     await pool.query(`DELETE FROM tidum_email_attachments WHERE user_id = ANY($1::text[])`, [[ownerA.id, ownerB.id]]).catch(() => undefined);
-    await pool.query(`DELETE FROM tidum_email_composer_history WHERE sent_by = ANY($1::text[])`, [[ownerA.id, ownerB.id]]).catch(() => undefined);
-    await pool.query(`DELETE FROM tidum_email_drafts WHERE user_id = ANY($1::text[])`, [[ownerA.id, ownerB.id]]).catch(() => undefined);
+    await pool.query(`DELETE FROM tidum_email_composer_history WHERE sent_by = ANY($1::text[])`, [[ownerA.id, ownerB.id, barnevernOwner.id]]).catch(() => undefined);
+    await pool.query(`DELETE FROM tidum_email_drafts WHERE user_id = ANY($1::text[])`, [[ownerA.id, ownerB.id, barnevernOwner.id]]).catch(() => undefined);
+    await pool.query(
+      `DELETE FROM tidum_outbound_email_policy_events WHERE actor_user_id = ANY($1::text[])`,
+      [[ownerA.id, ownerB.id, barnevernOwner.id]],
+    ).catch(() => undefined);
     await pool.query(
       `DELETE FROM tidum_email_composer_templates
        WHERE user_id = ANY($1::text[]) OR slug = $2`,
       [[ownerA.id, ownerB.id], `system-${nonce}`],
     ).catch(() => undefined);
-    await pool.query(`DELETE FROM users WHERE id = ANY($1::varchar[])`, [[ownerA.id, leaderA.id, ownerB.id]]).catch(() => undefined);
+    await pool.query(`DELETE FROM tidum_vendor_institutions WHERE vendor_id = $1`, [barnevernOwner.vendorId]).catch(() => undefined);
+    await pool.query(`DELETE FROM users WHERE id = ANY($1::varchar[])`, [[ownerA.id, leaderA.id, ownerB.id, barnevernOwner.id]]).catch(() => undefined);
     for (const name of createdStoredNames) {
       await fs.promises.unlink(path.join(uploadDir, path.basename(name))).catch(() => undefined);
     }
@@ -243,5 +264,94 @@ describe("email composer tenant and object authorization", () => {
     );
     expect(audit.rows[0]).toMatchObject({ vendor_id: ownerA.vendorId, sent_by: ownerA.id, status: "failed" });
     expect(audit.rows[0].attachments).toEqual([{ filename: "test.pdf" }]);
+  });
+
+  it("blocks free-text SMTP, drafts, AI input, and attachment intake for a barnevern tenant", async () => {
+    const app = appFor(barnevernOwner);
+    const status = await request(app).get("/api/email/status");
+    expect(status.status).toBe(200);
+    expect(status.body).toMatchObject({ smtp: false, ai: false, secureChannelRequired: true });
+
+    const send = await request(app).post("/api/email/send").send({
+      toEmail: "recipient@example.no",
+      subject: `Sensitive ${nonce}`,
+      body: "<p>Sensitive saksopplysninger</p>",
+      category: "general",
+    });
+    expect(send.status).toBe(422);
+    expect(send.body.code).toBe("SECURE_CHANNEL_REQUIRED");
+
+    const draft = await request(app).post("/api/email/drafts").send({
+      toEmail: "recipient@example.no",
+      subject: `Sensitive draft ${nonce}`,
+      body: "<p>Sensitive saksopplysninger</p>",
+    });
+    expect(draft.status).toBe(422);
+
+    const ai = await request(app).post("/api/email/ai-draft").send({ sak: "Barn og sak", tema: "oppfølging" });
+    expect(ai.status).toBe(422);
+
+    const attachment = await request(app)
+      .post("/api/email/attachments")
+      .attach("file", Buffer.from("%PDF-1.7\nblocked\n"), { filename: "sak.pdf", contentType: "application/pdf" });
+    expect(attachment.status).toBe(422);
+
+    const persisted = await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM tidum_email_composer_history WHERE sent_by = $1 AND subject = $2`,
+      [barnevernOwner.id, `Sensitive ${nonce}`],
+    );
+    expect(persisted.rows[0].count).toBe(0);
+
+    const policyEvents = await pool.query(
+      `SELECT reason_code, metadata FROM tidum_outbound_email_policy_events WHERE actor_user_id = $1`,
+      [barnevernOwner.id],
+    );
+    expect(policyEvents.rows.length).toBeGreaterThanOrEqual(4);
+    expect(policyEvents.rows.every((row) => row.reason_code === "BARNEVERN_SMTP_BLOCKED")).toBe(true);
+    expect(JSON.stringify(policyEvents.rows)).not.toContain("Sensitive saksopplysninger");
+    expect(JSON.stringify(policyEvents.rows)).not.toContain("recipient@example.no");
+  });
+
+  it("blocks a case-report category even outside an explicitly marked barnevern tenant", async () => {
+    const response = await request(appFor(ownerA)).post("/api/email/send").send({
+      toEmail: "recipient@example.no",
+      subject: `Case report ${nonce}`,
+      body: "<p>Rapport</p>",
+      category: "case-report",
+    });
+    expect(response.status).toBe(422);
+    expect(response.body.code).toBe("SECURE_CHANNEL_REQUIRED");
+
+    const event = await pool.query(
+      `SELECT reason_code FROM tidum_outbound_email_policy_events
+        WHERE actor_user_id = $1 AND route = '/api/email/send'
+        ORDER BY created_at DESC LIMIT 1`,
+      [ownerA.id],
+    );
+    expect(event.rows[0]?.reason_code).toBe("SENSITIVE_CATEGORY_BLOCKED");
+  });
+
+  it("fails closed when the background scheduler encounters a restricted tenant", async () => {
+    const scheduled = await pool.query(
+      `INSERT INTO tidum_email_drafts
+         (vendor_id, user_id, to_email, subject, body, status, send_at)
+       VALUES ($1, $2, 'recipient@example.no', $3, '<p>Sensitive</p>', 'scheduled', NOW() - INTERVAL '1 minute')
+       RETURNING id`,
+      [barnevernOwner.vendorId, barnevernOwner.id, `Scheduled sensitive ${nonce}`],
+    );
+
+    const trigger = await request(appFor(ownerA)).get("/api/email/drafts");
+    expect(trigger.status).toBe(200);
+
+    const state = await pool.query(
+      `SELECT status FROM tidum_email_drafts WHERE id = $1`,
+      [scheduled.rows[0].id],
+    );
+    expect(state.rows[0]?.status).toBe("failed");
+    const history = await pool.query(
+      `SELECT COUNT(*)::integer AS count FROM tidum_email_composer_history WHERE sent_by = $1 AND subject = $2`,
+      [barnevernOwner.id, `Scheduled sensitive ${nonce}`],
+    );
+    expect(history.rows[0].count).toBe(0);
   });
 });

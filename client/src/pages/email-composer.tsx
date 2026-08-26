@@ -107,7 +107,7 @@ export default function EmailComposer() {
     },
   });
 
-  const { data: smtpStatus } = useQuery<{ smtp: boolean }>({
+  const { data: smtpStatus } = useQuery<{ smtp: boolean; ai?: boolean; secureChannelRequired?: boolean }>({
     queryKey: ["/api/email/status"],
     queryFn: async () => {
       const res = await apiRequest("GET", "/api/email/status");
@@ -272,6 +272,7 @@ export default function EmailComposer() {
   };
 
   const smtpAvailable = smtpStatus?.smtp ?? false;
+  const secureChannelRequired = smtpStatus?.secureChannelRequired ?? false;
 
   return (
     <PortalLayout>
@@ -284,12 +285,16 @@ export default function EmailComposer() {
               E-post
             </h1>
             <p className="text-sm text-muted-foreground mt-1">
-              Skriv og send e-poster med maler, vedlegg og historikk
+              {secureChannelRequired
+                ? "Saksopplysninger skal sendes med Sikker sending"
+                : "Skriv og send administrative e-poster med maler, vedlegg og historikk"}
             </p>
           </div>
-          <Badge variant={smtpAvailable ? "default" : "destructive"} className="gap-1.5">
-            {smtpAvailable ? <CheckCircle className="h-3.5 w-3.5" /> : <AlertCircle className="h-3.5 w-3.5" />}
-            {smtpAvailable ? "SMTP aktiv" : "SMTP ikke tilkoblet"}
+          <Badge variant={secureChannelRequired ? "secondary" : smtpAvailable ? "default" : "destructive"} className="gap-1.5">
+            {secureChannelRequired || !smtpAvailable
+              ? <AlertCircle className="h-3.5 w-3.5" />
+              : <CheckCircle className="h-3.5 w-3.5" />}
+            {secureChannelRequired ? "Bruk Sikker sending" : smtpAvailable ? "E-post aktiv" : "E-post ikke tilgjengelig"}
           </Badge>
         </div>
 
@@ -308,6 +313,19 @@ export default function EmailComposer() {
 
           {/* ═══ Compose Tab ═══ */}
           <TabsContent value="compose" className="space-y-4 mt-4">
+            {secureChannelRequired ? (
+              <Card className="border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-red-900 dark:text-red-100">
+                    <AlertCircle className="h-5 w-5" /> Denne informasjonen kan ikke sendes på e-post
+                  </CardTitle>
+                  <CardDescription className="text-red-800 dark:text-red-300">
+                    Bruk Sikker sending for meldinger, rapporter og vedlegg som gjelder en sak. Løsningen er under oppsett, så sending er foreløpig ikke tilgjengelig her.
+                  </CardDescription>
+                </CardHeader>
+              </Card>
+            ) : (
+              <>
 
             {/* Template selector */}
             <Card>
@@ -619,6 +637,8 @@ export default function EmailComposer() {
                   </Button>
                 </CardContent>
               </Card>
+            )}
+              </>
             )}
           </TabsContent>
 

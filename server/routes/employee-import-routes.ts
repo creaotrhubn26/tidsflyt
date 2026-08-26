@@ -599,6 +599,7 @@ export function registerEmployeeImportRoutes(app: Express) {
             }
 
             await emailService.sendEmail({
+              purpose: "administrative",
               to: TIDUM_SUPPORT_EMAIL,
               subject: `Seat-overrun: ${vendorName} har overskredet avtalt brukerantall`,
               html: `
@@ -810,6 +811,7 @@ export function registerEmployeeImportRoutes(app: Express) {
         const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
         const lowRatingPrefix = rating <= 2 ? '★ ' : '';
         await emailService.sendEmail({
+          purpose: "administrative",
           to: TIDUM_SUPPORT_EMAIL,
           subject: `${lowRatingPrefix}[Tideman] Import-feedback (${stars}): ${vendorName}`,
           html: `

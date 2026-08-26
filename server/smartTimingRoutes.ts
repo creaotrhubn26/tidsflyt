@@ -6960,6 +6960,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       ` : '';
 
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipientEmail,
         replyTo: email,
         subject: `${company ? `[${company}] ` : ''}Henvendelse: ${subject}`,
@@ -7082,6 +7083,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       // Send email using centralized email service
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipient_email,
         subject: subject,
         html: htmlContent,

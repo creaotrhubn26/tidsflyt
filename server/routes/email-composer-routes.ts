@@ -26,6 +26,16 @@ import {
   validateReportPeriod,
   type EmailActor,
 } from '../lib/email-composer-security';
+import {
+  assertUserComposedSmtpAllowed,
+  loadEmailChannelPolicy,
+  recordEmailPolicyBlock,
+  type EmailChannelPolicy,
+} from '../lib/email-channel-policy';
+import {
+  isSecureChannelRequiredError,
+  SECURE_CHANNEL_REQUIRED_CODE,
+} from '../lib/outbound-email-policy';
 
 const EMAIL_UPLOAD_DIR = path.join(process.cwd(), 'private-uploads', 'email');
 const REPORT_TYPES = new Set(['timesheet', 'case-report', 'overtime']);
@@ -81,6 +91,12 @@ function ownedTemplateWhere(actor: EmailActor, id: number) {
 
 function emailRouteError(res: Response, operation: string, error: unknown) {
   console.error(`Email composer ${operation} error:`, error);
+  if (isSecureChannelRequiredError(error)) {
+    return res.status(422).json({
+      error: 'Denne informasjonen kan ikke sendes på e-post. Bruk Sikker sending.',
+      code: SECURE_CHANNEL_REQUIRED_CODE,
+    });
+  }
   const code = error instanceof Error ? error.message : '';
   if (code === 'INVALID_INPUT' || code === 'INVALID_EMAIL') {
     return res.status(400).json({ error: 'Ugyldige e-postdata' });
@@ -89,6 +105,49 @@ function emailRouteError(res: Response, operation: string, error: unknown) {
     return res.status(404).json({ error: 'Vedlegg ikke funnet' });
   }
   return res.status(500).json({ error: 'E-postoperasjonen kunne ikke fullføres' });
+}
+
+async function requireUserComposedSmtpPolicy(
+  res: Response,
+  actor: EmailActor,
+  input: { category?: unknown; reportType?: unknown },
+  route: string,
+): Promise<EmailChannelPolicy | null> {
+  let policy: EmailChannelPolicy | null = null;
+  try {
+    policy = await loadEmailChannelPolicy(actor);
+    assertUserComposedSmtpAllowed(policy, input);
+    return policy;
+  } catch (error) {
+    if (!isSecureChannelRequiredError(error)) throw error;
+    await recordEmailPolicyBlock({
+      actorUserId: policy?.actorUserId ?? actor.id,
+      vendorId: policy?.vendorId ?? actor.vendorId,
+      kommuneId: policy?.kommuneId ?? null,
+      route,
+      purpose: 'user_composed',
+      reasonCode: error.reasonCode,
+      metadata: {
+        category: typeof input.category === 'string' ? input.category : null,
+        reportType: typeof input.reportType === 'string' ? input.reportType : null,
+      },
+    });
+    emailRouteError(res, 'policy block', error);
+    return null;
+  }
+}
+
+async function requireEmailAttachmentPolicyMiddleware(req: Request, res: Response, next: NextFunction) {
+  const actor = (req as any).emailActor as EmailActor | undefined;
+  if (!actor) return res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+  try {
+    const policy = await requireUserComposedSmtpPolicy(res, actor, {}, '/api/email/attachments');
+    if (!policy) return;
+    (req as any).emailChannelPolicy = policy;
+    next();
+  } catch (error) {
+    emailRouteError(res, 'attachment policy', error);
+  }
 }
 
 let emailTablesReady = false;
@@ -313,6 +372,7 @@ export function registerEmailComposerRoutes(app: Express) {
     '/api/email/attachments',
     requireAuth,
     requireEmailActorMiddleware,
+    requireEmailAttachmentPolicyMiddleware,
     receivePrivateAttachment,
     async (req: Request, res: Response) => {
       const actor = (req as any).emailActor as EmailActor;
@@ -411,6 +471,7 @@ export function registerEmailComposerRoutes(app: Express) {
       let finalHtml = requestedBody;
       let finalText = emailHtmlToText(requestedBody);
       let resolvedTemplateId: number | null = null;
+      let effectiveCategory = normalizedCategory;
 
       if (templateId != null && templateId !== '') {
         const parsedTemplateId = Number(templateId);
@@ -423,6 +484,7 @@ export function registerEmailComposerRoutes(app: Express) {
 
         if (!tpl) return res.status(404).json({ error: 'Mal ikke funnet' });
         resolvedTemplateId = parsedTemplateId;
+        effectiveCategory = tpl.category || normalizedCategory;
         const suppliedVars = normalizeTemplateVariables(templateVars);
         const bodyText = String(suppliedVars.melding ?? emailHtmlToText(requestedBody)).trim();
         const plainVars: Record<string, string> = {
@@ -440,6 +502,14 @@ export function registerEmailComposerRoutes(app: Express) {
           ? replaceVariables(tpl.textContent, plainVars).slice(0, 100_000)
           : emailHtmlToText(finalHtml);
       }
+
+      const channelPolicy = await requireUserComposedSmtpPolicy(
+        res,
+        actor,
+        { category: effectiveCategory, reportType: attachReport === true ? reportType : null },
+        '/api/email/send',
+      );
+      if (!channelPolicy) return;
 
       // Only private attachment IDs owned by this actor are accepted. URLs are
       // deliberately rejected to prevent SSRF and cross-user object access.
@@ -537,6 +607,7 @@ export function registerEmailComposerRoutes(app: Express) {
       let sent = false;
       try {
         sent = await emailService.sendEmail({
+          purpose: "user_composed",
           to: normalizedTo,
           cc: normalizedCc || undefined,
           bcc: normalizedBcc || undefined,
@@ -634,10 +705,23 @@ export function registerEmailComposerRoutes(app: Express) {
   });
 
   // ─ Email status (SMTP availability) ──────────────────────────────────
-  app.get('/api/email/status', requireAuth, (req: Request, res: Response) => {
+  app.get('/api/email/status', requireAuth, async (req: Request, res: Response) => {
     const actor = requireEmailActor(req, res);
     if (!actor) return;
-    res.json({ smtp: emailService.getIsConfigured(), ai: process.env.ALLOW_AI_EMAIL_DRAFTS === 'true' && !!process.env.OPENAI_API_KEY });
+    try {
+      const policy = await loadEmailChannelPolicy(actor);
+      const secureChannelRequired = policy.kommuneId != null
+        || policy.role === 'barnevernsleder'
+        || policy.role === 'kommune_saksbehandler'
+        || policy.barnevernContext;
+      res.json({
+        smtp: emailService.getIsConfigured() && !secureChannelRequired,
+        ai: !secureChannelRequired && process.env.ALLOW_AI_EMAIL_DRAFTS === 'true' && !!process.env.OPENAI_API_KEY,
+        secureChannelRequired,
+      });
+    } catch (error) {
+      return emailRouteError(res, 'status', error);
+    }
   });
 
   // ════════════════════════════════════════════════════════════════════
@@ -687,6 +771,33 @@ export function registerEmailComposerRoutes(app: Express) {
           const replyTo = resolveReplyTo(undefined, tiltakslederEmail, senderEmail);
 
           const draftActor: EmailActor = { id: d.user_id, vendorId: d.vendor_id, role: 'scheduled' };
+          const policy = await loadEmailChannelPolicy(draftActor);
+          const [scheduledTemplate] = d.template_id
+            ? await db
+                .select({ category: emailTemplates.category })
+                .from(emailTemplates)
+                .where(accessibleTemplateWhere(draftActor, Number(d.template_id)))
+                .limit(1)
+            : [];
+          try {
+            assertUserComposedSmtpAllowed(policy, { category: scheduledTemplate?.category });
+          } catch (error) {
+            if (isSecureChannelRequiredError(error)) {
+              await recordEmailPolicyBlock({
+                actorUserId: policy.actorUserId,
+                vendorId: policy.vendorId,
+                kommuneId: policy.kommuneId,
+                route: 'email-scheduler',
+                purpose: 'user_composed',
+                reasonCode: error.reasonCode,
+                metadata: {
+                  category: scheduledTemplate?.category ?? null,
+                  hasAttachments: Array.isArray(d.attachments) && d.attachments.length > 0,
+                },
+              });
+            }
+            throw error;
+          }
           const resolvedAttachments = await resolvePrivateAttachments(d.attachments, draftActor);
           const normalizedTo = normalizeEmailRecipients(d.to_email, true)!;
           const normalizedCc = normalizeEmailRecipients(d.cc_email);
@@ -712,6 +823,7 @@ export function registerEmailComposerRoutes(app: Express) {
 
           smtpAttempted = true;
           const sent = await emailService.sendEmail({
+            purpose: "user_composed",
             to: normalizedTo,
             cc: normalizedCc || undefined,
             bcc: normalizedBcc || undefined,
@@ -838,15 +950,25 @@ export function registerEmailComposerRoutes(app: Express) {
       }
 
       let normalizedTemplateId: number | null = null;
+      let templateCategory: string | null = null;
       if (templateId != null && templateId !== '') {
         normalizedTemplateId = Number(templateId);
         if (!Number.isInteger(normalizedTemplateId) || normalizedTemplateId <= 0) throw new Error('INVALID_INPUT');
-        const [template] = await db.select({ id: emailTemplates.id })
+        const [template] = await db.select({ id: emailTemplates.id, category: emailTemplates.category })
           .from(emailTemplates)
           .where(and(eq(emailTemplates.isActive, true), accessibleTemplateWhere(actor, normalizedTemplateId)))
           .limit(1);
         if (!template) return res.status(404).json({ error: 'Mal ikke funnet' });
+        templateCategory = template.category;
       }
+
+      const channelPolicy = await requireUserComposedSmtpPolicy(
+        res,
+        actor,
+        { category: templateCategory },
+        '/api/email/drafts',
+      );
+      if (!channelPolicy) return;
 
       const resolvedAttachments = await resolvePrivateAttachments(attachments, actor);
       const attachmentsJson = JSON.stringify(resolvedAttachments.ids.map((attachmentId) => ({ id: attachmentId })));
@@ -911,6 +1033,13 @@ export function registerEmailComposerRoutes(app: Express) {
     const actor = requireEmailActor(req, res);
     if (!actor) return;
     try {
+      const channelPolicy = await requireUserComposedSmtpPolicy(
+        res,
+        actor,
+        { category: 'ai-draft' },
+        '/api/email/ai-draft',
+      );
+      if (!channelPolicy) return;
       if (process.env.ALLOW_AI_EMAIL_DRAFTS !== 'true' || !process.env.OPENAI_API_KEY) {
         return res.status(503).json({ error: 'AI-utkast er ikke aktivert for denne installasjonen' });
       }

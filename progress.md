@@ -11,8 +11,9 @@ ikke-deployerende integrasjonsgrenen. En ny bred BOLA/IDOR-runde har deretter
 funnet og lukket objektlekkasjer i eksport, faktura, saksrapport,
 rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
 067, 068 og 069 er varig brukt og verifisert på utviklingsdatabasen. Den
-ordinære e-postkomponisten er nå også tenantskopet, men er fortsatt ikke en
-sikker kanal for sensitive barnevernsopplysninger.
+ordinære e-postkomponisten er nå også tenantskopet. Sensitive
+barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier;
+neste leveranse er selve funksjonen «Sikker sending».
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -197,6 +198,57 @@ barnevernsdialog. Sensitive opplysninger skal fortsatt bruke en godkjent kanal
 med partsmodell, tilgangs-/oppslagslogg, sikker dokumentdeling og avtalt
 lagrings-/retensjonsarkitektur. CreatorHub/CMS-rutene under `/api/cms/email/*`
 bruker en separat global modell og gjenstår i CMS/admin-pakken.
+
+## 7. Sikker sending — ordinær e-post sperret for barnevernsinnhold
+
+**Mål:** En barnevernsbruker skal ikke måtte forstå SMTP, SvarUt eller teknisk
+kanalvalg. Brukerflaten skal etter hvert bare ha handlingen **«Send sikkert»**;
+Tidum velger leveringsmåten i bakgrunnen. Før sikker dialog er ferdig koblet
+opp, skal systemet feile lukket uten å tilby manuell e-post som omvei.
+
+**Gjennomført i denne pakken:**
+
+- Migrasjon 070 legger til en varig `sensitive_smtp_blocked`-sperre på tenant
+  og en egen policyhendelseslogg. Sperren aktiveres automatisk når tenant får
+  en barnevernsinstitusjon, og blir stående selv om institusjonen senere
+  deaktiveres eller omklassifiseres.
+- E-postkomponisten sperrer fri tekst, malbasert sending, utkast, planlagte
+  sendinger, AI-utkast og vedleggsopplasting for barnevernstenants. Rapport- og
+  saksdokumentkategorier sperres også for andre tenants.
+- Rapportvideresending sperrer både direkte e-post og den tidligere manuelle
+  kombinasjonen av nedlasting og `mailto`. Automatisk videresending av godkjent
+  saksrapport er fjernet fra e-postløpet.
+- E-posttjenesten krever eksplisitt formål på alle kall. Saksinnhold og den
+  eldre timeliste-med-vedlegg-funksjonen feiler lukket. Manglende eller ukjent
+  klassifisering feiler også lukket.
+- E-postvarsler om rapport, timegodkjenning, fravær, avvik og rapportfrist er
+  gjort nøytrale: de ber mottakeren logge inn og inneholder ikke navn,
+  saksdetaljer, perioder, kommentarer eller vedlegg. Den fremtidige sikre
+  dialogen har en låst varselmal som ikke kan fylles med fri tekst.
+- Policyloggen lagrer bare en eksplisitt liste med ufølsomme tekniske felter;
+  mottaker, emne, melding og dokumentinnhold lagres ikke der.
+- Brukerflaten viser nå «Bruk Sikker sending» og forklarer at funksjonen er
+  under oppsett. Tekniske kanalnavn er fjernet fra meldingen til
+  barnevernsbrukeren.
+- Tilgrensende herding i rapportflyten lukker kryss-tenant-eksport, validerer
+  mottaker/periode/rapporttype og krever autentisert fileier for midlertidige
+  rapportnedlastinger.
+
+**Verifikasjon:** Migrasjon 070 er anvendt idempotent på
+Neon-utviklingsdatabasen. 21/21 målrettede tester og hele Vitest-suiten på
+**485/485 tester i 70/70 testfiler** består mot databasen. `tsc`, designkontroll
+og produksjonsbuild er grønne. Bygget har kun kjente, ikke-blokkerende varsler
+om nettleserdata, én eksisterende Tailwind-verdi og store chunks.
+
+**Gjenstår før knappen kan åpnes:** parts-/mottakermodell, sikker dialog og
+innboks, kryptert dokumentlagring, autorisasjon og oppslagslogg for mottaker,
+nøytral varselutsending, åpne-/leveringskvittering, retensjon/sletting og
+ende-til-ende-verifisering med BankID/Buypass. Kommunal ekspedering kan kobles
+til samme brukerhandling senere; kanalvalget skal ikke skyves ut til brukeren.
+
+**Status:** Første sikker-sending-pakke er teknisk ferdig og feiler lukket.
+Kravet om faktisk sikker ekstern dialog er **ikke** ferdig før punktene over er
+implementert og verifisert.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 

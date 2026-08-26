@@ -3,6 +3,12 @@ import type { Transporter } from 'nodemailer';
 import { getAppBaseUrl } from './app-base-url';
 import { TIDUM_SUPPORT_EMAIL } from '@shared/brand';
 import { renderEmailTemplate } from './email-template-renderer';
+import {
+  assertOutboundEmailPurposeAllowed,
+  SecureChannelRequiredError,
+  type InternalOutboundEmailPurpose,
+  type PublicOutboundEmailPurpose,
+} from './outbound-email-policy';
 
 interface EmailTemplate {
   subject: string;
@@ -10,7 +16,8 @@ interface EmailTemplate {
   text: string;
 }
 
-interface EmailOptions {
+export interface EmailOptions {
+  purpose: PublicOutboundEmailPurpose;
   to: string | string[];
   cc?: string | string[];
   bcc?: string | string[];
@@ -27,6 +34,13 @@ interface EmailOptions {
   // manual review. Most existing callers keep the legacy boolean contract.
   throwOnError?: boolean;
 }
+
+type InternalEmailOptions = Omit<EmailOptions, "purpose"> & {
+  purpose: InternalOutboundEmailPurpose;
+  neutralNotificationMarker?: symbol;
+};
+
+const NEUTRAL_SECURE_NOTIFICATION_MARKER = Symbol("neutral-secure-notification");
 
 interface OperationalNoticeOptions {
   to: string | string[];
@@ -213,6 +227,53 @@ export class EmailService {
    * Send an email
    */
   async sendEmail(options: EmailOptions): Promise<boolean> {
+    return this.deliverEmail(options);
+  }
+
+  /**
+   * The only SMTP path for secure-dialogue events. All visible content is
+   * fixed here; callers can supply neither case metadata nor free text.
+   */
+  async sendSecurePortalNotification(to: string | string[]): Promise<boolean> {
+    const configuredBaseUrl = process.env.SECURE_PORTAL_URL || getAppBaseUrl();
+    const parsedBaseUrl = new URL(configuredBaseUrl);
+    if (process.env.NODE_ENV === "production" && parsedBaseUrl.protocol !== "https:") {
+      throw new Error("SECURE_PORTAL_URL må bruke https i produksjon");
+    }
+    const portalUrl = new URL("/innbygger", parsedBaseUrl).toString();
+    const subject = "Ny melding i sikker portal";
+    const text = `Du har mottatt en ny melding. Logg inn i den sikre portalen for å lese den: ${portalUrl}`;
+    const html = `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+        <h2 style="color:#1a6b73;">Ny melding i sikker portal</h2>
+        <p>Du har mottatt en ny melding.</p>
+        <p>Logg inn i den sikre portalen for å lese den.</p>
+        <p><a href="${portalUrl}">Åpne sikker portal</a></p>
+      </div>
+    `;
+    return this.deliverEmail({
+      purpose: "neutral_secure_notification",
+      neutralNotificationMarker: NEUTRAL_SECURE_NOTIFICATION_MARKER,
+      to,
+      subject,
+      html,
+      text,
+    });
+  }
+
+  private async deliverEmail(options: InternalEmailOptions): Promise<boolean> {
+    // Runs before the SMTP configuration check so policy behavior is
+    // deterministic in development/test and cannot depend on provider state.
+    assertOutboundEmailPurposeAllowed(options.purpose);
+    if (
+      options.purpose === "neutral_secure_notification"
+      && options.neutralNotificationMarker !== NEUTRAL_SECURE_NOTIFICATION_MARKER
+    ) {
+      throw new SecureChannelRequiredError(
+        "Nøytrale sikkerhetsvarsler må bygges av systemmalen",
+        "UNTRUSTED_NEUTRAL_NOTIFICATION",
+      );
+    }
     if (!this.isConfigured || !this.transporter) {
       console.warn('Email not sent: Service not configured');
       return false;
@@ -324,6 +385,7 @@ export class EmailService {
       : "";
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject,
@@ -368,6 +430,7 @@ export class EmailService {
   async sendTimeReminder(to: string, name: string, weekNumber: number): Promise<boolean> {
     const appBaseUrl = getAppBaseUrl();
     return this.sendEmail({
+      purpose: "administrative",
       to,
       subject: 'Påminnelse: Registrer timene dine',
       html: renderTidumEmail({
@@ -406,16 +469,14 @@ export class EmailService {
     const appBaseUrl = getAppBaseUrl();
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
-      subject: `Timene dine er ${statusText}`,
+      subject: "Ny oppdatering i Tidum",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: ${color};">Timer ${statusText}</h2>
-          <p>Hei ${name},</p>
-          <p>Dine registrerte timer for ${period} (${hours} timer) har blitt <strong>${statusText}</strong> av ${approverName}.</p>
-          ${comment ? `<div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin: 20px 0;">
-            <strong>Kommentar:</strong><br>${comment}
-          </div>` : ''}
+          <h2 style="color: ${color};">Du har en ny oppdatering</h2>
+          <p>Logg inn i Tidum for å se detaljene.</p>
+          <p>Av hensyn til personvern inneholder denne e-posten ingen registreringsdata eller kommentarer.</p>
           <a href="${appBaseUrl}/time-tracking" 
              style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; margin: 20px 0;">
@@ -423,9 +484,7 @@ export class EmailService {
           </a>
         </div>
       `,
-      text: `Hei ${name},\n\nDine timer for ${period} (${hours} timer) har blitt ${statusText} av ${approverName}.${
-        comment ? `\n\nKommentar: ${comment}` : ''
-      }`,
+      text: `Du har en ny oppdatering. Logg inn i Tidum for å se detaljene: ${appBaseUrl}/time-tracking`,
     });
   }
 
@@ -442,18 +501,14 @@ export class EmailService {
   ): Promise<boolean> {
     const appBaseUrl = getAppBaseUrl();
     return this.sendEmail({
+      purpose: "administrative",
       to,
-      subject: `Ny ferieforespørsel fra ${employeeName}`,
+      subject: "Ny oppgave i Tidum",
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #0066cc;">Ny ferieforespørsel</h2>
-          <p>${employeeName} har sendt en forespørsel om fravær:</p>
-          <div style="background: #f5f5f5; padding: 15px; border-radius: 4px; margin: 20px 0;">
-            <strong>Type:</strong> ${leaveType}<br>
-            <strong>Fra:</strong> ${startDate}<br>
-            <strong>Til:</strong> ${endDate}<br>
-            <strong>Antall dager:</strong> ${days}
-          </div>
+          <h2 style="color: #0066cc;">Du har en ny oppgave</h2>
+          <p>Logg inn i Tidum for å se og behandle oppgaven.</p>
+          <p>Av hensyn til personvern inneholder denne e-posten ingen fraværsopplysninger.</p>
           <a href="${appBaseUrl}/leave-requests" 
              style="display: inline-block; background: #0066cc; color: white; padding: 12px 24px; 
                     text-decoration: none; border-radius: 4px; margin: 20px 0;">
@@ -461,7 +516,7 @@ export class EmailService {
           </a>
         </div>
       `,
-      text: `${employeeName} har sendt en forespørsel om ${leaveType} fra ${startDate} til ${endDate} (${days} dager).`,
+      text: `Du har en ny oppgave. Logg inn i Tidum for å se detaljene: ${appBaseUrl}/leave-requests`,
     });
   }
 
@@ -476,6 +531,10 @@ export class EmailService {
     attachment?: { filename: string; content: Buffer }
   ): Promise<boolean> {
     return this.sendEmail({
+      // A timesheet attachment contains work and potentially case-related
+      // details. Keep this legacy helper fail-closed until secure delivery
+      // replaces email attachments.
+      purpose: "sensitive_case_content",
       to,
       subject: `Timeregistrering uke ${weekNumber}`,
       html: `
@@ -507,6 +566,7 @@ export class EmailService {
     const appUrl = getAppBaseUrl();
     const companyLabel = company?.trim() || "virksomheten din";
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Velkommen til Tidum – tilgangen din er godkjent!',
@@ -560,6 +620,7 @@ export class EmailService {
       : "";
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Oppdatering om din tilgangsforespørsel – Tidum',
@@ -590,6 +651,7 @@ export class EmailService {
   ): Promise<boolean> {
     const appUrl = getAppBaseUrl();
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: 'Du er invitert til Tidum',
@@ -626,6 +688,7 @@ export class EmailService {
     if (!rendered) {
       // Fallback hvis admin har deaktivert malen
       return this.sendEmail({
+        purpose: "administrative",
         to, replyTo: TIDUM_SUPPORT_EMAIL,
         subject: "Vi har mottatt tilgangsforespørselen din",
         text: `Hei ${fullName},\n\nVi har mottatt tilgangsforespørselen din. Vi sender neste steg så snart den er behandlet.`,
@@ -633,6 +696,7 @@ export class EmailService {
     }
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: rendered.subject,
@@ -652,6 +716,7 @@ export class EmailService {
     loginUrl: string
   ): Promise<boolean> {
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: "Innloggingslenke til Tidum",
@@ -694,6 +759,7 @@ export class EmailService {
     const institutionLabel = institutionType?.trim() || "institusjon";
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: `Tidum er klart for ${companyLabel}`,
@@ -763,6 +829,7 @@ export class EmailService {
     const institutionLabel = institutionType?.trim() || "institusjon";
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: `Tidum er klart for ${companyLabel}`,
@@ -835,6 +902,7 @@ export class EmailService {
     pricePerUserKr: number;
   }): Promise<boolean> {
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: `Brukerantallet i ${vendorName} har økt — ny tier ved neste fakturasyklus`,
@@ -911,6 +979,7 @@ export class EmailService {
     ];
     const areas = focusAreas && focusAreas.length > 0 ? focusAreas : defaultFocus;
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: "Velkommen som prototype-tester i Tidum",
@@ -963,6 +1032,7 @@ export class EmailService {
     const companyLabel = company?.trim() || "virksomheten din";
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: "Kontoen din er deaktivert i Tidum",
@@ -1120,30 +1190,23 @@ export class EmailService {
   }): Promise<boolean> {
     const appUrl = getAppBaseUrl();
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
-      subject: `Rapport til godkjenning – ${konsulentName} (${periode})`,
+      subject: "Ny oppgave i Tidum",
       html: renderTidumEmail({
-        badge: "Tidum Rapport",
-        title: "Ny rapport venter på godkjenning",
-        intro: `${konsulentName} har sendt inn en rapport for ${periode}.`,
+        badge: "Tidum Varsel",
+        title: "Du har en ny oppgave",
+        intro: "Logg inn i Tidum for å se og behandle oppgaven.",
         bodyHtml: `
-          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${tiltakslederName},</p>
           <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
-            <strong style="color:#16343d;">${konsulentName}</strong> har sendt inn en månedlig rapport for <strong style="color:#16343d;">${periode}</strong> til godkjenning.
-            Du kan gå gjennom rapporten, legge til seksjonskommentarer, og enten godkjenne eller returnere den.
+            Av hensyn til personvern inneholder denne e-posten ingen saksopplysninger.
           </p>
-          ${renderInfoBox("Sjekkliste for godkjenning", [
-            "Ingen personopplysninger (GDPR-sjekk)",
-            "Alle aktiviteter er dokumentert",
-            "Mål er oppdatert med fremdrift",
-            "Tidsregistrering stemmer med timer",
-          ])}
         `,
-        ctaLabel: "Gå til godkjenning",
+        ctaLabel: "Åpne Tidum",
         ctaUrl: `${appUrl}/rapporter/godkjenning`,
       }),
-      text: `Hei ${tiltakslederName},\n\n${konsulentName} har sendt inn en rapport for ${periode}.\n\nGå til godkjenning: ${appUrl}/rapporter/godkjenning`,
+      text: `Du har en ny oppgave. Logg inn i Tidum for å se detaljene: ${appUrl}/rapporter/godkjenning`,
     });
   }
 
@@ -1157,33 +1220,24 @@ export class EmailService {
     tiltakslederName: string; kommentar?: string;
   }): Promise<boolean> {
     const appUrl = getAppBaseUrl();
-    const kommentarHtml = kommentar ? `
-      <div style="margin-top:20px;padding:18px;border-radius:18px;background:#f0fdf4;border:1px solid #bbf7d0;">
-        <div style="font-size:13px;font-weight:700;color:#166534;">Kommentar fra ${tiltakslederName}</div>
-        <p style="margin:10px 0 0;font-size:14px;line-height:1.7;color:#15803d;">${kommentar}</p>
-      </div>
-    ` : "";
-
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
-      subject: `Rapport godkjent – ${periode}`,
+      subject: "Ny oppdatering i Tidum",
       html: renderTidumEmail({
-        badge: "Tidum Rapport",
-        title: "Rapporten din er godkjent",
-        intro: `${tiltakslederName} har godkjent rapporten for ${periode}.`,
+        badge: "Tidum Varsel",
+        title: "Du har en ny oppdatering",
+        intro: "Logg inn i Tidum for å se oppdateringen.",
         bodyHtml: `
-          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${konsulentName},</p>
           <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
-            Rapporten din for <strong style="color:#16343d;">${periode}</strong> er godkjent av ${tiltakslederName}.
-            Du kan laste ned PDF-versjonen fra rapportoversikten.
+            Av hensyn til personvern inneholder denne e-posten ingen saksopplysninger eller kommentarer.
           </p>
-          ${kommentarHtml}
         `,
-        ctaLabel: "Se mine rapporter",
+        ctaLabel: "Åpne Tidum",
         ctaUrl: `${appUrl}/rapporter`,
       }),
-      text: `Hei ${konsulentName},\n\nRapporten din for ${periode} er godkjent av ${tiltakslederName}.${kommentar ? `\n\nKommentar: ${kommentar}` : ""}\n\nSe rapporter: ${appUrl}/rapporter`,
+      text: `Du har en ny oppdatering. Logg inn i Tidum for å se detaljene: ${appUrl}/rapporter`,
     });
   }
 
@@ -1197,33 +1251,25 @@ export class EmailService {
     tiltakslederName: string; kommentar?: string; rapportId: string;
   }): Promise<boolean> {
     const appUrl = getAppBaseUrl();
-    const kommentarHtml = kommentar ? `
-      <div style="margin-top:20px;padding:18px;border-radius:18px;background:#fff7f4;border:1px solid #f1d6cb;">
-        <div style="font-size:13px;font-weight:700;color:#9a3412;">Tilbakemelding fra ${tiltakslederName}</div>
-        <p style="margin:10px 0 0;font-size:14px;line-height:1.7;color:#7c2d12;white-space:pre-line;">${kommentar}</p>
-      </div>
-    ` : "";
-
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
-      subject: `Rapport returnert – ${periode}`,
+      subject: "Ny oppgave i Tidum",
       html: renderTidumEmail({
-        badge: "Tidum Rapport",
-        title: "Rapporten er returnert for endring",
-        intro: `${tiltakslederName} har returnert rapporten for ${periode} med tilbakemelding.`,
+        badge: "Tidum Varsel",
+        title: "Du har en ny oppgave",
+        intro: "Logg inn i Tidum for å se og behandle oppgaven.",
         accentColor: "#7c2d12",
         bodyHtml: `
-          <p style="margin:0 0 14px;font-size:16px;line-height:1.7;">Hei ${konsulentName},</p>
           <p style="margin:0 0 18px;font-size:16px;line-height:1.7;color:#486168;">
-            Rapporten din for <strong style="color:#16343d;">${periode}</strong> er returnert av ${tiltakslederName} og trenger endringer før den kan godkjennes.
+            Av hensyn til personvern inneholder denne e-posten ingen saksopplysninger eller tilbakemeldinger.
           </p>
-          ${kommentarHtml}
         `,
-        ctaLabel: "Åpne rapporten",
-        ctaUrl: `${appUrl}/rapporter/${rapportId}`,
+        ctaLabel: "Åpne Tidum",
+        ctaUrl: `${appUrl}/rapporter`,
       }),
-      text: `Hei ${konsulentName},\n\nRapporten din for ${periode} er returnert av ${tiltakslederName}.${kommentar ? `\n\nTilbakemelding:\n${kommentar}` : ""}\n\nÅpne rapporten: ${appUrl}/rapporter/${rapportId}`,
+      text: `Du har en ny oppgave. Logg inn i Tidum for å se detaljene: ${appUrl}/rapporter`,
     });
   }
 
@@ -1238,6 +1284,7 @@ export class EmailService {
   }): Promise<boolean> {
     const companyLabel = company?.trim() || "virksomheten";
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: TIDUM_SUPPORT_EMAIL,
       subject: `${inviterName} har invitert deg til Tidum`,
@@ -1312,6 +1359,7 @@ export class EmailService {
     if (!rendered) {
       console.warn("lead-assigned template missing/inactive — using fallback");
       return this.sendEmail({
+        purpose: "administrative",
         to, replyTo: lead.email,
         subject: `[${assigneeLabel}] Nytt lead: ${lead.company || lead.fullName}`,
         text: `Nytt lead #${lead.id} tildelt ${assigneeLabel}. Åpne: ${getAppBaseUrl()}/admin/leads/${lead.id}`,
@@ -1319,6 +1367,7 @@ export class EmailService {
     }
 
     return this.sendEmail({
+      purpose: "administrative",
       to,
       replyTo: lead.email,
       subject: rendered.subject,

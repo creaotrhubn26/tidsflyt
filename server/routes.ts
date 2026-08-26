@@ -368,6 +368,7 @@ async function notifyTidumSupportAboutAccessRequest(
     : `${request.altHovedadminName || "(navn mangler)"} — ${request.altHovedadminEmail || "(e-post mangler)"}`;
 
   await emailService.sendEmail({
+    purpose: "administrative",
     to: TIDUM_SUPPORT_EMAIL,
     replyTo: request.email,
     subject: `Ny tilgangsforespørsel til Tidum fra ${request.fullName}`,
@@ -2904,6 +2905,7 @@ export async function registerRoutes(
       const greetingName = String(recipient.first_name || "").trim() || "der";
       const appUrl = process.env.APP_URL || "https://tidsflyt.no";
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipientEmail,
         subject: `Tidum: ${integrationName} er nå ${toLabel.toLowerCase()}`,
         html: `

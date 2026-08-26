@@ -259,6 +259,7 @@ async function sendSeatOverrunEmails(
       : 'Stripe-bump ikke forsøkt.';
 
   await emailService.sendEmail({
+    purpose: "administrative",
     to: TIDUM_SUPPORT_EMAIL,
     subject: `Seat-overrun (${ctx.source}): ${vendorName}`,
     html: `

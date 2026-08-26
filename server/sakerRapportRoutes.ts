@@ -22,6 +22,7 @@ import {
 } from "../shared/schema";
 import { generateRapportPDF } from "./rapportGenerator";
 import { emailService } from "./lib/email-service";
+import { recordEmailPolicyBlock } from "./lib/email-channel-policy";
 import { queueRapportArchiving, queueJournalEntryArchiving } from "./lib/archive/archive-service";
 import { uploadJournalAttachment, downloadJournalAttachment, generateAttachmentKey } from "./lib/journal-attachment-storage";
 import { users } from "../shared/schema";
@@ -930,63 +931,27 @@ async function maybeForwardRapportToInstitution(rapportId: string): Promise<void
     .limit(1);
   if (!institution?.autoForwardRapport || !institution.forwardEmail) return;
 
-  const [aktiviteter, maal] = await Promise.all([
-    db.select().from(rapportAktiviteter).where(eq(rapportAktiviteter.rapportId, rapportId)).orderBy(rapportAktiviteter.dato),
-    db.select().from(rapportMaal).where(eq(rapportMaal.rapportId, rapportId)).orderBy(rapportMaal.nummer),
-  ]);
-
-  const template = rapport.templateId
-    ? (await db.select().from(vendorTemplates).where(eq(vendorTemplates.id, rapport.templateId)).limit(1))[0]
-    : undefined;
-
-  const rapportTemplate = rapport.rapportTemplateId
-    ? (await db.select().from(rapportTemplates).where(eq(rapportTemplates.id, rapport.rapportTemplateId)).limit(1))[0]
-    : null;
-
-  const pdfBuffer = await generateRapportPDF(template, { rapport, aktiviteter, maal, rapportTemplate: rapportTemplate as any });
-  const periode = rapport.periodeFrom
-    ? new Date(rapport.periodeFrom).toLocaleDateString("nb-NO", { month: "long", year: "numeric" })
-    : "ukjent periode";
-
-  await emailService.sendEmail({
-    to: institution.forwardEmail,
-    subject: `Rapport ${institution.name} — ${periode}`,
-    html: `
-      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-        <h2 style="color:#1a6b73;margin:0 0 16px;">Godkjent rapport</h2>
-        <p style="line-height:1.6;color:#333;">
-          Vedlagt rapporten for <strong>${institution.name}</strong> i perioden <strong>${periode}</strong>.
-        </p>
-        <p style="line-height:1.6;color:#666;font-size:14px;">
-          Rapporten er godkjent av tiltaksleder og videresendes automatisk til dere som oppdragsgiver.
-        </p>
-        <hr style="border:none;border-top:1px solid #eee;margin:24px 0;"/>
-        <p style="color:#999;font-size:11px;">Sendt automatisk via Tidum</p>
-      </div>
-    `,
-    text: `Vedlagt rapport for ${institution.name} (${periode}). Godkjent av tiltaksleder. Sendt automatisk fra Tidum.`,
-    attachments: [{
-      filename: `rapport-${institution.name.replace(/[^a-z0-9]+/gi, '_')}-${rapport.periodeFrom ?? "ukjent"}.pdf`,
-      content: pdfBuffer,
-      contentType: "application/pdf",
-    }],
-  } as any);
-  console.log(`✉️  Auto-forwarded rapport ${rapportId} → ${institution.forwardEmail}`);
-
-  // Log to audit trail (system event, no user)
-  try {
-    await db.insert(rapportAuditLog).values({
-      rapportId,
-      userId: null,
-      userName: "Tidum (system)",
-      userRole: "system",
-      eventType: "auto_forwarded",
-      eventLabel: `Videresendt til ${institution.forwardEmail}`,
-      details: { institutionId: institution.id, institutionName: institution.name },
-    });
-  } catch (e) {
-    console.error("Failed to log auto-forward:", e);
-  }
+  // Approved reports are sensitive case documents. Keep the legacy setting
+  // visible, but fail closed until portal/SvarUt dispatch replaces SMTP.
+  await recordEmailPolicyBlock({
+    actorUserId: null,
+    vendorId: sak.vendorId,
+    kommuneId: null,
+    route: 'rapport-auto-forward',
+    purpose: 'sensitive_case_content',
+    reasonCode: 'SENSITIVE_CASE_CONTENT',
+    metadata: { institutionId: institution.id, rapportId },
+  });
+  await db.insert(rapportAuditLog).values({
+    rapportId,
+    userId: null,
+    userName: "Tidum (system)",
+    userRole: "system",
+    eventType: "auto_forward_blocked",
+    eventLabel: "Automatisk SMTP-videresending blokkert — sikker kanal kreves",
+    details: { institutionId: institution.id, channel: "secure_required" },
+  }).catch((error) => console.error("Failed to log blocked auto-forward:", error));
+  console.warn(`[email-policy] blocked automatic report forwarding for rapport ${rapportId}`);
 }
 
 /**
