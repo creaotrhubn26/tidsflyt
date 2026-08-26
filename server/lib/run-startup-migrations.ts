@@ -52,6 +52,9 @@ export const STARTUP_MIGRATIONS: string[] = [
   "066_tidum_vendors.sql",
   "064_barnevern_meldingsmottak.sql",
   "065_rapport_templates_constraints.sql",
+  "067_tidum_invoices.sql",
+  "068_case_report_tenant_integrity.sql",
+  "069_email_composer_tenant_integrity.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

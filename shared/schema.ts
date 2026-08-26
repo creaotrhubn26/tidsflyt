@@ -1330,11 +1330,12 @@ export const seoGlobalSettings = pgTable("tidum_seo_global_settings", {
 export const insertSeoGlobalSettingsSchema = createInsertSchema(seoGlobalSettings).omit({ id: true, updatedAt: true });
 
 // Email Templates
-export const emailTemplates = pgTable("email_templates", {
+export const emailTemplates = pgTable("tidum_email_composer_templates", {
   id: serial("id").primaryKey(),
-  userId: varchar("user_id"),
+  vendorId: integer("vendor_id"),
+  userId: text("user_id"),
   name: text("name").notNull(),
-  slug: text("slug").notNull().unique(),
+  slug: text("slug").notNull(),
   subject: text("subject").notNull(),
   body: text("body"),
   htmlContent: text("html_content").notNull(),
@@ -1350,10 +1351,11 @@ export const emailTemplates = pgTable("email_templates", {
 export const insertEmailTemplateSchema = createInsertSchema(emailTemplates).omit({ id: true, createdAt: true, updatedAt: true });
 
 // Email Send History
-export const emailSendHistory = pgTable("tidum_email_send_history", {
+export const emailSendHistory = pgTable("tidum_email_composer_history", {
   id: serial("id").primaryKey(),
-  templateId: integer("template_id").references(() => emailTemplates.id),
-  sentBy: text("sent_by"),
+  vendorId: integer("vendor_id").notNull(),
+  templateId: integer("template_id"),
+  sentBy: text("sent_by").notNull(),
   recipientEmail: text("recipient_email").notNull(),
   recipientName: text("recipient_name"),
   ccEmail: text("cc_email"),

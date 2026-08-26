@@ -78,7 +78,7 @@ export function ComposeModal() {
   // ── New: attachments, draft, scheduling, AI dialog
   // Body is always rich text; toggle removed.
   const richMode = true;
-  const [attachments, setAttachments] = useState<Array<{ url: string; filename: string; size?: number }>>([]);
+  const [attachments, setAttachments] = useState<Array<{ id: string; filename: string; size?: number }>>([]);
   const [draftId, setDraftId] = useState<number | null>(null);
   const [draftSavedAt, setDraftSavedAt] = useState<Date | null>(null);
   const [draftStatus, setDraftStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -111,10 +111,18 @@ export function ComposeModal() {
     if (!isOpen) return;
     setTo(defaults.to ?? "");
     setCc(defaults.cc ?? "");
+    setBcc("");
     setSubject(defaults.subject ?? "");
     setBody(defaults.body ?? "");
     setRecipientName(defaults.recipientName ?? "");
-    if (defaults.templateId) setSelectedTemplateId(defaults.templateId);
+    setSelectedTemplateId(defaults.templateId ?? null);
+    setTemplateVars({});
+    setSubjectDirty(false);
+    setAttachments([]);
+    setDraftId(null);
+    setDraftSavedAt(null);
+    setDraftStatus("idle");
+    setSendAt("");
     setShowCcBcc(!!defaults.cc);
     setIsFullscreen(false);
     setShowPreview(false);
@@ -259,28 +267,26 @@ export function ComposeModal() {
     };
   }, [isOpen, to, cc, bcc, subject, body, selectedTemplateId, recipientName, attachments, draftId]);
 
-  // ── Attachments: upload picked files to /api/cms/upload and store URL
+  // ── Attachments: private, owner-scoped email objects (never public URLs)
   const [uploadingFile, setUploadingFile] = useState(false);
   async function uploadFile(file: File) {
-    if (file.size > 25 * 1024 * 1024) {
-      toast({ title: "Filen er for stor", description: "Maks 25 MB per vedlegg.", variant: "destructive" });
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: "Filen er for stor", description: "Maks 10 MB per vedlegg.", variant: "destructive" });
       return;
     }
     setUploadingFile(true);
     try {
       const fd = new FormData();
-      fd.append("image", file);
-      const token = sessionStorage.getItem("cms_admin_token");
-      const res = await fetch("/api/cms/upload", {
+      fd.append("file", file);
+      const res = await fetch("/api/email/attachments", {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
         credentials: "include",
         body: fd,
       });
       if (!res.ok) throw new Error("Opplasting feilet");
       const data = await res.json();
-      if (data?.url) {
-        setAttachments((prev) => [...prev, { url: data.url, filename: file.name, size: file.size }]);
+      if (data?.id) {
+        setAttachments((prev) => [...prev, { id: data.id, filename: data.filename || file.name, size: data.size ?? file.size }]);
       }
     } catch (e: any) {
       toast({ title: "Opplasting feilet", description: e.message, variant: "destructive" });

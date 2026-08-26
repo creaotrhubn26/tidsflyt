@@ -23,6 +23,9 @@ interface EmailOptions {
     content: Buffer | string;
     contentType?: string;
   }>;
+  // Scheduled delivery uses this to preserve an ambiguous SMTP outcome for
+  // manual review. Most existing callers keep the legacy boolean contract.
+  throwOnError?: boolean;
 }
 
 interface OperationalNoticeOptions {
@@ -237,6 +240,7 @@ export class EmailService {
       return true;
     } catch (error) {
       console.error('Failed to send email:', error);
+      if (options.throwOnError) throw error;
       return false;
     }
   }

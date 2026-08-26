@@ -47,6 +47,13 @@ Følgende regler gjelder uten unntak:
   kommentarer, rapportmaler/-ressurser, PDF og historikk. 18/18 målrettede
   tester er grønne; migrasjon 067/068 er varig anvendt og verifisert i
   utviklingsdatabasen, inkludert faktura-E2E med to tenants.
+- Neste BOLA/IDOR-pakke tenantskoper den ordinære e-postkomponisten: maler,
+  utkast, historikk, rapportvalg og private vedleggs-ID-er. URL-henting er
+  fjernet, planlagt sending claim-es atomisk, og 15/15 tester er grønne.
+  Migrasjon 069 er varig anvendt i utviklingsdatabasen. Dette er fortsatt
+  ordinær SMTP, ikke en godkjent kanal for sensitiv barnevernsdialog.
+  Hele Vitest-suiten er etter denne pakken grønn med 475/475 tester i 68/68
+  testfiler.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -56,7 +63,9 @@ Følgende regler gjelder uten unntak:
 - Ni rapport-/planmaler finnes i kildekoden, herunder § 6-3-tiltaksplan og periodisk evaluering, sammen med mål, fremdrift, aktivitetslogg, godkjenning og PDF.
 - GDPR-selvbetjening for dataeksport og anonymisering/sletting, PII-sjekk/maskering og retensjonsjobb finnes.
 - PowerOffice-push av godkjente timelister, ansattmapping og vendor-skopet CSV-lønnseksport for Tripletex, Visma Lønn, PowerOffice og Fiken finnes.
-- E-postmaler, vedlegg, utkast, planlagt utsendelse og historikk finnes, men er ikke sikker ekstern barnevernsdialog eller Outlook-integrasjon.
+- E-postmaler, eierbundne private vedlegg, utkast, duplikatsikret planlagt
+  utsendelse og tenantavgrenset historikk finnes, men er ikke sikker ekstern
+  barnevernsdialog eller Outlook-integrasjon.
 - Generelle saker, rapporter, mål/aktiviteter, avvik, BRREG-oppslag, PDF/CSV/Excel, varsler og flere audit-komponenter finnes i dagens plattform.
 - Healthcheck, klient-Sentry, backup-/restore-skript og driftsrunbook finnes som teknisk grunnlag, uten verifisert produksjonsoppsett.
 
@@ -95,9 +104,10 @@ Følgende regler gjelder uten unntak:
   full klientøkonomi er fortsatt ikke levert.
 - Generisk eksport og eldre saksrapport-/rapportdesignerruter er herdet i
   integrasjonsarbeidsflaten.
-  Øvrige saker, rapportmål/-aktiviteter, e-postmaler, filer, søk,
-  bakgrunnsjobber og CMS/admin har fortsatt åpne objekt-/tenantkontroller og
-  kan ikke brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
+  Den ordinære e-postkomponisten er også herdet. Øvrige saker,
+  rapportmål/-aktiviteter, CreatorHub/CMS-e-post, andre filer, søk,
+  bakgrunnsjobber og CMS/admin har fortsatt åpne objekt-/tenantkontroller og kan
+  ikke brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
 - Offentlig integrasjonsside hevder at Documaster er testet mot en ekte instans, mens integrasjonsdokumentasjonen uttrykkelig sier at sandkasseverifisering gjenstår.
 - Dagens underdatabehandleroppsett omfatter USA/Storbritannia og oppfyller ikke Norges-utgangspunktet i Haldens databehandleravtale.
 - Dagens backup-plan har RPO 24 timer; kontrakten krever maksimalt 2 timers datatap.
@@ -263,11 +273,12 @@ Tiltak:
    og Docker til Node 24 og gjør dependency audit blokkerende. Full audit: 0.
 6. Innfør TOTP/MFA for administrative roller og Entra MFA-krav via kundens policy.
 7. Gjennomfør RLS/tenant-isolering i database og applikasjon; alle request-paths må få tenant-kontekst.
-8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura og
-   eldre saksrapporter/kommentarer er herdet med to-tenant-tester. Migrasjon
-   067/068 og faktura-E2E er gjennomført; fortsett deretter med saker,
-   rapportmål/-aktiviteter, e-postmaler, filer, søk, logger,
-   bakgrunnsjobber og administrasjon.
+8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura,
+   eldre saksrapporter/kommentarer og ordinær e-postkomponist er herdet med
+   to-tenant-tester. Migrasjon 067–069, faktura-E2E og e-posttesten er
+   gjennomført; fortsett med saker, rapportmål/-aktiviteter,
+   CreatorHub/CMS-e-post, andre filer, søk, logger, bakgrunnsjobber og
+   administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er

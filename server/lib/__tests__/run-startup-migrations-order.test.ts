@@ -20,4 +20,14 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(STARTUP_MIGRATIONS.indexOf("066_tidum_vendors.sql"))
       .toBeLessThan(STARTUP_MIGRATIONS.indexOf("064_barnevern_meldingsmottak.sql"));
   });
+
+  it("registrerer de nye objektintegritetsmigrasjonene i avhengighetsrekkefølge", () => {
+    const invoice = STARTUP_MIGRATIONS.indexOf("067_tidum_invoices.sql");
+    const caseReport = STARTUP_MIGRATIONS.indexOf("068_case_report_tenant_integrity.sql");
+    const emailComposer = STARTUP_MIGRATIONS.indexOf("069_email_composer_tenant_integrity.sql");
+
+    expect(invoice).toBeGreaterThan(-1);
+    expect(caseReport).toBeGreaterThan(invoice);
+    expect(emailComposer).toBeGreaterThan(caseReport);
+  });
 });

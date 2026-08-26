@@ -37,8 +37,8 @@ Kontrollen er gjort mot:
 Det finnes nå en verifisert integrasjonsgren,
 `codex/halden-krav-integrasjon`, med samlecommit `7562c5d`. Grenen er pushet,
 men deployer ikke produksjon; `main` er urørt. Etter denne commiten er en
-ny BOLA/IDOR-pakke ferdigstilt for eksport, faktura, saksrapporter og
-rapportdesigner:
+nye BOLA/IDOR-pakker ferdigstilt for eksport, faktura, saksrapporter,
+rapportdesigner og ordinær e-postkomponering:
 
 - PR #21 er portet inn, inkludert migrasjon 059–064. Lokal migrasjon 065
   stabiliserer rapportmaler, og migrasjon 066 etablerer en separat Tidum-eid
@@ -72,6 +72,13 @@ rapportdesigner:
   umiddelbart isolert (8/8, 7/7 og 13/13). Migrasjon 067/068 er varig anvendt
   og constraint-verifisert i utviklingsdatabasen. Fakturaflyten er testet
   ende-til-ende mot de nye tabellene med to tenants og opprydding av fiksurer.
+- E-postkomponisten bruker nå egne Tidum-eide tabeller og serveravledet tenant
+  og eier for maler, utkast, historikk og private vedlegg. SSRF via
+  vedleggs-URL er fjernet, rapportmål er rolle-/tenantkontrollert og planlagt
+  sending claim-es atomisk. Migrasjon 069 er varig anvendt; 15/15 tester er
+  grønne og alle testfiksurer/-filer ble ryddet. Dette endrer ikke at SMTP ikke
+  er en sikker kanal for sensitive barnevernsopplysninger.
+  Hele Vitest-suiten besto deretter med 475/475 tester i 68/68 testfiler.
 
 Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
 reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
@@ -115,7 +122,9 @@ Følgende er reelle, gjenbrukbare produktkomponenter:
   Tidum-eide fakturatabeller, tenantskoper alle operasjoner og produserer reell
   PDF. Migrasjon og DB-ende-til-ende-test er gjennomført, men dette er fortsatt
   en smal leverandørfakturaflyt og ikke full klientøkonomi;
-- e-postmaler, vedlegg, utkast, planlagt utsendelse og historikk. Dette er ordinær SMTP, ikke sikker ekstern barnevernsdialog eller Outlook-integrasjon;
+- e-postmaler, eierbundne private vedlegg, utkast, atomisk claim av planlagt
+  utsendelse og tenantavgrenset historikk. Dette er ordinær SMTP, ikke sikker
+  ekstern barnevernsdialog eller Outlook-integrasjon;
 - avviksmodul med alvorlighetsgrad, kategori, oppfølging, ledervarsling og valgfri navnemaskering;
 - BRREG-oppslag for leverandører, institusjoner og oppdragsgivere. Dette er Enhetsregisteret, ikke Folkeregisteret/FREG;
 - database-healthcheck, klient-Sentry med maskert replay, backup-/restore-skript og driftsdokumentasjon. Det foreligger ikke bevis for at backupjobben, alarmer eller Sentry faktisk er konfigurert i produksjon;
@@ -145,6 +154,9 @@ PR #21 tilfører:
   faktura, saksrapport, kommentarer, rapportmaler/-ressurser,
   PDF-generering og genereringshistorikk. 18/18 målrettede tester er grønne;
   migrasjon 067/068 er varig anvendt og verifisert i utviklingsdatabasen.
+- etterfølgende e-postpakke for tenant-/eierskopede maler, utkast, historikk,
+  rapportvalg og private vedlegg, uten server-side URL-henting. Migrasjon 069
+  og 15/15 målrettede tester er gjennomført i utviklingsdatabasen.
 
 Viktige begrensninger i PR #21:
 
@@ -199,10 +211,11 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   HTML som PDF og mangler eierskaps-/tenantfilter. Integrasjonsgrenen retter
   dette med egne tabeller og DB-test, men er fortsatt en smal
   leverandørfakturaflyt, ikke en komplett klientøkonomimodul.
-- Generisk eksport, faktura og den eldre saksrapport-/rapportdesignerflyten er
-  herdet i integrasjonsgrenen. Øvrige saker, mål, aktiviteter, e-postmaler, filer, søk,
-  bakgrunnsjobber og CMS/admin må fortsatt gjennom den samlede
-  BOLA/IDOR-matrisen før gjenbruk i kommunal løsning.
+- Generisk eksport, faktura, den eldre saksrapport-/rapportdesignerflyten og
+  den ordinære e-postkomponisten er herdet i integrasjonsgrenen. Øvrige saker,
+  mål, aktiviteter, CreatorHub/CMS-e-post, andre filer, søk, bakgrunnsjobber og
+  CMS/admin må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i
+  kommunal løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -216,7 +229,7 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 | GDPR-selvbetjening | Eksport av egne data, anonymisering/sletting, adminfunksjoner og retensjonsjobb | Gjenbruk for 16, 17 og 22 | Saksrettet partsinnsyn, arkivunntak, BOLA-test og komplett utleveringspakke |
 | Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push | Gjenbruk for 27 og demo 31 | Ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
 | Fakturautkast | Tabeller, side, generering, linjer og HTML-utskrift | Prototype for 27/31 | Rett klient/API-kontrakt, tenant/eierskap, MVA/KID/EHF, ekte PDF og tester |
-| E-postmotor | Maler, variabler, vedlegg, utkast, planlagt sending og historikk | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, dataminimering og tenant-/malforvaltning |
+| E-postmotor | Tenant-/eierskopede maler, variabler, private vedleggs-ID-er, utkast, atomisk planlagt sending og historikk | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, norsk/avtalt vedleggslagring og retensjon; separat CreatorHub/CMS-e-post må herdes |
 | Avvik | Registrering, alvorlighet/kategori, oppfølging, varsling og maskering | Gjenbruk for oppfølging og deler av 22/29 | Barnevernsfaglig hendelsesmodell, tilgang, vedleggsvern og arkivkobling |
 | BRREG | Søk/import av virksomheter og institusjoner | Nyttig masterdata for sak/økonomi | Skal ikke omtales som Folkeregisteret/FREG |
 | Drift | Healthcheck, Render-probe, klient-Sentry, backup/restore-skript og hendelses-e-post | Teknisk startpunkt for 25 | Produksjonskonfigurasjon, serverobservability, 24/7-vakt, RPO ≤ 2 t og testbevis |
@@ -298,10 +311,11 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156
    commits gamle grenen samlet.
-4. **Utført i denne avgrensningen:** generisk eksport, faktura og eldre
-   saksrapport-/rapportdesignerruter er tenant-/eierskopet med 18/18 nye
-   tester. Migrasjon 067/068 og faktura-E2E er gjennomført; fortsett med saker,
-   rapportmål/-aktiviteter, e-postmaler, filer, søk og øvrig CMS/admin.
+4. **Utført i denne avgrensningen:** generisk eksport, faktura, eldre
+   saksrapport-/rapportdesignerruter og ordinær e-postkomponist er
+   tenant-/eierskopet. Migrasjon 067–069, 18/18 rapport-/fakturatester og 15/15
+   e-posttester er gjennomført; fortsett med saker, rapportmål/-aktiviteter,
+   CreatorHub/CMS-e-post, andre filer, søk og øvrig CMS/admin.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; full lokal Vitest-suite er grønn 443/443 mot utviklingsdatabase.
    Gjør deretter enhets-, DB-integrasjons-, BOLA- og E2E-tester generelt

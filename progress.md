@@ -10,7 +10,9 @@ og avhengighetsherdingen er samlet i commit `7562c5d` og pushet til den
 ikke-deployerende integrasjonsgrenen. En ny bred BOLA/IDOR-runde har deretter
 funnet og lukket objektlekkasjer i eksport, faktura, saksrapport,
 rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
-067 og 068 er varig brukt og verifisert på utviklingsdatabasen.
+067, 068 og 069 er varig brukt og verifisert på utviklingsdatabasen. Den
+ordinære e-postkomponisten er nå også tenantskopet, men er fortsatt ikke en
+sikker kanal for sensitive barnevernsopplysninger.
 
 ## 1. `server/smartTimingRoutes.ts` — company logs/audit + vendor-admin-invite
 
@@ -148,16 +150,65 @@ Produksjonsbuild og `tsc` er grønne etter endringene.
 databaseintegrasjonstest. Full systemomfattende BOLA-matrise og ekstern
 uavhengig pentest gjenstår som egne leveranseaktiviteter.
 
+## 6. E-postkomponist — maler, utkast, historikk, vedlegg og planlagt sending
+
+**Funn:** `/api/email/*` brukte globale maler og historikk, og objekt-ID-er for
+maler og utkast manglet tenant-/eierskapskontroll. Klientstyrt `targetUserId`
+kunne hente en annen brukers timelinjer. Vedlegg ble hentet fra vilkårlige
+URL-er på serveren, som ga SSRF og ingen kontrollerbar fileier. Parallelle
+appinstanser kunne sende samme planlagte utkast flere ganger. Uvalidert HTML,
+malvariabler og e-posthoder ga dessuten injeksjonsrisiko, og rå feil ble sendt
+til klienten.
+
+**Fiks:**
+
+- Migrasjon 069 etablerer egne Tidum-eide tabeller for komponistmaler,
+  utsendingshistorikk og private vedleggsmetadata, samt obligatorisk
+  `vendor_id` på utkast. CreatorHubs inkompatible `email_templates` er urørt.
+- Alle komponistruter bruker serveravledet bruker og tenant. Private maler,
+  utkast, historikk og vedlegg krever både `vendor_id` og `user_id`; globale
+  systemmaler er lesbare, men ikke redigerbare av tenantbrukere.
+- Rapportvedlegg er egenbruk som standard. Bare lederroller kan velge en annen
+  bruker, og timelinjespørringen beholder alltid tenantvilkåret.
+- Vilkårlige vedleggs-URL-er er fjernet. Opplasting går til privat katalog med
+  tilfeldig lagringsnavn, MIME-/signaturkontroll, 10 MB per fil, døgnkvote og
+  eierbundet UUID. Sending leser bare eide metadata/filer, uten nettverkskall.
+- HTML og malvariabler saniteres/escapes, mottakere og emne normaliseres,
+  Reply-To valideres og klienten får ikke rå database-/SMTP-feil.
+- Planlagte utkast claim-es atomisk med `FOR UPDATE SKIP LOCKED`. En tvetydig
+  SMTP-feil blir stående til manuell gjennomgang og auto-retryes ikke, slik at
+  systemet ikke risikerer dobbel ekstern utsending.
+- AI-utkast er avslått med mindre både nøkkel og eksplisitt
+  `ALLOW_AI_EMAIL_DRAFTS=true` er satt. Resultatet saniteres før bruk.
+- Migrasjon 067–069 er registrert i startup-rekkefølgen; dette lukker også et
+  distribusjonshull der 067/068 tidligere bare var brukt manuelt i
+  utviklingsdatabasen.
+
+**Bevis:** Migrasjon 069 er først rollback-prøvd og deretter varig anvendt i én
+transaksjon på Neon-utviklingsdatabasen. 15/15 målrettede tester består, hvor
+to-tenant-testen dekker fremmede maler, utkast, historikk, teammedlemmer,
+rapportmål, SSRF-input og vedleggs-ID-er. Etter testen var antall gjenværende
+fiksurer og testfiler null. `tsc` og produksjonsbuild er grønne.
+Hele Vitest-suiten besto deretter med **475/475 tester i 68/68 testfiler**.
+
+**Avgrensning:** Dette gjør ordinær SMTP-komponering til en sikrere intern og
+administrativ byggekloss. Det gjør ikke SMTP til sikker ekstern
+barnevernsdialog. Sensitive opplysninger skal fortsatt bruke en godkjent kanal
+med partsmodell, tilgangs-/oppslagslogg, sikker dokumentdeling og avtalt
+lagrings-/retensjonsarkitektur. CreatorHub/CMS-rutene under `/api/cms/email/*`
+bruker en separat global modell og gjenstår i CMS/admin-pakken.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
   transaksjon og predikerbar passordentropi) er nå rettet.
 - De åtte eksisterende radene i `tidum_company_users` var til stede før dette
   testløpet og ble ikke slettet uten uttrykkelig beslutning om datarydding.
-- Første brede BOLA/IDOR-pakke er gjennomført for generisk eksport, faktura og
-  den eldre saksrapport-/rapportdesignerflyten. Øvrige saker, rapportmål og
-  aktiviteter, e-postmaler, filer, søk, bakgrunnsjobber og CMS/adminflater
-  gjenstår i den systematiske endepunktsmatrisen.
+- De brede BOLA/IDOR-pakkene er gjennomført for generisk eksport, faktura, den
+  eldre saksrapport-/rapportdesignerflyten og den ordinære e-postkomponisten.
+  Øvrige saker, rapportmål og aktiviteter, CreatorHub/CMS-e-post, andre filer,
+  søk, bakgrunnsjobber og CMS/adminflater gjenstår i den systematiske
+  endepunktsmatrisen.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede
   korrekt username/password-håndtering; ingen handling er nødvendig for akkurat
   dette punktet.
