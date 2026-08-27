@@ -109,3 +109,6 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 Se [implementeringsoppstart for Halden](../runbooks/documaster-implementeringsoppstart.md),
 [sandkassetesten](../archive-sandbox-testing.md) og
 [runbook for sikker dialog, arkiv, retensjon og nøkkelrotasjon](../runbooks/sikker-dialog-arkiv-retensjon-og-nokkelrotasjon.md).
+Elements med avvikende API-kontrakt er beskrevet separat som
+[opsjon O1](../anbud/2026-112379-halden-opsjon-elements-adapter.md); den er ikke
+en del av den implementerte Documaster-adapteren.

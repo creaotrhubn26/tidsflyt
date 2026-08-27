@@ -61,8 +61,9 @@ Følgende regler gjelder uten unntak:
 - Documaster-adapter og Maskinporten-tokenklient finnes, men er ikke produksjonsverifisert.
 - Sikker dialog har leverandørklar arkivpakke, transaksjonell kommune-outbox,
   arkiv-før-sletting, juridisk sperring og versjonert datanøkkelrotasjon.
-  Kundens Documaster/Elements-oppsett, retensjonsvedtak og KMS er fortsatt
-  eksterne akseptansepunkter.
+  Kundens Documaster-oppsett, retensjonsvedtak og KMS er fortsatt eksterne
+  akseptansepunkter. Elements med avvikende kontrakt tilbys som separat,
+  priset opsjon O1.
 - Direkte BankID og Buypass ID er implementert i `main` for web/mobil og identitetskobling.
 - Ni rapport-/planmaler finnes i kildekoden, herunder § 6-3-tiltaksplan og periodisk evaluering, sammen med mål, fremdrift, aktivitetslogg, godkjenning og PDF.
 - GDPR-selvbetjening for dataeksport og anonymisering/sletting, PII-sjekk/maskering og retensjonsjobb finnes.
@@ -397,7 +398,9 @@ produksjonsakseptansen nedenfor.
 2. Verifiser separat IDP/token-URL, kodelister, skjerming, administrativ enhet,
    mapper, journalposter, dokumentversjoner og idempotens.
 3. Utvid arkivering fra rapport/journal til melding, undersøkelse, vedtak, plan, dialog, innsyn og klage.
-4. Bygg Elements-kobling for sak-/arkivflyt der Halden krever begge systemer.
+4. Lever Elements-adapter med avvikende kontrakt som
+   [priset opsjon O1](./2026-112379-halden-opsjon-elements-adapter.md). O1 er
+   alternativt arkivmål; samtidig Elements+Documaster krever eget omfang.
 5. Støtt PDF/A, metadata, klassifikasjon, hjemmel, avlevering og avslutningsuttrekk.
 6. Gjennomfør feil-/retry-test, duplikattest og avstemming mellom Tidum og arkivkjerne.
 
@@ -525,7 +528,7 @@ Akseptanse skal dekke normalbetaling, retur, duplikat, feil konto, utenlandsbeta
 | 23 | Skal | Ikke oppfylt | Norsk produksjonsplattform og lokasjonsbevis | 18.09 |
 | 24 | Skal | Delvis | Sikker loggforvaltning, retensjon, tilgang og SIEM-eksport | 25.09 |
 | 25 | Skal | Mangler | Utfylt SLA, måling, support, DR og servicekreditt; driftsprøve | 06.11 |
-| 26 | E | Delvis | Elements, Documaster, Visma, FIKS, Entra, ID-porten og Intune-bevis | 30.10 |
+| 26 | E | Delvis | Documaster og øvrige integrasjonsbevis; Elements som priset opsjon O1 | 30.10 |
 | 27 | E | Delvis | Stabiliser PowerOffice/lønnseksport og fakturaprototype; lever full klientøkonomi, bank, EHF, lønn og Visma-avstemming | 30.10 |
 | 28 | Skal | Mangler | Nasjonal portal, BFK og Barnevernsregister; integrasjonstest | 30.10 |
 | 29 | E | Delvis | Prioritert funksjonspakke og ærlig delkravsbesvarelse; demo | 30.10 |
@@ -575,6 +578,8 @@ Følgende må være komplett før G2:
 - Nøkkelpersonell og CV-er.
 - Underleverandøroversikt med tjeneste, sted, data, avtale og revisjonsrett.
 - Prisark med alle kostnader, også migrering, integrasjoner, reise, opplæring, support og avslutning.
+- Opsjon O1 Elements med fastpris, forvaltningspris, frister, utøvelsesfrist og
+  eventuelle tredjepartskostnader i Bilag 6.
 - Sladdet tilbud i én sikker fil med konkret sladdingsbegrunnelse.
 
 ## 10. Eksterne avhengigheter
@@ -586,7 +591,7 @@ Følgende må være komplett før G2:
 | KS FIKS | Kontakt KS Digital, opprett testkonto/scopes | 25.08 | Ingen troverdig plan B for krav 28 – stoppkrav |
 | FREG-rolle | Halden etablerer hjemmel, rolle og dataminimering | Umiddelbart etter tildeling | Manuell registrering er kun fallback |
 | Documaster | Partneravtale og sandkasse | 26.08 | Annen godkjent arkivadapter bare etter Halden-godkjenning |
-| Elements | API-/testtilgang via Halden | Etter tildeling + 3 dager | Avtalt fil-/Noark-grensesnitt |
+| Elements | Pris og utøvelsesvilkår for O1; API-/testtilgang via Halden ved utøvelse | Etter tildeling + 3 dager | Documaster som grunnmål; avtalt fil-/Noark-grensesnitt bare etter skriftlig godkjenning |
 | Visma Enterprise Plus | Partner-/kunde-API, format og testmiljø | Etter tildeling + 3 dager | Godkjent filutveksling med avstemming |
 | EHF-aksesspunkt | Velg og inngå avtale | 04.09 | Eksisterende ERP med dokumentert EHF |
 | Norsk drift | Tjenestekartlegging og avtale | 04.09 | Alternativ norsk leverandør; EØS kun etter skriftlig godkjenning |

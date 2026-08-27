@@ -461,6 +461,24 @@ nettverkskrav og arkiv-UI kan ikke verifiseres uten kundens/leverandørens
 testtilgang. Elements krever egen provider-adapter dersom Halden ikke tilbyr en
 Documaster-kompatibel Noark-kontrakt.
 
+## 12. Tilbudsopsjon O1 – Elements-adapter
+
+Elements med avvikende kontrakt er skilt ut som en eksplisitt tilbudsopsjon i
+`docs/anbud/2026-112379-halden-opsjon-elements-adapter.md`. Dette følger Bilag
+1s føring om at spesialutvikling utover standardprodukt skal prises som
+opsjon, samtidig som krav 26 fortsatt besvares ærlig som et E-krav.
+
+Opsjonen gjenbruker Tidums `ArchiveProvider`, Noark-domene, outbox, retry,
+idempotens, tenantkontroll og kvitteringer, men omfatter én alternativ
+Elements-provider – ikke samtidig dobbelarkivering til Elements og Documaster.
+Dokumentet angir inkludert/ekskludert omfang, kundens forutsetninger,
+akseptansekriterier, T0-basert plan og prisstruktur for Bilag 2, 3 og 6.
+
+**Kommersiell rest:** Fastpris, årlig forvaltningspris, leveringstid og
+utøvelsesfrist er bevisst ikke oppdiktet. Disse feltene må besluttes og fylles i
+Bilag 6 før tilbudet kan signeres eller krav 26 kan besvares bindende med
+henvisning til O1.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
