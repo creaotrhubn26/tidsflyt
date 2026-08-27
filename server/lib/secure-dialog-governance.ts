@@ -7,6 +7,7 @@ import {
 } from "./secure-dialog-content";
 import { getActiveSecretKeyId, rewrapSecret, sealedSecretKeyId } from "./secret-box";
 import { rotatePowerOfficeClientKeys } from "./poweroffice-credentials";
+import { withKommuneRlsContext, withSystemRlsContext } from "./database-rls-context";
 
 async function transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -331,7 +332,16 @@ export async function processSecureDialogKeyRotation(
         LIMIT $2`,
       `UPDATE tidum_kommuner SET fiks_private_key_encrypted = $1, updated_at = NOW() WHERE id = $2`,
     );
-    const rawIntakeCount = await rotateGenericColumn(
+    return {
+      conversations: conversations.rows.length,
+      messages: rotatedMessages,
+      archiveConfigs: archiveConfigCount,
+      municipalityKeys: municipalityKeyCount,
+      activeKeyId,
+    };
+  });
+  const rotateRawIntake = async (client: PoolClient): Promise<number> => {
+    const rows = await client.query(
       `SELECT id, raw_payload_encrypted AS secret_value
          FROM tidum_fiks_raw_intake_log
         WHERE NOT (
@@ -342,21 +352,27 @@ export async function processSecureDialogKeyRotation(
         ORDER BY received_at
         FOR UPDATE SKIP LOCKED
         LIMIT $2`,
-      `UPDATE tidum_fiks_raw_intake_log SET raw_payload_encrypted = $1 WHERE id = $2`,
+      [activeKeyId, safeLimit, kommuneId ?? null],
     );
-    return {
-      conversations: conversations.rows.length,
-      messages: rotatedMessages,
-      archiveConfigs: archiveConfigCount,
-      municipalityKeys: municipalityKeyCount,
-      rawIntakePayloads: rawIntakeCount,
-      activeKeyId,
-    };
-  });
+    let count = 0;
+    for (const row of rows.rows) {
+      const stored = String(row.secret_value);
+      if (sealedSecretKeyId(stored) === activeKeyId) continue;
+      await client.query(
+        `UPDATE tidum_fiks_raw_intake_log SET raw_payload_encrypted = $1 WHERE id = $2`,
+        [rewrapSecret(stored), row.id],
+      );
+      count += 1;
+    }
+    return count;
+  };
+  const rawIntakePayloads = kommuneId == null
+    ? await withSystemRlsContext("secret_rotation", rotateRawIntake)
+    : await withKommuneRlsContext(kommuneId, rotateRawIntake);
   // Kommuneavgrensede test-/vedlikeholdskjøringer skal ikke berøre
   // vendor-integrasjoner. Den ordinære globale timejobben roterer begge plan.
   const powerOffice = kommuneId == null
     ? await rotatePowerOfficeClientKeys(safeLimit, powerOfficeSource)
     : { rotated: 0 };
-  return { ...result, powerOfficeCredentials: powerOffice.rotated };
+  return { ...result, rawIntakePayloads, powerOfficeCredentials: powerOffice.rotated };
 }

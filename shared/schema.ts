@@ -616,13 +616,16 @@ export type BarnevernMelding = typeof barnevernMeldinger.$inferSelect;
 export const barnevernMeldingVedlegg = pgTable("tidum_barnevern_melding_vedlegg", {
   id: uuid("id").defaultRandom().primaryKey(),
   meldingId: uuid("melding_id").notNull().references(() => barnevernMeldinger.id, { onDelete: "cascade" }),
+  kommuneId: integer("kommune_id").notNull(),
   filename: text("filename").notNull(),
   originalName: text("original_name").notNull(),
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
   uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
-});
+}, (table) => [
+  index("tidum_barnevern_melding_vedlegg_kommune_idx").on(table.kommuneId, table.meldingId),
+]);
 
 // ── SIKKER DIALOG / INNBYGGERPORTAL (migrasjon 071) ────────────────────────
 // E-post er kun varslingsadresse. Tilgang går via portalUserId, verifisert

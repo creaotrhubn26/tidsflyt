@@ -5,6 +5,7 @@ import http from "http";
 import fs from "fs";
 import path from "path";
 import { pool } from "../../db";
+import { withSystemRlsContext } from "../database-rls-context";
 
 describe("Barnevern melding-vedlegg", () => {
   const cleanupKommuneIds: number[] = [];
@@ -16,17 +17,18 @@ describe("Barnevern melding-vedlegg", () => {
     for (const filePath of cleanupFilePaths.splice(0)) {
       if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     }
-    for (const id of cleanupMeldingIds.splice(0)) {
-      await pool.query(`DELETE FROM tidum_barnevern_melding_vedlegg WHERE melding_id = $1`, [id]);
-      await pool.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-      await pool.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [id]);
-    }
-    for (const id of cleanupUserIds.splice(0)) {
-      await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
-    }
-    for (const id of cleanupKommuneIds.splice(0)) {
-      await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
-    }
+    const meldingIds = cleanupMeldingIds.splice(0);
+    const userIds = cleanupUserIds.splice(0);
+    const kommuneIds = cleanupKommuneIds.splice(0);
+    await withSystemRlsContext("barnevern_attachment_test_cleanup", async (client) => {
+      for (const id of meldingIds) {
+        await client.query(`DELETE FROM tidum_barnevern_melding_vedlegg WHERE melding_id = $1`, [id]);
+        await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
+        await client.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [id]);
+      }
+    });
+    for (const id of userIds) await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+    for (const id of kommuneIds) await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
   });
 
   async function insertTestKommune(): Promise<number> {

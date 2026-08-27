@@ -2,11 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
+  clientQuery: vi.fn(),
+  connect: vi.fn(),
+  release: vi.fn(),
   processRotation: vi.fn(),
   runtimeStatus: vi.fn(),
 }));
 
-vi.mock("../../db", () => ({ pool: { query: mocks.query } }));
+vi.mock("../../db", () => ({ pool: { query: mocks.query, connect: mocks.connect } }));
 vi.mock("../secure-dialog-governance", () => ({
   processSecureDialogKeyRotation: mocks.processRotation,
 }));
@@ -31,6 +34,10 @@ const emptyInventoryRow = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.clientQuery.mockImplementation(async (sql: string) => (
+    sql.includes("COUNT(*)::int AS count") ? { rows: [{ count: 0 }] } : { rows: [] }
+  ));
+  mocks.connect.mockResolvedValue({ query: mocks.clientQuery, release: mocks.release });
   mocks.runtimeStatus.mockReturnValue({
     configured: true,
     productionReady: true,

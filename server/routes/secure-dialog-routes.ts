@@ -32,6 +32,7 @@ import {
   processSecureDialogRetention,
 } from "../lib/secure-dialog-governance";
 import { runPlatformSecretRotation } from "../lib/platform-secret-rotation";
+import { withKommuneRlsContext } from "../lib/database-rls-context";
 
 type SecureActor = {
   userId: string;
@@ -182,6 +183,16 @@ function requireGovernanceLeader(actor: SecureActor): number {
     throw new SecureDialogRouteError(403, "Kun barnevernsleder kan endre oppbevaring eller juridisk sperring", "LEADER_REQUIRED");
   }
   return kommuneId;
+}
+
+async function barnevernMeldingExists(kommuneId: number, meldingId: string): Promise<boolean> {
+  return withKommuneRlsContext(kommuneId, async (client) => {
+    const result = await client.query(
+      `SELECT id FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
+      [meldingId, kommuneId],
+    );
+    return Boolean(result.rowCount);
+  });
 }
 
 const SAFE_AUDIT_METADATA = new Set([
@@ -693,17 +704,10 @@ export function registerSecureDialogRoutes(app: Express): void {
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
       const meldingId = req.query.meldingId == null ? null : uuidSchema.parse(req.query.meldingId);
+      if (meldingId && !(await barnevernMeldingExists(kommuneId, meldingId))) {
+        throw new SecureDialogRouteError(404, "Melding ikke funnet", "CASE_NOT_FOUND");
+      }
       const result = await withTransaction(async (client) => {
-        if (meldingId) {
-          const scopedCase = await client.query(
-            `SELECT id FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-            [meldingId, kommuneId],
-          );
-          if (!scopedCase.rowCount) {
-            throw new SecureDialogRouteError(404, "Melding ikke funnet", "CASE_NOT_FOUND");
-          }
-        }
-
         const { rows } = await client.query(
           `SELECT party.id, party.display_name, party.notification_email, party.status, party.created_at,
                   EXISTS (
@@ -816,16 +820,15 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (validUntil && validUntil.getTime() <= Date.now()) {
         throw new SecureDialogRouteError(400, "Gyldighetsperioden må ligge frem i tid", "INVALID_VALIDITY");
       }
+      if (!(await barnevernMeldingExists(kommuneId, meldingId))) {
+        throw new SecureDialogRouteError(404, "Sak eller part ikke funnet", "SCOPE_NOT_FOUND");
+      }
       const result = await withTransaction(async (client) => {
-        const caseResult = await client.query(
-          `SELECT id FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-          [meldingId, kommuneId],
-        );
         const partyResult = await client.query(
           `SELECT id FROM tidum_secure_parties WHERE id = $1 AND kommune_id = $2 AND status = 'active'`,
           [input.partyId, kommuneId],
         );
-        if (!caseResult.rowCount || !partyResult.rowCount) {
+        if (!partyResult.rowCount) {
           throw new SecureDialogRouteError(404, "Sak eller part ikke funnet", "SCOPE_NOT_FOUND");
         }
         await client.query(
@@ -927,12 +930,10 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (partyIds.length !== input.participantPartyIds.length) {
         throw new SecureDialogRouteError(400, "Samme part kan ikke legges til flere ganger", "DUPLICATE_PARTICIPANT");
       }
+      if (!(await barnevernMeldingExists(kommuneId, input.meldingId))) {
+        throw new SecureDialogRouteError(404, "Sak ikke funnet", "CASE_NOT_FOUND");
+      }
       const result = await withTransaction(async (client) => {
-        const caseResult = await client.query(
-          `SELECT id FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-          [input.meldingId, kommuneId],
-        );
-        if (!caseResult.rowCount) throw new SecureDialogRouteError(404, "Sak ikke funnet", "CASE_NOT_FOUND");
         const accesses = await client.query(
           `SELECT id, party_id
              FROM tidum_secure_case_access

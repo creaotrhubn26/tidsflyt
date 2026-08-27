@@ -38,6 +38,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const gdprErasureAudit = STARTUP_MIGRATIONS.indexOf("080_gdpr_erasure_audit.sql");
     const powerOfficeEncryption = STARTUP_MIGRATIONS.indexOf("081_poweroffice_client_key_encryption.sql");
     const secretRotationAudit = STARTUP_MIGRATIONS.indexOf("082_secret_rotation_run_audit.sql");
+    const barnevernRls = STARTUP_MIGRATIONS.indexOf("083_barnevern_municipality_rls.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -55,9 +56,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(gdprErasureAudit).toBeGreaterThan(leaveTenantSecurity);
     expect(powerOfficeEncryption).toBeGreaterThan(gdprErasureAudit);
     expect(secretRotationAudit).toBeGreaterThan(powerOfficeEncryption);
+    expect(barnevernRls).toBeGreaterThan(secretRotationAudit);
   });
 
-  it("har append-only rotasjonsaudit som siste oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("082_secret_rotation_run_audit.sql");
+  it("har kommunal RLS som siste, fail-closed oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("083_barnevern_municipality_rls.sql");
   });
 });

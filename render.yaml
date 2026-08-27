@@ -13,6 +13,8 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: TIDUM_RLS_RUNTIME_ROLE
+        sync: false
       - key: SESSION_SECRET
         sync: false
       - key: JWT_SECRET

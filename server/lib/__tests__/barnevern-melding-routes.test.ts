@@ -3,6 +3,7 @@ import request from "supertest";
 import express from "express";
 import http from "http";
 import { pool } from "../../db";
+import { withKommuneRlsContext, withSystemRlsContext } from "../database-rls-context";
 
 // Hver aktør får en full registerRoutes-app (~2–3 s), og flere tester bygger to
 // av dem — 5 s standardtimeout gir flaky feil uten at logikken er endret.
@@ -12,16 +13,17 @@ describe("Barnevern meldingsmottak-ruter", { timeout: 15000 }, () => {
   const cleanupUserIds: string[] = [];
 
   afterEach(async () => {
-    for (const id of cleanupMeldingIds.splice(0)) {
-      await pool.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-      await pool.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [id]);
-    }
-    for (const id of cleanupUserIds.splice(0)) {
-      await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
-    }
-    for (const id of cleanupKommuneIds.splice(0)) {
-      await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
-    }
+    const meldingIds = cleanupMeldingIds.splice(0);
+    const userIds = cleanupUserIds.splice(0);
+    const kommuneIds = cleanupKommuneIds.splice(0);
+    await withSystemRlsContext("barnevern_test_cleanup", async (client) => {
+      for (const id of meldingIds) {
+        await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
+        await client.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [id]);
+      }
+    });
+    for (const id of userIds) await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
+    for (const id of kommuneIds) await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
   });
 
   async function insertTestKommune(): Promise<number> {
@@ -146,6 +148,32 @@ describe("Barnevern meldingsmottak-ruter", { timeout: 15000 }, () => {
       .patch(`/api/barnevern/meldinger/${created.body.id}/tildel`)
       .send({ tildeltSaksbehandlerId: id });
     expect(res.status).toBe(403);
+  });
+
+  it("barnevernsleder kan ikke tildele meldingen til en bruker i en annen kommune", async () => {
+    const kommuneA = await insertTestKommune();
+    const kommuneB = await insertTestKommune();
+    const { app: creatorApp } = await actorApp("sb-a-cross", kommuneA, "kommune_saksbehandler");
+    const { app: leaderApp } = await actorApp("leader-a-cross", kommuneA, "barnevernsleder");
+    const { id: foreignUserId } = await actorApp("sb-b-cross", kommuneB, "kommune_saksbehandler");
+    const created = await request(creatorApp).post("/api/barnevern/meldinger").send({
+      melderKategori: "skole",
+      beskrivelse: "Skal bli i kommune A",
+    });
+    cleanupMeldingIds.push(created.body.id);
+
+    const response = await request(leaderApp)
+      .patch(`/api/barnevern/meldinger/${created.body.id}/tildel`)
+      .send({ tildeltSaksbehandlerId: foreignUserId });
+    expect(response.status).toBe(400);
+
+    const assignee = await withKommuneRlsContext(kommuneA, async (client) => (
+      await client.query(
+        `SELECT tildelt_saksbehandler_id FROM tidum_barnevern_meldinger WHERE id = $1`,
+        [created.body.id],
+      )
+    ).rows[0]?.tildelt_saksbehandler_id);
+    expect(assignee).toBeNull();
   });
 
   // Regresjonsvern: rolle/kommune leses fra users, ALDRI fra sesjonen. En

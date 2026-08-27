@@ -112,7 +112,9 @@ Følgende regler gjelder uten unntak:
 - To G10-pakker er integrert lokalt med PR #21: eksplisitt dev-bypass,
   separate påkrevde tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og
   sesjonsbasert CSRF-vern med klientdekning for fetch, offline-kø, XHR og
-  unload-sporing. Hemmelighetskryptering, TOTP/MFA og tilpasset RLS gjenstår.
+  unload-sporing. Hemmelighetskryptering og RLS fase 1 for bekymringsmelding,
+  vedlegg og rå FIKS er implementert. TOTP/MFA, egen produksjonslogin og full
+  RLS-matrise gjenstår.
 - Avhengighetspakken er lukket lokalt: 29 audit-funn er redusert til 0 etter
   direkte/transitive oppgraderinger, Node 24-baseline og ren `npm ci`.
   `npm audit --audit-level=moderate` er gjort blokkerende i lokal CI-endring;
@@ -312,7 +314,10 @@ Tiltak:
    legacy-editor, verifiser Nodemailer/Sharp/ExcelJS/Quill/Puppeteer, løft Node
    og Docker til Node 24 og gjør dependency audit blokkerende. Full audit: 0.
 6. Innfør TOTP/MFA for administrative roller og Entra MFA-krav via kundens policy.
-7. Gjennomfør RLS/tenant-isolering i database og applikasjon; alle request-paths må få tenant-kontekst.
+7. **Delvis utført lokalt:** migrasjon 083 gir `FORCE RLS` og
+   transaksjonslokal kommunekontekst for bekymringsmeldinger, vedlegg og rått
+   FIKS-inntak. Utvid tabell-/endepunktsmatrisen, etabler separat
+   produksjonslogin/migrasjonsidentitet og verifiser alle request-paths.
 8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura,
    eldre saksrapporter/kommentarer, ordinær e-postkomponist og hovedflyten for
    saker, sakjournal, rapporter, mål og aktiviteter er herdet med

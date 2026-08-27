@@ -19,7 +19,6 @@ import {
   archiveCaseLinks,
   archiveConfigs,
   archiveEntries,
-  barnevernMeldinger,
   rapportAktiviteter,
   rapportAuditLog,
   rapportMaal,
@@ -53,6 +52,7 @@ import {
 } from "./noark";
 import { buildSecureDialogArchivePackage } from "./secure-dialog-package";
 import { validateArchiveBaseUrl, validateArchiveEndpointUrl } from "./archive-url-policy";
+import { withKommuneRlsContext } from "../database-rls-context";
 
 const MAX_ATTEMPTS = 8;
 
@@ -403,14 +403,15 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       if (!conversation || conversation.status !== "closed" || !conversation.closedAt || !conversation.subject) {
         throw new Error("Sikker dialog er ikke avsluttet eller finnes ikke lenger");
       }
-      const [melding] = await db
-        .select()
-        .from(barnevernMeldinger)
-        .where(and(
-          eq(barnevernMeldinger.id, entry.barnevernMeldingId),
-          eq(barnevernMeldinger.kommuneId, entry.kommuneId),
-        ))
-        .limit(1);
+      const melding = await withKommuneRlsContext(entry.kommuneId, async (client) => {
+        const { rows: [row] } = await client.query(
+          `SELECT id, meldingsnummer
+             FROM tidum_barnevern_meldinger
+            WHERE id = $1 AND kommune_id = $2`,
+          [entry.barnevernMeldingId, entry.kommuneId],
+        );
+        return row ?? null;
+      });
       if (!melding) throw new Error("Bekymringsmeldingen finnes ikke lenger");
 
       let [link] = await db

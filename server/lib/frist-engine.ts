@@ -1,5 +1,8 @@
 import { pool } from "../db";
+import type { PoolClient } from "pg";
 import { createNotification } from "../routes/notification-routes";
+
+type QueryClient = Pick<PoolClient, "query">;
 
 export const FRIST_TYPE_CONFIG: Record<string, { escalationOffsetDays: number[] }> = {
   avklaring: { escalationOffsetDays: [-2, 0, 1, 3] },
@@ -13,8 +16,8 @@ export async function registerFrist(params: {
   fristType: string;
   dueAt: Date;
   notifyUserId?: string;
-}): Promise<void> {
-  await pool.query(
+}, client: QueryClient = pool): Promise<void> {
+  await client.query(
     `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, vendor_id, frist_type, due_at, notify_user_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
      ON CONFLICT (entity_type, entity_id, frist_type)
@@ -32,8 +35,13 @@ export async function registerFrist(params: {
   );
 }
 
-export async function cancelFrist(entityType: string, entityId: string, fristType: string): Promise<void> {
-  await pool.query(
+export async function cancelFrist(
+  entityType: string,
+  entityId: string,
+  fristType: string,
+  client: QueryClient = pool,
+): Promise<void> {
+  await client.query(
     `UPDATE tidum_frister SET status = 'kansellert', updated_at = NOW()
      WHERE entity_type = $1 AND entity_id = $2 AND frist_type = $3 AND status = 'aktiv'`,
     [entityType, entityId, fristType],

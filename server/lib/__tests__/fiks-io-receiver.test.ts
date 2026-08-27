@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { pool } from "../../db";
 import { onBekymringsmeldingRaw } from "../../fiks-io/receiver";
+import { withKommuneRlsContext, withSystemRlsContext } from "../database-rls-context";
 
 // secret-box cacher nøkkelen ved første oppslag, så isSecretBoxConfigured kan
 // ikke styres med stubEnv i etterkant — den mockes i stedet per test.
@@ -16,10 +17,13 @@ describe("fiks-io/receiver: onBekymringsmeldingRaw", () => {
   afterEach(async () => {
     vi.unstubAllEnvs();
     secretBoxConfigured = true;
-    for (const id of cleanupKommuneIds.splice(0)) {
-      await pool.query(`DELETE FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`, [id]);
-      await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
-    }
+    const kommuneIds = cleanupKommuneIds.splice(0);
+    await withSystemRlsContext("fiks_test_cleanup", async (client) => {
+      for (const id of kommuneIds) {
+        await client.query(`DELETE FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`, [id]);
+      }
+    });
+    for (const id of kommuneIds) await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [id]);
   });
 
   it("lagrer rå payload kryptert, uendret innhold ved dekryptering", async () => {
@@ -36,10 +40,12 @@ describe("fiks-io/receiver: onBekymringsmeldingRaw", () => {
     const rawPayload = { ukjentFelt: "noe fra Fiks IO vi ikke forstår ennå", nested: { a: 1 } };
     await onBekymringsmeldingRaw(kommune.id, rawPayload);
 
-    const { rows } = await pool.query(
-      `SELECT raw_payload_encrypted, processed_at FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`,
-      [kommune.id],
-    );
+    const rows = await withKommuneRlsContext(Number(kommune.id), async (client) => (
+      await client.query(
+        `SELECT raw_payload_encrypted, processed_at FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`,
+        [kommune.id],
+      )
+    ).rows);
     expect(rows).toHaveLength(1);
     expect(rows[0].processed_at).toBeNull();
     expect(rows[0].raw_payload_encrypted).not.toContain("ukjentFelt"); // kryptert, ikke klartekst
@@ -55,10 +61,12 @@ describe("fiks-io/receiver: onBekymringsmeldingRaw", () => {
 
     await expect(onBekymringsmeldingRaw(kommune.id, { barn: "PII" })).rejects.toThrow(/TIDUM_SECRET_KEY/);
 
-    const { rows } = await pool.query(
-      `SELECT count(*) FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`,
-      [kommune.id],
-    );
+    const rows = await withKommuneRlsContext(Number(kommune.id), async (client) => (
+      await client.query(
+        `SELECT count(*) FROM tidum_fiks_raw_intake_log WHERE kommune_id = $1`,
+        [kommune.id],
+      )
+    ).rows);
     expect(Number(rows[0].count)).toBe(0);
   });
 });

@@ -1,6 +1,6 @@
 import type { Express } from "express";
-import { pool } from "../db";
 import { isSecretBoxConfigured, sealSecret } from "../lib/secret-box";
+import { withKommuneRlsContext } from "../lib/database-rls-context";
 
 /**
  * STUB — bekymringsmeldingens innholdsskjema er IKKE offentlig dokumentert
@@ -17,10 +17,12 @@ export async function onBekymringsmeldingRaw(kommuneId: number, rawPayload: unkn
   if (!isSecretBoxConfigured()) {
     throw new Error("TIDUM_SECRET_KEY må være satt før Fiks IO-mottak kan lagre bekymringsmeldinger.");
   }
-  await pool.query(
-    `INSERT INTO tidum_fiks_raw_intake_log (kommune_id, raw_payload_encrypted) VALUES ($1, $2)`,
-    [kommuneId, sealSecret(JSON.stringify(rawPayload))],
-  );
+  await withKommuneRlsContext(kommuneId, async (client) => {
+    await client.query(
+      `INSERT INTO tidum_fiks_raw_intake_log (kommune_id, raw_payload_encrypted) VALUES ($1, $2)`,
+      [kommuneId, sealSecret(JSON.stringify(rawPayload))],
+    );
+  });
 }
 
 /**

@@ -1,5 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { pool } from "../../db";
+import { withKommuneRlsContext } from "../database-rls-context";
 
 describe("Barnevern meldingsmottak: datamodell", () => {
   const cleanupIds: { table: string; id: string }[] = [];
@@ -25,13 +26,16 @@ describe("Barnevern meldingsmottak: datamodell", () => {
 
   it("kan opprette en tidum_barnevern_meldinger-rad med alle felt", async () => {
     testKommuneId = await insertTestKommune();
-    const { rows: [row] } = await pool.query(
-      `INSERT INTO tidum_barnevern_meldinger
-         (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, beskrivelse, avklaringsfrist)
-       VALUES ($1, $2, 'manuell', NOW(), 'skole', 'Test-beskrivelse', NOW() + interval '7 days')
-       RETURNING id, status, kilde`,
-      [testKommuneId, `BVM-TEST-${Date.now()}`],
-    );
+    const row = await withKommuneRlsContext(testKommuneId, async (client) => {
+      const { rows: [created] } = await client.query(
+        `INSERT INTO tidum_barnevern_meldinger
+           (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, beskrivelse, avklaringsfrist)
+         VALUES ($1, $2, 'manuell', NOW(), 'skole', 'Test-beskrivelse', NOW() + interval '7 days')
+         RETURNING id, status, kilde`,
+        [testKommuneId, `BVM-TEST-${Date.now()}`],
+      );
+      return created;
+    });
     cleanupIds.push({ table: "tidum_barnevern_meldinger", id: row.id });
     expect(row.status).toBe("mottatt");
     expect(row.kilde).toBe("manuell");
@@ -71,10 +75,13 @@ describe("Barnevern meldingsmottak: datamodell", () => {
 
   it("tidum_fiks_raw_intake_log kan lagre en rad", async () => {
     testKommuneId = await insertTestKommune();
-    const { rows: [row] } = await pool.query(
-      `INSERT INTO tidum_fiks_raw_intake_log (kommune_id, raw_payload_encrypted) VALUES ($1, 'enc:v1:test') RETURNING id`,
-      [testKommuneId],
-    );
+    const row = await withKommuneRlsContext(testKommuneId, async (client) => {
+      const { rows: [created] } = await client.query(
+        `INSERT INTO tidum_fiks_raw_intake_log (kommune_id, raw_payload_encrypted) VALUES ($1, 'enc:v1:test') RETURNING id`,
+        [testKommuneId],
+      );
+      return created;
+    });
     cleanupIds.push({ table: "tidum_fiks_raw_intake_log", id: row.id });
     expect(row.id).toBeDefined();
   });

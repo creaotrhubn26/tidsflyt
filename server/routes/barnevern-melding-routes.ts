@@ -2,10 +2,12 @@ import type { Express, Request, Response } from "express";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import type { PoolClient } from "pg";
 import { pool } from "../db";
 import { isKommuneRole, normalizeRole } from "../../shared/roles";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
+import { withKommuneRlsContext } from "../lib/database-rls-context";
 
 const MELDER_KATEGORIER = new Set([
   "skole", "barnehage", "helsepersonell", "lege", "politi", "nav", "familie_nabo", "anonym", "annet",
@@ -63,17 +65,19 @@ async function requireKommuneActor(req: Request): Promise<KommuneActor | null> {
   return { userId: user.id, role, kommuneId: row.kommune_id };
 }
 
-async function nextMeldingsnummer(kommunenummer: string | null): Promise<string> {
-  const { rows: [row] } = await pool.query(`SELECT nextval('tidum_barnevern_meldingsnummer_seq') AS n`);
+async function nextMeldingsnummer(client: Pick<PoolClient, "query">, kommunenummer: string | null): Promise<string> {
+  const { rows: [row] } = await client.query(`SELECT nextval('tidum_barnevern_meldingsnummer_seq') AS n`);
   return `BVM-${kommunenummer ?? "UKJENT"}-${row.n}`;
 }
 
 async function loadMeldingScoped(id: string, kommuneId: number) {
-  const { rows } = await pool.query(
-    `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-    [id, kommuneId],
-  );
-  return rows[0] ?? null;
+  return withKommuneRlsContext(kommuneId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
+      [id, kommuneId],
+    );
+    return rows[0] ?? null;
+  });
 }
 
 function toApiShape(row: any) {
@@ -115,55 +119,46 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     }
 
     try {
-      const { rows: [kommune] } = await pool.query(
-        `SELECT kommunenummer FROM tidum_kommuner WHERE id = $1`,
-        [actor.kommuneId],
-      );
-      const meldingsnummer = await nextMeldingsnummer(kommune?.kommunenummer ?? null);
       const mottattDato = new Date();
       const avklaringsfrist = new Date(mottattDato.getTime() + 7 * 86400000);
-
-      const { rows: [row] } = await pool.query(
-        `INSERT INTO tidum_barnevern_meldinger
-           (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, melder_navn, melder_kontakt,
-            barn_fodselsnummer, barn_navn, beskrivelse, avklaringsfrist)
-         VALUES ($1, $2, 'manuell', $3, $4, $5, $6, $7, $8, $9, $10)
-         RETURNING *`,
-        [
-          actor.kommuneId, meldingsnummer, mottattDato, melderKategori,
-          melderNavn ?? null, melderKontakt ?? null, barnFodselsnummer ?? null, barnNavn ?? null,
-          beskrivelse, avklaringsfrist,
-        ],
-      );
-
-      // Utildelt melding må også kunne eskaleres: frist-engine hopper over rader
-      // uten notify_user_id, så barnevernsleder i kommunen er mottaker inntil
-      // tildel-ruten overskriver med faktisk saksbehandler.
-      const { rows: [leder] } = await pool.query(
-        `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
-        [actor.kommuneId],
-      );
-
-      try {
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [kommune] } = await client.query(
+          `SELECT kommunenummer FROM tidum_kommuner WHERE id = $1`,
+          [actor.kommuneId],
+        );
+        const meldingsnummer = await nextMeldingsnummer(client, kommune?.kommunenummer ?? null);
+        const { rows: [created] } = await client.query(
+          `INSERT INTO tidum_barnevern_meldinger
+             (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, melder_navn, melder_kontakt,
+              barn_fodselsnummer, barn_navn, beskrivelse, avklaringsfrist)
+           VALUES ($1, $2, 'manuell', $3, $4, $5, $6, $7, $8, $9, $10)
+           RETURNING *`,
+          [
+            actor.kommuneId, meldingsnummer, mottattDato, melderKategori,
+            melderNavn ?? null, melderKontakt ?? null, barnFodselsnummer ?? null, barnNavn ?? null,
+            beskrivelse, avklaringsfrist,
+          ],
+        );
+        // Utildelt melding varsler kommunens barnevernsleder inntil tildeling.
+        const { rows: [leder] } = await client.query(
+          `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
+          [actor.kommuneId],
+        );
         await registerFrist({
           entityType: "barnevern_melding",
-          entityId: row.id,
+          entityId: created.id,
           kommuneId: actor.kommuneId,
           fristType: "avklaring",
           dueAt: avklaringsfrist,
           notifyUserId: leder?.id,
-        });
-      } catch (fristErr) {
-        // En melding uten frist ville aldri blitt eskalert (bvl. § 2-1) — rull
-        // derfor tilbake innsettingen framfor å etterlate en stille melding.
-        console.error("[barnevern] registerFrist feilet, ruller tilbake melding:", fristErr);
-        await pool.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [row.id]);
-        return res.status(500).json({ error: "Kunne ikke opprette frist for meldingen, prøv igjen." });
-      }
+        }, client);
+        return created;
+      });
 
       res.status(201).json(toApiShape(row));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error("[barnevern] opprettelse feilet", err);
+      res.status(500).json({ error: "Kunne ikke opprette meldingen." });
     }
   });
 
@@ -173,18 +168,22 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
     try {
       const status = typeof req.query.status === "string" ? req.query.status : null;
-      const { rows } = status
-        ? await pool.query(
-            `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 AND status = $2 ORDER BY created_at DESC`,
-            [actor.kommuneId, status],
-          )
-        : await pool.query(
-            `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 ORDER BY created_at DESC`,
-            [actor.kommuneId],
-          );
+      const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const result = status
+          ? await client.query(
+              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 AND status = $2 ORDER BY created_at DESC`,
+              [actor.kommuneId, status],
+            )
+          : await client.query(
+              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 ORDER BY created_at DESC`,
+              [actor.kommuneId],
+            );
+        return result.rows;
+      });
       res.json(rows.map(toApiShape));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error("[barnevern] listing feilet", err);
+      res.status(500).json({ error: "Kunne ikke hente meldinger." });
     }
   });
 
@@ -204,27 +203,45 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       return res.status(403).json({ error: "Kun barnevernsleder kan tildele." });
     }
 
-    const existing = await loadMeldingScoped(req.params.id, actor.kommuneId);
-    if (!existing) return res.status(404).json({ error: "Melding ikke funnet." });
-
     const { tildeltSaksbehandlerId } = req.body;
     if (!tildeltSaksbehandlerId) return res.status(400).json({ error: "tildeltSaksbehandlerId er påkrevd." });
-
-    const newStatus = existing.status === "mottatt" ? "under_avklaring" : existing.status;
     try {
-      const { rows: [row] } = await pool.query(
-        `UPDATE tidum_barnevern_meldinger SET tildelt_saksbehandler_id = $1, status = $2, updated_at = NOW()
-         WHERE id = $3 AND kommune_id = $4 RETURNING *`,
-        [tildeltSaksbehandlerId, newStatus, req.params.id, actor.kommuneId],
-      );
-      await pool.query(
-        `UPDATE tidum_frister SET notify_user_id = $1, updated_at = NOW()
-         WHERE entity_type = 'barnevern_melding' AND entity_id = $2 AND status = 'aktiv'`,
-        [tildeltSaksbehandlerId, req.params.id],
-      );
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [existing] } = await client.query(
+          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!existing) throw new Error("MELDING_NOT_FOUND");
+        const assignee = await client.query(
+          `SELECT id FROM users
+            WHERE id = $1 AND kommune_id = $2
+              AND role IN ('barnevernsleder', 'kommune_saksbehandler')`,
+          [tildeltSaksbehandlerId, actor.kommuneId],
+        );
+        if (!assignee.rowCount) throw new Error("ASSIGNEE_NOT_IN_KOMMUNE");
+        const newStatus = existing.status === "mottatt" ? "under_avklaring" : existing.status;
+        const { rows: [updated] } = await client.query(
+          `UPDATE tidum_barnevern_meldinger SET tildelt_saksbehandler_id = $1, status = $2, updated_at = NOW()
+           WHERE id = $3 AND kommune_id = $4 RETURNING *`,
+          [tildeltSaksbehandlerId, newStatus, req.params.id, actor.kommuneId],
+        );
+        await client.query(
+          `UPDATE tidum_frister SET notify_user_id = $1, updated_at = NOW()
+           WHERE entity_type = 'barnevern_melding' AND entity_id = $2 AND kommune_id = $3 AND status = 'aktiv'`,
+          [tildeltSaksbehandlerId, req.params.id, actor.kommuneId],
+        );
+        return updated;
+      });
       res.json(toApiShape(row));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      if (err instanceof Error && err.message === "MELDING_NOT_FOUND") {
+        return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      if (err instanceof Error && err.message === "ASSIGNEE_NOT_IN_KOMMUNE") {
+        return res.status(400).json({ error: "Saksbehandleren tilhører ikke kommunen." });
+      }
+      console.error("[barnevern] tildeling feilet", err);
+      res.status(500).json({ error: "Kunne ikke tildele meldingen." });
     }
   });
 
@@ -232,32 +249,30 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const existing = await loadMeldingScoped(req.params.id, actor.kommuneId);
-    if (!existing) return res.status(404).json({ error: "Melding ikke funnet." });
-
     const { begrunnelse } = req.body;
     if (!begrunnelse || typeof begrunnelse !== "string" || begrunnelse.trim().length === 0) {
       return res.status(400).json({ error: "begrunnelse er påkrevd for henleggelse." });
     }
 
     try {
-      const { rows: [row] } = await pool.query(
-        `UPDATE tidum_barnevern_meldinger
-         SET status = 'henlagt', henleggelse_begrunnelse = $1, avklart_dato = NOW(), avklart_av_user_id = $2, updated_at = NOW()
-         WHERE id = $3 AND kommune_id = $4 RETURNING *`,
-        [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
-      );
-      // Statusendringen er kilden til sannhet: meldingen ER henlagt selv om
-      // fristkanselleringen feiler. En gjenværende aktiv frist gir på sitt verste
-      // et overflødig varsel, og skal ikke velte responsen.
-      try {
-        await cancelFrist("barnevern_melding", req.params.id, "avklaring");
-      } catch (fristErr) {
-        console.error("[barnevern] cancelFrist feilet etter henleggelse:", fristErr);
-      }
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [updated] } = await client.query(
+          `UPDATE tidum_barnevern_meldinger
+           SET status = 'henlagt', henleggelse_begrunnelse = $1, avklart_dato = NOW(), avklart_av_user_id = $2, updated_at = NOW()
+           WHERE id = $3 AND kommune_id = $4 RETURNING *`,
+          [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
+        );
+        if (!updated) throw new Error("MELDING_NOT_FOUND");
+        await cancelFrist("barnevern_melding", req.params.id, "avklaring", client);
+        return updated;
+      });
       res.json(toApiShape(row));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      if (err instanceof Error && err.message === "MELDING_NOT_FOUND") {
+        return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      console.error("[barnevern] henleggelse feilet", err);
+      res.status(500).json({ error: "Kunne ikke henlegge meldingen." });
     }
   });
 
@@ -265,25 +280,25 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const existing = await loadMeldingScoped(req.params.id, actor.kommuneId);
-    if (!existing) return res.status(404).json({ error: "Melding ikke funnet." });
-
     try {
-      const { rows: [row] } = await pool.query(
-        `UPDATE tidum_barnevern_meldinger
-         SET status = 'sendt_til_undersokelse', avklart_dato = NOW(), avklart_av_user_id = $1, updated_at = NOW()
-         WHERE id = $2 AND kommune_id = $3 RETURNING *`,
-        [actor.userId, req.params.id, actor.kommuneId],
-      );
-      // Samme resonnement som i henlegg: UPDATE-en er kilden til sannhet.
-      try {
-        await cancelFrist("barnevern_melding", req.params.id, "avklaring");
-      } catch (fristErr) {
-        console.error("[barnevern] cancelFrist feilet etter videresending:", fristErr);
-      }
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [updated] } = await client.query(
+          `UPDATE tidum_barnevern_meldinger
+           SET status = 'sendt_til_undersokelse', avklart_dato = NOW(), avklart_av_user_id = $1, updated_at = NOW()
+           WHERE id = $2 AND kommune_id = $3 RETURNING *`,
+          [actor.userId, req.params.id, actor.kommuneId],
+        );
+        if (!updated) throw new Error("MELDING_NOT_FOUND");
+        await cancelFrist("barnevern_melding", req.params.id, "avklaring", client);
+        return updated;
+      });
       res.json(toApiShape(row));
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      if (err instanceof Error && err.message === "MELDING_NOT_FOUND") {
+        return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      console.error("[barnevern] videresending feilet", err);
+      res.status(500).json({ error: "Kunne ikke sende meldingen til undersøkelse." });
     }
   });
 
@@ -306,15 +321,18 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       if (!req.file) return res.status(400).json({ error: "Ingen fil sendt." });
 
       try {
-        const { rows: [row] } = await pool.query(
+        const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+          const { rows: [created] } = await client.query(
           `INSERT INTO tidum_barnevern_melding_vedlegg
-             (melding_id, filename, original_name, mime_type, size_bytes, uploaded_by)
-           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+             (melding_id, kommune_id, filename, original_name, mime_type, size_bytes, uploaded_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
           [
-            req.params.id, req.file.filename, req.file.originalname,
-            req.file.mimetype, req.file.size, actor.userId,
+            req.params.id, actor.kommuneId, req.file!.filename, req.file!.originalname,
+            req.file!.mimetype, req.file!.size, actor.userId,
           ],
-        );
+          );
+          return created;
+        });
         res.status(201).json({
           id: row.id,
           filename: row.filename,
@@ -323,9 +341,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           sizeBytes: row.size_bytes,
           uploadedAt: row.uploaded_at,
         });
-      } catch (err: any) {
+      } catch (err) {
         fs.unlink(req.file.path, () => {});
-        res.status(500).json({ error: err.message });
+        console.error("[barnevern] vedleggsopplasting feilet", err);
+        res.status(500).json({ error: "Kunne ikke lagre vedlegget." });
       }
     },
   );
@@ -339,10 +358,14 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
       if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
 
-      const { rows: [vedlegg] } = await pool.query(
-        `SELECT * FROM tidum_barnevern_melding_vedlegg WHERE id = $1 AND melding_id = $2`,
-        [req.params.vedleggId, req.params.id],
-      );
+      const vedlegg = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [row] } = await client.query(
+          `SELECT * FROM tidum_barnevern_melding_vedlegg
+            WHERE id = $1 AND melding_id = $2 AND kommune_id = $3`,
+          [req.params.vedleggId, req.params.id, actor.kommuneId],
+        );
+        return row ?? null;
+      });
       if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });
 
       const filePath = path.join(BARNEVERN_UPLOAD_DIR, vedlegg.filename);

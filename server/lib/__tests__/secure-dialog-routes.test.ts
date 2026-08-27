@@ -3,6 +3,7 @@ import express from "express";
 import request from "supertest";
 import { randomUUID } from "crypto";
 import { pool } from "../../db";
+import { withKommuneRlsContext } from "../database-rls-context";
 import { hashSsn } from "../eid-hash";
 
 const storageState = vi.hoisted(() => ({ objects: new Map<string, Buffer>(), sequence: 0 }));
@@ -162,13 +163,16 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
   }
 
   async function createMelding(kommuneId: number): Promise<string> {
-    const { rows: [row] } = await pool.query(
-      `INSERT INTO tidum_barnevern_meldinger
-         (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, beskrivelse, avklaringsfrist)
-       VALUES ($1, $2, 'manuell', NOW(), 'annet', 'Integrasjonstest', NOW() + INTERVAL '7 days')
-       RETURNING id`,
-      [kommuneId, `BVM-SECURE-${randomUUID()}`],
-    );
+    const row = await withKommuneRlsContext(kommuneId, async (client) => {
+      const { rows: [created] } = await client.query(
+        `INSERT INTO tidum_barnevern_meldinger
+           (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, beskrivelse, avklaringsfrist)
+         VALUES ($1, $2, 'manuell', NOW(), 'annet', 'Integrasjonstest', NOW() + INTERVAL '7 days')
+         RETURNING id`,
+        [kommuneId, `BVM-SECURE-${randomUUID()}`],
+      );
+      return created;
+    });
     return String(row.id);
   }
 

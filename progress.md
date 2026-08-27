@@ -820,6 +820,34 @@ alarm, nøkkelbackup/restore og signert rotasjonsøvelse må etableres på valgt
 driftsplattform. Dette er leverandørens eksterne driftsbevis, ikke noe lokal
 kode eller Render-konfigurasjon alene kan oppfylle.
 
+## 20. PostgreSQL RLS fase 1 — kommunens bekymringsmeldingskjerne
+
+Migrasjon 083 håndhever nå `ENABLE` + `FORCE ROW LEVEL SECURITY` på
+`tidum_barnevern_meldinger`, `tidum_barnevern_melding_vedlegg` og
+`tidum_fiks_raw_intake_log`. Vedlegg har fått egen `kommune_id`, indeks og
+sammensatt fremmednøkkel til meldingens kommune. Request- og bakgrunnsflytene
+bruker transaksjonslokal kontekst; poolen kan ikke arve en tenant etter
+commit/rollback. Den administrerte databaseeieren omgås i beskyttede
+transaksjoner ved lokalt rollebytte til PostgreSQLs `NOLOGIN`/`NOBYPASSRLS`-
+rolle `pg_database_owner`, med eksplisitte og avgrensede rettigheter.
+
+Tildelingsflyten validerer samtidig at valgt saksbehandler har kommunerolle i
+samme kommune. Tidligere kunne en leder lagre en bruker-ID fra en annen
+kommune selv om leseflytene var tenantskopet.
+
+**Verifikasjon:** Migrasjon 083 er kjørt idempotent mot Neon. Uten kontekst
+returnerer de beskyttede tabellene null rader; kommune A ser og endrer ikke B;
+feil kommune på vedlegg avvises av sammensatt FK; kontekst er borte etter
+commit. Ni berørte testfiler består **49/49**, inkludert barnevernruter,
+vedlegg, FIKS, sikker dialog, arkiv og nøkkelrotasjon. `npm run check` og
+`git diff --check` er grønne. Se
+`docs/runbooks/postgresql-rls-kommunedata.md`.
+
+**Gjenstående:** Dette er RLS-fase 1, ikke full systemdekning. Egen
+produksjonslogin uten eier-/DDL-/`BYPASSRLS`-rettigheter, separat
+migrasjonsidentitet, resten av kommune-/vendor-tabellmatrisen, last-/pooltest
+og uavhengig sikkerhetstest gjenstår.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

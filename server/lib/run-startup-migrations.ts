@@ -68,6 +68,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "080_gdpr_erasure_audit.sql",
   "081_poweroffice_client_key_encryption.sql",
   "082_secret_rotation_run_audit.sql",
+  "083_barnevern_municipality_rls.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -100,7 +101,9 @@ export async function runStartupMigrations(): Promise<void> {
       // 081 is fail-closed because new PowerOffice credentials must never be
       // accepted without the sealed-format database guard and rotation audit.
       // 082 is fail-closed because a platform rotation must never be reported
-      // as successful without durable append-only run evidence.
+      // as successful without durable append-only run evidence. 083 is
+      // fail-closed because request code now depends on FORCE RLS and its
+      // transaction-local municipality context for database-level isolation.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
@@ -110,6 +113,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "080_gdpr_erasure_audit.sql"
         || filename === "081_poweroffice_client_key_encryption.sql"
         || filename === "082_secret_rotation_run_audit.sql"
+        || filename === "083_barnevern_municipality_rls.sql"
       ) {
         throw err;
       }
