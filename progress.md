@@ -687,6 +687,59 @@ fraværs-/GDPR-regresjonen består **11/11**, og mobil-/sesjonsregresjonen best�
 plattformens standardfrister som MVP. Per-vendor retensjonsvedtak og Haldens
 endelige arkiv-/slettepolicy må implementeres og aksepteres før produksjon.
 
+## 17. Integrasjonskontrollplan, PowerOffice, vendor-API og manuelle jobber
+
+Flere integrasjons- og driftsflater brukte fortsatt rollen og `vendorId` som
+lå i Passport-sesjonen. En degradert bruker kunne dermed beholde tilgang frem
+til ny innlogging, en global leverandøradministrator kunne velge kundetenant i
+request-parametre, og `hovedadmin` kunne lese integrasjonsetterspørsel fra
+andre virksomheter. PowerOffice-mapping godtok dessuten en vilkårlig
+`tidumUserId` uten å bevise samme tenant.
+
+Pakken skiller nå leverandørens kontrollplan fra kundens data- og
+hemmelighetsplan:
+
+- alle vakter henter bruker, rolle, kanonisk `role_id`, adminaktivering,
+  `vendor_id` og `kommune_id` ferskt fra databasen. Sesjonen brukes bare som
+  identitet, og tenant kan ikke velges i query, body eller URL;
+- bare kundens `hovedadmin` eller kanoniske `vendor_admin` kan lese eller
+  endre PowerOffice ClientKey, mappinger og vendor-API-nøkler. Global
+  system-`super_admin` kan slå integrasjonen av/på for en tenant, men får ikke
+  implisitt tilgang til kundens credentials eller PowerOffice-data;
+- PowerOffice-status og alle mutasjoner bruker aktørens ferske tenant.
+  Mapping og enkeltbruker-push krever en kvalifisert ansatt i samme tenant;
+  fremmede og ikke-kvalifiserte bruker-ID-er svarer nøytralt med 404. Rå
+  backend-/PowerOffice-feil returneres ikke;
+- vendor-API-nøkler kan bare administreres i egen tenant. Hashen returneres
+  ikke i listingen, navn og tillatt rettighet valideres, nøkkel-ID valideres,
+  og den komplette nøkkelen vises bare ved opprettelse;
+- hovedforespørsler for integrasjoner krever kundens ferske
+  integrasjonsadmin. Team-signal og «mine forespørsler» bruker fersk
+  tenantmedlemskap. Global produktadmin kan se aggregert etterspørsel, mens
+  tenantadmin alltid scopes til egen virksomhet. Bare fersk global
+  system-`super_admin` kan endre roadmap eller beregne score;
+- manuell kjøring av fristeskalering, oppgaveeskalering, setekontroll,
+  rapportpåminnelser og timelistepåminnelser krever fersk global
+  `super_admin`. Timelistefrist er separat og kan bare endres av fersk leder i
+  egen tenant;
+- klienten skjuler PowerOffice/vendor-API og hovedforespørsel for global
+  leverandøradmin, og viser roadmap-redigering bare til `super_admin`.
+
+**Verifikasjon:** Ekte PostgreSQL-sikkerhetstest mot to tenants består
+**10/10**, inkludert stale/forfalskede claims, deaktivert eller ugyldig
+rollegrant, leverandør-/kundeskille og kryss-tenant PowerOffice-mapping.
+DB-uavhengige rutekontrakter, global-admin-kontrakt og dev-bypass består
+**19/19**. Nærliggende GDPR-, fraværs-, eskalerings- og bearer-regresjon består
+**26/26**. `npm run check`, designkontroll og produksjonsbygg er grønne.
+
+**Kjent avgrensning:** PowerOffice ClientKey lagres fortsatt krypteringsmessig
+ubeskyttet i applikasjonstabellen. Den må flyttes til godkjent nøkkelhvelv eller
+forsegles med roterbar applikasjonsnøkkel før produksjonsdata. Det er ikke kjørt
+ende-til-ende-test mot en PowerOffice-sandkasse; idempotens, avstemming og
+leverandørkvitteringer gjenstår. Den aggregerte åpne roadmap-visningen er
+produktmetadata, ikke barnevernsdata, men synlighetsnivået må aksepteres av
+produkteier. Ekstern pentest og den systemomfattende endepunktsmatrisen gjenstår.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
@@ -699,9 +752,11 @@ endelige arkiv-/slettepolicy må implementeres og aksepteres før produksjon.
   Det globale CMS-kontrollplanet, CMS-e-post, builderdata, media, analyse og
   crawler er nå herdet. Fravær, saldoer og sykmeldingsvedlegg er tenantbundet
   og private. Global pris/salg/analyse/Stripe/access-request og GDPR-admin er
-  nå bundet til fersk rolle og riktig global-/tenantgrense. Andre filflater,
-  søk, bakgrunnsjobber utenfor de kontrollerte flytene og øvrige adminflater
-  gjenstår i den systematiske endepunktsmatrisen.
+  nå bundet til fersk rolle og riktig global-/tenantgrense. PowerOffice,
+  vendor-API, integrasjonsetterspørsel og de fem identifiserte globale manuelle
+  jobbtriggerne har nå fersk kontrollplan-/tenantautorisasjon. Andre
+  filflater, søk, bakgrunnsjobber og adminflater gjenstår i den systematiske
+  endepunktsmatrisen.
   En full uavhengig pentest og blokkert CI-kjøring med isolert database
   gjenstår også.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede

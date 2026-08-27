@@ -46,6 +46,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   canAccessVendorApiAdmin,
   canConfigureArchiveIntegration,
+  canManageVendorCredentials,
   getRoleLabel,
   normalizeRole,
 } from "@shared/roles";
@@ -1041,7 +1042,7 @@ export default function ProfilePage() {
 
         <IntegrationRequestsPanel showAdminTools={canAccessVendorApiAdmin(normalizedRole)} />
 
-        {canAccessVendorApiAdmin(normalizedRole) && <PowerOfficeConnectCard />}
+        {canManageVendorCredentials(normalizedRole) && <PowerOfficeConnectCard />}
 
         {canConfigureArchiveIntegration(normalizedRole) && <ArkivConnectCard />}
 

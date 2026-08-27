@@ -1,5 +1,5 @@
 import type { Request } from "express";
-import { normalizeRole } from "@shared/roles";
+import { canManageVendorCredentials, normalizeRole } from "@shared/roles";
 import { pool } from "../db";
 
 export type FreshAdminActor = {
@@ -10,6 +10,10 @@ export type FreshAdminActor = {
   assignedAdminRoleIsSystemDefault: boolean;
   vendorId: number | null;
   kommuneId: number | null;
+};
+
+export type FreshIntegrationAdminActor = FreshAdminActor & {
+  integrationAdminScope: "global" | "vendor";
 };
 
 const VENDOR_DATA_ADMIN_ROLES = new Set([
@@ -89,6 +93,12 @@ export async function resolveFreshGlobalSuperAdmin(req: Request): Promise<FreshA
   return actor;
 }
 
+export async function resolveFreshVendorMember(req: Request): Promise<FreshAdminActor | null> {
+  const actor = await resolveFreshAdminActor(req);
+  if (!actor || actor.vendorId == null || actor.kommuneId !== null) return null;
+  return actor;
+}
+
 export async function resolveFreshVendorDataAdmin(req: Request): Promise<FreshAdminActor | null> {
   const actor = await resolveFreshAdminActor(req);
   if (
@@ -107,6 +117,57 @@ export async function resolveFreshVendorDataAdmin(req: Request): Promise<FreshAd
     return null;
   }
   return actor;
+}
+
+export async function resolveFreshVendorCredentialAdmin(req: Request): Promise<FreshAdminActor | null> {
+  const actor = await resolveFreshAdminActor(req);
+  if (
+    !actor
+    || !canManageVendorCredentials(actor.role)
+    || (
+      actor.role === "vendor_admin"
+      && (
+        actor.assignedAdminRole !== "vendor_admin"
+        || !actor.assignedAdminRoleIsSystemDefault
+      )
+    )
+    || actor.vendorId == null
+    || actor.kommuneId !== null
+  ) {
+    return null;
+  }
+  return actor;
+}
+
+export async function resolveFreshIntegrationAdmin(req: Request): Promise<FreshIntegrationAdminActor | null> {
+  const actor = await resolveFreshAdminActor(req);
+  if (!actor) return null;
+
+  if (
+    actor.assignedAdminRole === "super_admin"
+    && actor.assignedAdminRoleIsSystemDefault
+    && actor.vendorId === null
+    && actor.kommuneId === null
+  ) {
+    return { ...actor, integrationAdminScope: "global" };
+  }
+
+  if (
+    canManageVendorCredentials(actor.role)
+    && (
+      actor.role !== "vendor_admin"
+      || (
+        actor.assignedAdminRole === "vendor_admin"
+        && actor.assignedAdminRoleIsSystemDefault
+      )
+    )
+    && actor.vendorId != null
+    && actor.kommuneId === null
+  ) {
+    return { ...actor, integrationAdminScope: "vendor" };
+  }
+
+  return null;
 }
 
 export async function userBelongsToVendorDataScope(

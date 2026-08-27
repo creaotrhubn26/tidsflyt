@@ -15,13 +15,7 @@ import {
 } from '@shared/schema';
 import { emailService } from '../lib/email-service';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
-
-function isAdminRole(req: Request): boolean {
-  const role = String(((req as any).authUser ?? (req as any).user)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return ADMIN_ROLES.includes(role);
-}
+import { requireSuperAdmin } from '../custom-auth';
 
 /**
  * Run the reminder pass once. Returns counts of users reminded per institution.
@@ -128,13 +122,13 @@ export function setupRapportReminderCron() {
 
 /** Register a manual-trigger endpoint for admins to test + force a run. */
 export function registerRapportReminderRoutes(app: Express) {
-  app.post('/api/rapport-reminders/run', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/rapport-reminders/run', requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
-      if (!isAdminRole(req)) return res.status(403).json({ error: 'Kun admin+ kan kjøre påminnelser manuelt' });
       const results = await runRapportReminders();
       res.json({ ok: true, results });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('[rapport-reminders] manual run failed', error);
+      res.status(500).json({ error: 'Kunne ikke kjøre rapportpåminnelser' });
     }
   });
 }

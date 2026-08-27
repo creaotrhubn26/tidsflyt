@@ -11,7 +11,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useRolePreview } from "@/hooks/use-role-preview";
+import { useAuth } from "@/hooks/use-auth";
 import { Link2, TrendingUp } from "lucide-react";
+import { canManageVendorCredentials } from "@shared/roles";
 
 type IntegrationKey = "fiken" | "tripletex" | "other";
 type IntegrationStatus =
@@ -172,9 +174,12 @@ function parseApiError(error: unknown): string {
 
 export function IntegrationRequestsPanel({ showAdminTools = false, className }: IntegrationRequestsPanelProps) {
   const { toast } = useToast();
+  const { user } = useAuth();
   const { effectiveRole: normalizedRole } = useRolePreview();
-  const canCreatePrimary = ["super_admin", "hovedadmin", "admin", "vendor_admin"].includes(normalizedRole);
-  const canManageRoadmap = ["super_admin", "hovedadmin", "admin"].includes(normalizedRole);
+  const hasVendorTenant = Number.isInteger(Number(user?.vendorId)) && Number(user?.vendorId) > 0;
+  const canCreatePrimary = hasVendorTenant && canManageVendorCredentials(normalizedRole);
+  const canCreateSignal = hasVendorTenant;
+  const canManageRoadmap = normalizedRole === "super_admin";
 
   const [selectedIntegrationKey, setSelectedIntegrationKey] = useState<IntegrationKey>("fiken");
   const [mode, setMode] = useState<"primary" | "signal">("signal");
@@ -198,6 +203,7 @@ export function IntegrationRequestsPanel({ showAdminTools = false, className }: 
 
   const { data: myRequestsData } = useQuery<MyRequestsResponse>({
     queryKey: ["/api/integrations/requests/me"],
+    enabled: hasVendorTenant,
     staleTime: 30_000,
   });
 
@@ -336,9 +342,11 @@ export function IntegrationRequestsPanel({ showAdminTools = false, className }: 
 
   const handleSubmit = () => {
     if (mode === "primary") {
+      if (!canCreatePrimary) return;
       primaryRequestMutation.mutate();
       return;
     }
+    if (!canCreateSignal) return;
     signalMutation.mutate();
   };
 
@@ -385,7 +393,7 @@ export function IntegrationRequestsPanel({ showAdminTools = false, className }: 
                   type="button"
                   variant={mode === "signal" ? "default" : "outline"}
                   onClick={() => setMode("signal")}
-                  disabled={submitDisabled}
+                  disabled={!canCreateSignal || submitDisabled}
                   data-testid="integration-mode-signal"
                 >
                   Team-signal
@@ -472,7 +480,7 @@ export function IntegrationRequestsPanel({ showAdminTools = false, className }: 
             <Button
               type="button"
               onClick={handleSubmit}
-              disabled={submitDisabled || catalogLoading || (mode === "primary" && (!canCreatePrimary || selectedAlreadyPrimary)) || (mode === "signal" && selectedAlreadySignaled) || (shouldRequireNote && mode === "signal" && signalNote.trim().length === 0)}
+              disabled={submitDisabled || catalogLoading || (mode === "primary" && (!canCreatePrimary || selectedAlreadyPrimary)) || (mode === "signal" && (!canCreateSignal || selectedAlreadySignaled)) || (shouldRequireNote && mode === "signal" && signalNote.trim().length === 0)}
               data-testid="integration-submit"
             >
               {mode === "primary" ? "Send hovedforespørsel" : "Send team-signal"}

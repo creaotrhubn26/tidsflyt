@@ -64,11 +64,11 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth, requireSuperAdmin } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, requireIntegrationAdmin, requireSuperAdmin, requireVendorAuth, requireVendorMember } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
 import { setupEntraIdAuth } from "./entra-id-auth";
 import { requireAuth as requireAnyAuth, requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
-import { canAccessVendorApiAdmin, isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
+import { isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
 import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
 import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit, uploadRateLimit } from "./rate-limit";
@@ -814,14 +814,12 @@ const integrationPrimaryRequestSchema = z.object({
   useCase: z.string().trim().max(1000).optional(),
   estimatedMonthlyVolume: z.number().int().min(0).max(100000000).optional(),
   urgency: z.enum(["low", "normal", "high"]).optional(),
-  vendorId: z.number().int().positive().optional(),
-});
+}).strict();
 
 const integrationSignalRequestSchema = z.object({
   integrationKey: integrationKeySchema,
-  vendorId: z.number().int().positive().optional(),
   note: z.string().trim().max(500).optional(),
-});
+}).strict();
 
 const integrationRoadmapPatchSchema = z.object({
   status: integrationRoadmapStatusSchema.optional(),
@@ -842,6 +840,11 @@ const integrationRoadmapPatchSchema = z.object({
 const integrationAnalyticsFilterSchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
 });
+
+const vendorApiKeyCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  permissions: z.array(z.literal("read:time_entries")).min(1).max(1).default(["read:time_entries"]),
+}).strict();
 
 type FeedbackStatsMap = Record<string, { accepted: number; rejected: number }>;
 
@@ -2425,72 +2428,12 @@ export async function registerRoutes(
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
 
-  // Middleware to require vendor authentication via OAuth
-  const requireVendorAuth = async (req: any, res: any, next: any) => {
-    // Check if user is authenticated
-    if (!req.isAuthenticated || !hasSessionAuth(req)) {
-      return res.status(401).json({ 
-        error: "Unauthorized", 
-        message: "Please log in to access this resource." 
-      });
-    }
-
-    const user = req.user;
-    if (!user || !user.id) {
-      return res.status(401).json({ 
-        error: "Unauthorized", 
-        message: "Invalid session." 
-      });
-    }
-
-    // Check if user has vendor admin or super admin role
-    if (!canAccessVendorApiAdmin(user.role)) {
-      return res.status(403).json({ 
-        error: "Forbidden", 
-        message: "You do not have admin access. Contact your administrator." 
-      });
-    }
-
-    // Super admin can access all vendors (vendorId from query/body/param)
-    // Vendor admin can only access their own vendor
-    if (user.role === 'super_admin') {
-      req.isSuperAdmin = true;
-      // Super admin can target a specific vendor via query, body, or params
-      const targetVendorId = parseInt(req.query.vendorId || req.body?.vendorId || req.params?.vendorId);
-      if (targetVendorId && !isNaN(targetVendorId)) {
-        req.vendorId = targetVendorId;
-      } else {
-        // For routes that need a vendorId, super admin must provide one
-        req.vendorId = null;
-      }
-    } else {
-      if (!user.vendorId) {
-        return res.status(403).json({ 
-          error: "Forbidden", 
-          message: "Vendor admin must be assigned to a vendor." 
-        });
-      }
-      req.vendorId = user.vendorId;
-      req.isSuperAdmin = false;
-    }
-    
-    req.userId = user.id;
-    req.userRole = user.role;
-    next();
-  };
-
   // Helper to get effective vendorId (for routes that require it)
   const getEffectiveVendorId = (req: any, res: any): number | null => {
-    if (req.vendorId) return req.vendorId;
-    if (req.isSuperAdmin) {
-      // Super admin must specify vendorId for vendor-specific routes
-      res.status(400).json({ 
-        error: "Bad Request", 
-        message: "Super admin must specify vendorId in query parameter." 
-      });
-      return null;
-    }
-    return req.vendorId;
+    const vendorId = Number(req.vendorId);
+    if (Number.isInteger(vendorId) && vendorId > 0) return vendorId;
+    res.status(403).json({ error: "Forbidden", message: "Brukeren mangler gyldig virksomhetstilknytning." });
+    return null;
   };
 
   type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
@@ -2514,15 +2457,6 @@ export async function registerRoutes(
     not_now: "Ikke nå",
   };
 
-  function canManageIntegrationRoadmap(role: string | null | undefined): boolean {
-    const normalized = normalizeRole(role);
-    return normalized === "super_admin" || normalized === "hovedadmin";
-  }
-
-  function canCreatePrimaryIntegrationRequest(role: string | null | undefined): boolean {
-    return canAccessVendorApiAdmin(role);
-  }
-
   const requireVerifiedUser = (req: any, res: any, next: any) => {
     const userId = String(req.user?.id || "").trim();
     const userEmail = String(req.user?.email || "").trim();
@@ -2535,40 +2469,9 @@ export async function registerRoutes(
     next();
   };
 
-  async function resolveVendorIdForIntegrationRequest(req: any, explicitVendorId?: number): Promise<number | null> {
-    const sessionVendorId = Number(req.user?.vendorId);
-    if (Number.isFinite(sessionVendorId) && sessionVendorId > 0) {
-      return sessionVendorId;
-    }
-
-    const normalizedRole = normalizeRole(req.user?.role);
-    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
-      return explicitVendorId;
-    }
-
-    const authUserId = String(req.user?.id || "").trim();
-    if (!authUserId) {
-      return null;
-    }
-
-    const userResult = await pool.query(
-      `SELECT vendor_id
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
-      [authUserId],
-    );
-
-    const dbVendorId = Number(userResult.rows[0]?.vendor_id);
-    if (Number.isFinite(dbVendorId) && dbVendorId > 0) {
-      return dbVendorId;
-    }
-
-    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
-      return explicitVendorId;
-    }
-
-    return null;
+  function freshRequestVendorId(req: any): number | null {
+    const vendorId = Number(req.vendorId);
+    return Number.isInteger(vendorId) && vendorId > 0 ? vendorId : null;
   }
 
   function validateIntegrationKey(keyRaw: string): IntegrationKey | null {
@@ -2954,22 +2857,21 @@ export async function registerRoutes(
   }
 
   function resolveAdminVendorScope(req: any): { vendorId: number | null; error: string | null } {
-    const normalizedRole = normalizeRole(req.user?.role);
-    const sessionVendorId = Number(req.user?.vendorId);
-    const requestedVendorId = Number(req.query.vendorId);
-
-    if (normalizedRole === "vendor_admin") {
-      if (!Number.isFinite(sessionVendorId) || sessionVendorId <= 0) {
-        return { vendorId: null, error: "Vendor admin mangler vendor-tilknytning" };
-      }
-      return { vendorId: sessionVendorId, error: null };
+    if (!(req as any).isSuperAdmin) {
+      const vendorId = freshRequestVendorId(req);
+      return vendorId
+        ? { vendorId, error: null }
+        : { vendorId: null, error: "Integrasjonsadmin mangler virksomhetstilknytning" };
     }
 
-    if (Number.isFinite(requestedVendorId) && requestedVendorId > 0) {
-      return { vendorId: requestedVendorId, error: null };
+    const requestedRaw = req.query.vendorId;
+    if (requestedRaw === undefined || requestedRaw === "") {
+      return { vendorId: null, error: null };
     }
-
-    return { vendorId: null, error: null };
+    const requestedVendorId = Number(requestedRaw);
+    return Number.isInteger(requestedVendorId) && requestedVendorId > 0
+      ? { vendorId: requestedVendorId, error: null }
+      : { vendorId: null, error: "Ugyldig vendorId" };
   }
 
   // Integration catalog + roadmap (request-driven MVP)
@@ -2987,8 +2889,9 @@ export async function registerRoutes(
                 END`,
       );
       res.json({ catalog: result.rows });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-catalog] list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonskatalog" });
     }
   });
 
@@ -3012,25 +2915,21 @@ export async function registerRoutes(
         statuses: INTEGRATION_ROADMAP_STATUSES,
         roadmap,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsroadmap" });
     }
   });
 
-  app.post("/api/integrations/requests/primary", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/integrations/requests/primary", requireVendorAuth, requireVerifiedUser, async (req, res) => {
     try {
       const parsed = integrationPrimaryRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       }
 
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canCreatePrimaryIntegrationRequest(userRole)) {
-        return res.status(403).json({ error: "Kun admin/vendor_admin kan sende hovedforespørsel" });
-      }
-
       const authUserId = String((req.user as any)?.id || "").trim();
-      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      const vendorId = freshRequestVendorId(req);
       if (!vendorId) {
         return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for forespørselen" });
       }
@@ -3105,12 +3004,13 @@ export async function registerRoutes(
         request: insertResult.rows[0],
         roadmap: roadmapEntry,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] primary request failed", error);
+      res.status(500).json({ error: "Kunne ikke registrere integrasjonsforespørselen" });
     }
   });
 
-  app.post("/api/integrations/requests/signal", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/integrations/requests/signal", requireVendorMember, requireVerifiedUser, async (req, res) => {
     try {
       const parsed = integrationSignalRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -3118,7 +3018,7 @@ export async function registerRoutes(
       }
 
       const authUserId = String((req.user as any)?.id || "").trim();
-      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      const vendorId = freshRequestVendorId(req);
       if (!vendorId) {
         return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for signalet" });
       }
@@ -3182,12 +3082,13 @@ export async function registerRoutes(
         signal: insertResult.rows[0],
         roadmap: roadmapEntry,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] team signal failed", error);
+      res.status(500).json({ error: "Kunne ikke registrere integrasjonssignalet" });
     }
   });
 
-  app.get("/api/integrations/requests/me", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/integrations/requests/me", requireVendorMember, requireVerifiedUser, async (req, res) => {
     try {
       const authUserId = String((req.user as any)?.id || "").trim();
 
@@ -3208,8 +3109,9 @@ export async function registerRoutes(
         LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
         LEFT JOIN tidum_vendors v ON v.id = p.vendor_id
             WHERE p.requested_by_user_id = $1
+              AND p.vendor_id = $2
          ORDER BY p.created_at DESC`,
-          [authUserId],
+          [authUserId, freshRequestVendorId(req)],
         ),
         pool.query(
           `SELECT s.id,
@@ -3224,8 +3126,9 @@ export async function registerRoutes(
         LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
         LEFT JOIN tidum_vendors v ON v.id = s.vendor_id
             WHERE s.user_id = $1
+              AND s.vendor_id = $2
          ORDER BY s.created_at DESC`,
-          [authUserId],
+          [authUserId, freshRequestVendorId(req)],
         ),
       ]);
 
@@ -3233,18 +3136,14 @@ export async function registerRoutes(
         primary: primaryResult.rows,
         signals: signalsResult.rows,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] own requests failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsforespørslene" });
     }
   });
 
-  app.get("/api/admin/integrations/requests", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/admin/integrations/requests", requireIntegrationAdmin, requireVerifiedUser, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canAccessVendorApiAdmin(userRole)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-
       const { vendorId: scopedVendorId, error } = resolveAdminVendorScope(req);
       if (error) {
         return res.status(403).json({ error });
@@ -3331,18 +3230,14 @@ export async function registerRoutes(
         primary: primaryResult.rows,
         signals: signalsResult.rows,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] admin request list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsetterspørsel" });
     }
   });
 
-  app.get("/api/admin/integrations/analytics", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/admin/integrations/analytics", requireIntegrationAdmin, requireVerifiedUser, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canAccessVendorApiAdmin(userRole)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-
       const parsedFilter = integrationAnalyticsFilterSchema.safeParse({
         days: req.query.days,
       });
@@ -3532,18 +3427,14 @@ export async function registerRoutes(
         },
         generatedAt: new Date().toISOString(),
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] analytics failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsanalyse" });
     }
   });
 
-  app.patch("/api/admin/integrations/roadmap/:integrationKey", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.patch("/api/admin/integrations/roadmap/:integrationKey", requireSuperAdmin, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canManageIntegrationRoadmap(userRole)) {
-        return res.status(403).json({ error: "Kun produkt/admin kan oppdatere roadmap-status" });
-      }
-
       const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
       if (!integrationKey) {
         return res.status(400).json({ error: "Ugyldig integrationKey" });
@@ -3654,18 +3545,14 @@ export async function registerRoutes(
         roadmap: updatedRoadmap,
         statusChanged,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] update failed", error);
+      res.status(500).json({ error: "Kunne ikke oppdatere integrasjonsroadmap" });
     }
   });
 
-  app.post("/api/admin/integrations/roadmap/:integrationKey/recalculate-score", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/admin/integrations/roadmap/:integrationKey/recalculate-score", requireSuperAdmin, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canManageIntegrationRoadmap(userRole)) {
-        return res.status(403).json({ error: "Kun produkt/admin kan recalculere score" });
-      }
-
       const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
       if (!integrationKey) {
         return res.status(400).json({ error: "Ugyldig integrationKey" });
@@ -3685,8 +3572,9 @@ export async function registerRoutes(
         score: scoreResult.target,
         roadmap,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] score recalculation failed", error);
+      res.status(500).json({ error: "Kunne ikke beregne integrasjonsscore" });
     }
   });
 
@@ -3713,8 +3601,9 @@ export async function registerRoutes(
         apiSubscriptionEnd: null,
         apiMonthlyPrice: "99.00",
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] status lookup failed", error);
+      res.status(500).json({ error: "Kunne ikke hente API-status" });
     }
   });
 
@@ -3724,12 +3613,23 @@ export async function registerRoutes(
       if (vendorId === null) return;
       
       const keys = await db
-        .select()
+        .select({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          keyPrefix: apiKeys.keyPrefix,
+          permissions: apiKeys.permissions,
+          rateLimit: apiKeys.rateLimit,
+          isActive: apiKeys.isActive,
+          lastUsedAt: apiKeys.lastUsedAt,
+          expiresAt: apiKeys.expiresAt,
+          createdAt: apiKeys.createdAt,
+        })
         .from(apiKeys)
         .where(and(eq(apiKeys.vendorId, vendorId), isNull(apiKeys.revokedAt)));
       res.json(keys);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente API-nøkler" });
     }
   });
 
@@ -3738,27 +3638,27 @@ export async function registerRoutes(
       const vendorId = getEffectiveVendorId(req, res);
       if (vendorId === null) return;
       
-      const { name, permissions } = req.body;
-      
-      if (!name) {
-        return res.status(400).json({ error: "Name is required" });
+      const parsed = vendorApiKeyCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Ugyldig navn eller rettighetssett" });
       }
       
       const { key, prefix, hash } = generateApiKey();
       
       await db.insert(apiKeys).values({
         vendorId,
-        name,
+        name: parsed.data.name,
         keyPrefix: prefix,
         keyHash: hash,
-        permissions: permissions || ["read:time_entries"],
+        permissions: parsed.data.permissions,
         rateLimit: 60,
         isActive: true,
       });
       
       res.json({ key, prefix });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key creation failed", error);
+      res.status(500).json({ error: "Kunne ikke opprette API-nøkkel" });
     }
   });
 
@@ -3767,9 +3667,12 @@ export async function registerRoutes(
       const vendorId = getEffectiveVendorId(req, res);
       if (vendorId === null) return;
       
-      const keyId = parseInt(req.params.id);
+      const keyId = Number(req.params.id);
+      if (!Number.isInteger(keyId) || keyId <= 0) {
+        return res.status(400).json({ error: "Ugyldig API-nøkkel-ID" });
+      }
       
-      // Verify the key belongs to this vendor before deleting (or super admin can delete any)
+      // Verify that the key belongs to the fresh tenant actor before revocation.
       const [existingKey] = await db
         .select()
         .from(apiKeys)
@@ -3786,8 +3689,9 @@ export async function registerRoutes(
         .where(eq(apiKeys.id, keyId));
       
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key revocation failed", error);
+      res.status(500).json({ error: "Kunne ikke tilbakekalle API-nøkkelen" });
     }
   });
 
@@ -3810,8 +3714,9 @@ export async function registerRoutes(
         .where(eq(vendors.id, vendorId));
       
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] enablement failed", error);
+      res.status(500).json({ error: "Kunne ikke aktivere API-tilgang" });
     }
   });
 

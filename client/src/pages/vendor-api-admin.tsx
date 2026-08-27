@@ -17,7 +17,7 @@ import { Key, Plus, Trash2, Copy, CheckCircle, XCircle, Clock, Shield, RefreshCw
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
-import { canAccessVendorApiAdmin } from "@shared/roles";
+import { canManageVendorCredentials } from "@shared/roles";
 
 interface ApiKey {
   id: number;
@@ -55,7 +55,7 @@ export default function VendorApiAdminPage() {
   const [selectedPermissions, setSelectedPermissions] = useState<string[]>(["read:time_entries"]);
   const [generatedKey, setGeneratedKey] = useState<string | null>(null);
 
-  const isAuthorized = canAccessVendorApiAdmin(effectiveRole);
+  const isAuthorized = canManageVendorCredentials(effectiveRole);
 
   const { data: apiStatus, isLoading: statusLoading } = useQuery<VendorApiStatus>({
     queryKey: ["/api/vendor/api-status"],

@@ -30,7 +30,7 @@
  *   audit-rader og tidum_leave_attachments.
  */
 
-import type { Express, NextFunction, Request, Response } from "express";
+import type { Express, Request, Response } from "express";
 import cron from "node-cron";
 import { db } from "../db";
 import {
@@ -50,15 +50,14 @@ import {
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
-import { requireSuperAdmin } from "../custom-auth";
+import { requireSuperAdmin, requireVendorDataAdmin } from "../custom-auth";
 import { runGdprPurge, eraseUser, exportUserData, RETENTION_POLICY_POLICY, GDPR_DEFAULTS } from "../lib/gdpr";
 import {
-  resolveFreshVendorDataAdmin,
   userBelongsToVendorDataScope,
   type FreshAdminActor,
 } from "../lib/global-admin-authorization";
 
-type GdprRequest = Request & { gdprActor?: FreshAdminActor };
+type GdprRequest = Request & { freshVendorActor?: FreshAdminActor };
 
 function authedUser(req: Request) {
   return (req as any).authUser ?? (req as any).user ?? null;
@@ -75,20 +74,6 @@ function coerceId(raw: unknown): string | number | null {
 function requestedUserId(raw: unknown): string | null {
   const value = String(raw ?? "").trim();
   return value && value.length <= 255 ? value : null;
-}
-
-async function requireVendorDataAdmin(req: GdprRequest, res: Response, next: NextFunction) {
-  try {
-    const actor = await resolveFreshVendorDataAdmin(req);
-    if (!actor) {
-      return res.status(403).json({ error: "Krever lederrolle i virksomheten" });
-    }
-    req.gdprActor = actor;
-    next();
-  } catch (error) {
-    console.error("[gdpr] tenant admin lookup failed", error);
-    res.status(503).json({ error: "Kunne ikke kontrollere administratortilgang" });
-  }
 }
 
 export function registerGdprRoutes(app: Express) {
@@ -287,7 +272,8 @@ export function registerGdprRoutes(app: Express) {
     try {
       const userId = requestedUserId(req.params.id);
       if (!userId) return res.status(400).json({ error: "Ugyldig bruker-ID" });
-      const actor = req.gdprActor!;
+      const actor = req.freshVendorActor;
+      if (!actor) return res.status(403).json({ error: "Krever lederrolle i virksomheten" });
       if (!(await userBelongsToVendorDataScope(userId, actor.vendorId!))) {
         return res.status(404).json({ error: "Bruker ikke funnet" });
       }

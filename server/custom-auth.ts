@@ -1,14 +1,13 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import session from "express-session";
-import type { Express, Request, RequestHandler } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
 import { verifyAccessToken, issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { canAccessVendorApiAdmin } from "@shared/roles";
 import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
 import { authRateLimit } from "./rate-limit";
@@ -21,7 +20,15 @@ import {
   requireCsrfSecret,
   sessionCsrfProtection,
 } from "./lib/csrf";
-import { resolveFreshGlobalSuperAdmin } from "./lib/global-admin-authorization";
+import {
+  resolveFreshGlobalSuperAdmin,
+  resolveFreshIntegrationAdmin,
+  resolveFreshVendorCredentialAdmin,
+  resolveFreshVendorDataAdmin,
+  resolveFreshVendorMember,
+  type FreshAdminActor,
+  type FreshIntegrationAdminActor,
+} from "./lib/global-admin-authorization";
 
 type EmailIdentityInput = {
   email: string;
@@ -655,18 +662,104 @@ export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
-export const requireVendorAuth: RequestHandler = (req, res, next) => {
+function applyFreshVendorActor(req: Request, actor: FreshAdminActor): void {
+  req.user = {
+    ...(req.user as AuthUser),
+    email: actor.email ?? (req.user as AuthUser).email,
+    role: actor.role,
+    vendorId: actor.vendorId,
+  };
+  (req as any).vendorId = actor.vendorId;
+  (req as any).isSuperAdmin = false;
+  (req as any).userId = actor.id;
+  (req as any).userRole = actor.role;
+  (req as any).freshVendorActor = actor;
+}
+
+async function requireFreshVendorActor(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  resolver: (request: Request) => Promise<FreshAdminActor | null>,
+  deniedMessage: string,
+) {
   if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
-  const user = req.user as AuthUser;
-  if (!canAccessVendorApiAdmin(user.role)) {
-    return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
+
+  try {
+    const actor = await resolver(req);
+    if (!actor) return res.status(403).json({ message: deniedMessage });
+    applyFreshVendorActor(req, actor);
+    next();
+  } catch (error) {
+    console.error("[vendor-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere administratortilgang" });
   }
-  
-  next();
+}
+
+export const requireVendorAuth: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorCredentialAdmin,
+    "Krever hovedadmin eller vendor_admin i virksomheten",
+  );
+};
+
+export const requireVendorDataAdmin: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorDataAdmin,
+    "Krever lederrolle i virksomheten",
+  );
+};
+
+export const requireVendorMember: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorMember,
+    "Krever aktiv virksomhetstilknytning",
+  );
+};
+
+function applyFreshIntegrationAdmin(req: Request, actor: FreshIntegrationAdminActor): void {
+  req.user = {
+    ...(req.user as AuthUser),
+    email: actor.email ?? (req.user as AuthUser).email,
+    role: actor.role,
+    vendorId: actor.vendorId,
+  };
+  (req as any).vendorId = actor.vendorId;
+  (req as any).isSuperAdmin = actor.integrationAdminScope === "global";
+  (req as any).userId = actor.id;
+  (req as any).userRole = actor.role;
+  (req as any).freshIntegrationAdmin = actor;
+}
+
+export const requireIntegrationAdmin: RequestHandler = async (req, res, next) => {
+  if (isDevAuthBypassAllowed()) return next();
+  if (!hasSessionAuth(req) || !req.user) {
+    return res.status(401).json({ message: "Ikke autentisert" });
+  }
+
+  try {
+    const actor = await resolveFreshIntegrationAdmin(req);
+    if (!actor) {
+      return res.status(403).json({ message: "Krever global systemadmin eller virksomhetens integrasjonsadmin" });
+    }
+    applyFreshIntegrationAdmin(req, actor);
+    next();
+  } catch (error) {
+    console.error("[integration-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere integrasjonstilgang" });
+  }
 };
 
 export const requireSuperAdmin: RequestHandler = async (req, res, next) => {

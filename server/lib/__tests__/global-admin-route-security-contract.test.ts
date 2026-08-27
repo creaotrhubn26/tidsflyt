@@ -27,7 +27,9 @@ describe("global admin route contract", () => {
       expect(source).toContain('import { requireSuperAdmin } from "../custom-auth"');
       expect(source).toContain("requireSuperAdmin");
     }
-    expect(routes).toContain("hasSessionAuth, requireSuperAdmin");
+    expect(routes).toContain("requireSuperAdmin");
+    expect(routes).toContain("requireVendorAuth");
+    expect(routes).not.toContain("hasSessionAuth");
     expect(routes).not.toContain("const requireSuperAdmin = async");
     expect(routes).toContain('app.get("/api/access-requests", requireSuperAdmin');
     expect(routes).toContain('app.patch("/api/access-requests/:id", requireSuperAdmin');

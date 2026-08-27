@@ -134,6 +134,15 @@ export function canAccessVendorApiAdmin(role: string | null | undefined): boolea
   return ["super_admin", "hovedadmin", "vendor_admin"].includes(normalizedRole);
 }
 
+/** Tenant-owned credentials and API keys must be managed by the customer's
+ * own hovedadmin/vendor_admin. A global supplier admin may control whether an
+ * integration is offered, but does not get implicit access to customer
+ * credentials or data-plane API keys. */
+export function canManageVendorCredentials(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === "hovedadmin" || normalizedRole === "vendor_admin";
+}
+
 /** Arkivkonfigurasjon finnes i begge tenanthierarkier. Kommuneleder får bare
  * arkivkortet; dette utvider ikke vendor-API-, PowerOffice- eller brukeradmin. */
 export function canConfigureArchiveIntegration(role: string | null | undefined): boolean {

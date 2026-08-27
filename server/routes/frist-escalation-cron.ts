@@ -1,12 +1,7 @@
 import type { Express, Request, Response } from "express";
 import cron from "node-cron";
-import { requireAuth } from "../middleware/auth";
+import { requireSuperAdmin } from "../custom-auth";
 import { runFristEscalations } from "../lib/frist-engine";
-
-function isSuperAdmin(req: Request): boolean {
-  const user = (req as any).authUser ?? (req as any).user;
-  return user?.role === "super_admin";
-}
 
 let cronStarted = false;
 
@@ -24,15 +19,13 @@ export function setupFristEscalationCron(): void {
 }
 
 export function registerFristEscalationRoutes(app: Express): void {
-  app.post("/api/admin/frist-escalation/run", requireAuth, async (req: Request, res: Response) => {
-    if (!isSuperAdmin(req)) {
-      return res.status(403).json({ error: "Kun super_admin kan trigge manuelt." });
-    }
+  app.post("/api/admin/frist-escalation/run", requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
       const result = await runFristEscalations();
       res.json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (error) {
+      console.error("[frist-escalation] manual run failed", error);
+      res.status(500).json({ error: "Kunne ikke kjøre fristeskalering" });
     }
   });
 }

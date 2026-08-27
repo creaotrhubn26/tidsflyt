@@ -15,13 +15,7 @@ import { db } from "../db";
 import { and, eq, isNull, isNotNull, lt, inArray } from "drizzle-orm";
 import { dashboardTasks } from "@shared/schema";
 import { createNotification } from "./notification-routes";
-import { requireAuth } from "../middleware/auth";
-
-function isSuperAdmin(req: Request): boolean {
-  const role = String(((req as any).authUser ?? (req as any).user)?.role || "")
-    .toLowerCase().replace(/[\s-]/g, "_");
-  return role === "super_admin";
-}
+import { requireSuperAdmin } from "../custom-auth";
 
 // taskIds is test-only: runTaskEscalations() with no filter scans every
 // vendor's overdue tasks (needed for the real daily cron), which makes it
@@ -96,13 +90,13 @@ export function setupTaskEscalationCron() {
 // øvrig (som inkluderer vendor-lokale roller som tiltaksleder/teamleder,
 // som ellers kunne tvinge kryss-tenant-varsling på et tidspunkt de velger).
 export function registerTaskEscalationRoutes(app: Express) {
-  app.post("/api/task-escalations/run", requireAuth, async (req: Request, res: Response) => {
+  app.post("/api/task-escalations/run", requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
-      if (!isSuperAdmin(req)) return res.status(403).json({ error: "Kun super_admin kan kjøre eskalering manuelt" });
       const result = await runTaskEscalations();
       res.json({ ok: true, ...result });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error("[task-escalation] manual run failed", error);
+      res.status(500).json({ error: "Kunne ikke kjøre oppgaveeskalering" });
     }
   });
 }

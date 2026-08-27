@@ -319,8 +319,11 @@ Tiltak:
    CMS-e-post, builder/media/analyse og crawler er også herdet. Fravær,
    saldoer, rollover og sykmeldingsvedlegg er tenantbundet med migrasjon 079 og
    målrettede DB-/filtester. Global pris/salg/analyse/Stripe/access-request og
-   GDPR-admin er herdet med fersk rolle, tenantgrense og migrasjon 080. Fortsett
-   med andre filflater, søk, logger, øvrige bakgrunnsjobber og administrasjon.
+   GDPR-admin er herdet med fersk rolle, tenantgrense og migrasjon 080.
+   PowerOffice, vendor-API, integrasjonsetterspørsel og fem globale manuelle
+   jobbtriggere skiller nå leverandørkontroll fra kundens tenant, credentials
+   og data med ferske DB-roller. Fortsett med andre filflater, søk, logger,
+   bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er
@@ -459,7 +462,15 @@ Eksterne avhengigheter skal ha kontaktperson, bestillingsdato, testtilgang, prod
 
 **Krav:** 27.
 
-Gjenbruksstrategi: stabiliser først den eksisterende PowerOffice-flyten og lønnseksportene, og dokumenter eksakt hvilke data som sendes. Fakturaprototypen kan gjenbruke skjema/visning, men må få én konsistent API-kontrakt, tenant-/objektscope, reell PDF og tester. Dette dekker bare et smalt delområde; full klientøkonomi krever fortsatt ERP-/bank-/EHF-partner eller en vesentlig ny modul.
+Gjenbruksstrategi: PowerOffice-flyten har nå fersk tenant-/rolleautorisasjon,
+samme-tenant ansattmapping og et eksplisitt skille mellom leverandørens globale
+synlighetskontroll og kundens ClientKey/data. Før produksjon må ClientKey
+forsegles eller flyttes til nøkkelhvelv, og flyten må testes mot leverandørens
+sandkasse med idempotens og avstemming. Dokumenter eksakt hvilke data som
+sendes. Fakturaprototypen kan gjenbruke skjema/visning, men må få én konsistent
+API-kontrakt, tenant-/objektscope, reell PDF og tester. Dette dekker bare et
+smalt delområde; full klientøkonomi krever fortsatt ERP-/bank-/EHF-partner eller
+en vesentlig ny modul.
 
 - Reskontro per barn/sak og leverandør/oppdragstaker.
 - Avtaler og fast/variabel godtgjøring for fosterhjem, støttekontakter og besøkshjem.
@@ -566,7 +577,7 @@ Akseptanse skal dekke normalbetaling, retur, duplikat, feil konto, utenlandsbeta
 | 24 | Skal | Delvis | Sikker loggforvaltning, retensjon, tilgang og SIEM-eksport | 25.09 |
 | 25 | Skal | Mangler | Utfylt SLA, måling, support, DR og servicekreditt; driftsprøve | 06.11 |
 | 26 | E | Delvis | Documaster og øvrige integrasjonsbevis; Elements som priset opsjon O1 | 30.10 |
-| 27 | E | Delvis | Stabiliser PowerOffice/lønnseksport og fakturaprototype; lever full klientøkonomi, bank, EHF, lønn og Visma-avstemming | 30.10 |
+| 27 | E | Delvis | Forsegl PowerOffice ClientKey og kjør leverandørsandkasse/idempotens/avstemming; stabiliser lønnseksport og fakturaprototype; lever full klientøkonomi, bank, EHF, lønn og Visma-avstemming | 30.10 |
 | 28 | Skal | Mangler | Nasjonal portal, BFK og Barnevernsregister; integrasjonstest | 30.10 |
 | 29 | E | Delvis | Prioritert funksjonspakke og ærlig delkravsbesvarelse; demo | 30.10 |
 | 30 | Skal | Mangler tilbudsbevis | Signert etablerings-, migrerings- og opplæringsplan | 27.08 |
