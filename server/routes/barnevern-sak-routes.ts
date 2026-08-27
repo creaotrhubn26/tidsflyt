@@ -262,6 +262,140 @@ export function registerBarnevernSakRoutes(app: Express): void {
     }
   });
 
+  // ── SAKSUTTREKK (krav 17) — komplett mappe, kontrollert utlevering ───────
+  // Utlevering til part er en formell beslutning: kun barnevernsleder.
+  // Hele uttrekket leses i ÉN transaksjon (konsistent snapshot) og logges
+  // som nedlasting med innholds-hash i tilgangsloggen (krav 15).
+
+  app.get("/api/barnevern/saker/:id/uttrekk", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere saksuttrekk." });
+    }
+
+    try {
+      const manifest = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [sak] } = await client.query(
+          `SELECT s.*, k.navn AS kommune_navn
+             FROM tidum_barnevern_saker s
+             JOIN tidum_kommuner k ON k.id = s.kommune_id
+            WHERE s.id = $1 AND s.kommune_id = $2`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!sak) return null;
+
+        const [melding, revisjoner, historikk, journal, journalVedlegg, planer, planTiltak, dokumenter, oppgaver] =
+          await Promise.all([
+            sak.melding_id
+              ? client.query(
+                  `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
+                  [sak.melding_id, actor.kommuneId],
+                ).then((r) => r.rows[0] ?? null)
+              : Promise.resolve(null),
+            sak.melding_id
+              ? client.query(
+                  `SELECT begrunnelse, felt_endringer, endret_av_user_id, created_at
+                     FROM tidum_barnevern_melding_revisjoner
+                    WHERE melding_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+                  [sak.melding_id, actor.kommuneId],
+                ).then((r) => r.rows)
+              : Promise.resolve([]),
+            client.query(
+              `SELECT fra_fase, til_fase, begrunnelse, endret_av_user_id, created_at
+                 FROM tidum_barnevern_sak_fase_historikk
+                WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT id, kategori, innhold, corrects_entry_id, forfatter_user_id, created_at
+                 FROM tidum_barnevern_sak_journal
+                WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT v.id, v.journal_entry_id, v.original_name, v.mime_type, v.size_bytes, v.uploaded_at
+                 FROM tidum_barnevern_sak_journal_vedlegg v
+                 JOIN tidum_barnevern_sak_journal j
+                   ON j.id = v.journal_entry_id AND j.kommune_id = v.kommune_id
+                WHERE j.sak_id = $1 AND v.kommune_id = $2 ORDER BY v.uploaded_at`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT id, plantype, versjon, status, formaal, deltakere, evalueringsfrist,
+                      godkjent_av, godkjent_dato, created_at
+                 FROM tidum_barnevern_planer
+                WHERE sak_id = $1 AND kommune_id = $2 ORDER BY plantype, versjon`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT t.id, t.plan_id, t.beskrivelse, t.ansvarlig, t.frist, t.status, t.statusnotat
+                 FROM tidum_barnevern_plan_tiltak t
+                 JOIN tidum_barnevern_planer p ON p.id = t.plan_id AND p.kommune_id = t.kommune_id
+                WHERE p.sak_id = $1 AND t.kommune_id = $2 ORDER BY t.created_at`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT id, dokumenttype, mal_id, tittel, hjemmel, innhold, mottaker, plan_id,
+                      status, godkjent_av, godkjent_dato, ekspedert_dato, ekspedert_via, created_at
+                 FROM tidum_barnevern_dokumenter
+                WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+              [req.params.id, actor.kommuneId],
+            ).then((r) => r.rows),
+            client.query(
+              `SELECT id, entity_type, entity_id, tittel, beskrivelse, tildelt_user_id,
+                      frist, status, fullfort_dato, created_at
+                 FROM tidum_barnevern_oppgaver
+                WHERE kommune_id = $1
+                  AND ((entity_type = 'sak' AND entity_id = $2)
+                    OR (entity_type = 'melding' AND entity_id = $3::uuid))
+                ORDER BY created_at`,
+              [actor.kommuneId, req.params.id, sak.melding_id],
+            ).then((r) => r.rows),
+          ]);
+
+        const innhold = {
+          sak, melding, meldingRevisjoner: revisjoner, faseHistorikk: historikk,
+          journal, journalVedlegg, planer, planTiltak, dokumenter, oppgaver,
+        };
+        const { createHash } = await import("crypto");
+        const innholdsHash = createHash("sha256").update(JSON.stringify(innhold)).digest("hex");
+
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "nedlastet", objektType: "saksuttrekk", objektId: sak.id,
+          detaljer: { innholdsHash, antallJournal: journal.length, antallDokumenter: dokumenter.length },
+        });
+
+        return {
+          manifest: {
+            saksnummer: sak.saksnummer,
+            kommune: sak.kommune_navn,
+            generertAv: actor.userId,
+            generertDato: new Date().toISOString(),
+            innholdsHash,
+            merknad: "Vedleggsfiler utleveres separat via vedleggsrutene; dette uttrekket inneholder metadata om dem.",
+            antall: {
+              journaloppforinger: journal.length,
+              journalvedlegg: journalVedlegg.length,
+              planer: planer.length,
+              dokumenter: dokumenter.length,
+              oppgaver: oppgaver.length,
+              fasehendelser: historikk.length,
+            },
+          },
+          ...innhold,
+        };
+      });
+      if (!manifest) return res.status(404).json({ error: "Sak ikke funnet." });
+      res.setHeader("Cache-Control", "no-store");
+      res.json(manifest);
+    } catch (err) {
+      console.error("[barnevern] saksuttrekk feilet", err);
+      res.status(500).json({ error: "Kunne ikke generere saksuttrekket." });
+    }
+  });
+
   // ── TILGANGSLOGG (krav 15) — søkbar revisorflate, kun barnevernsleder ────
 
   app.get("/api/barnevern/tilgangslogg", async (req: Request, res: Response) => {
