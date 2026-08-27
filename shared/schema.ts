@@ -256,7 +256,9 @@ export const vendorInstitutions = pgTable("tidum_vendor_institutions", {
 // Per-tenant credentials for external push integrations (PowerOffice Go,
 // later Tripletex, Visma). PowerOffice v2 uses OAuth 2.0 client_credentials
 // where the ClientKey is the per-tenant secret pasted in by the admin.
-// Access tokens (20-min TTL) are cached in memory, not persisted here.
+// ClientKey is stored as an enc:v2 AES-256-GCM envelope via
+// server/lib/poweroffice-credentials.ts. Access tokens (20-min TTL) are
+// cached in memory, not persisted here.
 export const vendorIntegrations = pgTable("tidum_vendor_integrations", {
   id:               uuid("id").defaultRandom().primaryKey(),
   vendorId:         integer("vendor_id").notNull(),
@@ -271,6 +273,20 @@ export const vendorIntegrations = pgTable("tidum_vendor_integrations", {
   createdAt:        timestamp("created_at").defaultNow(),
   updatedAt:        timestamp("updated_at").defaultNow(),
 });
+
+export const integrationSecretRotationAudit = pgTable("tidum_integration_secret_rotation_audit", {
+  id:             uuid("id").defaultRandom().primaryKey(),
+  integrationId:  uuid("integration_id").notNull(),
+  vendorId:       integer("vendor_id").notNull(),
+  provider:       text("provider").notNull(),
+  fromKeyId:      varchar("from_key_id", { length: 64 }).notNull(),
+  toKeyId:        varchar("to_key_id", { length: 64 }).notNull(),
+  rotationSource: varchar("rotation_source", { length: 32 }).notNull(),
+  rotatedAt:      timestamp("rotated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_integration_secret_rotation_vendor_idx").on(table.vendorId, table.rotatedAt),
+  index("tidum_integration_secret_rotation_integration_idx").on(table.integrationId, table.rotatedAt),
+]);
 
 // ── ARKIV (Noark 5 via ekstern arkivkjerne, migrasjon 052) ────────────────────
 // Godkjente rapporter (senere vedtak/dialog) arkiveres som journalposter i en

@@ -20,6 +20,8 @@
  * Docs: https://developer.poweroffice.net/documentation/authentication
  */
 
+import { createHash } from 'node:crypto';
+
 const APPLICATION_KEY = process.env.POWEROFFICE_APPLICATION_KEY || '';
 const SUBSCRIPTION_KEY_PRIMARY = process.env.POWEROFFICE_SUBSCRIPTION_KEY || '';
 const SUBSCRIPTION_KEY_SECONDARY = process.env.POWEROFFICE_SUBSCRIPTION_KEY_SECONDARY || '';
@@ -74,8 +76,13 @@ interface CachedToken {
   expiresAt: number; // epoch ms
 }
 
-// Token cache is keyed by clientKey (the per-tenant secret).
+// Use an irreversible digest as cache key so the per-tenant ClientKey is not
+// retained as a Map key for the lifetime of the process.
 const tokenCache = new Map<string, CachedToken>();
+
+function tokenCacheKey(clientKey: string): string {
+  return createHash('sha256').update(clientKey, 'utf8').digest('base64url');
+}
 
 // Refresh ~1 min before PowerOffice's 20-min expiry to avoid races.
 const TOKEN_TTL_MS = 19 * 60 * 1000;
@@ -125,9 +132,8 @@ async function fetchAccessToken(clientKey: string): Promise<string> {
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     throw new PowerOfficeAuthError(
-      `Token exchange failed (${res.status}): ${body.slice(0, 300)}`,
+      `Token exchange failed (${res.status})`,
       res.status,
     );
   }
@@ -141,18 +147,19 @@ async function fetchAccessToken(clientKey: string): Promise<string> {
 
 /** Returns a valid access token for the tenant, fetching/refreshing as needed. */
 export async function getAccessToken(clientKey: string): Promise<string> {
-  const cached = tokenCache.get(clientKey);
+  const cacheKey = tokenCacheKey(clientKey);
+  const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.accessToken;
   }
   const accessToken = await fetchAccessToken(clientKey);
-  tokenCache.set(clientKey, { accessToken, expiresAt: Date.now() + TOKEN_TTL_MS });
+  tokenCache.set(cacheKey, { accessToken, expiresAt: Date.now() + TOKEN_TTL_MS });
   return accessToken;
 }
 
 /** Drop a cached token (e.g. after a 401 from the API). */
 export function invalidateToken(clientKey: string): void {
-  tokenCache.delete(clientKey);
+  tokenCache.delete(tokenCacheKey(clientKey));
 }
 
 /**

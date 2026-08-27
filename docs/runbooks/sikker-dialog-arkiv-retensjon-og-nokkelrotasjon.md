@@ -110,10 +110,11 @@ Rotasjonsprosedyre:
    aktiv; behold `TIDUM_SECRET_KEY` for uversjonerte `enc:v1`-rader;
 2. bytt `TIDUM_SECRET_ACTIVE_KEY_ID` til ny ID og deploy;
 3. timejobben pakker om samtaler, meldinger, arkivhemmeligheter,
-   FIKS-privatnøkler og kryptert FIKS-rålogg i avgrensede batcher;
+   FIKS-privatnøkler, kryptert FIKS-rålogg og PowerOffice ClientKeys i
+   avgrensede batcher;
 4. kontroller at ingen relevant rad peker på gammel/uversjonert nøkkel;
-5. ta en kontrollert backup og gjennomfør lesetest av dialog, arkivkobling og
-   FIKS-konfigurasjon;
+5. ta en kontrollert backup og gjennomfør lesetest av dialog, arkivkobling,
+   FIKS-konfigurasjon og PowerOffice-tilkobling;
 6. fjern gammel nøkkel først etter dokumentert nullrest og godkjent rollback-
    vindu.
 

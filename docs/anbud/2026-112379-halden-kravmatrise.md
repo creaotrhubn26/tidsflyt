@@ -114,6 +114,10 @@ fraværs-/sykmeldingsobjektgrafen er deretter herdet:
   hente kundens ClientKey eller API-nøkler. Kryss-tenant mapping og
   request-styrt tenantvalg er fjernet. Ekte PostgreSQL-test består 10/10,
   rutekontrakter 19/19 og tilstøtende regresjon 26/26.
+- PowerOffice ClientKey forsegles nå med versjonert AES-256-GCM før lagring.
+  Migrasjon 081 avviser nye klartekstrader, støtter atomisk migrering og
+  lazy/timebasert/manuell nøkkelrotasjon, og auditerer bare metadata. Målrettede
+  DB-tester består 15/15 og DB-uavhengige sikkerhets-/kontrakttester 29/29.
 
 Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
 reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
@@ -216,7 +220,9 @@ Helmet/CSP/HSTS, CSRF, hemmelighetskryptering, TOTP/MFA og PostgreSQL RLS.
 Dev-bypass, separate tokenhemmeligheter og database-TLS er nå portet og
 regresjonstestet lokalt sammen med PR #21. Det samme gjelder Helmet/CSP/HSTS
 og sesjonsbasert CSRF-vern, med eksplisitt transportdekning i klienten.
-Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
+Versjonert hemmelighetskryptering er nå portet og utvidet til PowerOffice
+ClientKey med migrasjon 081. Produksjonshvelv/rotasjonsbevis, TOTP/MFA og en
+tilpasset RLS-migrasjon gjenstår.
 
 `origin/claude/bankid-eid-innlogging` inneholder en eldre, parallell Buypass-implementasjon. Den nyere direkte BankID-/Buypass-løsningen ligger allerede i `main` gjennom blant annet commitene `03130c7`, `be33be9` og `c0a99e0`; den separate grenen skal derfor ikke flettes ukritisk. Direkte eID er likevel ikke automatisk det samme som den uttrykkelig etterspurte ID-porten-integrasjonen for foresatte og andre eksterne.
 
@@ -273,7 +279,7 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 | Tiltaksplan og evaluering | Detaljerte § 6-3-maler, mål, fremdrift, aktiviteter, perioder, godkjenning og PDF | Stor gjenbruk for 5, 6, 18 og 29 | Stabil seeding, eget planobjekt, faglig validering og objektsikring |
 | GDPR-selvbetjening | Egeneksport og sletting; tenantbundet admin-eksport; fail-closed sletteaudit; tilbakekalling av sesjon, mobil og eID; bekreftet global retensjonstrigger | Gjenbruk for 16, 17 og 22 med styrket kontrollbevis | Saksrettet partsinnsyn, arkivunntak, komplett utleveringspakke, per-vendor retensjonsvedtak og Haldens akseptanse |
 | Fravær og sykmeldingsvedlegg | Tenantbundet forespørsel, saldo, rollover, godkjenning og privat validert/malware-skannet vedlegg; global leverandøradmin er eksplisitt avvist | Gjenbrukbar personvern-/arbeidsgiverflyt og kontrollbevis for 14 og 22 | Norsk/avtalt kryptert objektlager, produksjonsprøvd malwaremotor, retensjonsvedtak og audit av alle lesinger/nedlastinger |
-| Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push. Integrasjonsgrenen har fersk tenant-/rolleautorisasjon, samme-tenant mapping og skille mellom leverandørsynlighet og kundens ClientKey/data. | Gjenbruk for 27 og demo 31 | ClientKey må forsegles/nøkkelhvelves; ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
+| Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push. Integrasjonsgrenen har fersk tenant-/rolleautorisasjon, samme-tenant mapping og skille mellom leverandørsynlighet og kundens data. ClientKey er forseglet med roterbar AES-256-GCM-nøkkelring, DB-constraint og hemmelighetsfri audit. | Gjenbruk for 27 og demo 31 | Produksjonshvelv og rotasjonsøvelse; ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
 | Fakturautkast | Tabeller, side, generering, linjer og HTML-utskrift | Prototype for 27/31 | Rett klient/API-kontrakt, tenant/eierskap, MVA/KID/EHF, ekte PDF og tester |
 | E-postmotor | Tenant-/eierskopede maler, variabler, private vedleggs-ID-er, utkast, atomisk planlagt sending og historikk; global CMS-e-post krever `cms.manage` og har validert testutsending/historikkgrense. Migrasjon 078 er idempotent anvendt i utviklingsdatabasen og 12/12 fokuserte DB-tester er grønne. | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, norsk/avtalt vedleggslagring og retensjon; isolert CI-regresjon og produksjonskonfigurasjon før åpning. |
 | Avvik | Registrering, alvorlighet/kategori, oppfølging, varsling og maskering | Gjenbruk for oppfølging og deler av 22/29 | Barnevernsfaglig hendelsesmodell, tilgang, vedleggsvern og arkivkobling |
@@ -313,7 +319,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 24 | Skal | Sikker loggforvaltning og definerte oppbevaringsperioder | Flere logger og audit-UI finnes. Sikker dialog har nå eksplisitt kommune-policy uten destruktiv standard, arkiv-før-sletting, juridisk sperring, retry og append-only slettingsbevis. Øvrig loggeretensjon er fortsatt inkonsistent og ingen samlet SIEM-/tilgangsmodell er bevist. | Delvis | Vedta perioder med Halden; loggklassifisering, formål, samlet retention, tilgang/review, alarm/SIEM, bred slettetest og samsvar med arkiv/DPA. |
 | 25 | Skal | SLA i Bilag 4 | Database-healthcheck, Render-healthprobe, maskert klient-Sentry, operasjonelle driftsmailer, backup-/restore-skript og runbook finnes. Det er ikke funnet produksjonsbevis for aktiv overvåking/backup/restore, og RPO står som 24 timer. | Mangler / motstrid | Fyll Bilag 4; 99,5 %, 500 ms, RPO ≤2 t, utilgjengelighet ≤24 t, supportmål, kreditt; målbar monitorering, vakt, DR-, backup- og lasttest. |
 | 26 | E | Elements, Documaster, Visma, KS FIKS, Entra, ID-porten, ev. Intune | Documaster-adapter og direkte BankID/Buypass er implementert; Entra og Maskinporten ligger i integrasjonsarbeidet; BRREG-/PowerOffice-byggeklosser finnes. Elements-provider for Noark 5 tjenestegrensesnitt 1.1 er implementert fail-closed og tilbys som priset opsjon O1, men er ikke kundetestet eller aktivert. O1 gjenbruker arkivgrensesnitt/outbox og dekker ett alternativt arkivmål – ikke samtidig dobbelarkivering. FIKS-receiver er stub. | Delvis – stor restanse / Elements O1 | Pris og tidsplan for O1 i Bilag 6; bekreft at avtalt Elements-kontrakt er tjenestegrensesnitt 1.1, kjør kundesandkasse og aktiver først etter signert testprotokoll; sandkassebevis for Documaster, Visma Enterprise Plus og full FIKS-portefølje; uttrykkelig ID-porten eller skriftlig akseptert eID-alternativ; Entra; FREG; Intune-avklaring og E2E-avstemming. |
-| 27 | E | Full klientøkonomi, bank, lønn, EHF, avstemming og Visma | Vendor-skopet CSV-lønnseksport for fire systemer og PowerOffice-push av godkjente timelister med ansattmapping er reell kode. PowerOffice- og vendor-API-administrasjon er ferskt tenantautorisert og skilt fra global leverandøradmin. Integrasjonsgrenen har også en tenantsikret, DB-testet leverandørfakturaflyt med reell PDF. Ingen reskontro, remittering, EHF, bank eller Visma Enterprise Plus-klientøkonomi. | Delvis – smal økonomikjerne, sikrere kontrollplan | Forsegl ClientKey; kjør PowerOffice-sandkasse med idempotens/avstemming; stabiliser lønn. Lever via partner eller eget økonomisubsystem: fire-øyne, bank, norsk/utenlandsk konto, fosterhjemslønn, EHF, skann, avvik og Visma-avstemming. |
+| 27 | E | Full klientøkonomi, bank, lønn, EHF, avstemming og Visma | Vendor-skopet CSV-lønnseksport for fire systemer og PowerOffice-push av godkjente timelister med ansattmapping er reell kode. PowerOffice- og vendor-API-administrasjon er ferskt tenantautorisert og skilt fra global leverandøradmin. ClientKey forsegles med roterbar AES-256-GCM-nøkkelring og migrasjon 081. Integrasjonsgrenen har også en tenantsikret, DB-testet leverandørfakturaflyt med reell PDF. Ingen reskontro, remittering, EHF, bank eller Visma Enterprise Plus-klientøkonomi. | Delvis – smal økonomikjerne, sikrere kontrollplan | Koble nøkkelringen til godkjent produksjonshvelv og gjennomfør rotasjonsøvelse; kjør PowerOffice-sandkasse med idempotens/avstemming; stabiliser lønn. Lever via partner eller eget økonomisubsystem: fire-øyne, bank, norsk/utenlandsk konto, fosterhjemslønn, EHF, skann, avvik og Visma-avstemming. |
 | 28 | Skal | Nasjonal portal, BFK og rapporteringsbank | Maskinporten-token og rålogg i PR #21. Receiver er uttrykkelig inert; BFK og Barnevernsregister/rapporteringsbank mangler. | Mangler | KS-avtaler/sertifikat; full portaltransport; BFK-versjonering; gjeldende rapporteringsskjema, daglig innsending, kvittering, feilretting og avstemming. |
 | 29 | E | Ønsket KI, KS-tjenester, e-sign, Outlook, huskelister, kart, prosjekt/generell sak, barnevernvakt, video og vedlegg/anonymisering | Reelt: huskelister/oppgaver, generell sak, rapportmål/-aktiviteter, avvik, vedlegg, PII-søk/maskering, intern kalenderflate, e-postmaler/planlagt SMTP og enkel KI-tekstassistanse. Ikke funnet: transkripsjon, Microsoft Graph/Outlook, nettverkskart, barnevernvakt, videomøte, KS innbyggertjenester eller godkjent e-sign. | Delvis | Besvar hvert underpunkt separat, og skill intern kalender/SMTP/KI-tekst fra de uttrykkelig etterspurte integrasjonene. Ikke presenter planer eller Visual Builder-mockups som ferdig. |
 | 30 | Skal | Implementering, migrering og opplæring i Bilag 3 | Fullføringsplan og gammel intern gap-/veikartdokumentasjon finnes. Ingen ferdig tilbudsbesvarelse eller Modulus-migreringsbevis. | Mangler tilbudsdokument/bevis | Fyll Bilag 3 med ansvar, bemanning, pilot, to prøvemigreringer, avstemming, rollback, opplæring, leverings-/produksjonsdato og kundens avhengigheter. |
@@ -352,7 +358,9 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    push integrasjonsgren etter review.
 2. **Pågår:** integrer resterende G10-herding uten å miste BOLA-fiksene.
    Dev-bypass, tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og CSRF er
-   ferdige lokalt; hemmelighetskryptering, TOTP/MFA og tilpasset RLS gjenstår.
+   ferdige lokalt. Versjonert hemmelighetskryptering, inkludert PowerOffice
+   ClientKey, er også ferdig lokalt; produksjonshvelv/rotasjonsbevis, TOTP/MFA
+   og tilpasset RLS gjenstår.
 3. **Delvis utført lokalt:** SQL-injection-fiks, CMS-auth/opplasting og
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156
@@ -366,7 +374,8 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    med migrasjon 079 og målrettede DB-/filtester. Globalt leverandørkontrollplan
    og GDPR-admin/eksport er herdet med migrasjon 080. PowerOffice, vendor-API,
    integrasjonsetterspørsel og de fem identifiserte globale manuelle
-   jobbtriggerne bruker nå ferske kontrollplan-/tenantvakter. Fortsett med andre
+   jobbtriggerne bruker nå ferske kontrollplan-/tenantvakter. PowerOffice
+   ClientKey er forseglet og roterbar med migrasjon 081. Fortsett med andre
    filflater, søk, bakgrunnsjobber og adminflater.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; tidligere full lokal Vitest-baseline er grønn 443/443 mot

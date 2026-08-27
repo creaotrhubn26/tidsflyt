@@ -5,6 +5,9 @@ const customAuth = readFileSync("server/custom-auth.ts", "utf8");
 const globalAuthorization = readFileSync("server/lib/global-admin-authorization.ts", "utf8");
 const routes = readFileSync("server/routes.ts", "utf8");
 const powerOffice = readFileSync("server/routes/poweroffice-routes.ts", "utf8");
+const powerOfficePush = readFileSync("server/lib/poweroffice-push.ts", "utf8");
+const powerOfficeCredentials = readFileSync("server/lib/poweroffice-credentials.ts", "utf8");
+const powerOfficeMigration = readFileSync("migrations/081_poweroffice_client_key_encryption.sql", "utf8");
 const fristCron = readFileSync("server/routes/frist-escalation-cron.ts", "utf8");
 const taskCron = readFileSync("server/routes/task-escalation-cron.ts", "utf8");
 const seatCron = readFileSync("server/routes/seat-overrun-cron.ts", "utf8");
@@ -75,6 +78,22 @@ describe("vendor credentials and manual control-plane route contract", () => {
     expect(powerOffice).not.toContain("const ADMIN_ROLES");
     expect(powerOffice).not.toContain("function isSuperAdmin");
     expect(powerOffice).toContain("isMappableVendorUser");
+  });
+
+  it("seals PowerOffice ClientKey and fails closed without the server keyring", () => {
+    expect(powerOffice).toContain("sealPowerOfficeClientKey(clientKey)");
+    expect(powerOffice).toContain("openAndRotatePowerOfficeClientKey");
+    expect(powerOfficePush).toContain("openAndRotatePowerOfficeClientKey");
+    expect(powerOffice).not.toContain("verifyClientKey(row.clientKey)");
+    expect(powerOfficePush).not.toContain("call(integration.clientKey");
+    expect(powerOfficeCredentials).toContain('"NOT_CONFIGURED"');
+    expect(powerOfficeCredentials).toContain("tidum_integration_secret_rotation_audit");
+    expect(powerOfficeCredentials).toContain("split_part(client_key, ':', 3) = $1");
+    expect(powerOfficePush).not.toContain("JSON.stringify(err.body)");
+    expect(powerOfficePush).toContain("PowerOffice avviste oppføringen (status");
+    expect(powerOffice).toContain("/poweroffice/rotate-secrets', requireSuperAdmin");
+    expect(powerOfficeMigration).toContain("tidum_vendor_integrations_poweroffice_client_key_sealed");
+    expect(powerOfficeMigration).toContain("NOT VALID");
   });
 
   it("puts every global manual sweep behind the shared fresh superadmin guard", () => {

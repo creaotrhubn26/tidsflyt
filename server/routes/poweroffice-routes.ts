@@ -2,8 +2,8 @@
  * server/routes/poweroffice-routes.ts
  *
  * PowerOffice Go integration endpoints. The ClientKey is per-tenant and
- * pasted by a vendor admin; Tidum then uses it server-to-server via the
- * client_credentials OAuth flow.
+ * pasted by a vendor admin, sealed with the platform keyring, and then used
+ * server-to-server via the client_credentials OAuth flow.
  *
  * Endpoints (all mounted under /api/integrations/poweroffice):
  *   GET    /status        — is this vendor connected? returns row without clientKey
@@ -32,6 +32,13 @@ import {
   getPowerOfficeVisibility,
   setPowerOfficeVisibility,
 } from '../lib/poweroffice-visibility';
+import {
+  isPowerOfficeCredentialStorageConfigured,
+  openAndRotatePowerOfficeClientKey,
+  PowerOfficeCredentialError,
+  rotatePowerOfficeClientKeys,
+  sealPowerOfficeClientKey,
+} from '../lib/poweroffice-credentials';
 
 const PROVIDER = 'poweroffice';
 const MAPPABLE_ROLES = ['miljoarbeider', 'tiltaksleder', 'teamleder'];
@@ -79,6 +86,16 @@ function publicView(row: typeof vendorIntegrations.$inferSelect) {
   return { ...rest, connected: true };
 }
 
+function powerOfficeServerConfigured(): boolean {
+  return isPowerOfficeConfigured() && isPowerOfficeCredentialStorageConfigured();
+}
+
+function credentialStorageError(res: Response, error: unknown): boolean {
+  if (!(error instanceof PowerOfficeCredentialError)) return false;
+  res.status(503).json({ error: 'Sikker lagring av PowerOffice-nøkkel er ikke tilgjengelig' });
+  return true;
+}
+
 export function registerPowerOfficeRoutes(app: Express) {
   /** GET /api/integrations/poweroffice/status */
   app.get('/api/integrations/poweroffice/status', requireVendorAuth, async (req: Request, res: Response) => {
@@ -100,18 +117,37 @@ export function registerPowerOfficeRoutes(app: Express) {
       if (!row) {
         return res.json({
           connected: false,
-          serverConfigured: isPowerOfficeConfigured(),
+          serverConfigured: powerOfficeServerConfigured(),
           hidden: visibility.hidden,
         });
       }
       return res.json({
         ...publicView(row),
-        serverConfigured: isPowerOfficeConfigured(),
+        serverConfigured: powerOfficeServerConfigured(),
         hidden: visibility.hidden,
       });
     } catch (error) {
       console.error('[poweroffice] status failed', error);
       res.status(500).json({ error: 'Kunne ikke hente PowerOffice-status' });
+    }
+  });
+
+  /** Global supplier operation: re-encrypt legacy/old-key rows in a bounded batch. */
+  app.post('/api/admin/integrations/poweroffice/rotate-secrets', requireSuperAdmin, async (req: Request, res: Response) => {
+    try {
+      if (req.body?.confirm !== 'ROTATE') {
+        return res.status(400).json({ error: 'Krever eksplisitt confirm=ROTATE' });
+      }
+      const requestedLimit = req.body?.limit == null ? 100 : Number(req.body.limit);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 500) {
+        return res.status(400).json({ error: 'limit må være et heltall mellom 1 og 500' });
+      }
+      const result = await rotatePowerOfficeClientKeys(requestedLimit, 'manual');
+      return res.json(result);
+    } catch (error) {
+      if (credentialStorageError(res, error)) return;
+      console.error('[poweroffice] credential rotation failed', error);
+      return res.status(500).json({ error: 'Kunne ikke rotere PowerOffice-nøkler' });
     }
   });
 
@@ -141,7 +177,7 @@ export function registerPowerOfficeRoutes(app: Express) {
   /** POST /api/integrations/poweroffice/connect */
   app.post('/api/integrations/poweroffice/connect', requireVendorAuth, async (req: Request, res: Response) => {
     try {
-      if (!isPowerOfficeConfigured()) {
+      if (!powerOfficeServerConfigured()) {
         return res.status(503).json({ error: 'PowerOffice-integrasjon ikke konfigurert på serveren' });
       }
 
@@ -153,6 +189,7 @@ export function registerPowerOfficeRoutes(app: Express) {
       const label = req.body?.label ? String(req.body.label).trim() : null;
       if (!clientKey || clientKey.length > 4096) return res.status(400).json({ error: 'Ugyldig clientKey' });
       if (label && label.length > 200) return res.status(400).json({ error: 'Label er for lang' });
+      const sealedClientKey = sealPowerOfficeClientKey(clientKey);
 
       // Fail fast if the key doesn't actually work.
       const ok = await verifyClientKey(clientKey);
@@ -172,7 +209,7 @@ export function registerPowerOfficeRoutes(app: Express) {
         [row] = await db
           .update(vendorIntegrations)
           .set({
-            clientKey,
+            clientKey: sealedClientKey,
             label,
             status: 'active',
             lastVerifiedAt: now,
@@ -187,7 +224,7 @@ export function registerPowerOfficeRoutes(app: Express) {
           .values({
             vendorId,
             provider: PROVIDER,
-            clientKey,
+            clientKey: sealedClientKey,
             label,
             status: 'active',
             lastVerifiedAt: now,
@@ -198,6 +235,7 @@ export function registerPowerOfficeRoutes(app: Express) {
 
       res.json(publicView(row));
     } catch (error) {
+      if (credentialStorageError(res, error)) return;
       if (error instanceof PowerOfficeAuthError) {
         return res.status(502).json({ error: 'PowerOffice avviste autentiseringen' });
       }
@@ -250,6 +288,7 @@ export function registerPowerOfficeRoutes(app: Express) {
       const httpStatus = result.failed > 0 && result.pushed === 0 ? 502 : 200;
       res.status(httpStatus).json(result);
     } catch (error) {
+      if (credentialStorageError(res, error)) return;
       console.error('[poweroffice] timesheet push failed', error);
       res.status(500).json({ error: 'Kunne ikke pushe timeliste til PowerOffice' });
     }
@@ -396,7 +435,12 @@ export function registerPowerOfficeRoutes(app: Express) {
         .limit(1);
       if (!row) return res.status(409).json({ error: 'Ikke tilkoblet PowerOffice' });
 
-      const ok = await verifyClientKey(row.clientKey);
+      const clientKey = await openAndRotatePowerOfficeClientKey({
+        id: row.id,
+        vendorId: row.vendorId,
+        clientKey: row.clientKey,
+      });
+      const ok = await verifyClientKey(clientKey);
       const now = new Date();
       if (ok) {
         await db
@@ -412,6 +456,7 @@ export function registerPowerOfficeRoutes(app: Express) {
         return res.status(502).json({ ok: false, error: 'PowerOffice avviste ClientKey' });
       }
     } catch (error) {
+      if (credentialStorageError(res, error)) return;
       console.error('[poweroffice] connection test failed', error);
       res.status(500).json({ error: 'Kunne ikke teste PowerOffice-tilkoblingen' });
     }

@@ -259,7 +259,9 @@ Ocp-Apim-Subscription-Key: {POWEROFFICE_SUBSCRIPTION_KEY}
 
 **Implementasjonsplan:**
 
-1. DB: tabell `vendor_integrations` (vendor_id, provider, client_key, connected_at) — IKKE access/refresh tokens (caches i minne)
+1. DB: `tidum_vendor_integrations` lagrer per-tenant ClientKey som versjonert
+   AES-256-GCM-konvolutt; nye klartekstverdier blokkeres av DB-constraint.
+   Access/refresh tokens lagres ikke (cache i minne).
 2. Server: `/api/integrations/poweroffice/{connect,status,disconnect,push-timer}` — dropp callback/redirect
 3. Client: admin-UI for å lime inn ClientKey + "Push til PowerOffice"-knapp
 4. Token-cache: in-memory per tenant, TTL ~19 min, refresh on demand

@@ -464,13 +464,15 @@ Eksterne avhengigheter skal ha kontaktperson, bestillingsdato, testtilgang, prod
 
 Gjenbruksstrategi: PowerOffice-flyten har nå fersk tenant-/rolleautorisasjon,
 samme-tenant ansattmapping og et eksplisitt skille mellom leverandørens globale
-synlighetskontroll og kundens ClientKey/data. Før produksjon må ClientKey
-forsegles eller flyttes til nøkkelhvelv, og flyten må testes mot leverandørens
-sandkasse med idempotens og avstemming. Dokumenter eksakt hvilke data som
-sendes. Fakturaprototypen kan gjenbruke skjema/visning, men må få én konsistent
-API-kontrakt, tenant-/objektscope, reell PDF og tester. Dette dekker bare et
-smalt delområde; full klientøkonomi krever fortsatt ERP-/bank-/EHF-partner eller
-en vesentlig ny modul.
+synlighetskontroll og kundens ClientKey/data. ClientKey forsegles lokalt med
+versjonert AES-256-GCM-nøkkelring, roteres lazy/timebasert/manuelt og har
+constraint og hemmelighetsfri audit i migrasjon 081. Før produksjon må
+nøkkelringen kobles til et godkjent hemmelighetshvelv, og flyten må testes mot
+leverandørens sandkasse med idempotens og avstemming. Dokumenter eksakt hvilke
+data som sendes. Fakturaprototypen kan gjenbruke skjema/visning, men må få én
+konsistent API-kontrakt, tenant-/objektscope, reell PDF og tester. Dette dekker
+bare et smalt delområde; full klientøkonomi krever fortsatt
+ERP-/bank-/EHF-partner eller en vesentlig ny modul.
 
 - Reskontro per barn/sak og leverandør/oppdragstaker.
 - Avtaler og fast/variabel godtgjøring for fosterhjem, støttekontakter og besøkshjem.
@@ -577,7 +579,7 @@ Akseptanse skal dekke normalbetaling, retur, duplikat, feil konto, utenlandsbeta
 | 24 | Skal | Delvis | Sikker loggforvaltning, retensjon, tilgang og SIEM-eksport | 25.09 |
 | 25 | Skal | Mangler | Utfylt SLA, måling, support, DR og servicekreditt; driftsprøve | 06.11 |
 | 26 | E | Delvis | Documaster og øvrige integrasjonsbevis; Elements som priset opsjon O1 | 30.10 |
-| 27 | E | Delvis | Forsegl PowerOffice ClientKey og kjør leverandørsandkasse/idempotens/avstemming; stabiliser lønnseksport og fakturaprototype; lever full klientøkonomi, bank, EHF, lønn og Visma-avstemming | 30.10 |
+| 27 | E | Delvis | Produksjonskoble PowerOffice-nøkkelringen til godkjent hvelv og kjør leverandørsandkasse/idempotens/avstemming; stabiliser lønnseksport og fakturaprototype; lever full klientøkonomi, bank, EHF, lønn og Visma-avstemming | 30.10 |
 | 28 | Skal | Mangler | Nasjonal portal, BFK og Barnevernsregister; integrasjonstest | 30.10 |
 | 29 | E | Delvis | Prioritert funksjonspakke og ærlig delkravsbesvarelse; demo | 30.10 |
 | 30 | Skal | Mangler tilbudsbevis | Signert etablerings-, migrerings- og opplæringsplan | 27.08 |

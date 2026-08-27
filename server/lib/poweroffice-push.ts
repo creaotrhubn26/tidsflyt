@@ -19,6 +19,7 @@ import { eq, and } from 'drizzle-orm';
 import { vendorIntegrations, logRow } from '@shared/schema';
 import { call, PowerOfficeApiError } from './poweroffice';
 import { getMapping, ensurePowerOfficeMappingsTable } from './poweroffice-mappings';
+import { openAndRotatePowerOfficeClientKey } from './poweroffice-credentials';
 
 export interface PushResult {
   month: string;
@@ -121,6 +122,15 @@ export async function pushTimesheetToPowerOffice(args: {
     return result;
   }
 
+  // Fail closed if the vault-backed keyring is unavailable or the stored
+  // credential cannot be authenticated. Legacy plaintext/old-key rows are
+  // atomically re-encrypted and audited before any outbound PowerOffice call.
+  const clientKey = await openAndRotatePowerOfficeClientKey({
+    id: integration.id,
+    vendorId: integration.vendorId,
+    clientKey: integration.clientKey,
+  });
+
   await ensurePowerOfficeMappingsTable();
 
   // Approved timesheets for the month
@@ -180,7 +190,7 @@ export async function pushTimesheetToPowerOffice(args: {
         continue;
       }
       try {
-        await call(integration.clientKey, {
+        await call(clientKey, {
           method: 'POST',
           path: '/HourRegistrations',
           body: payload,
@@ -189,8 +199,8 @@ export async function pushTimesheetToPowerOffice(args: {
       } catch (err: any) {
         result.failed++;
         const msg = err instanceof PowerOfficeApiError
-          ? `PO ${err.status}: ${typeof err.body === 'string' ? err.body.slice(0, 200) : JSON.stringify(err.body).slice(0, 200)}`
-          : String(err?.message || err);
+          ? `PowerOffice avviste oppføringen (status ${err.status})`
+          : 'PowerOffice-overføringen feilet';
         lastApiError = msg;
         if (err instanceof PowerOfficeApiError && (err.status === 401 || err.status === 403)) {
           apiAuthFailed = true;

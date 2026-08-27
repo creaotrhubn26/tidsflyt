@@ -6,6 +6,7 @@ import {
   secureDialogContentNeedsRotation,
 } from "./secure-dialog-content";
 import { getActiveSecretKeyId, rewrapSecret, sealedSecretKeyId } from "./secret-box";
+import { rotatePowerOfficeClientKeys } from "./poweroffice-credentials";
 
 async function transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
   const client = await pool.connect();
@@ -214,11 +215,12 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
   archiveConfigs: number;
   municipalityKeys: number;
   rawIntakePayloads: number;
+  powerOfficeCredentials: number;
   activeKeyId: string;
 }> {
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
   const activeKeyId = getActiveSecretKeyId();
-  return transaction(async (client) => {
+  const result = await transaction(async (client) => {
     const conversations = await client.query(
       `SELECT id, kommune_id, subject
          FROM tidum_secure_conversations
@@ -332,4 +334,10 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
       activeKeyId,
     };
   });
+  // Kommuneavgrensede test-/vedlikeholdskjøringer skal ikke berøre
+  // vendor-integrasjoner. Den ordinære globale timejobben roterer begge plan.
+  const powerOffice = kommuneId == null
+    ? await rotatePowerOfficeClientKeys(safeLimit, "scheduled")
+    : { rotated: 0 };
+  return { ...result, powerOfficeCredentials: powerOffice.rotated };
 }

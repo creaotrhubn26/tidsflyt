@@ -732,13 +732,50 @@ DB-uavhengige rutekontrakter, global-admin-kontrakt og dev-bypass består
 **19/19**. Nærliggende GDPR-, fraværs-, eskalerings- og bearer-regresjon består
 **26/26**. `npm run check`, designkontroll og produksjonsbygg er grønne.
 
-**Kjent avgrensning:** PowerOffice ClientKey lagres fortsatt krypteringsmessig
-ubeskyttet i applikasjonstabellen. Den må flyttes til godkjent nøkkelhvelv eller
-forsegles med roterbar applikasjonsnøkkel før produksjonsdata. Det er ikke kjørt
-ende-til-ende-test mot en PowerOffice-sandkasse; idempotens, avstemming og
-leverandørkvitteringer gjenstår. Den aggregerte åpne roadmap-visningen er
-produktmetadata, ikke barnevernsdata, men synlighetsnivået må aksepteres av
-produkteier. Ekstern pentest og den systemomfattende endepunktsmatrisen gjenstår.
+**Kjent avgrensning:** Det er ikke kjørt ende-til-ende-test mot en
+PowerOffice-sandkasse; idempotens, avstemming og leverandørkvitteringer gjenstår.
+Den aggregerte åpne roadmap-visningen er produktmetadata, ikke barnevernsdata,
+men synlighetsnivået må aksepteres av produkteier. Ekstern pentest og den
+systemomfattende endepunktsmatrisen gjenstår.
+
+## 18. Forsegling og rotasjon av PowerOffice ClientKey
+
+PowerOffice ClientKey var fortsatt lagret som klartekst i
+`tidum_vendor_integrations`. Pakken bruker nå det eksisterende, versjonerte
+secret-box-formatet og lukker denne produksjonsblokkeren på applikasjonsnivå:
+
+- nye nøkler forsegles med AES-256-GCM som `enc:v2:<key-id>:...` før de når
+  databasen. Migrasjon 081 håndhever formatet med en databaseconstraint og
+  validerer constrainten automatisk når ingen eldre rader finnes;
+- manglende eller ugyldig nøkkelring, ukjent nøkkel-ID og manipulert
+  chiffertekst feiler lukket. Status viser at serverkonfigurasjonen mangler,
+  mens test og overføring avvises uten å returnere ClientKey eller rå
+  kryptofeil;
+- eldre klartekst, `enc:v1` og `enc:v2` under en tidligere aktiv nøkkel kan
+  konverteres atomisk ved første autoriserte bruk. Den timebaserte
+  nøkkelrotasjonen tar også avgrensede batcher, og global `super_admin` kan
+  utløse en bekreftet manuell batch uten å få lese kundens hemmelighet;
+- rotasjon logges separat med integrasjons-ID, vendor-ID, gammel/ny nøkkel-ID,
+  kilde og tidspunkt. Audit-tabellen inneholder aldri ClientKey;
+- leverandørens kontrollplan er fortsatt skilt fra kundens data: tenantadmin
+  kobler til og tester egen PowerOffice-konto, mens systemleverandøren bare kan
+  drive nøkkelrotasjon og integrasjonens tilgjengelighet.
+
+**Verifikasjon:** Fem DB-uavhengige sikkerhets-/kontraktsfiler består
+**29/29**. Migrasjon 081 og PowerOffice-rutene består sekvensielt **15/15** mot
+ekte PostgreSQL, inkludert idempotent migrasjon, avvist klartekst, kryss-tenant,
+stale roller, manglende nøkkelring, lazy rotasjon og rotasjonsaudit.
+Utviklingsdatabasen hadde **0** PowerOffice-rader og **0** etterlatte
+rotasjonsaudit-rader etter test; alle tre migrasjonsconstraints er validert.
+Den tilgrensende sikre-dialog-/rotasjonssuiten består **11/11**. `npm run
+check`, designkontroll og produksjonsbygg er grønne.
+
+**Kjent avgrensning:** Produksjon må hente nøkkelringen fra et godkjent
+hemmelighetshvelv, dokumentere tilgang/backup/rollback og gjennomføre en
+kontrollert rotasjonsøvelse. Det er ikke kjørt mot PowerOffice-sandkasse;
+ekstern idempotens, avstemming og leverandørkvitteringer gjenstår. Løsningen er
+derfor et verifisert lokalt sikkerhetsgrunnlag, ikke et produksjonsbevis for
+hele krav 27.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 
@@ -752,9 +789,10 @@ produkteier. Ekstern pentest og den systemomfattende endepunktsmatrisen gjenstå
   Det globale CMS-kontrollplanet, CMS-e-post, builderdata, media, analyse og
   crawler er nå herdet. Fravær, saldoer og sykmeldingsvedlegg er tenantbundet
   og private. Global pris/salg/analyse/Stripe/access-request og GDPR-admin er
-  nå bundet til fersk rolle og riktig global-/tenantgrense. PowerOffice,
+  nå bundet til fersk rolle og riktig global-/tenantgrense. PowerOffice har
+  fersk kontrollplan-/tenantautorisasjon og forseglet, roterbar ClientKey;
   vendor-API, integrasjonsetterspørsel og de fem identifiserte globale manuelle
-  jobbtriggerne har nå fersk kontrollplan-/tenantautorisasjon. Andre
+  jobbtriggerne har ferske vakter. Andre
   filflater, søk, bakgrunnsjobber og adminflater gjenstår i den systematiske
   endepunktsmatrisen.
   En full uavhengig pentest og blokkert CI-kjøring med isolert database

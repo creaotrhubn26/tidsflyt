@@ -66,6 +66,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "078_cms_control_plane_security.sql",
   "079_leave_tenant_security.sql",
   "080_gdpr_erasure_audit.sql",
+  "081_poweroffice_client_key_encryption.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -95,6 +96,8 @@ export async function runStartupMigrations(): Promise<void> {
       // health-/absence data would re-open cross-customer reads and writes.
       // 080 is fail-closed because irreversible GDPR erasure must never run
       // without first being able to persist its documented controller intent.
+      // 081 is fail-closed because new PowerOffice credentials must never be
+      // accepted without the sealed-format database guard and rotation audit.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
@@ -102,6 +105,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "077_saker_rapport_tenant_security.sql"
         || filename === "079_leave_tenant_security.sql"
         || filename === "080_gdpr_erasure_audit.sql"
+        || filename === "081_poweroffice_client_key_encryption.sql"
       ) {
         throw err;
       }

@@ -9,6 +9,11 @@ import {
   requireVendorMember,
 } from "../../custom-auth";
 import { registerPowerOfficeRoutes } from "../../routes/poweroffice-routes";
+import {
+  openAndRotatePowerOfficeClientKey,
+  openPowerOfficeClientKey,
+  sealPowerOfficeClientKey,
+} from "../poweroffice-credentials";
 
 type Identity = {
   id: string;
@@ -33,6 +38,14 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
   let vendorBId = 0;
   let superAdminRoleId = "";
   let vendorAdminRoleId = "";
+  const originalSecretKey = process.env.TIDUM_SECRET_KEY;
+  const originalSecretKeyring = process.env.TIDUM_SECRET_KEYRING;
+  const originalActiveKeyId = process.env.TIDUM_SECRET_ACTIVE_KEY_ID;
+
+  function restoreEnv(name: string, value: string | undefined): void {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 
   function appFor(identity: Identity) {
     const app = express();
@@ -60,6 +73,12 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
   }
 
   beforeAll(async () => {
+    process.env.TIDUM_SECRET_KEY = "";
+    process.env.TIDUM_SECRET_KEYRING = JSON.stringify({
+      "po-test-v1": "vendor-integration-test-key-v1-at-least-32-bytes",
+      "po-test-v2": "vendor-integration-test-key-v2-at-least-32-bytes",
+    });
+    process.env.TIDUM_SECRET_ACTIVE_KEY_ID = "po-test-v1";
     const roles = await pool.query(
       `SELECT name, id
          FROM tidum_roles
@@ -121,12 +140,20 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
     await pool.query(
       `INSERT INTO tidum_vendor_integrations (vendor_id, provider, client_key, label, status)
        VALUES ($1, 'poweroffice', $2, $3, 'active'), ($4, 'poweroffice', $5, $6, 'active')`,
-      [vendorAId, `client-a-${nonce}`, `PowerOffice A ${nonce}`, vendorBId, `client-b-${nonce}`, `PowerOffice B ${nonce}`],
+      [
+        vendorAId,
+        sealPowerOfficeClientKey(`client-a-${nonce}`),
+        `PowerOffice A ${nonce}`,
+        vendorBId,
+        sealPowerOfficeClientKey(`client-b-${nonce}`),
+        `PowerOffice B ${nonce}`,
+      ],
     );
   }, 60_000);
 
   beforeEach(async () => {
     delete process.env.ALLOW_DEV_AUTH_BYPASS;
+    process.env.TIDUM_SECRET_ACTIVE_KEY_ID = "po-test-v1";
     await pool.query(
       `UPDATE users
           SET role = 'hovedadmin', role_id = NULL, vendor_id = $1, kommune_id = NULL
@@ -168,6 +195,10 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
       [[vendorAId, vendorBId]],
     ).catch(() => undefined);
     await pool.query(
+      `DELETE FROM tidum_integration_secret_rotation_audit WHERE vendor_id = ANY($1::int[])`,
+      [[vendorAId, vendorBId]],
+    ).catch(() => undefined);
+    await pool.query(
       `DELETE FROM tidum_vendor_integrations WHERE vendor_id = ANY($1::int[])`,
       [[vendorAId, vendorBId]],
     ).catch(() => undefined);
@@ -183,6 +214,9 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
       `DELETE FROM tidum_vendors WHERE id = ANY($1::int[])`,
       [[vendorAId, vendorBId]],
     ).catch(() => undefined);
+    restoreEnv("TIDUM_SECRET_KEY", originalSecretKey);
+    restoreEnv("TIDUM_SECRET_KEYRING", originalSecretKeyring);
+    restoreEnv("TIDUM_SECRET_ACTIVE_KEY_ID", originalActiveKeyId);
   });
 
   it("uses fresh tenant membership and revokes a stale hovedadmin session", async () => {
@@ -266,6 +300,16 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
       .send({ hidden: true, reason: "Security boundary test" });
     expect(visibility.status).toBe(200);
     expect(visibility.body).toMatchObject({ vendorId: vendorBId, hidden: true });
+
+    const missingConfirmation = await request(app)
+      .post('/api/admin/integrations/poweroffice/rotate-secrets')
+      .send({});
+    expect(missingConfirmation.status).toBe(400);
+
+    const tenantApp = appFor({ id: hovedadminId, email: hovedadminEmail, role: "hovedadmin", vendorId: vendorAId });
+    expect((await request(tenantApp)
+      .post('/api/admin/integrations/poweroffice/rotate-secrets')
+      .send({ confirm: 'ROTATE' })).status).toBe(403);
   });
 
   it("returns only the fresh actor tenant's PowerOffice state", async () => {
@@ -275,6 +319,13 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
     expect(response.body.label).toBe(`PowerOffice A ${nonce}`);
     expect(response.body.vendorId).toBe(vendorAId);
     expect(response.body).not.toHaveProperty("clientKey");
+
+    const stored = await pool.query(
+      `SELECT client_key FROM tidum_vendor_integrations WHERE vendor_id = $1 AND provider = 'poweroffice'`,
+      [vendorAId],
+    );
+    expect(stored.rows[0].client_key).toMatch(/^enc:v2:po-test-v1:/);
+    expect(openPowerOfficeClientKey(stored.rows[0].client_key)).toBe(`client-a-${nonce}`);
   });
 
   it("blocks a forged admin claim and stale role on PowerOffice routes", async () => {
@@ -323,5 +374,64 @@ describe("fresh vendor credential and PowerOffice authorization", () => {
       .post("/api/integrations/poweroffice/push-timer")
       .send({ month: "2026-08", userId: foreignWorkerId });
     expect(response.status).toBe(404);
+  });
+
+  it("rotates an old PowerOffice envelope atomically and writes non-secret audit evidence", async () => {
+    const stored = await pool.query(
+      `SELECT id, vendor_id, client_key
+         FROM tidum_vendor_integrations
+        WHERE vendor_id = $1 AND provider = 'poweroffice'`,
+      [vendorAId],
+    );
+    process.env.TIDUM_SECRET_ACTIVE_KEY_ID = "po-test-v2";
+
+    const clientKey = await openAndRotatePowerOfficeClientKey({
+      id: String(stored.rows[0].id),
+      vendorId: Number(stored.rows[0].vendor_id),
+      clientKey: String(stored.rows[0].client_key),
+    });
+    expect(clientKey).toBe(`client-a-${nonce}`);
+
+    const rotated = await pool.query(
+      `SELECT client_key FROM tidum_vendor_integrations WHERE id = $1`,
+      [stored.rows[0].id],
+    );
+    expect(rotated.rows[0].client_key).toMatch(/^enc:v2:po-test-v2:/);
+    expect(rotated.rows[0].client_key).not.toContain(clientKey);
+
+    const audit = await pool.query(
+      `SELECT from_key_id, to_key_id, rotation_source
+         FROM tidum_integration_secret_rotation_audit
+        WHERE integration_id = $1
+        ORDER BY rotated_at DESC
+        LIMIT 1`,
+      [stored.rows[0].id],
+    );
+    expect(audit.rows[0]).toEqual({
+      from_key_id: "po-test-v1",
+      to_key_id: "po-test-v2",
+      rotation_source: "lazy-read",
+    });
+  });
+
+  it("fails closed without the vault keyring and never falls back to stored plaintext", async () => {
+    const app = appFor({ id: hovedadminId, email: hovedadminEmail, role: "hovedadmin", vendorId: vendorAId });
+    const keyring = process.env.TIDUM_SECRET_KEYRING;
+    const activeKeyId = process.env.TIDUM_SECRET_ACTIVE_KEY_ID;
+    process.env.TIDUM_SECRET_KEYRING = "";
+    process.env.TIDUM_SECRET_ACTIVE_KEY_ID = "";
+    try {
+      const status = await request(app).get("/api/integrations/poweroffice/status");
+      expect(status.status).toBe(200);
+      expect(status.body.serverConfigured).toBe(false);
+      expect(status.body).not.toHaveProperty("clientKey");
+
+      const testConnection = await request(app).post("/api/integrations/poweroffice/test").send({});
+      expect(testConnection.status).toBe(503);
+      expect(JSON.stringify(testConnection.body)).not.toContain(`client-a-${nonce}`);
+    } finally {
+      process.env.TIDUM_SECRET_KEYRING = keyring;
+      process.env.TIDUM_SECRET_ACTIVE_KEY_ID = activeKeyId;
+    }
   });
 });
