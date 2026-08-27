@@ -177,6 +177,7 @@ const baseNavItems: NavItemBase[] = [
   { category: "kommunikasjon", path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
   { category: "kommunikasjon", path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
   { category: "kommunikasjon", path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
+  { category: "oversikt", path: "/barnevern", icon: ClipboardList, label: "Barnevern", roles: ["barnevernsleder", "kommune_saksbehandler"] },
   { category: "kommunikasjon", path: "/sikker-sending", icon: ShieldCheck, label: "Sikker sending", roles: ["barnevernsleder", "kommune_saksbehandler"] },
 
   // Administrasjon (super-admin only)

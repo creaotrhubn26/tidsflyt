@@ -87,6 +87,7 @@ const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashbo
 const TiltakslederSatserPage = lazy(() => import("@/pages/tiltaksleder-satser"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
 const SecureDialogStaffPage = lazy(() => import("@/pages/secure-dialog-staff"));
+const BarnevernPage = lazy(() => import("@/pages/barnevern"));
 const InnbyggerPage = lazy(() => import("@/pages/innbygger"));
 
 function RouteLoadingFallback() {
@@ -175,6 +176,7 @@ function Router() {
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
         <Route path="/sikker-sending">{() => <AuthGuard requiredRoles={["barnevernsleder", "kommune_saksbehandler"]}><SecureDialogStaffPage /></AuthGuard>}</Route>
+        <Route path="/barnevern">{() => <AuthGuard requiredRoles={["barnevernsleder", "kommune_saksbehandler"]}><BarnevernPage /></AuthGuard>}</Route>
         <Route path="/innbygger">{() => <AuthGuard requiredRoles={["innbygger"]}><InnbyggerPage /></AuthGuard>}</Route>
 
         {/* Institusjoner */}
