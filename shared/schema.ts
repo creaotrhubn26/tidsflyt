@@ -733,6 +733,34 @@ export const barnevernPlanTiltak = pgTable("tidum_barnevern_plan_tiltak", {
   index("tidum_barnevern_plan_tiltak_plan_idx").on(table.kommuneId, table.planId),
 ]);
 
+// Malstyrte brev/vedtak på kommunal sak (migrasjon 093, krav 6).
+// Malinnhold snapshotes inn ved opprettelse; ekspedering journalfører.
+export const barnevernDokumenter = pgTable("tidum_barnevern_dokumenter", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  dokumenttype: text("dokumenttype").notNull(),
+  malId: text("mal_id").notNull(),
+  tittel: text("tittel").notNull(),
+  hjemmel: text("hjemmel"),
+  innhold: text("innhold").notNull(),
+  mottaker: jsonb("mottaker"),
+  planId: uuid("plan_id"),
+  status: text("status").notNull().default("utkast"),
+  godkjentAv: varchar("godkjent_av").references(() => users.id),
+  godkjentDato: timestamp("godkjent_dato", { withTimezone: true }),
+  ekspedertDato: timestamp("ekspedert_dato", { withTimezone: true }),
+  ekspedertVia: text("ekspedert_via"),
+  journalEntryId: uuid("journal_entry_id"),
+  opprettetAv: varchar("opprettet_av").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_dokumenter_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
+]);
+
+export type BarnevernDokument = typeof barnevernDokumenter.$inferSelect;
+
 // Append-only tilgangslogg for lesing/nedlasting (migrasjon 091, krav 15).
 export const barnevernTilgangslogg = pgTable("tidum_barnevern_tilgangslogg", {
   id: uuid("id").defaultRandom().primaryKey(),
