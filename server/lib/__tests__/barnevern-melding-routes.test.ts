@@ -18,6 +18,15 @@ describe("Barnevern meldingsmottak-ruter", { timeout: 15000 }, () => {
     const kommuneIds = cleanupKommuneIds.splice(0);
     await withSystemRlsContext("barnevern_test_cleanup", async (client) => {
       for (const id of meldingIds) {
+        // «Send til undersøkelse» oppretter en sak som refererer meldingen.
+        const { rows: saker } = await client.query(
+          `SELECT id FROM tidum_barnevern_saker WHERE melding_id = $1`, [id],
+        );
+        for (const sak of saker) {
+          await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [sak.id]);
+          await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [sak.id]);
+          await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [sak.id]);
+        }
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
         await client.query(`DELETE FROM tidum_barnevern_meldinger WHERE id = $1`, [id]);
       }

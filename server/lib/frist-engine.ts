@@ -22,6 +22,8 @@ type FristRow = {
 
 export const FRIST_TYPE_CONFIG: Record<string, { escalationOffsetDays: number[] }> = {
   avklaring: { escalationOffsetDays: [-2, 0, 1, 3] },
+  // Undersøkelsesfrist (bvl. § 2-2, tre måneder) på den kommunale saken.
+  undersokelse: { escalationOffsetDays: [-14, -7, 0, 3] },
 };
 
 function requireFristTenant(input: { kommuneId?: number; vendorId?: number }): FristTenant {

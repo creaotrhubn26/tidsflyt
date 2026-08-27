@@ -627,6 +627,51 @@ export const barnevernMeldingVedlegg = pgTable("tidum_barnevern_melding_vedlegg"
   index("tidum_barnevern_melding_vedlegg_kommune_idx").on(table.kommuneId, table.meldingId),
 ]);
 
+// ── KOMMUNAL BARNEVERNSSAK (migrasjon 087) ─────────────────────────────────
+// Autoritativ myndighetssak med faseflyt. Opprettes fra beslutningen
+// «send til undersøkelse» på en bekymringsmelding.
+
+export const barnevernSakFaseEnum = pgEnum("tidum_barnevern_sak_fase", [
+  "undersokelse",
+  "tiltak",
+  "avsluttet",
+  "henlagt",
+]);
+
+export const barnevernSaker = pgTable("tidum_barnevern_saker", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  saksnummer: text("saksnummer").notNull().unique(),
+  meldingId: uuid("melding_id").unique().references(() => barnevernMeldinger.id),
+  barnFodselsnummer: text("barn_fodselsnummer"),
+  barnNavn: text("barn_navn"),
+  fase: barnevernSakFaseEnum("fase").notNull().default("undersokelse"),
+  tildeltSaksbehandlerId: varchar("tildelt_saksbehandler_id").references(() => users.id),
+  undersokelsesfrist: timestamp("undersokelsesfrist", { withTimezone: true }),
+  avsluttetDato: timestamp("avsluttet_dato", { withTimezone: true }),
+  avsluttetAvUserId: varchar("avsluttet_av_user_id").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_saker_kommune_idx").on(table.kommuneId, table.fase),
+]);
+
+export type BarnevernSak = typeof barnevernSaker.$inferSelect;
+
+// Append-only historikk over fasebeslutninger.
+export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_historikk", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  kommuneId: integer("kommune_id").notNull(),
+  fraFase: text("fra_fase"),
+  tilFase: text("til_fase").notNull(),
+  begrunnelse: text("begrunnelse"),
+  endretAvUserId: varchar("endret_av_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_sak_fase_historikk_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
+]);
+
 // ── SIKKER DIALOG / INNBYGGERPORTAL (migrasjon 071) ────────────────────────
 // E-post er kun varslingsadresse. Tilgang går via portalUserId, verifisert
 // BankID/Buypass-identitet, aktiv sakstilgang og eksplisitt samtaledeltakelse.

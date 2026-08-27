@@ -72,6 +72,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "084_secure_dialog_municipality_rls.sql",
   "085_archive_dual_tenant_rls.sql",
   "086_deadline_tenant_rls.sql",
+  "087_barnevern_sak.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -112,7 +113,9 @@ export async function runStartupMigrations(): Promise<void> {
       // protects archive credentials, case links and receipts for both vendor
       // and municipality tenants. 086 applies the same boundary to deadlines
       // and enforces recipient/user tenant integrity without placing the
-      // shared authentication registry itself behind RLS.
+      // shared authentication registry itself behind RLS. 087 creates the
+      // municipal child-welfare case tables with the same FORCE RLS boundary
+      // that the sak routes depend on.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
@@ -126,6 +129,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "084_secure_dialog_municipality_rls.sql"
         || filename === "085_archive_dual_tenant_rls.sql"
         || filename === "086_deadline_tenant_rls.sql"
+        || filename === "087_barnevern_sak.sql"
       ) {
         throw err;
       }

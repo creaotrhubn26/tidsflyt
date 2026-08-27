@@ -40,7 +40,7 @@ const upload = multer({
   },
 });
 
-interface KommuneActor {
+export interface KommuneActor {
   userId: string;
   role: string;
   kommuneId: number;
@@ -52,7 +52,7 @@ interface KommuneActor {
  * server/lib/auth-types.ts). Feiler lukket: mangler bruker, kommune_id eller
  * kommune-rolle, er svaret null → 403.
  */
-async function requireKommuneActor(req: Request): Promise<KommuneActor | null> {
+export async function requireKommuneActor(req: Request): Promise<KommuneActor | null> {
   const user = (req as any).user;
   if (!user?.id) return null;
   const { rows: [row] } = await pool.query(
@@ -256,10 +256,14 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        // Allerede avklart melding kan ikke henlegges — «sendt til
+        // undersøkelse» har opprettet en sak som da ville blitt foreldreløs.
         const { rows: [updated] } = await client.query(
           `UPDATE tidum_barnevern_meldinger
            SET status = 'henlagt', henleggelse_begrunnelse = $1, avklart_dato = NOW(), avklart_av_user_id = $2, updated_at = NOW()
-           WHERE id = $3 AND kommune_id = $4 RETURNING *`,
+           WHERE id = $3 AND kommune_id = $4
+             AND status NOT IN ('henlagt', 'sendt_til_undersokelse')
+           RETURNING *`,
           [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
         );
         if (!updated) throw new Error("MELDING_NOT_FOUND");
@@ -287,14 +291,21 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     try {
-      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+      const result = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [existing] } = await client.query(
+          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!existing) throw new Error("MELDING_NOT_FOUND");
+        if (existing.status === "sendt_til_undersokelse" || existing.status === "henlagt") {
+          throw new Error("MELDING_ALLEREDE_AVKLART");
+        }
         const { rows: [updated] } = await client.query(
           `UPDATE tidum_barnevern_meldinger
            SET status = 'sendt_til_undersokelse', avklart_dato = NOW(), avklart_av_user_id = $1, updated_at = NOW()
            WHERE id = $2 AND kommune_id = $3 RETURNING *`,
           [actor.userId, req.params.id, actor.kommuneId],
         );
-        if (!updated) throw new Error("MELDING_NOT_FOUND");
         await cancelFrist(
           "barnevern_melding",
           req.params.id,
@@ -302,12 +313,51 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           { kommuneId: actor.kommuneId },
           client,
         );
-        return updated;
+
+        // Krav 2: beslutningen oppretter den kommunale barnevernssaken i samme
+        // transaksjon. Undersøkelsesfristen er tre måneder (bvl. § 2-2).
+        const { rows: [kommune] } = await client.query(
+          `SELECT kommunenummer FROM tidum_kommuner WHERE id = $1`,
+          [actor.kommuneId],
+        );
+        const { rows: [seq] } = await client.query(`SELECT nextval('tidum_barnevern_saksnummer_seq') AS n`);
+        const saksnummer = `BVS-${kommune?.kommunenummer ?? "UKJENT"}-${seq.n}`;
+        const undersokelsesfrist = new Date();
+        undersokelsesfrist.setMonth(undersokelsesfrist.getMonth() + 3);
+        const { rows: [sak] } = await client.query(
+          `INSERT INTO tidum_barnevern_saker
+             (kommune_id, saksnummer, melding_id, barn_fodselsnummer, barn_navn, fase,
+              tildelt_saksbehandler_id, undersokelsesfrist)
+           VALUES ($1, $2, $3, $4, $5, 'undersokelse', $6, $7)
+           RETURNING *`,
+          [
+            actor.kommuneId, saksnummer, existing.id, existing.barn_fodselsnummer,
+            existing.barn_navn, existing.tildelt_saksbehandler_id, undersokelsesfrist,
+          ],
+        );
+        await client.query(
+          `INSERT INTO tidum_barnevern_sak_fase_historikk
+             (sak_id, kommune_id, fra_fase, til_fase, begrunnelse, endret_av_user_id)
+           VALUES ($1, $2, NULL, 'undersokelse', 'Opprettet fra bekymringsmelding', $3)`,
+          [sak.id, actor.kommuneId, actor.userId],
+        );
+        await registerFrist({
+          entityType: "barnevern_sak",
+          entityId: sak.id,
+          kommuneId: actor.kommuneId,
+          fristType: "undersokelse",
+          dueAt: undersokelsesfrist,
+          notifyUserId: existing.tildelt_saksbehandler_id ?? undefined,
+        }, client);
+        return { melding: updated, sak };
       });
-      res.json(toApiShape(row));
+      res.json({ ...toApiShape(result.melding), sak: { id: result.sak.id, saksnummer: result.sak.saksnummer } });
     } catch (err) {
       if (err instanceof Error && err.message === "MELDING_NOT_FOUND") {
         return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      if (err instanceof Error && err.message === "MELDING_ALLEREDE_AVKLART") {
+        return res.status(409).json({ error: "Meldingen er allerede avklart." });
       }
       console.error("[barnevern] videresending feilet", err);
       res.status(500).json({ error: "Kunne ikke sende meldingen til undersøkelse." });
