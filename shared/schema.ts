@@ -586,6 +586,11 @@ export const barnevernMeldingKildeEnum = pgEnum("tidum_barnevern_melding_kilde",
   "fiks_io",
 ]);
 
+export const barnevernMeldingPrioritetEnum = pgEnum("tidum_barnevern_melding_prioritet", [
+  "akutt",
+  "normal",
+]);
+
 export const barnevernMeldinger = pgTable("tidum_barnevern_meldinger", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
@@ -605,6 +610,11 @@ export const barnevernMeldinger = pgTable("tidum_barnevern_meldinger", {
   avklartAvUserId: varchar("avklart_av_user_id").references(() => users.id),
   henleggelseBegrunnelse: text("henleggelse_begrunnelse"),
   fiksMeldingId: text("fiks_melding_id"),
+  prioritet: barnevernMeldingPrioritetEnum("prioritet").notNull().default("normal"),
+  ufodtBarn: boolean("ufodt_barn").notNull().default(false),
+  termindato: date("termindato"),
+  forelderMeldingId: uuid("forelder_melding_id"),
+  soskenkopiAvMeldingId: uuid("soskenkopi_av_melding_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -612,6 +622,19 @@ export const barnevernMeldinger = pgTable("tidum_barnevern_meldinger", {
 ]);
 
 export type BarnevernMelding = typeof barnevernMeldinger.$inferSelect;
+
+// Append-only revisjonslogg for kontrollert redigering (migrasjon 088).
+export const barnevernMeldingRevisjoner = pgTable("tidum_barnevern_melding_revisjoner", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  meldingId: uuid("melding_id").notNull().references(() => barnevernMeldinger.id),
+  kommuneId: integer("kommune_id").notNull(),
+  begrunnelse: text("begrunnelse").notNull(),
+  feltEndringer: jsonb("felt_endringer").notNull(),
+  endretAvUserId: varchar("endret_av_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_melding_revisjoner_melding_idx").on(table.kommuneId, table.meldingId, table.createdAt),
+]);
 
 export const barnevernMeldingVedlegg = pgTable("tidum_barnevern_melding_vedlegg", {
   id: uuid("id").defaultRandom().primaryKey(),

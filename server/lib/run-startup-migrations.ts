@@ -73,6 +73,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "085_archive_dual_tenant_rls.sql",
   "086_deadline_tenant_rls.sql",
   "087_barnevern_sak.sql",
+  "088_barnevern_melding_komplett.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -130,6 +131,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "085_archive_dual_tenant_rls.sql"
         || filename === "086_deadline_tenant_rls.sql"
         || filename === "087_barnevern_sak.sql"
+        || filename === "088_barnevern_melding_komplett.sql"
       ) {
         throw err;
       }

@@ -99,7 +99,102 @@ function toApiShape(row: any) {
     avklartDato: row.avklart_dato,
     avklartAvUserId: row.avklart_av_user_id,
     henleggelseBegrunnelse: row.henleggelse_begrunnelse,
+    prioritet: row.prioritet,
+    ufodtBarn: row.ufodt_barn,
+    termindato: row.termindato,
+    forelderMeldingId: row.forelder_melding_id,
+    soskenkopiAvMeldingId: row.soskenkopi_av_melding_id,
   };
+}
+
+interface NyMeldingFelter {
+  melderKategori: string;
+  melderNavn: string | null;
+  melderKontakt: string | null;
+  barnFodselsnummer: string | null;
+  barnNavn: string | null;
+  beskrivelse: string;
+  prioritet: "akutt" | "normal";
+  ufodtBarn: boolean;
+  termindato: string | null;
+  forelderMeldingId?: string | null;
+  soskenkopiAvMeldingId?: string | null;
+}
+
+/** Validerer felles meldingsfelter; returnerer feilmelding eller null. */
+function validerMeldingFelter(body: any): string | null {
+  if (!body.melderKategori || !MELDER_KATEGORIER.has(body.melderKategori)) {
+    return "Ugyldig melderKategori.";
+  }
+  if (!body.beskrivelse || typeof body.beskrivelse !== "string") {
+    return "beskrivelse er påkrevd.";
+  }
+  if (body.barnFodselsnummer && !/^\d{11}$/.test(body.barnFodselsnummer)) {
+    return "barnFodselsnummer må være 11 siffer.";
+  }
+  if (body.prioritet != null && body.prioritet !== "akutt" && body.prioritet !== "normal") {
+    return "prioritet må være 'akutt' eller 'normal'.";
+  }
+  if (body.ufodtBarn && body.barnFodselsnummer) {
+    return "Ufødt barn kan ikke ha fødselsnummer.";
+  }
+  if (body.termindato != null) {
+    if (!body.ufodtBarn) return "termindato krever ufodtBarn.";
+    // pg leverer DATE-kolonner som Date-objekt; API-et tar imot YYYY-MM-DD.
+    const termin = body.termindato instanceof Date
+      ? body.termindato.toISOString().slice(0, 10)
+      : body.termindato;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(termin)) return "termindato må være YYYY-MM-DD.";
+  }
+  return null;
+}
+
+/**
+ * Oppretter melding + avklaringsfrist i én transaksjon. Gjenbrukes av
+ * ordinær opprettelse, tilleggsmelding og søskenkopi. Akutt prioritet gir
+ * 24 timers avklaringsfrist; normal gir 7 dager (bvl. § 2-1: snarest og
+ * senest innen en uke).
+ */
+async function opprettMelding(actor: KommuneActor, felter: NyMeldingFelter) {
+  const mottattDato = new Date();
+  const fristTimer = felter.prioritet === "akutt" ? 24 : 7 * 24;
+  const avklaringsfrist = new Date(mottattDato.getTime() + fristTimer * 3600000);
+  return withKommuneRlsContext(actor.kommuneId, async (client) => {
+    const { rows: [kommune] } = await client.query(
+      `SELECT kommunenummer FROM tidum_kommuner WHERE id = $1`,
+      [actor.kommuneId],
+    );
+    const meldingsnummer = await nextMeldingsnummer(client, kommune?.kommunenummer ?? null);
+    const { rows: [created] } = await client.query(
+      `INSERT INTO tidum_barnevern_meldinger
+         (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, melder_navn, melder_kontakt,
+          barn_fodselsnummer, barn_navn, beskrivelse, avklaringsfrist,
+          prioritet, ufodt_barn, termindato, forelder_melding_id, soskenkopi_av_melding_id)
+       VALUES ($1, $2, 'manuell', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+       RETURNING *`,
+      [
+        actor.kommuneId, meldingsnummer, mottattDato, felter.melderKategori,
+        felter.melderNavn, felter.melderKontakt, felter.barnFodselsnummer, felter.barnNavn,
+        felter.beskrivelse, avklaringsfrist,
+        felter.prioritet, felter.ufodtBarn, felter.termindato,
+        felter.forelderMeldingId ?? null, felter.soskenkopiAvMeldingId ?? null,
+      ],
+    );
+    // Utildelt melding varsler kommunens barnevernsleder inntil tildeling.
+    const { rows: [leder] } = await client.query(
+      `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
+      [actor.kommuneId],
+    );
+    await registerFrist({
+      entityType: "barnevern_melding",
+      entityId: created.id,
+      kommuneId: actor.kommuneId,
+      fristType: "avklaring",
+      dueAt: avklaringsfrist,
+      notifyUserId: leder?.id,
+    }, client);
+    return created;
+  });
 }
 
 export function registerBarnevernMeldingRoutes(app: Express): void {
@@ -107,58 +202,103 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const { melderKategori, melderNavn, melderKontakt, barnFodselsnummer, barnNavn, beskrivelse } = req.body;
-    if (!melderKategori || !MELDER_KATEGORIER.has(melderKategori)) {
-      return res.status(400).json({ error: "Ugyldig melderKategori." });
-    }
-    if (!beskrivelse || typeof beskrivelse !== "string") {
-      return res.status(400).json({ error: "beskrivelse er påkrevd." });
-    }
-    if (barnFodselsnummer && !/^\d{11}$/.test(barnFodselsnummer)) {
-      return res.status(400).json({ error: "barnFodselsnummer må være 11 siffer." });
-    }
+    const feil = validerMeldingFelter(req.body);
+    if (feil) return res.status(400).json({ error: feil });
 
     try {
-      const mottattDato = new Date();
-      const avklaringsfrist = new Date(mottattDato.getTime() + 7 * 86400000);
-      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [kommune] } = await client.query(
-          `SELECT kommunenummer FROM tidum_kommuner WHERE id = $1`,
-          [actor.kommuneId],
-        );
-        const meldingsnummer = await nextMeldingsnummer(client, kommune?.kommunenummer ?? null);
-        const { rows: [created] } = await client.query(
-          `INSERT INTO tidum_barnevern_meldinger
-             (kommune_id, meldingsnummer, kilde, mottatt_dato, melder_kategori, melder_navn, melder_kontakt,
-              barn_fodselsnummer, barn_navn, beskrivelse, avklaringsfrist)
-           VALUES ($1, $2, 'manuell', $3, $4, $5, $6, $7, $8, $9, $10)
-           RETURNING *`,
-          [
-            actor.kommuneId, meldingsnummer, mottattDato, melderKategori,
-            melderNavn ?? null, melderKontakt ?? null, barnFodselsnummer ?? null, barnNavn ?? null,
-            beskrivelse, avklaringsfrist,
-          ],
-        );
-        // Utildelt melding varsler kommunens barnevernsleder inntil tildeling.
-        const { rows: [leder] } = await client.query(
-          `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
-          [actor.kommuneId],
-        );
-        await registerFrist({
-          entityType: "barnevern_melding",
-          entityId: created.id,
-          kommuneId: actor.kommuneId,
-          fristType: "avklaring",
-          dueAt: avklaringsfrist,
-          notifyUserId: leder?.id,
-        }, client);
-        return created;
+      const row = await opprettMelding(actor, {
+        melderKategori: req.body.melderKategori,
+        melderNavn: req.body.melderNavn ?? null,
+        melderKontakt: req.body.melderKontakt ?? null,
+        barnFodselsnummer: req.body.barnFodselsnummer ?? null,
+        barnNavn: req.body.barnNavn ?? null,
+        beskrivelse: req.body.beskrivelse,
+        prioritet: req.body.prioritet ?? "normal",
+        ufodtBarn: req.body.ufodtBarn === true,
+        termindato: req.body.termindato ?? null,
       });
-
       res.status(201).json(toApiShape(row));
     } catch (err) {
       console.error("[barnevern] opprettelse feilet", err);
       res.status(500).json({ error: "Kunne ikke opprette meldingen." });
+    }
+  });
+
+  // Tilleggsmelding: ny informasjon til en eksisterende melding. Arver barnet
+  // fra forelderen; kjedes alltid flatt til den opprinnelige meldingen.
+  app.post("/api/barnevern/meldinger/:id/tillegg", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const forelder = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    if (!forelder) return res.status(404).json({ error: "Melding ikke funnet." });
+
+    const body = {
+      ...req.body,
+      melderKategori: req.body.melderKategori ?? forelder.melder_kategori,
+      barnFodselsnummer: forelder.barn_fodselsnummer,
+      ufodtBarn: forelder.ufodt_barn,
+      termindato: forelder.termindato,
+    };
+    const feil = validerMeldingFelter(body);
+    if (feil) return res.status(400).json({ error: feil });
+
+    try {
+      const row = await opprettMelding(actor, {
+        melderKategori: body.melderKategori,
+        melderNavn: req.body.melderNavn ?? forelder.melder_navn,
+        melderKontakt: req.body.melderKontakt ?? forelder.melder_kontakt,
+        barnFodselsnummer: forelder.barn_fodselsnummer,
+        barnNavn: forelder.barn_navn,
+        beskrivelse: req.body.beskrivelse,
+        prioritet: req.body.prioritet ?? forelder.prioritet,
+        ufodtBarn: forelder.ufodt_barn,
+        termindato: forelder.termindato,
+        forelderMeldingId: forelder.forelder_melding_id ?? forelder.id,
+      });
+      res.status(201).json(toApiShape(row));
+    } catch (err) {
+      console.error("[barnevern] tilleggsmelding feilet", err);
+      res.status(500).json({ error: "Kunne ikke opprette tilleggsmeldingen." });
+    }
+  });
+
+  // Søskenkopi: samme melder og bekymring registrert for et søsken.
+  app.post("/api/barnevern/meldinger/:id/soskenkopi", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const kilde = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    if (!kilde) return res.status(404).json({ error: "Melding ikke funnet." });
+
+    const body = {
+      ...req.body,
+      melderKategori: kilde.melder_kategori,
+      beskrivelse: kilde.beskrivelse,
+    };
+    const feil = validerMeldingFelter(body);
+    if (feil) return res.status(400).json({ error: feil });
+    if (!req.body.barnNavn && !req.body.barnFodselsnummer && !req.body.ufodtBarn) {
+      return res.status(400).json({ error: "Søskenkopi krever barnNavn, barnFodselsnummer eller ufodtBarn." });
+    }
+
+    try {
+      const row = await opprettMelding(actor, {
+        melderKategori: kilde.melder_kategori,
+        melderNavn: kilde.melder_navn,
+        melderKontakt: kilde.melder_kontakt,
+        barnFodselsnummer: req.body.barnFodselsnummer ?? null,
+        barnNavn: req.body.barnNavn ?? null,
+        beskrivelse: kilde.beskrivelse,
+        prioritet: req.body.prioritet ?? kilde.prioritet,
+        ufodtBarn: req.body.ufodtBarn === true,
+        termindato: req.body.termindato ?? null,
+        soskenkopiAvMeldingId: kilde.id,
+      });
+      res.status(201).json(toApiShape(row));
+    } catch (err) {
+      console.error("[barnevern] søskenkopi feilet", err);
+      res.status(500).json({ error: "Kunne ikke opprette søskenkopien." });
     }
   });
 
@@ -194,6 +334,130 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const row = await loadMeldingScoped(req.params.id, actor.kommuneId);
     if (!row) return res.status(404).json({ error: "Melding ikke funnet." });
     res.json(toApiShape(row));
+  });
+
+  // Kontrollert redigering: kun utvalgte felter, kun før avklaring, krever
+  // begrunnelse, og hver endring logges append-only med før-/etterverdier.
+  const REDIGERBARE_FELTER: Record<string, string> = {
+    melderKategori: "melder_kategori",
+    melderNavn: "melder_navn",
+    melderKontakt: "melder_kontakt",
+    barnFodselsnummer: "barn_fodselsnummer",
+    barnNavn: "barn_navn",
+    beskrivelse: "beskrivelse",
+    prioritet: "prioritet",
+    termindato: "termindato",
+  };
+
+  app.patch("/api/barnevern/meldinger/:id", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const { begrunnelse, endringer } = req.body;
+    if (!begrunnelse || typeof begrunnelse !== "string" || begrunnelse.trim().length === 0) {
+      return res.status(400).json({ error: "begrunnelse er påkrevd for redigering." });
+    }
+    if (!endringer || typeof endringer !== "object" || Array.isArray(endringer)) {
+      return res.status(400).json({ error: "endringer må være et objekt med felter som skal endres." });
+    }
+    const ukjente = Object.keys(endringer).filter((k) => !(k in REDIGERBARE_FELTER));
+    if (ukjente.length > 0) {
+      return res.status(400).json({ error: `Feltene kan ikke redigeres: ${ukjente.join(", ")}.` });
+    }
+    if (Object.keys(endringer).length === 0) {
+      return res.status(400).json({ error: "endringer er tom." });
+    }
+
+    try {
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [existing] } = await client.query(
+          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!existing) throw new Error("MELDING_NOT_FOUND");
+        if (existing.status === "henlagt" || existing.status === "sendt_til_undersokelse") {
+          throw new Error("MELDING_ALLEREDE_AVKLART");
+        }
+
+        // Valider den samlede sluttilstanden med samme regler som opprettelse.
+        const sluttilstand = {
+          melderKategori: endringer.melderKategori ?? existing.melder_kategori,
+          beskrivelse: endringer.beskrivelse ?? existing.beskrivelse,
+          barnFodselsnummer: "barnFodselsnummer" in endringer ? endringer.barnFodselsnummer : existing.barn_fodselsnummer,
+          prioritet: endringer.prioritet ?? existing.prioritet,
+          ufodtBarn: existing.ufodt_barn,
+          termindato: "termindato" in endringer ? endringer.termindato : existing.termindato,
+        };
+        const feil = validerMeldingFelter(sluttilstand);
+        if (feil) throw Object.assign(new Error("VALIDERING"), { detalj: feil });
+
+        const feltEndringer: Record<string, { fra: unknown; til: unknown }> = {};
+        const setDeler: string[] = [];
+        const verdier: unknown[] = [];
+        for (const [apiFelt, kolonne] of Object.entries(REDIGERBARE_FELTER)) {
+          if (!(apiFelt in endringer)) continue;
+          const nyVerdi = endringer[apiFelt] ?? null;
+          if (existing[kolonne] === nyVerdi) continue;
+          feltEndringer[apiFelt] = { fra: existing[kolonne], til: nyVerdi };
+          verdier.push(nyVerdi);
+          setDeler.push(`${kolonne} = $${verdier.length}`);
+        }
+        if (setDeler.length === 0) return existing;
+
+        verdier.push(req.params.id, actor.kommuneId);
+        const { rows: [updated] } = await client.query(
+          `UPDATE tidum_barnevern_meldinger
+              SET ${setDeler.join(", ")}, updated_at = NOW()
+            WHERE id = $${verdier.length - 1} AND kommune_id = $${verdier.length}
+            RETURNING *`,
+          verdier,
+        );
+        await client.query(
+          `INSERT INTO tidum_barnevern_melding_revisjoner
+             (melding_id, kommune_id, begrunnelse, felt_endringer, endret_av_user_id)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [req.params.id, actor.kommuneId, begrunnelse, JSON.stringify(feltEndringer), actor.userId],
+        );
+        return updated;
+      });
+      res.json(toApiShape(row));
+    } catch (err) {
+      if (err instanceof Error && err.message === "MELDING_NOT_FOUND") {
+        return res.status(404).json({ error: "Melding ikke funnet." });
+      }
+      if (err instanceof Error && err.message === "MELDING_ALLEREDE_AVKLART") {
+        return res.status(409).json({ error: "Avklart melding kan ikke redigeres." });
+      }
+      if (err instanceof Error && err.message === "VALIDERING") {
+        return res.status(400).json({ error: (err as any).detalj });
+      }
+      console.error("[barnevern] redigering feilet", err);
+      res.status(500).json({ error: "Kunne ikke redigere meldingen." });
+    }
+  });
+
+  app.get("/api/barnevern/meldinger/:id/revisjoner", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
+
+    const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+      const { rows } = await client.query(
+        `SELECT begrunnelse, felt_endringer, endret_av_user_id, created_at
+           FROM tidum_barnevern_melding_revisjoner
+          WHERE melding_id = $1 AND kommune_id = $2 ORDER BY created_at ASC`,
+        [req.params.id, actor.kommuneId],
+      );
+      return rows;
+    });
+    res.json(rows.map((r: any) => ({
+      begrunnelse: r.begrunnelse,
+      feltEndringer: r.felt_endringer,
+      endretAvUserId: r.endret_av_user_id,
+      createdAt: r.created_at,
+    })));
   });
 
   app.patch("/api/barnevern/meldinger/:id/tildel", async (req: Request, res: Response) => {
