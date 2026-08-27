@@ -65,6 +65,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "077_saker_rapport_tenant_security.sql",
   "078_cms_control_plane_security.sql",
   "079_leave_tenant_security.sql",
+  "080_gdpr_erasure_audit.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -92,12 +93,15 @@ export async function runStartupMigrations(): Promise<void> {
       // legacy integer columns would break authorization and assignment.
       // 079 is likewise fail-closed: continuing without tenant constraints on
       // health-/absence data would re-open cross-customer reads and writes.
+      // 080 is fail-closed because irreversible GDPR erasure must never run
+      // without first being able to persist its documented controller intent.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
         filename === "057_tidum_table_rename.sql"
         || filename === "077_saker_rapport_tenant_security.sql"
         || filename === "079_leave_tenant_security.sql"
+        || filename === "080_gdpr_erasure_audit.sql"
       ) {
         throw err;
       }

@@ -58,8 +58,11 @@ describe("leave and health-attachment tenant security", () => {
 
   beforeAll(async () => {
     const migration = readFileSync("migrations/079_leave_tenant_security.sql", "utf8");
+    const gdprAuditMigration = readFileSync("migrations/080_gdpr_erasure_audit.sql", "utf8");
     await pool.query(migration);
     await pool.query(migration);
+    await pool.query(gdprAuditMigration);
+    await pool.query(gdprAuditMigration);
 
     const vendors = await pool.query(
       `INSERT INTO tidum_vendors (name, slug)
@@ -334,7 +337,11 @@ describe("leave and health-attachment tenant security", () => {
         [vendorAId, leaveRequest.rows[0].id, storageName, erasedUserId],
       );
 
-      const result = await eraseUser(erasedUserId, "security-test@example.com");
+      const result = await eraseUser(
+        erasedUserId,
+        "security-test-actor",
+        "Automated GDPR regression TEST-LEAVE-ERASURE",
+      );
       pseudonym = result.pseudonym;
       expect(result.rowsAffected.tidum_leave_requests).toBe(1);
       expect(result.rowsAffected.tidum_leave_attachments).toBe(1);
@@ -357,7 +364,7 @@ describe("leave and health-attachment tenant security", () => {
       await pool.query("DELETE FROM tidum_leave_requests WHERE user_id = $1", [erasedUserId]).catch(() => undefined);
       await pool.query("DELETE FROM users WHERE id = $1", [erasedUserId]).catch(() => undefined);
       if (pseudonym) {
-        await pool.query("DELETE FROM activities WHERE user_id = $1 AND action = 'gdpr_erasure'", [pseudonym]).catch(() => undefined);
+        await pool.query("DELETE FROM tidum_gdpr_erasure_audit WHERE target_pseudonym = $1", [pseudonym]).catch(() => undefined);
       }
     }
   });

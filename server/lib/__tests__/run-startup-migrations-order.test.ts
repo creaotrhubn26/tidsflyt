@@ -35,6 +35,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const caseReportSecurity = STARTUP_MIGRATIONS.indexOf("077_saker_rapport_tenant_security.sql");
     const cmsControlPlane = STARTUP_MIGRATIONS.indexOf("078_cms_control_plane_security.sql");
     const leaveTenantSecurity = STARTUP_MIGRATIONS.indexOf("079_leave_tenant_security.sql");
+    const gdprErasureAudit = STARTUP_MIGRATIONS.indexOf("080_gdpr_erasure_audit.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -49,9 +50,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(caseReportSecurity).toBeGreaterThan(elementsArchive);
     expect(cmsControlPlane).toBeGreaterThan(caseReportSecurity);
     expect(leaveTenantSecurity).toBeGreaterThan(cmsControlPlane);
+    expect(gdprErasureAudit).toBeGreaterThan(leaveTenantSecurity);
   });
 
-  it("har tenantvakten for fraværsdata som siste oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("079_leave_tenant_security.sql");
+  it("har fail-closed GDPR-sletteaudit som siste oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("080_gdpr_erasure_audit.sql");
   });
 });

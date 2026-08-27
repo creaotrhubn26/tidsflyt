@@ -102,6 +102,11 @@ fraværs-/sykmeldingsobjektgrafen er deretter herdet:
   bruker, forespørsel, saldo og vedlegg. Vedlegg valideres, malware-skannes og
   lagres privat; den gamle offentlige `/uploads`-flaten er fjernet. 11/11 ekte
   PostgreSQL-tester og 18/18 DB-uavhengige sikkerhets-/kontrakttester består.
+- Global pris, salg, leads, analyse, Stripe og access-request-godkjenning bruker
+  nå én fersk DB-vakt for eksakt global `super_admin`; `hovedadmin`, stale claims
+  og deaktivert admin avvises. GDPR-eksport krever fersk tenantleder og samme
+  `vendor_id`, mens sletting har fail-closed audit og tilbakekaller sesjon,
+  mobil og eID. Migrasjon 080 er idempotent anvendt; nye DB-tester består 7/7.
 
 Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
 reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
@@ -245,9 +250,10 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   ordinære e-postkomponisten, hovedflyten for saker/rapport og det globale
   CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
   integrasjonsgrenen. Fravær, saldoer og sykmeldingsvedlegg er også tenant- og
-  objektkontrollert. Andre filflater, søk, øvrige bakgrunnsjobber og adminflater
-  må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i kommunal
-  løsning.
+  objektkontrollert. Globalt pris-/salgs-/analyse-/Stripe-/access-request-plan
+  og GDPR-admin/eksport har fersk rolle- og tenantkontroll. Andre filflater,
+  søk, øvrige bakgrunnsjobber og adminflater må fortsatt gjennom den samlede
+  BOLA/IDOR-matrisen før gjenbruk i kommunal løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -258,7 +264,7 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 | Komponent | Faktisk nivå | Kravverdi | Må ikke påstås før dette er lukket |
 |---|---|---|---|
 | Tiltaksplan og evaluering | Detaljerte § 6-3-maler, mål, fremdrift, aktiviteter, perioder, godkjenning og PDF | Stor gjenbruk for 5, 6, 18 og 29 | Stabil seeding, eget planobjekt, faglig validering og objektsikring |
-| GDPR-selvbetjening | Eksport av egne data, anonymisering/sletting, adminfunksjoner og retensjonsjobb | Gjenbruk for 16, 17 og 22 | Saksrettet partsinnsyn, arkivunntak, BOLA-test og komplett utleveringspakke |
+| GDPR-selvbetjening | Egeneksport og sletting; tenantbundet admin-eksport; fail-closed sletteaudit; tilbakekalling av sesjon, mobil og eID; bekreftet global retensjonstrigger | Gjenbruk for 16, 17 og 22 med styrket kontrollbevis | Saksrettet partsinnsyn, arkivunntak, komplett utleveringspakke, per-vendor retensjonsvedtak og Haldens akseptanse |
 | Fravær og sykmeldingsvedlegg | Tenantbundet forespørsel, saldo, rollover, godkjenning og privat validert/malware-skannet vedlegg; global leverandøradmin er eksplisitt avvist | Gjenbrukbar personvern-/arbeidsgiverflyt og kontrollbevis for 14 og 22 | Norsk/avtalt kryptert objektlager, produksjonsprøvd malwaremotor, retensjonsvedtak og audit av alle lesinger/nedlastinger |
 | Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push | Gjenbruk for 27 og demo 31 | Ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
 | Fakturautkast | Tabeller, side, generering, linjer og HTML-utskrift | Prototype for 27/31 | Rett klient/API-kontrakt, tenant/eierskap, MVA/KID/EHF, ekte PDF og tester |
@@ -295,7 +301,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 19 | E | TLS og kryptering i hvile | TLS-/providerkryptering, S3-lagring og backup-skript finnes delvis. Secret-box har nå versjonert nøkkelring, sikker dialog bruker tilfeldige datanøkler og timejobben pakker om datanøkler og øvrige secret-box-felter uten å endre sendt innhold. | Delvis – rotasjonsgrunnlag | Norsk arkitekturbevis; kryptert DB, objektlager, logger og backup; koble nøkkelringen til godkjent KMS/hvelv og produksjonsprøv rotasjon/rollback; ingen klartekstfallback; transport- og restore-test. |
 | 20 | Skal | Sentral identitet/SSO og MFA | Direkte BankID og Buypass ID er implementert for web/mobil. Sikker-dialoggrunnmuren forhåndsregistrerer en eID-only part uten e-postlogin og kobler BankID og Buypass til samme portalbruker; portalrollen er skilt fra ansatt-/leverandøradministrasjon. Entra for ansatte ligger i PR #21; TOTP ligger i G10-grenen. Ingen ID-porten. | Delvis – sterkere eID-grunnlag | Produksjonsbevis for BankID/Buypass; integrer Entra og MFA; avklar skriftlig om Halden krever ID-porten for eksterne; livssyklus/SCIM ved behov; test mot kundetenanter. |
 | 21 | E | ISO 27001 eller annen sikkerhetsvurdering | To målrettede BOLA-funn er gjennomgått. Ingen sertifisering eller bred, uavhengig vurderingsrapport funnet. | Mangler bevis | Etabler ISMS-gap, kontrollbevis og risikoregister; integrer G10; bestill uavhengig arkitektur-/kode-/penetrasjonstest og retest. |
-| 22 | Skal | Personvern, minimering, tilgang, anonymisering og DPIA-bistand | DPA, behandlingsprotokoll, selvbetjent eksport/sletting, retensjonsjobb, PII-søk/blokkering, navnemaskering og anonymisert klientreferanse finnes. Dokumentene og kontrollene gjelder hovedsakelig dagens utførerprodukt og har inkonsistenser. | Delvis – flere reelle kontroller | Barnevernsdataflyt/RoPA, behandlingsformål, skjermede data, sletting/arkiv, underdatabehandlere, DPIA-underlag og kontrollbevis; verifiser GDPR-rutenes tenant-/objektscope. Halden godkjenner DPIA. |
+| 22 | Skal | Personvern, minimering, tilgang, anonymisering og DPIA-bistand | DPA, behandlingsprotokoll, PII-kontroller og GDPR-flyter finnes. Integrasjonsgrenen har tenantbundet admin-eksport, fersk global admin, no-store-utlevering, fail-closed sletteaudit og tilbakekalling av sesjon/mobil/eID. | Delvis – flere reelle kontroller | Barnevernsdataflyt/RoPA, behandlingsformål, skjermede data, sletting/arkiv, underdatabehandlere, DPIA-underlag, per-vendor retensjon og komplett utleveringspakke. Halden godkjenner DPIA og retensjonsvedtak. |
 | 23 | Skal | EU/EØS, Norge dersom tilgjengelig | Nåværende dokumentasjon angir Neon London, Render USA, Google EU/USA og Cloudflare globalt. | Ikke oppfylt | Velg og etabler norsk produksjonsplattform for app, DB, objekt, logger og backup; kontraktsfest supporttilgang og fremlegg lokasjonsbevis. |
 | 24 | Skal | Sikker loggforvaltning og definerte oppbevaringsperioder | Flere logger og audit-UI finnes. Sikker dialog har nå eksplisitt kommune-policy uten destruktiv standard, arkiv-før-sletting, juridisk sperring, retry og append-only slettingsbevis. Øvrig loggeretensjon er fortsatt inkonsistent og ingen samlet SIEM-/tilgangsmodell er bevist. | Delvis | Vedta perioder med Halden; loggklassifisering, formål, samlet retention, tilgang/review, alarm/SIEM, bred slettetest og samsvar med arkiv/DPA. |
 | 25 | Skal | SLA i Bilag 4 | Database-healthcheck, Render-healthprobe, maskert klient-Sentry, operasjonelle driftsmailer, backup-/restore-skript og runbook finnes. Det er ikke funnet produksjonsbevis for aktiv overvåking/backup/restore, og RPO står som 24 timer. | Mangler / motstrid | Fyll Bilag 4; 99,5 %, 500 ms, RPO ≤2 t, utilgjengelighet ≤24 t, supportmål, kreditt; målbar monitorering, vakt, DR-, backup- og lasttest. |
@@ -350,8 +356,9 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    Migrasjon 067–069 og 077, målrettede to-tenant-tester og DB-constraints er
    gjennomført. Globalt CMS, CMS-e-post, builder/media/analyse og crawler er
    også herdet. Fravær, saldoer, rollover og sykmeldingsvedlegg er tenantbundet
-   med migrasjon 079 og målrettede DB-/filtester. Fortsett med andre filflater,
-   søk, øvrige bakgrunnsjobber og adminflater.
+   med migrasjon 079 og målrettede DB-/filtester. Globalt leverandørkontrollplan
+   og GDPR-admin/eksport er herdet med migrasjon 080. Fortsett med andre
+   filflater, søk, øvrige bakgrunnsjobber og adminflater.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; tidligere full lokal Vitest-baseline er grønn 443/443 mot
    utviklingsdatabase. Den siste sikkerhetspakkens målrettede tester er grønne,

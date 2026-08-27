@@ -638,6 +638,55 @@ består **11/11**.
 DB-uavhengige innholds-, rutekontrakt- og migrasjonsrekkefølgetester består
 **18/18**. `npm run check`, designkontroll og produksjonsbygg er grønne.
 
+## 16. Global leverandøradmin og GDPR-adminflater
+
+Det globale leverandørkontrollplanet brukte en delt rollehjelper som behandlet
+tenantrollen `hovedadmin` som `super_admin`. Den stolte i tillegg på rollen som
+var serialisert i Passport-sesjonen. En degradert eller deaktivert bruker kunne
+derfor beholde global tilgang til pris, salg, leads, analyse, Stripe og
+access-request-godkjenning. GDPR-dataeksport på vegne av ansatte kontrollerte
+bare «admin+» og tok en vilkårlig bruker-ID uten tenantbevis.
+
+Pakken skiller nå leverandør- og kundemyndighet eksplisitt:
+
+- `requireSuperAdmin` krever sesjonsautentisering og henter bruker, autoritativ
+  `role_id`, `vendor_id`, `kommune_id` og eventuell admin-deaktivering ferskt
+  fra databasen. Bare eksakt global systemrolle `super_admin` uten
+  kunde-/kommunetilknytning slipper inn; den eldre tekstrollen kan ikke
+  gjenopprette en fjernet tildeling, og `hovedadmin`, stale claims og deaktivert
+  admin avvises;
+- samme vakt brukes av pris-, salgs-, lead-, analyse-, Stripe- og
+  access-request-kontrollplanet. Klienten viser access-request-flaten bare til
+  eksakt `super_admin`;
+- eksport på vegne av en ansatt krever fersk tenantleder og at målbrukeren har
+  samme `vendor_id`. En global leverandøradministrator får ikke implisitt
+  kundeeksport, og fremmede brukere svarer nøytralt med 404;
+- sensitive JSON-eksporter bruker `private, no-store`, `nosniff` og filnavn
+  uten bruker-ID. Rå databasefeil returneres ikke;
+- global manuell retensjon krever både fersk global rolle og eksplisitt
+  `{ "confirm": "PURGE" }`; responsen inneholder bare feiltall, ikke intern SQL;
+- irreversibel sletting krever dokumentert begrunnelse. Migrasjon
+  `080_gdpr_erasure_audit.sql` lagrer enveis målreferanse og audit-intent før
+  behandling starter, og markerer sluttstatus etterpå;
+- sletting roterer brukernavn/passord, demoterer tekstrollen, fjerner kanonisk
+  `role_id`, deaktiverer eventuell adminrad, fjerner alle Passport-sesjoner,
+  mobile refresh-token, eID-koblinger og forventet FNR-hash. Erased bruker
+  avvises også ved et fortsatt gyldig mobilt access-token;
+- ved reell filfeil eller ugyldig lagringssti beholdes vedleggsmetadata for
+  opprydding, audit markeres med feil og API-et rapporterer ikke falsk suksess.
+
+**Verifikasjon:** Migrasjon 080 er anvendt og kjørt idempotent i
+Neon-utviklingsdatabasen. Den nye to-tenant-/global-admin-suiten består **7/7**,
+inkludert stale rolle, deaktivering, kryss-tenant eksport, destruktiv
+bekreftelse, audit og reell tilbakekalling av sesjon/mobil/eID. Den eksisterende
+fraværs-/GDPR-regresjonen består **11/11**, og mobil-/sesjonsregresjonen består
+**4/4**. DB-uavhengig rutekontrakt, migrasjonsrekkefølge og dev-bypass består
+**18/18**. `npm run check`, designkontroll og produksjonsbygg er grønne.
+
+**Kjent avgrensning:** Den globale retensjonsjobben bruker fortsatt
+plattformens standardfrister som MVP. Per-vendor retensjonsvedtak og Haldens
+endelige arkiv-/slettepolicy må implementeres og aksepteres før produksjon.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
@@ -649,8 +698,10 @@ DB-uavhengige innholds-, rutekontrakt- og migrasjonsrekkefølgetester består
   hovedflyten for saker, journal, rapporter, mål og aktiviteter.
   Det globale CMS-kontrollplanet, CMS-e-post, builderdata, media, analyse og
   crawler er nå herdet. Fravær, saldoer og sykmeldingsvedlegg er tenantbundet
-  og private. Andre filflater, søk, bakgrunnsjobber utenfor de kontrollerte
-  flytene og øvrige adminflater gjenstår i den systematiske endepunktsmatrisen.
+  og private. Global pris/salg/analyse/Stripe/access-request og GDPR-admin er
+  nå bundet til fersk rolle og riktig global-/tenantgrense. Andre filflater,
+  søk, bakgrunnsjobber utenfor de kontrollerte flytene og øvrige adminflater
+  gjenstår i den systematiske endepunktsmatrisen.
   En full uavhengig pentest og blokkert CI-kjøring med isolert database
   gjenstår også.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede

@@ -64,7 +64,7 @@ import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth, requireSuperAdmin } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
 import { setupEntraIdAuth } from "./entra-id-auth";
 import { requireAuth as requireAnyAuth, requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
@@ -2491,19 +2491,6 @@ export async function registerRoutes(
       return null;
     }
     return req.vendorId;
-  };
-
-  // Middleware to require super admin role
-  const requireSuperAdmin = async (req: any, res: any, next: any) => {
-    await requireVendorAuth(req, res, () => {
-      if (!req.isSuperAdmin) {
-        return res.status(403).json({ 
-          error: "Forbidden", 
-          message: "Super admin access required." 
-        });
-      }
-      next();
-    });
   };
 
   type IntegrationKey = (typeof INTEGRATION_KEYS)[number];

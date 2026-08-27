@@ -75,6 +75,12 @@ Følgende regler gjelder uten unntak:
   valideres, skannes og leveres gjennom autorisert nedlasting. Migrasjon 079 er
   idempotent anvendt; 11/11 ekte PostgreSQL-tester og 18/18 DB-uavhengige
   kontrakttester er grønne.
+- Global pris, salg, leads, analyse, Stripe og access-request-godkjenning krever
+  nå eksakt global `super_admin` med fersk DB-rolle; tenant-`hovedadmin` og
+  stale/deaktivert sesjon avvises. GDPR-eksport på vegne av ansatte er bundet
+  til fersk tenantleder og samme `vendor_id`. Migrasjon 080 gir fail-closed
+  sletteaudit, og sletting tilbakekaller sesjon, mobil og eID. Nye DB-tester
+  består 7/7, med 11/11 fraværsregresjon og 4/4 mobil-/sesjonsregresjon.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -133,9 +139,10 @@ Følgende regler gjelder uten unntak:
   e-postkomponisten, hovedflyten for saker/rapport og det globale
   CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
   integrasjonsarbeidsflaten. Fraværs- og sykmeldingsvedlegg er også lukket som
-  én tenantbundet helseobjektgraf. Andre filflater, søk, bakgrunnsjobber
-  utenfor de kontrollerte flytene og øvrige adminflater har fortsatt åpne
-  kontroller og kan ikke brukes med ekte eksterne data før hele
+  én tenantbundet helseobjektgraf. Globalt leverandørkontrollplan og
+  GDPR-admin-/eksportgrenser er herdet med ferske DB-roller. Andre filflater,
+  søk, bakgrunnsjobber utenfor de kontrollerte flytene og øvrige adminflater har
+  fortsatt åpne kontroller og kan ikke brukes med ekte eksterne data før hele
   endepunktsmatrisen er lukket.
 - Den tidligere offentlige påstanden om test mot ekte Documaster-instans er
   rettet i integrasjonsgrenen. Kundesandkasse er fortsatt et eksplisitt
@@ -311,8 +318,9 @@ Tiltak:
    parent-child-constraints er gjennomført. Det globale CMS-kontrollplanet,
    CMS-e-post, builder/media/analyse og crawler er også herdet. Fravær,
    saldoer, rollover og sykmeldingsvedlegg er tenantbundet med migrasjon 079 og
-   målrettede DB-/filtester. Fortsett med andre filflater, søk, logger, øvrige
-   bakgrunnsjobber og administrasjon.
+   målrettede DB-/filtester. Global pris/salg/analyse/Stripe/access-request og
+   GDPR-admin er herdet med fersk rolle, tenantgrense og migrasjon 080. Fortsett
+   med andre filflater, søk, logger, øvrige bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er

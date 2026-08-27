@@ -18,7 +18,7 @@ import { UserPlus, Check, X, Clock, Building, Mail, Phone, MessageSquare, CheckC
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { Link } from "wouter";
-import { getRoleLabel, isSuperAdminLikeRole } from "@shared/roles";
+import { getRoleLabel, normalizeRole } from "@shared/roles";
 
 interface AccessRequest {
   id: number;
@@ -70,7 +70,7 @@ export default function AccessRequestsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [viewMode, setViewMode] = useState<"all" | "analytics">("all");
 
-  const isSuperAdmin = isSuperAdminLikeRole(effectiveRole);
+  const isSuperAdmin = normalizeRole(effectiveRole) === "super_admin";
   const loginUrl = useMemo(() => buildGoogleAuthUrl(getCurrentReturnTo("/access-requests")), []);
 
   const { data: requests, isLoading } = useQuery<AccessRequest[]>({

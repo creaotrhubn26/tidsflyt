@@ -203,7 +203,7 @@ function Router() {
         <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
         <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
-        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["super_admin"]}><AccessRequests /></AuthGuard>}</Route>
         <Route path="/import-employees">{() => <AuthGuard requiredRoles={["hovedadmin", "vendor_admin", "admin", "super_admin"]}><ImportEmployees /></AuthGuard>}</Route>
         <Route path="/import-employees/:id/preview">{() => <AuthGuard requiredRoles={["hovedadmin", "vendor_admin", "admin", "super_admin"]}><ImportEmployeesPreview /></AuthGuard>}</Route>
 

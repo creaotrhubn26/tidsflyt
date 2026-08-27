@@ -8,7 +8,7 @@ import { db } from "./db";
 import { verifyAccessToken, issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
+import { canAccessVendorApiAdmin } from "@shared/roles";
 import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
 import { authRateLimit } from "./rate-limit";
@@ -21,6 +21,7 @@ import {
   requireCsrfSecret,
   sessionCsrfProtection,
 } from "./lib/csrf";
+import { resolveFreshGlobalSuperAdmin } from "./lib/global-admin-authorization";
 
 type EmailIdentityInput = {
   email: string;
@@ -631,7 +632,7 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
   try {
     const userId = verifyAccessToken(authHeader.slice("Bearer ".length));
     const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (user) {
+    if (user && !user.email?.toLowerCase().endsWith("@erased.tidum.local")) {
       req.user = {
         id: user.id,
         email: user.email || "",
@@ -668,16 +669,26 @@ export const requireVendorAuth: RequestHandler = (req, res, next) => {
   next();
 };
 
-export const requireSuperAdmin: RequestHandler = (req, res, next) => {
+export const requireSuperAdmin: RequestHandler = async (req, res, next) => {
   if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
-  const user = req.user as AuthUser;
-  if (!isSuperAdminLikeRole(user.role)) {
-    return res.status(403).json({ message: "Krever super_admin rolle" });
+
+  try {
+    const actor = await resolveFreshGlobalSuperAdmin(req);
+    if (!actor) {
+      return res.status(403).json({ message: "Krever global super_admin rolle" });
+    }
+    req.user = {
+      ...(req.user as AuthUser),
+      email: actor.email ?? (req.user as AuthUser).email,
+      role: actor.assignedAdminRole ?? "super_admin",
+      vendorId: null,
+    };
+    next();
+  } catch (error) {
+    console.error("[global-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere administratortilgang" });
   }
-  
-  next();
 };
