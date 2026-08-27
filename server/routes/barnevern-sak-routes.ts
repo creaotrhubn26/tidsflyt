@@ -5,6 +5,7 @@ import fs from "fs";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
+import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
 import { requireKommuneActor } from "./barnevern-melding-routes";
 
 // Faseflyt for den kommunale barnevernssaken. En sak starter alltid i
@@ -294,6 +295,10 @@ export function registerBarnevernSakRoutes(app: Express): void {
         );
         return entry;
       });
+      // Best-effort arkiv-outbox etter commit — feiler stille med backoff.
+      queueBarnevernJournalArchiving(row.id, actor.kommuneId).catch((err) =>
+        console.error(`[barnevern-sak] arkivkø feilet for ${row.id}:`, err?.message ?? err),
+      );
       res.status(201).json({
         id: row.id,
         sakId: row.sak_id,

@@ -266,6 +266,54 @@ export function buildJournalJournalpost(
   };
 }
 
+export interface BarnevernJournalEntryLike {
+  id: string;
+  kategori: string;
+  innhold: string;
+  createdAt?: string | Date | null;
+}
+
+/**
+ * Journalpost for én oppføring i den kommunale barnevernssakens journal.
+ * Alltid organinternt (X), samme fil-oppsett som buildJournalJournalpost:
+ * journalteksten først, deretter vedlegg i opprinnelig mimeType.
+ */
+export function buildBarnevernJournalJournalpost(
+  entry: BarnevernJournalEntryLike,
+  sak: { saksnummer: string },
+  attachments: JournalAttachmentLike[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const dokumentdato = entry.createdAt
+    ? new Date(entry.createdAt).toISOString().slice(0, 10)
+    : undefined;
+
+  const textFile: ArchiveDocumentFile = {
+    filename: `journal-${sak.saksnummer}-${entry.kategori}.txt`.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: "text/plain",
+    content: Buffer.from(entry.innhold, "utf-8"),
+    variantformat: "Produksjonsformat",
+  };
+  const attachmentFiles: ArchiveDocumentFile[] = attachments.map((a) => ({
+    filename: a.originalName.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: a.mimeType,
+    content: a.content,
+    variantformat: a.mimeType === "application/pdf" ? "Arkivformat" : "Produksjonsformat",
+  }));
+
+  return {
+    tittel: `Journalnotat (${entry.kategori}) — sak ${sak.saksnummer}`,
+    offentligTittel: "Journalnotat",
+    journalposttype: "X",
+    eksternId: `tidum:barnevern-journal:${entry.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files: [textFile, ...attachmentFiles],
+  };
+}
+
 /** Eksponentiell backoff for arkiv-outboxen: 5 min · 2^attempts, tak 24 t. */
 export function nextAttemptDelayMs(attempts: number): number {
   const base = 5 * 60 * 1000;

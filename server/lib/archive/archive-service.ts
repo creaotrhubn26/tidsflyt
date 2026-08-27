@@ -43,7 +43,10 @@ import { openSecureDialogContent } from "../secure-dialog-content";
 import { downloadSecureDialogAttachment } from "../secure-dialog-storage";
 import { openSecret } from "../secret-box";
 import { createArchiveProvider, type ArchiveProvider } from "./archive-provider";
+import { promises as fsPromises } from "fs";
+import { join as joinPath } from "path";
 import {
+  buildBarnevernJournalJournalpost,
   buildBarnevernMeldingMappeSpec,
   buildJournalJournalpost,
   buildRapportJournalpost,
@@ -209,6 +212,69 @@ export async function queueJournalEntryArchiving(
         entityType: "journal",
         entityId: journalEntryId,
         sakId: sak.id,
+        status: "pending",
+        triggerKind: "manual",
+        nextAttemptAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [archiveEntries.entityType, archiveEntries.entityId],
+        set: {
+          status: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.status} ELSE 'pending' END`,
+          attempts: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.attempts} ELSE 0 END`,
+          nextAttemptAt: new Date(),
+          error: null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return queued;
+  });
+
+  if (archiveEntry.status === "archived") return { queued: false, reason: "Allerede arkivert", entryId: archiveEntry.id };
+
+  processArchiveEntry(archiveEntry.id, tenant).catch((err) =>
+    console.error(`[arkiv] umiddelbar prosessering feilet for ${archiveEntry.id}:`, err?.message ?? err),
+  );
+
+  return { queued: true, entryId: archiveEntry.id };
+}
+
+/**
+ * Legg en oppføring fra den kommunale barnevernssakens journal i
+ * arkiv-outboxen. Saksmappen i arkivet er meldingens mappe (saken er alltid
+ * opprettet fra en bekymringsmelding); en sak uten meldingskobling avvises.
+ */
+export async function queueBarnevernJournalArchiving(
+  journalEntryId: string,
+  kommuneId: number,
+): Promise<{ queued: boolean; reason?: string; entryId?: string }> {
+  const context = await withKommuneRlsContext(kommuneId, async (client) => {
+    const { rows: [entry] } = await client.query(
+      `SELECT j.id, j.sak_id, s.melding_id
+         FROM tidum_barnevern_sak_journal j
+         JOIN tidum_barnevern_saker s ON s.id = j.sak_id AND s.kommune_id = j.kommune_id
+        WHERE j.id = $1 AND j.kommune_id = $2`,
+      [journalEntryId, kommuneId],
+    );
+    return entry ?? null;
+  });
+  if (!context) return { queued: false, reason: "Journaloppføring ikke funnet" };
+  if (!context.melding_id) return { queued: false, reason: "Saken har ingen meldingskobling" };
+
+  const cfg = await getMunicipalityArchiveConfig(kommuneId);
+  if (!cfg || cfg.status !== "active") return { queued: false, reason: "Arkivintegrasjon ikke konfigurert" };
+
+  const tenant: ArchiveTenant = { kommuneId };
+  const archiveEntry = await withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [queued] = await scopedDb
+      .insert(archiveEntries)
+      .values({
+        vendorId: null,
+        kommuneId,
+        entityType: "barnevern_journal",
+        entityId: journalEntryId,
+        sakId: null,
+        barnevernMeldingId: context.melding_id,
         status: "pending",
         triggerKind: "manual",
         nextAttemptAt: new Date(),
@@ -468,6 +534,126 @@ export async function processArchiveEntry(
       if (!done) return (await loadArchiveEntry(entry.id, tenant))!;
 
       console.log(`📁 Arkiverte journalnotat ${journalEntry.id} → journalpost ${jp.id}`);
+      return done;
+    }
+
+    if (entry.entityType === "barnevern_journal") {
+      if (entry.kommuneId == null || !entry.barnevernMeldingId) {
+        throw new Error("Barnevernsjournal mangler kommune- eller meldingsbinding");
+      }
+      const snapshot = await withKommuneRlsContext(entry.kommuneId, async (client) => {
+        const { rows: [journalEntry] } = await client.query(
+          `SELECT j.*, s.saksnummer, s.melding_id
+             FROM tidum_barnevern_sak_journal j
+             JOIN tidum_barnevern_saker s ON s.id = j.sak_id AND s.kommune_id = j.kommune_id
+            WHERE j.id = $1 AND j.kommune_id = $2`,
+          [entry.entityId, entry.kommuneId],
+        );
+        if (!journalEntry) return null;
+        const { rows: [melding] } = await client.query(
+          `SELECT id, meldingsnummer FROM tidum_barnevern_meldinger
+            WHERE id = $1 AND kommune_id = $2`,
+          [entry.barnevernMeldingId, entry.kommuneId],
+        );
+        const { rows: vedlegg } = await client.query(
+          `SELECT filename, original_name, mime_type
+             FROM tidum_barnevern_sak_journal_vedlegg
+            WHERE journal_entry_id = $1 AND kommune_id = $2
+            ORDER BY uploaded_at ASC`,
+          [entry.entityId, entry.kommuneId],
+        );
+        return { journalEntry, melding: melding ?? null, vedlegg };
+      });
+      if (!snapshot?.journalEntry) throw new Error("Journaloppføringen finnes ikke lenger");
+      if (!snapshot.melding || snapshot.journalEntry.melding_id !== snapshot.melding.id) {
+        throw new Error("Journaloppføringens sak tilhører ikke arkivradens melding");
+      }
+
+      const uploadDir = joinPath(process.cwd(), "private-uploads", "barnevern-sak-journal");
+      const attachments = await Promise.all(
+        snapshot.vedlegg.map(async (a: any) => ({
+          originalName: a.original_name,
+          mimeType: a.mime_type,
+          content: await fsPromises.readFile(joinPath(uploadDir, a.filename)),
+        })),
+      );
+
+      let link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [found] = await scopedDb
+          .select()
+          .from(archiveCaseLinks)
+          .where(and(
+            eq(archiveCaseLinks.barnevernMeldingId, entry.barnevernMeldingId!),
+            eq(archiveCaseLinks.kommuneId, entry.kommuneId!),
+          ))
+          .limit(1);
+        return found;
+      });
+      if (!link) {
+        const mappe = await provider.ensureSaksmappe(
+          buildBarnevernMeldingMappeSpec(snapshot.melding, defaults, cfg.arkivdelId ?? undefined),
+        );
+        link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+          const [saved] = await scopedDb
+            .insert(archiveCaseLinks)
+            .values({
+              vendorId: null,
+              kommuneId: entry.kommuneId,
+              sakId: null,
+              barnevernMeldingId: entry.barnevernMeldingId,
+              eksternMappeId: mappe.id,
+              mappeIdent: mappe.mappeIdent,
+            })
+            .onConflictDoUpdate({
+              target: archiveCaseLinks.barnevernMeldingId,
+              set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+            })
+            .returning();
+          return saved;
+        });
+      }
+
+      const spec = buildBarnevernJournalJournalpost(
+        {
+          id: snapshot.journalEntry.id,
+          kategori: snapshot.journalEntry.kategori,
+          innhold: snapshot.journalEntry.innhold,
+          createdAt: snapshot.journalEntry.created_at,
+        },
+        { saksnummer: snapshot.journalEntry.saksnummer },
+        attachments,
+        defaults,
+        { journalenhet: cfg.journalenhet ?? undefined },
+      );
+      const jp = await provider.createJournalpost(link.eksternMappeId, spec);
+
+      const done = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [updated] = await scopedDb
+          .update(archiveEntries)
+          .set({
+            status: "archived",
+            eksternMappeId: link.eksternMappeId,
+            eksternJournalpostId: jp.id,
+            journalpostIdent: jp.journalpostIdent,
+            payloadHash: createHash("sha256").update(snapshot.journalEntry.innhold).digest("hex"),
+            skjerming: spec.skjerming as any,
+            error: null,
+            archivedAt: new Date(),
+            processingStartedAt: null,
+            processingToken: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(archiveEntries.id, entry.id),
+            eq(archiveEntries.status, "processing"),
+            eq(archiveEntries.processingToken, processingToken),
+          ))
+          .returning();
+        return updated;
+      });
+      if (!done) return (await loadArchiveEntry(entry.id, tenant))!;
+
+      console.log(`📁 Arkiverte barnevernsjournal ${snapshot.journalEntry.id} → journalpost ${jp.id}`);
       return done;
     }
 
