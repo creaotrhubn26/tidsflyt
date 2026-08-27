@@ -91,7 +91,7 @@ export function PowerOfficeConnectCard() {
       return res.json();
     },
     onSuccess: () => {
-      toast({ title: "Koblet til PowerOffice", description: "ClientKey verifisert og lagret." });
+      toast({ title: "Koblet til PowerOffice", description: "ClientKey verifisert og lagret kryptert." });
       setClientKey("");
       setLabel("");
       queryClient.invalidateQueries({ queryKey: STATUS_KEY });
@@ -207,7 +207,7 @@ export function PowerOfficeConnectCard() {
       <CardContent className="space-y-4">
         {!serverConfigured && (
           <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
-            Serveren har ikke PowerOffice-nøkler konfigurert ennå. Kontakt support.
+            PowerOffice eller sikker nøkkellagring er ikke konfigurert. Kontakt support.
           </p>
         )}
 
@@ -261,7 +261,7 @@ export function PowerOfficeConnectCard() {
                 <Button
                   variant="outline"
                   onClick={() => pushMutation.mutate()}
-                  disabled={pushMutation.isPending || !/^\d{4}-\d{2}$/.test(pushMonth)}
+                  disabled={!serverConfigured || pushMutation.isPending || !/^\d{4}-\d{2}$/.test(pushMonth)}
                   data-testid="poweroffice-push-submit"
                 >
                   {pushMutation.isPending ? (
@@ -320,7 +320,7 @@ export function PowerOfficeConnectCard() {
                 variant="outline"
                 size="sm"
                 onClick={() => testMutation.mutate()}
-                disabled={testMutation.isPending}
+                disabled={!serverConfigured || testMutation.isPending}
                 data-testid="poweroffice-test"
               >
                 {testMutation.isPending ? (

@@ -24,6 +24,10 @@ export const users = pgTable("users", {
   role: varchar("role").default("user"),
   // Vendor ID - null for super_admin, required for vendor_admin and user
   vendorId: integer("vendor_id"),
+  // Kommune-tenant ID — null for vendor-brukere og super_admin, satt for
+  // kommune_saksbehandler/barnevernsleder. En bruker hører til ENTEN en
+  // vendor ELLER en kommune, aldri begge (håndheves i appkoden).
+  kommuneId: integer("kommune_id"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
   // Profile / settings fields

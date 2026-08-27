@@ -21,18 +21,18 @@ import { cn } from "@/lib/utils";
 import { isSuggestionSurfaceEnabled } from "@/lib/suggestion-settings";
 
 interface Invoice {
-  id: number;
+  id: string;
   invoiceNumber: string;
   userId: string;
   clientName: string;
   clientAddress: string | null;
-  clientOrg: string | null;
+  clientOrgNumber: string | null;
   clientEmail: string | null;
   invoiceDate: string;
   dueDate: string;
-  subtotal: number;
-  mva: number;
-  total: number;
+  subtotal: string | number;
+  taxAmount: string | number;
+  totalAmount: string | number;
   status: "draft" | "sent" | "paid" | "overdue" | "cancelled";
   notes: string | null;
   paymentDate: string | null;
@@ -46,11 +46,11 @@ interface Invoice {
 
 interface InvoiceLineItem {
   id: number;
-  invoiceId: number;
+  invoiceId: string;
   description: string;
-  quantity: number;
-  unitPrice: number;
-  total: number;
+  quantity: string | number;
+  unitPrice: string | number;
+  amount: string | number;
 }
 
 export default function InvoicesPage() {
@@ -117,7 +117,7 @@ export default function InvoicesPage() {
 
   // Update status mutation
   const updateStatusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: number; status: string }) => {
+    mutationFn: async ({ id, status }: { id: string; status: string }) => {
       const res = await fetch(`/api/invoices/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -159,7 +159,7 @@ export default function InvoicesPage() {
     });
   };
 
-  const handleDownloadPDF = async (invoiceId: number) => {
+  const handleDownloadPDF = async (invoiceId: string) => {
     try {
       const res = await fetch(`/api/invoices/${invoiceId}/pdf`, {
         credentials: "include",
@@ -193,7 +193,7 @@ export default function InvoicesPage() {
 
     setClientName(latestInvoice.clientName || "");
     setClientAddress(latestInvoice.clientAddress || "");
-    setClientOrg(latestInvoice.clientOrg || "");
+    setClientOrg(latestInvoice.clientOrgNumber || "");
     setClientEmail(latestInvoice.clientEmail || "");
     setNotes(latestInvoice.notes || "");
 
@@ -494,7 +494,7 @@ export default function InvoicesPage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {formatCurrency(invoices.reduce((sum, i) => sum + i.total, 0))}
+                {formatCurrency(invoices.reduce((sum, i) => sum + Number(i.totalAmount || 0), 0))}
               </div>
             </CardContent>
           </Card>
@@ -549,7 +549,7 @@ export default function InvoicesPage() {
                       <TableCell>
                         {format(new Date(invoice.dueDate), "dd.MM.yyyy", { locale: nb })}
                       </TableCell>
-                      <TableCell className="font-medium">{formatCurrency(invoice.total)}</TableCell>
+                      <TableCell className="font-medium">{formatCurrency(Number(invoice.totalAmount || 0))}</TableCell>
                       <TableCell>{getStatusBadge(invoice.status)}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">

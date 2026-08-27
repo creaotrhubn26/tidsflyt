@@ -5,7 +5,12 @@ const DATABASE_URL = process.env.EXTERNAL_DATABASE_URL || process.env.DATABASE_U
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl:
+    process.env.DATABASE_SSL === 'false' ||
+    process.env.PGSSLMODE === 'disable' ||
+    /localhost|127\.0\.0\.1/.test(DATABASE_URL || '')
+      ? false
+      : { rejectUnauthorized: true },
 });
 
 async function checkTables() {

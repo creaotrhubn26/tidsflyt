@@ -349,6 +349,16 @@ test.describe.serial("Tidum full workflow", () => {
 
     await page.route(/\/api\/company\/users/, async (route) => {
       const method = route.request().method();
+      // manageable-roles matcher også dette regexet, men UI-et forventer
+      // { roles: string[] } — uten dette blir invitasjonsknappen disabled.
+      if (route.request().url().includes("manageable-roles")) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ roles: ["miljoarbeider", "tiltaksleder"] }),
+        });
+        return;
+      }
       if (method === "GET") {
         await route.fulfill({
           status: 200,
@@ -664,67 +674,58 @@ test.describe.serial("Tidum full workflow", () => {
     await mockUser(page, TILTAKSLEDER);
     await mockPortalSettings(page);
 
-    let reportStatus = "pending";
+    // /reports redirecter nå til /rapporter/godkjenning (TiltakslederPage),
+    // som henter /api/rapporter og godkjenner via POST /api/rapporter/:id/godkjenn.
+    let rapportStatus = "til_godkjenning";
 
-    const MOCK_REPORTS = [
-      {
-        id: "300",
-        userId: state.miljoarbeiderId,
-        userName: "Maria Arbeider",
-        department: "Friskus",
-        caseNumber: "SAK-2026-001",
-        description: "Oppfølging av bruker – januar",
-        hours: 142.5,
-        date: new Date().toISOString().split("T")[0],   // today (within "this week" filter)
-        status: reportStatus,
-        createdAt: "2026-02-01T08:00:00.000Z",
-        type: "monthly",
-        projectName: "SAK-2026-001",
-      },
-    ];
-
-    await page.route("**/api/reports**", async (route) => {
+    await page.route(/\/api\/rapporter/, async (route) => {
+      const url = route.request().url();
       const method = route.request().method();
+      if (method === "POST" && url.includes("/godkjenn")) {
+        rapportStatus = "godkjent";
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ ok: true }),
+        });
+        return;
+      }
       if (method === "GET") {
         await route.fulfill({
           status: 200,
           contentType: "application/json",
-          body: JSON.stringify(MOCK_REPORTS.map((r) => ({ ...r, status: reportStatus }))),
+          body: JSON.stringify([
+            {
+              id: "300",
+              status: rapportStatus,
+              konsulent: "Maria Arbeider",
+              tiltak: "miljoarbeid",
+              periodeFrom: "2026-01-01",
+              periodeTo: "2026-01-31",
+              totalMinutter: 8550,
+              innsendt: "2026-02-01T08:00:00.000Z",
+            },
+          ]),
         });
-      } else if (method === "PATCH" || method === "POST") {
-        reportStatus = "approved";
-        await route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ...MOCK_REPORTS[0], status: "approved" }),
-        });
-      } else {
-        await route.continue();
+        return;
       }
+      await route.continue();
     });
 
+    // Godkjenn-knappen bekrefter via window.confirm.
+    page.on("dialog", (dialog) => dialog.accept());
+
     await page.goto("/reports", { waitUntil: "domcontentloaded" });
-    await expect(page.getByTestId("reports-title")).toBeVisible();
+    await expect(page.getByText("Godkjenning av rapporter")).toBeVisible({ timeout: 10000 });
 
-    // Switch to "Registreringer" tab where the individual report rows live
-    await page.getByRole("tab", { name: /registreringer/i }).click();
+    // Rapporten som venter på godkjenning vises
+    await expect(page.getByText("Maria Arbeider").first()).toBeVisible({ timeout: 5000 });
 
-    // The timeliste row should be visible
-    await expect(
-      page.getByTestId("report-row-300")
-    ).toBeVisible({ timeout: 5000 });
+    // Godkjenn rapporten
+    await page.getByRole("button", { name: /^godkjenn$/i }).first().click();
 
-    // Click on the row to open detail / approval
-    await page.getByTestId("report-row-300").click();
-
-    // Look for approve action (button or dropdown)
-    const approveBtn = page.getByRole("button", { name: /godkjenn|approve/i }).first();
-    if (await approveBtn.isVisible({ timeout: 2000 })) {
-      await approveBtn.click();
-      await expect(
-        page.getByText(/godkjent|approved/i).first()
-      ).toBeVisible({ timeout: 4000 });
-    }
+    // Bekreftelses-toast fra godkjenningen
+    await expect(page.getByText(/rapport godkjent/i).first()).toBeVisible({ timeout: 5000 });
 
     const screenshot = await page.screenshot({ fullPage: false });
     await testInfo.attach("steg7-timeliste-godkjent", {

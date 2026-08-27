@@ -1,20 +1,34 @@
 import passport from "passport";
 import { Strategy as GoogleStrategy, Profile as GoogleProfile } from "passport-google-oauth20";
 import session from "express-session";
-import type { Express, Request, RequestHandler } from "express";
+import type { Express, NextFunction, Request, RequestHandler, Response } from "express";
 import connectPg from "connect-pg-simple";
 import jwt from "jsonwebtoken";
 import { db } from "./db";
 import { verifyAccessToken, issueMobileTokens, refreshMobileAccessToken, revokeMobileRefreshToken } from "./lib/mobile-auth";
 import { adminUsers, users } from "@shared/schema";
 import { eq, sql } from "drizzle-orm";
-import { canAccessVendorApiAdmin, isSuperAdminLikeRole } from "@shared/roles";
 import { getAppBaseUrl, getGoogleCallbackUrl } from "./lib/app-base-url";
 import { requireDatabaseConnectionString } from "./database-config";
 import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
+import { isDevAuthBypassAllowed } from "./middleware/auth";
+import {
+  generateCsrfToken,
+  requireCsrfSecret,
+  sessionCsrfProtection,
+} from "./lib/csrf";
+import {
+  resolveFreshGlobalSuperAdmin,
+  resolveFreshIntegrationAdmin,
+  resolveFreshVendorCredentialAdmin,
+  resolveFreshVendorDataAdmin,
+  resolveFreshVendorMember,
+  type FreshAdminActor,
+  type FreshIntegrationAdminActor,
+} from "./lib/global-admin-authorization";
 
 type EmailIdentityInput = {
   email: string;
@@ -43,13 +57,14 @@ function isSuperAdminEmail(email: string): boolean {
   return getSuperAdminEmails().has(email.trim().toLowerCase());
 }
 
-function getEmailLoginSecret(): string {
-  return (
-    process.env.EMAIL_MAGIC_LINK_SECRET ||
-    process.env.JWT_SECRET ||
-    process.env.SESSION_SECRET ||
-    ""
-  );
+// Magic links have their own signing secret. Do not fall back to session,
+// bearer or mobile secrets: token types must remain cryptographically split.
+export function requireEmailLoginSecret(): string {
+  const secret = process.env.EMAIL_MAGIC_LINK_SECRET;
+  if (!secret) {
+    throw new Error("EMAIL_MAGIC_LINK_SECRET er ikke konfigurert");
+  }
+  return secret;
 }
 
 function sanitizeReturnTo(value: unknown): string | null {
@@ -81,10 +96,10 @@ function getPostAuthRedirect(req: Request, fallback?: unknown): string {
 
 export function buildEmailLoginUrl(email: string, returnTo?: string | null): string {
   const normalizedEmail = email.trim().toLowerCase();
-  const secret = getEmailLoginSecret();
+  const secret = requireEmailLoginSecret();
   const sanitizedReturnTo = sanitizeReturnTo(returnTo);
 
-  if (!normalizedEmail || !secret) {
+  if (!normalizedEmail) {
     throw new Error("Email magic link is not configured.");
   }
 
@@ -272,8 +287,6 @@ async function findOrCreateUser(profile: GoogleProfile, provider: string): Promi
   });
 }
 
-const isDev = process.env.NODE_ENV !== "production";
-
 const DEV_USER: AuthUser = {
   id: "1",
   email: "dev@tidum.no",
@@ -317,14 +330,32 @@ export async function handleMobileLogout(req: Request, res: any) {
 }
 
 export async function setupCustomAuth(app: Express) {
+  // Fail at startup instead of discovering a missing CSRF signing secret on
+  // the first authenticated write request.
+  requireCsrfSecret();
+
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
   app.use(resolveBearerUser);
 
-  // DEV MODE: inject a mock user so all API routes work without OAuth
-  if (isDev) {
+  app.get("/api/csrf-token", (req, res, next) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Pragma", "no-cache");
+      res.json({ token: generateCsrfToken(req, res) });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // This inspects req.session.passport directly. req.isAuthenticated() is
+  // not sufficient here because resolveBearerUser also populates req.user.
+  app.use(sessionCsrfProtection);
+
+  // Local super-admin injection is opt-in as well as non-production.
+  if (isDevAuthBypassAllowed()) {
     app.use((req, _res, next) => {
       if (!req.user) {
         req.user = DEV_USER;
@@ -498,9 +529,9 @@ export async function setupCustomAuth(app: Express) {
   app.get("/api/auth/email/verify", async (req, res, next) => {
     try {
       const token = typeof req.query?.token === "string" ? req.query.token : "";
-      const secret = getEmailLoginSecret();
+      const secret = requireEmailLoginSecret();
 
-      if (!token || !secret) {
+      if (!token) {
         return res.redirect("/?error=magic_link_invalid");
       }
 
@@ -543,7 +574,7 @@ export async function setupCustomAuth(app: Express) {
   });
 
   app.get("/api/auth/user", (req, res) => {
-    if (isDev && !req.user) {
+    if (isDevAuthBypassAllowed() && !req.user) {
       return res.json(DEV_USER);
     }
     if (req.user) {
@@ -565,16 +596,9 @@ export async function setupCustomAuth(app: Express) {
     });
   });
 
-  app.get("/api/logout", (req, res) => {
-    req.logout((err) => {
-      if (err) {
-        return res.redirect("/?error=logout_failed");
-      }
-      req.session.destroy((_err) => {
-        res.clearCookie("connect.sid");
-        res.redirect("/");
-      });
-    });
+  app.get("/api/logout", (_req, res) => {
+    res.setHeader("Allow", "POST");
+    res.status(405).json({ message: "Bruk POST for å logge ut" });
   });
 }
 
@@ -594,7 +618,7 @@ export function hasSessionAuth(req: Request): boolean {
 }
 
 export const isAuthenticated: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (hasSessionAuth(req) && req.user) {
     return next();
   }
@@ -615,7 +639,7 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
   try {
     const userId = verifyAccessToken(authHeader.slice("Bearer ".length));
     const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
-    if (user) {
+    if (user && !user.email?.toLowerCase().endsWith("@erased.tidum.local")) {
       req.user = {
         id: user.id,
         email: user.email || "",
@@ -633,35 +657,131 @@ export const resolveBearerUser: RequestHandler = async (req, _res, next) => {
 };
 
 export const isAuthenticatedOrBearer: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+  if (isDevAuthBypassAllowed()) return next();
   if (req.user) return next();
   res.status(401).json({ message: "Ikke autentisert" });
 };
 
-export const requireVendorAuth: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+function applyFreshVendorActor(req: Request, actor: FreshAdminActor): void {
+  req.user = {
+    ...(req.user as AuthUser),
+    email: actor.email ?? (req.user as AuthUser).email,
+    role: actor.role,
+    vendorId: actor.vendorId,
+  };
+  (req as any).vendorId = actor.vendorId;
+  (req as any).isSuperAdmin = false;
+  (req as any).userId = actor.id;
+  (req as any).userRole = actor.role;
+  (req as any).freshVendorActor = actor;
+}
+
+async function requireFreshVendorActor(
+  req: Request,
+  res: Response,
+  next: NextFunction,
+  resolver: (request: Request) => Promise<FreshAdminActor | null>,
+  deniedMessage: string,
+) {
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
-  const user = req.user as AuthUser;
-  if (!canAccessVendorApiAdmin(user.role)) {
-    return res.status(403).json({ message: "Krever vendor_admin eller super_admin rolle" });
+
+  try {
+    const actor = await resolver(req);
+    if (!actor) return res.status(403).json({ message: deniedMessage });
+    applyFreshVendorActor(req, actor);
+    next();
+  } catch (error) {
+    console.error("[vendor-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere administratortilgang" });
   }
-  
-  next();
+}
+
+export const requireVendorAuth: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorCredentialAdmin,
+    "Krever hovedadmin eller vendor_admin i virksomheten",
+  );
 };
 
-export const requireSuperAdmin: RequestHandler = (req, res, next) => {
-  if (isDev) return next();
+export const requireVendorDataAdmin: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorDataAdmin,
+    "Krever lederrolle i virksomheten",
+  );
+};
+
+export const requireVendorMember: RequestHandler = async (req, res, next) => {
+  return requireFreshVendorActor(
+    req,
+    res,
+    next,
+    resolveFreshVendorMember,
+    "Krever aktiv virksomhetstilknytning",
+  );
+};
+
+function applyFreshIntegrationAdmin(req: Request, actor: FreshIntegrationAdminActor): void {
+  req.user = {
+    ...(req.user as AuthUser),
+    email: actor.email ?? (req.user as AuthUser).email,
+    role: actor.role,
+    vendorId: actor.vendorId,
+  };
+  (req as any).vendorId = actor.vendorId;
+  (req as any).isSuperAdmin = actor.integrationAdminScope === "global";
+  (req as any).userId = actor.id;
+  (req as any).userRole = actor.role;
+  (req as any).freshIntegrationAdmin = actor;
+}
+
+export const requireIntegrationAdmin: RequestHandler = async (req, res, next) => {
+  if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
   }
-  
-  const user = req.user as AuthUser;
-  if (!isSuperAdminLikeRole(user.role)) {
-    return res.status(403).json({ message: "Krever super_admin rolle" });
+
+  try {
+    const actor = await resolveFreshIntegrationAdmin(req);
+    if (!actor) {
+      return res.status(403).json({ message: "Krever global systemadmin eller virksomhetens integrasjonsadmin" });
+    }
+    applyFreshIntegrationAdmin(req, actor);
+    next();
+  } catch (error) {
+    console.error("[integration-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere integrasjonstilgang" });
   }
-  
-  next();
+};
+
+export const requireSuperAdmin: RequestHandler = async (req, res, next) => {
+  if (isDevAuthBypassAllowed()) return next();
+  if (!hasSessionAuth(req) || !req.user) {
+    return res.status(401).json({ message: "Ikke autentisert" });
+  }
+
+  try {
+    const actor = await resolveFreshGlobalSuperAdmin(req);
+    if (!actor) {
+      return res.status(403).json({ message: "Krever global super_admin rolle" });
+    }
+    req.user = {
+      ...(req.user as AuthUser),
+      email: actor.email ?? (req.user as AuthUser).email,
+      role: actor.assignedAdminRole ?? "super_admin",
+      vendorId: null,
+    };
+    next();
+  } catch (error) {
+    console.error("[global-admin] authorization lookup failed", error);
+    return res.status(503).json({ message: "Kunne ikke kontrollere administratortilgang" });
+  }
 };

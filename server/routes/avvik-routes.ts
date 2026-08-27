@@ -207,9 +207,10 @@ export function registerAvvikRoutes(app: Express) {
           if (escalationEmail) {
             emailService
               .sendEmail?.({
+                purpose: "administrative",
                 to: escalationEmail,
-                subject: `[KRITISK] Avvik fra ${rapportorName} — ${dateOccurred}`,
-                text: `Et kritisk avvik er registrert.\n\nDato: ${dateOccurred}\nKategori: ${category}\nSted: ${location ?? "ikke oppgitt"}\nBeskrivelse:\n${finalDescription}\n\nLogg inn på Tidum for oppfølging.`,
+                subject: "Kritisk avvik krever oppfølging i Tidum",
+                text: "Et kritisk avvik krever oppfølging. Logg inn i Tidum for å se detaljer.",
               })
               .catch((e: any) => console.error("Kritisk-avvik-varsling feilet:", e));
           }

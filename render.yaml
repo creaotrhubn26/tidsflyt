@@ -13,9 +13,25 @@ services:
         value: production
       - key: DATABASE_URL
         sync: false
+      - key: TIDUM_RLS_RUNTIME_ROLE
+        sync: false
       - key: SESSION_SECRET
         sync: false
       - key: JWT_SECRET
+        sync: false
+      - key: AUTH_JWT_SECRET
+        sync: false
+      - key: EMAIL_MAGIC_LINK_SECRET
+        sync: false
+      - key: CSRF_SECRET
+        sync: false
+      - key: TIDUM_SECRET_KEY
+        sync: false
+      - key: TIDUM_SECRET_KEYRING
+        sync: false
+      - key: TIDUM_SECRET_ACTIVE_KEY_ID
+        sync: false
+      - key: ARCHIVE_ALLOWED_HOSTS
         sync: false
       - key: APP_BASE_URL
         sync: false
@@ -49,6 +65,14 @@ services:
         sync: false
       - key: SMTP_REPLY_TO
         sync: false
+      - key: CLAMAV_HOST
+        sync: false
+      - key: CLAMAV_PORT
+        value: "3310"
+      - key: CLAMAV_TIMEOUT_MS
+        value: "15000"
+      - key: SECURE_ATTACHMENT_QUARANTINE_DAYS
+        value: "30"
       - key: MANAGER_EMAIL
         sync: false
       - key: GITHUB_TOKEN
@@ -68,8 +92,6 @@ services:
       - key: POWEROFFICE_BASE_URL
         value: https://goapi.poweroffice.net/demo/v2
       - key: POWEROFFICE_APPLICATION_KEY
-        sync: false
-      - key: POWEROFFICE_CLIENT_KEY
         sync: false
       - key: POWEROFFICE_SUBSCRIPTION_KEY
         sync: false

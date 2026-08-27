@@ -747,12 +747,18 @@ export default function BuilderPage() {
     return () => {
       if (page && trackSent.current) {
         const duration = Math.round((Date.now() - startTime.current) / 1000);
-        navigator.sendBeacon('/api/cms/page-analytics/track', JSON.stringify({
-          pageId: page.id,
-          pageSlug: page.slug,
-          duration,
-          device: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
-        }));
+        void fetch('/api/cms/page-analytics/track', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            pageId: page.id,
+            pageSlug: page.slug,
+            duration,
+            device: window.innerWidth < 768 ? 'mobile' : window.innerWidth < 1024 ? 'tablet' : 'desktop',
+          }),
+          credentials: 'include',
+          keepalive: true,
+        }).catch(() => {});
       }
     };
   }, [page]);

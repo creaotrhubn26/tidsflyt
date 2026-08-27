@@ -35,6 +35,7 @@ import {
   HelpCircle,
   X,
   TrendingUp,
+  ShieldCheck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -66,7 +67,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { normalizeRole } from "@shared/roles";
+import { isKommuneRole, normalizeRole } from "@shared/roles";
 import { ProductTour, TourReplayButton, buildTourSteps, type TidumTourRole } from "@/components/onboarding/product-tour";
 import { useStuckDetection } from "@/hooks/use-stuck-detection";
 import { useGuideConfig } from "@/hooks/use-guide-config";
@@ -176,6 +177,8 @@ const baseNavItems: NavItemBase[] = [
   { category: "kommunikasjon", path: "/invoices", icon: FileText, label: "Fakturaer", roles: ["tiltaksleder"] },
   { category: "kommunikasjon", path: "/email", icon: Mail, label: "E-post", roles: ["tiltaksleder"] },
   { category: "kommunikasjon", path: "/forward", icon: Send, label: "Send videre", roles: ["tiltaksleder"] },
+  { category: "oversikt", path: "/barnevern", icon: ClipboardList, label: "Barnevern", roles: ["barnevernsleder", "kommune_saksbehandler"] },
+  { category: "kommunikasjon", path: "/sikker-sending", icon: ShieldCheck, label: "Sikker sending", roles: ["barnevernsleder", "kommune_saksbehandler"] },
 
   // Administrasjon (super-admin only)
   { category: "administrasjon", path: "/vendors", icon: Building2, label: "Leverandører", roles: ["super_admin"] },
@@ -239,6 +242,7 @@ const NAV_LABEL_KEYS: Record<string, string> = {
   '/invoices': 'nav.fakturaer',
   '/email': 'nav.epost',
   '/forward': 'nav.sendVidere',
+  '/sikker-sending': 'nav.sikkerSending',
   '/vendors': 'nav.leverandorer',
   '/cms': 'nav.cms',
   '/admin/tester-feedback': 'nav.testerFeedback',
@@ -491,13 +495,17 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
     isMiljoarbeider && overtimeSettings?.trackOvertime === false;
 
   const navConfig = useNavConfig();
+  const kommunePortal = isKommuneRole(normalizedCurrentUserRole);
 
   const navItems: NavItem[] = useMemo(
     () =>
       baseNavItems
         .filter((item) => !(item.path === "/time" && normalizedCurrentUserRole === "tiltaksleder"))
         .filter((item) => !(item.path === "/overtime" && overtimeHiddenForWorker))
-        .filter((item) => !item.roles || item.roles.map((role) => normalizeRole(role)).includes(normalizedCurrentUserRole))
+        .filter((item) => {
+          const roleMatch = item.roles?.map((role) => normalizeRole(role)).includes(normalizedCurrentUserRole) ?? false;
+          return kommunePortal ? roleMatch : !item.roles || roleMatch;
+        })
         // Apply CMS overrides: rename labels, hide items, move to other categories.
         .filter((item) => !navConfig.portalSidebarOverrides[item.path]?.hidden)
         .map((item) => {
@@ -510,7 +518,7 @@ function PortalLayoutInner({ children, user }: PortalLayoutProps) {
             badge: item.path === "/invites" && pendingCount > 0 ? pendingCount : undefined,
           };
         }),
-    [normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker, navConfig.portalSidebarOverrides],
+    [kommunePortal, normalizedCurrentUserRole, pendingCount, overtimeHiddenForWorker, navConfig.portalSidebarOverrides],
   );
 
   const activePageLabel = useMemo(

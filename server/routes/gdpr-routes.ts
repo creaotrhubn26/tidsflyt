@@ -47,26 +47,20 @@ import {
   leaveRequests,
   overtimeEntries,
   notifications,
-  rapportAuditLog,
 } from "@shared/schema";
 import { eq } from "drizzle-orm";
-import { requireAuth, ADMIN_ROLES } from "../middleware/auth";
+import { requireAuth } from "../middleware/auth";
+import { requireSuperAdmin, requireVendorDataAdmin } from "../custom-auth";
 import { runGdprPurge, eraseUser, exportUserData, RETENTION_POLICY_POLICY, GDPR_DEFAULTS } from "../lib/gdpr";
+import {
+  userBelongsToVendorDataScope,
+  type FreshAdminActor,
+} from "../lib/global-admin-authorization";
+
+type GdprRequest = Request & { freshVendorActor?: FreshAdminActor };
 
 function authedUser(req: Request) {
   return (req as any).authUser ?? (req as any).user ?? null;
-}
-
-function isSuperAdmin(req: Request): boolean {
-  const role = String(authedUser(req)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return role === 'super_admin';
-}
-
-function isAdminPlus(req: Request): boolean {
-  const role = String(authedUser(req)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return ADMIN_ROLES.includes(role);
 }
 
 function coerceId(raw: unknown): string | number | null {
@@ -75,6 +69,11 @@ function coerceId(raw: unknown): string | number | null {
   const s = String(raw);
   const n = Number(s);
   return Number.isFinite(n) ? n : s;
+}
+
+function requestedUserId(raw: unknown): string | null {
+  const value = String(raw ?? "").trim();
+  return value && value.length <= 255 ? value : null;
 }
 
 export function registerGdprRoutes(app: Express) {
@@ -153,13 +152,15 @@ export function registerGdprRoutes(app: Express) {
         notifications: notificationRows,
       };
 
-      const filename = `tidum-mine-data-${userId}-${new Date().toISOString().slice(0, 10)}.json`;
+      const filename = `tidum-mine-data-${new Date().toISOString().slice(0, 10)}.json`;
       res.setHeader("Content-Type", "application/json; charset=utf-8");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       res.send(JSON.stringify(exportBundle, null, 2));
-    } catch (e: any) {
-      console.error("GDPR export failed:", e);
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error("GDPR export failed:", error);
+      res.status(500).json({ error: "Kunne ikke eksportere brukerdata" });
     }
   });
 
@@ -190,51 +191,21 @@ export function registerGdprRoutes(app: Express) {
       const [existing] = await db.select().from(users).where(eq(users.id, userId as any)).limit(1);
       if (!existing) return res.status(404).json({ error: "Bruker ikke funnet" });
 
-      const anonymousEmail = `deleted-${userId}@anonymized.local`;
-      const deletionTime = new Date();
+      await eraseUser(
+        String(userId),
+        String(authed?.id ?? userId),
+        "Egenbekreftet forespørsel via /api/me",
+      );
 
-      // 1. Anonymise users row (keep id FK-intact for audit trail)
-      await db
-        .update(users)
-        .set({
-          email: anonymousEmail,
-          firstName: "Slettet",
-          lastName: "bruker",
-          password: null as any,
-          phone: null as any,
-          updatedAt: deletionTime,
-          approved: false,
-        } as any)
-        .where(eq(users.id, userId as any));
-
-      // 2. Delete personal soft data (drafts, notifications, goal categories)
-      //    These are personal prefs, no retention requirement.
+      // eraseUser handles auth material, attachments, drafts, settings and
+      // canonical pseudonymization. Remove the remaining preference tables.
       await Promise.all([
-        db.delete(userDrafts).where(eq(userDrafts.userId, userId as any)),
         db.delete(userGoalCategories).where(eq(userGoalCategories.userId, userId as any)),
         db.delete(notifications).where(eq(notifications.recipientId, String(userId))),
-        db.delete(timerSessions).where(eq(timerSessions.userId, userId as any)),
       ]);
 
-      // 3. Log the deletion in audit-log if tidum_rapport_audit_log table exists
-      try {
-        await db.insert(rapportAuditLog).values({
-          rapportId: null as any,
-          userId: userId as any,
-          action: "gdpr_user_anonymized",
-          details: {
-            reason: "Article 17 request by user",
-            anonymizedAt: deletionTime.toISOString(),
-            retainedForRetention: ["tidum_log_row", "tidum_rapporter", "tidum_leave_requests", "tidum_overtime_entries"],
-          } as any,
-          createdAt: deletionTime,
-        } as any);
-      } catch (auditErr) {
-        // Non-fatal — audit log may have different schema
-        console.warn("Could not write GDPR audit entry:", auditErr);
-      }
-
-      // 4. Kill session so the anonymised user can't continue using the app
+      // Kill the current in-memory session too; eraseUser removed persisted
+      // sessions before the response was produced.
       (req as any).session?.destroy?.(() => {});
       res.clearCookie("connect.sid");
 
@@ -247,9 +218,9 @@ export function registerGdprRoutes(app: Express) {
           slettefrist: `31.12.${new Date().getFullYear() + 5}`,
         },
       });
-    } catch (e: any) {
-      console.error("GDPR delete failed:", e);
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error("GDPR delete failed:", error);
+      res.status(500).json({ error: "Kunne ikke behandle sletteforespørselen" });
     }
   });
 
@@ -265,26 +236,29 @@ export function registerGdprRoutes(app: Express) {
    * Kun super_admin — handlingen er irreversibel og skal være initiert av
    * dokumentert brukerforespørsel etter Art. 17.
    *
-   * Body: { confirm: true, reason?: string }
+   * Body: { confirm: true, reason: string }
    */
-  app.post('/api/admin/users/:id/erase', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/admin/users/:id/erase', requireSuperAdmin, async (req: Request, res: Response) => {
     try {
-      if (!isSuperAdmin(req)) {
-        return res.status(403).json({ error: 'Kun Tidum super_admin kan slette personopplysninger på vegne av andre' });
-      }
       if (req.body?.confirm !== true) {
         return res.status(400).json({
           error: 'Manglende bekreftelse',
           hint: 'Send { "confirm": true, "reason": "…" } for å gjennomføre.',
         });
       }
-      const userId = String(req.params.id || '').trim();
+      const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+      if (reason.length < 10 || reason.length > 2_000) {
+        return res.status(400).json({ error: "Dokumentert begrunnelse på 10–2000 tegn kreves" });
+      }
+      const userId = requestedUserId(req.params.id);
       if (!userId) return res.status(400).json({ error: 'Manglende user-id' });
-      const result = await eraseUser(userId, authedUser(req)?.email ?? null);
+      const [target] = await db.select({ id: users.id }).from(users).where(eq(users.id, userId as any)).limit(1);
+      if (!target) return res.status(404).json({ error: "Bruker ikke funnet" });
+      const result = await eraseUser(userId, String(authedUser(req)?.id ?? "system"), reason);
       res.json({ ok: true, ...result });
-    } catch (e: any) {
-      console.error('GDPR admin erase failed:', e);
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('GDPR admin erase failed:', error);
+      res.status(500).json({ error: "Kunne ikke gjennomføre sletting" });
     }
   });
 
@@ -294,20 +268,25 @@ export function registerGdprRoutes(app: Express) {
    * Art. 20 — admin/tiltaksleder eksporterer på vegne av en bruker.
    * Returnerer JSON som vedlegg.
    */
-  app.get('/api/admin/users/:id/data-export', requireAuth, async (req: Request, res: Response) => {
+  app.get('/api/admin/users/:id/data-export', requireAuth, requireVendorDataAdmin, async (req: GdprRequest, res: Response) => {
     try {
-      if (!isAdminPlus(req)) {
-        return res.status(403).json({ error: 'Kun admin+ kan eksportere på vegne av brukere' });
+      const userId = requestedUserId(req.params.id);
+      if (!userId) return res.status(400).json({ error: "Ugyldig bruker-ID" });
+      const actor = req.freshVendorActor;
+      if (!actor) return res.status(403).json({ error: "Krever lederrolle i virksomheten" });
+      if (!(await userBelongsToVendorDataScope(userId, actor.vendorId!))) {
+        return res.status(404).json({ error: "Bruker ikke funnet" });
       }
-      const userId = String(req.params.id || '').trim();
       const bundle = await exportUserData(userId);
-      const filename = `tidum-data-${userId}-${new Date().toISOString().slice(0, 10)}.json`;
+      const filename = `tidum-data-export-${new Date().toISOString().slice(0, 10)}.json`;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
       res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader("Cache-Control", "private, no-store");
+      res.setHeader("X-Content-Type-Options", "nosniff");
       res.send(JSON.stringify(bundle, null, 2));
-    } catch (e: any) {
-      console.error('GDPR admin export failed:', e);
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('GDPR admin export failed:', error);
+      res.status(500).json({ error: "Kunne ikke eksportere brukerdata" });
     }
   });
 
@@ -317,14 +296,23 @@ export function registerGdprRoutes(app: Express) {
    * Manuell kjøring av oppbevarings-cron'en. Super_admin only.
    * Brukes til testing eller før ekstern revisjon.
    */
-  app.post('/api/gdpr/purge/run', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/gdpr/purge/run', requireSuperAdmin, async (req: Request, res: Response) => {
     try {
-      if (!isSuperAdmin(req)) return res.status(403).json({ error: 'Kun Tidum super_admin' });
+      if (req.body?.confirm !== "PURGE") {
+        return res.status(400).json({ error: 'Send { "confirm": "PURGE" } for å kjøre global retensjon' });
+      }
       const result = await runGdprPurge();
-      res.json({ ok: true, ...result });
-    } catch (e: any) {
-      console.error('GDPR purge failed:', e);
-      res.status(500).json({ error: e.message });
+      res.json({
+        ok: true,
+        travelLegsCoordsBlurred: result.travelLegsCoordsBlurred,
+        travelLegsDeleted: result.travelLegsDeleted,
+        auditEntriesDeleted: result.auditEntriesDeleted,
+        leaveAttachmentsDeleted: result.leaveAttachmentsDeleted,
+        errorCount: result.errors.length,
+      });
+    } catch (error) {
+      console.error('GDPR purge failed:', error);
+      res.status(500).json({ error: "Kunne ikke kjøre retensjon" });
     }
   });
 

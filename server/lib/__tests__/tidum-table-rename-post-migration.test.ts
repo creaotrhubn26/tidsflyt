@@ -23,10 +23,14 @@ const RENAMED: Array<[old: string, rowsBefore: number, why: string]> = [
   ["eid_identities", 0, "eID-innlogging"],
 ];
 
-// Disse to vokser under normal appbruk (innlogging skriver til begge), så
-// et eksakt radantall er flaky — sjekk i stedet at raden fortsatt finnes
-// og at ingenting ble slettet (>= radantallet rett før 057 kjørte).
-const GROWS_WITH_USAGE = new Set(["sessions", "auth_login_events"]);
+// Disse vokser under normal appbruk, så et eksakt radantall er flaky — sjekk
+// i stedet at ingen av radene som fantes ved migrasjonen er borte.
+const GROWS_WITH_USAGE = new Set(["cms_posts", "auth_login_events"]);
+
+// Sesjoner både opprettes og slettes ved normal utløping/opprydding. For denne
+// tabellen er navne-/eksistenskontrollen den varige migrasjonsinvarianten; det
+// historiske radtallet var kun gyldig i selve migrasjonsøyeblikket.
+const EPHEMERAL = new Set(["sessions"]);
 
 // De 12 tabellene som bevisst ble EKSKLUDERT fra omdøpingen (10 fremmed-eide,
 // access_requests = målnavnkollisjon, blog_comments = tvetydig). Disse SKAL
@@ -61,7 +65,9 @@ describe("migrasjon 057: Tidum-tabell-omdøping mot ekte database", () => {
     expect(await tableExists(`tidum_${old}`), `tidum_${old} mangler`).toBe(true);
 
     const { rows } = await pool.query(`SELECT count(*)::int AS n FROM "tidum_${old}"`);
-    if (GROWS_WITH_USAGE.has(old)) {
+    if (EPHEMERAL.has(old)) {
+      expect(rows[0].n).toBeGreaterThanOrEqual(0);
+    } else if (GROWS_WITH_USAGE.has(old)) {
       expect(rows[0].n, `radantall gikk NED for tidum_${old} — data tapt`).toBeGreaterThanOrEqual(rowsBefore);
     } else {
       expect(rows[0].n, `radantall endret for tidum_${old}`).toBe(rowsBefore);
@@ -72,11 +78,13 @@ describe("migrasjon 057: Tidum-tabell-omdøping mot ekte database", () => {
     expect(await tableExists(name), `${name} skulle ikke vært omdøpt`).toBe(true);
   });
 
-  it("users og vendors er urørt", async () => {
+  it("users og den fremmed-eide vendors-tabellen er urørt", async () => {
     expect(await tableExists("users")).toBe(true);
     expect(await tableExists("vendors")).toBe(true);
     expect(await tableExists("tidum_users")).toBe(false);
-    expect(await tableExists("tidum_vendors")).toBe(false);
+    // Migrasjon 066 introduserer en separat, Tidum-eid tenanttabell. Dette er
+    // ikke en omdøping av CreatorHub-tabellen `vendors` som 057 ekskluderte.
+    expect(await tableExists("tidum_vendors")).toBe(true);
   });
 
   it("ingen av de 108 gamle navnene finnes igjen", async () => {

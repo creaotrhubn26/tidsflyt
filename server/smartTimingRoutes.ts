@@ -2,11 +2,10 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { pool } from "./db";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
-import { normalizeRole, TIDUM_ROLES } from "@shared/roles";
+import { normalizeRole, TIDUM_ROLES, isKommuneRole } from "@shared/roles";
 import { canManageRoleDynamic, canManageUsersDynamic } from "./lib/permissions";
 import { hashSsn } from "./lib/eid-hash";
 import { emailService } from "./lib/email-service";
@@ -14,7 +13,12 @@ import { buildEmailLoginUrl, hasSessionAuth } from "./custom-auth";
 import crypto from "crypto";
 import { ensureDefaultBlogSeed } from "./lib/default-blog-seed";
 import { createNotification, notifyByRole } from "./routes/notification-routes";
-import { requireAuth as sharedRequireAuth, requireAdminRole as sharedRequireAdminRole } from "./middleware/auth";
+import {
+  requireAuth as sharedRequireAuth,
+  requireAdminRole as sharedRequireAdminRole,
+  isDevAuthBypassAllowed,
+  requireAuthJwtSecret,
+} from "./middleware/auth";
 import { assertMonthNotLocked, handleLockError } from "./lib/timesheet-lock";
 import { enforceAtl, handleAtlError } from "./lib/arbeidstidsloven";
 import { auditLogRow, listAuditForLogRow, ensureLogRowAuditTable } from "./lib/log-row-audit";
@@ -39,43 +43,42 @@ import {
   TIDUM_SUPPORT_PHONE,
 } from "@shared/brand";
 import { eq } from "drizzle-orm";
+import { selectReportTemplateUpdateFields } from "./lib/report-template-update";
+import { resolveCrawlerUrl } from "./lib/crawler-url-policy";
+import { z } from "zod";
+import { getSecretBoxRuntimeStatus } from "./lib/secret-box";
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || 'change-me-in-production';
-if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET) {
-  console.warn('[SECURITY] JWT_SECRET not set in production! Set JWT_SECRET env var.');
+const cmsEmailTestSchema = z.object({
+  template_id: z.coerce.number().int().positive(),
+  recipient_email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
+  variables: z.record(
+    z.string().regex(/^[A-Za-z0-9_]{1,64}$/),
+    z.string().max(4_000),
+  ).refine((value) => Object.keys(value).length <= 50, "For mange variabler").optional(),
+}).strict();
+
+function boundedCrawlerInteger(value: unknown, fallback: number, min: number, max: number, field: string): number {
+  const candidate = value === undefined || value === null ? fallback : Number(value);
+  if (!Number.isInteger(candidate) || candidate < min || candidate > max) {
+    throw new Error(`${field} må være et heltall mellom ${min} og ${max}`);
+  }
+  return candidate;
 }
 
-const uploadDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
+function crawlerStringArray(value: unknown, field: string, maxItems: number, maxLength: number): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new Error(`${field} må være en liste med maksimalt ${maxItems} elementer`);
+  }
+  const values = value.map((entry) => typeof entry === "string" ? entry.trim() : "");
+  if (values.some((entry) => !entry || entry.length > maxLength)) {
+    throw new Error(`${field} inneholder en ugyldig verdi`);
+  }
+  return values;
 }
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-  }
-});
-
-const upload = multer({ 
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-    }
-  }
-});
 
 interface AuthRequest extends Request {
-  admin?: any & { roleId?: string };
+  admin?: any & { roleId?: string; kommuneId?: number | null };
   companyUser?: any;
 }
 
@@ -94,52 +97,93 @@ function getRequestUserEmail(req: AuthRequest): string | null {
 }
 
 async function syncCompanyUserToPortalAccess(email: string, role: string, companyId: number) {
+  const normalizedEmail = email.trim().toLowerCase();
   const normalizedRole = normalizeRole(role);
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const roleId = await resolveSystemRoleIdByName(normalizedRole);
+
+  // LOWER(email) matcher det case-insensitive innloggingsoppslaget i
+  // custom-auth.ts — en case-eksakt WHERE her ville la en annen-case
+  // e-post smette forbi tenant-sjekken under og opprette en duplisert
+  // users-rad med angriperens vendor_id (kontoovertakelse).
+  const {
+    rows: [existingUser],
+  } = await pool.query(`SELECT id, vendor_id FROM users WHERE LOWER(email) = $1 LIMIT 1`, [normalizedEmail]);
 
   if (existingUser) {
-    await db
-      .update(users)
-      .set({
-        email,
-        role: normalizedRole,
-        vendorId: companyId,
-        updatedAt: new Date(),
-      })
-      .where(eq(users.id, existingUser.id));
+    if (existingUser.vendor_id !== companyId) {
+      // E-posten tilhører allerede en bruker i en ANNEN virksomhet — ikke
+      // overskriv rolle/vendor stille (kontoovertakelse på tvers av
+      // virksomheter). Kallstedene fanger denne meldingen og svarer 409.
+      throw new Error('TENANT_MISMATCH');
+    }
+    await pool.query(
+      `UPDATE users SET email = $1, role = $2, role_id = $3, vendor_id = $4, updated_at = NOW() WHERE id = $5`,
+      [normalizedEmail, normalizedRole, roleId, companyId, existingUser.id],
+    );
   } else {
-    await db.insert(users).values({
-      email,
-      role: normalizedRole,
-      vendorId: companyId,
-    });
+    // username/password are NOT NULL columns on the shared public.users
+    // table (owned by an unrelated product, see
+    // .claude/skills/rolle-tilgangssystem/references/fallgruver.md) —
+    // this invite flow never collects a separate username, so the email
+    // itself is used. password is never read for auth here (magic-link
+    // is the real auth path) — same placeholder as the vendor-admin
+    // route's users insert above.
+    await pool.query(
+      `INSERT INTO users (username, password, email, role, role_id, vendor_id)
+       VALUES ($1, 'unused-admin-users-pairing', $2, $3, $4, $5)`,
+      [normalizedEmail, normalizedEmail, normalizedRole, roleId, companyId],
+    );
   }
 }
 
 async function resolveActorRoleForCompany(req: AuthRequest, companyId: number): Promise<string> {
   const normalizedAuthRole = normalizeRole((req.user as any)?.role || req.admin?.role);
+  // Fail-closed: kommune-roller (barnevernsleder/kommune_saksbehandler) skal
+  // ALDRI kvalifisere som aktør i vendor-side company-user-administrasjon,
+  // uansett rang — canManageRoleDynamic sin globale rank-skala kan ikke
+  // uttrykke at kommune- og vendor-hierarkiet er disjunkte (se
+  // .superpowers/sdd/2026-08-23-kommune-tenant-roller/progress.md, "Final
+  // whole-branch review: CRITICAL privilege escalation found"). "member" har
+  // ingen manageable roller (MANAGEABLE_BY_ROLE.member = []), så dette
+  // stopper alle nedstrøms rang-/medlemskapssjekk umiddelbart.
+  if (isKommuneRole(normalizedAuthRole)) {
+    return "member";
+  }
   if (await canManageUsersDynamic(normalizedAuthRole)) {
-    return normalizedAuthRole;
+    const actorVendorId = (req.admin as any)?.vendorId ?? (req.user as any)?.vendorId;
+    if (normalizedAuthRole === 'super_admin' || actorVendorId === companyId) {
+      return normalizedAuthRole;
+    }
+    // Ikke medlem av denne company_id-en — IKKE returner denne rollen.
+    // Fall videre til tidum_company_users-oppslaget under, som allerede
+    // korrekt scoper på company_id + e-post.
   }
 
   const actorEmail = getRequestUserEmail(req);
   if (!actorEmail) {
-    return normalizedAuthRole;
+    // Ingen e-post å slå opp aktørens medlemskap for denne company_id-en —
+    // fail closed i stedet for å returnere en uverifisert rolle.
+    return "member";
   }
 
   const actorRoleResult = await pool.query(
-    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND user_email = $2 LIMIT 1`,
+    `SELECT role FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) ORDER BY id ASC LIMIT 1`,
     [companyId, actorEmail]
   );
 
   if (actorRoleResult.rows.length === 0) {
-    return normalizedAuthRole;
+    // Aktøren har ingen rad i tidum_company_users for DENNE company_id-en —
+    // ingen bekreftet medlemskap. Fail closed (samme mønster som
+    // isKommuneRole-guarden over) i stedet for å returnere aktørens
+    // opprinnelige, uverifiserte rolle (BOLA: en gyldig aktør kan ellers
+    // bytte company_id i requesten og beholde sin egen rolle på en fremmed
+    // virksomhet).
+    return "member";
   }
 
-  return normalizeRole(actorRoleResult.rows[0].role);
+  const dbRole = normalizeRole(actorRoleResult.rows[0].role);
+  return isKommuneRole(dbRole) ? "member" : dbRole;
 }
-
-const isDevMode = process.env.NODE_ENV !== 'production';
 
 const DEFAULT_ANALYTICS_EXCLUDED_PATHS = [
   "/dashboard",
@@ -270,20 +314,72 @@ async function pairAdminUserWithUsersTable(params: {
 
 // JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
 // different `id` spaces (see authenticateAdmin below):
-//  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
+//  1. /api/admin/session-token signs `id: users.id` and `authSource: users`.
 //  2. /api/admin/login signs `id: tidum_admin_users.id` (a separate serial id
-//     space) and carries no email in the payload, so the direct users.id
-//     lookup matches zero rows for these tokens. Join through tidum_admin_users
+//     space) and `authSource: tidum_admin_users`. Join through tidum_admin_users
 //     -> users on email (the only field verified to be shared between the
 //     two tables — both declare it `unique`) to find the linked users row.
 //  3. If no linked users row exists at all (a pure tidum_admin_users-only
-//     account), fall back to resolving the system role by the JWT's own
-//     `role` string. NOT assumed to be super_admin — tidum_admin_users.role
-//     defaults to 'vendor_admin' in the schema, so this must look up
-//     whichever role name is actually on the token.
+//     account), resolve the CURRENT role from tidum_admin_users. Do not trust
+//     the role embedded in a potentially 24-hour-old JWT for control-plane
+//     authorization after the account has been changed or disabled.
 // Fails closed (undefined) on DB error, same as resolveSuperAdminRoleId —
 // hasPermission() then denies rather than this rejecting the whole request.
-async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Promise<string | undefined> {
+async function resolveJwtAdminRoleId(admin: {
+  id?: string;
+  role?: string;
+  email?: string;
+  authSource?: "users" | "tidum_admin_users";
+}): Promise<string | undefined> {
+  const rawAdminId = String(admin.id ?? "").trim();
+  const numericAdminId = /^\d+$/.test(rawAdminId) ? Number(rawAdminId) : Number.NaN;
+  const isPostgresIntegerId =
+    Number.isSafeInteger(numericAdminId) && numericAdminId > 0 && numericAdminId <= 2_147_483_647;
+
+  // New tokens state their id space explicitly. Legacy /api/admin/login
+  // tokens were numeric and omitted email, while session tokens carry email;
+  // retain that narrow heuristic only until those 24-hour tokens expire.
+  const shouldResolveAdminTable = admin.authSource === "tidum_admin_users"
+    || (admin.authSource === undefined && isPostgresIntegerId && !admin.email);
+
+  try {
+    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
+    // to lowercase when writing users.email, but tidum_admin_users.email keeps
+    // whatever case the caller supplied — an exact-case join would miss
+    // the pairing for any mixed-case admin email and fall through to the
+    // (correct but less precise) name-based fallback below. Found in
+    // fase 1.5's final review.
+    // tidum_admin_users.id is SERIAL/integer, while users.id and several JWT
+    // issuers legitimately use string ids. Never send an untrusted string to
+    // PostgreSQL's integer cast just to discover that it belongs to the other
+    // id space.
+    if (shouldResolveAdminTable && isPostgresIntegerId) {
+      const byAdminUsersEmail = await pool.query(
+        `SELECT a.role AS admin_role, u.id AS linked_user_id, u.role_id
+           FROM tidum_admin_users a
+           LEFT JOIN users u ON LOWER(u.email) = LOWER(a.email)
+          WHERE a.id = $1 AND a.is_active = true`,
+        [numericAdminId],
+      );
+      if (byAdminUsersEmail.rows.length > 0) {
+        const row = byAdminUsersEmail.rows[0];
+        // En koblet users-rad med eksplisitt NULL role_id betyr at tilgangen
+        // er fjernet. Ikke fall tilbake til tekstrollen og gjenopprett den.
+        if (row.linked_user_id != null) return row.role_id ?? undefined;
+        return row.admin_role
+          ? (await resolveSystemRoleIdByName(row.admin_role)) ?? undefined
+          : undefined;
+      }
+      // A numeric, email-less legacy token belongs to this id space. If its
+      // active admin row is gone, never fall through to a coincidentally
+      // matching users.id.
+      return undefined;
+    }
+  } catch (err) {
+    console.error('[authenticateAdmin] failed tidum_admin_users email-join roleId lookup', err);
+    if (shouldResolveAdminTable) return undefined;
+  }
+
   try {
     const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
     if (byUsersId.rows.length > 0) {
@@ -297,25 +393,7 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
     console.error('[authenticateAdmin] failed users.id roleId lookup', err);
   }
 
-  try {
-    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
-    // to lowercase when writing users.email, but tidum_admin_users.email keeps
-    // whatever case the caller supplied — an exact-case join would miss
-    // the pairing for any mixed-case admin email and fall through to the
-    // (correct but less precise) name-based fallback below. Found in
-    // fase 1.5's final review.
-    const byAdminUsersEmail = await pool.query(
-      `SELECT u.role_id FROM tidum_admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
-      [admin.id],
-    );
-    if (byAdminUsersEmail.rows.length > 0) {
-      return byAdminUsersEmail.rows[0].role_id ?? undefined;
-    }
-  } catch (err) {
-    console.error('[authenticateAdmin] failed tidum_admin_users email-join roleId lookup', err);
-  }
-
-  return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
+  return undefined;
 }
 
 // Skriver én rad per mutasjonsforsøk mot en authenticateAdmin-gated rute —
@@ -354,17 +432,37 @@ function attachActivityLogging(req: AuthRequest, res: Response): void {
   });
 }
 
+function isCmsControlPlaneRequest(req: AuthRequest): boolean {
+  const requestPath = req.path.replace(/\/+$/, "");
+  return requestPath === "/api/cms" || requestPath.startsWith("/api/cms/");
+}
+
+async function completeAdminAuthentication(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  attachActivityLogging(req, res);
+  if (
+    isCmsControlPlaneRequest(req)
+    && !(await hasPermission(req.admin?.roleId, "cms.manage"))
+  ) {
+    res.status(403).json({ error: "Global CMS-tilgang kreves" });
+    return;
+  }
+  next();
+}
+
 export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
-  // DEV MODE: bypass auth
-  if (isDevMode) {
+  // Local super-admin injection is opt-in as well as non-production.
+  if (isDevAuthBypassAllowed()) {
     req.admin = {
       id: '1',
       email: 'dev@tidum.no',
       role: 'super_admin',
       roleId: (await resolveSuperAdminRoleId()) ?? undefined,
     };
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
@@ -372,7 +470,7 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
     let decoded: any;
     try {
       const token = authHeader.split(' ')[1];
-      decoded = jwt.verify(token, JWT_SECRET) as any;
+      decoded = jwt.verify(token, requireAuthJwtSecret()) as any;
     } catch (err) {
       return res.status(401).json({ error: 'Invalid token' });
     }
@@ -381,38 +479,38 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
     // error resolving roleId must not be reported as "Invalid token" (401,
     // logging the admin out). resolveJwtAdminRoleId fails closed to
     // undefined on error, matching hasPermission's fail-closed behavior.
-    if (!req.admin.roleId) {
+    if (isCmsControlPlaneRequest(req) || !req.admin.roleId) {
       req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
     }
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
-    req.admin = { id: user.id, email: user.email, role: user.role, roleId: user.roleId ?? undefined };
+    req.admin = {
+      id: user.id,
+      authSource: 'users',
+      email: user.email,
+      role: user.role,
+      roleId: user.roleId ?? undefined,
+      vendorId: (user as any).vendorId ?? undefined,
+    };
     // AuthUser (server/lib/auth-types.ts) doesn't carry roleId today, so
     // look it up the same way the JWT branch does rather than touching
     // custom-auth.ts. Fail closed on a DB error instead of hanging the
     // request, same as resolveSuperAdminRoleId above.
-    if (!req.admin.roleId) {
-      try {
-        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [user.id]);
-        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
-      } catch (err) {
-        console.error('[authenticateAdmin] failed to resolve session user roleId', err);
-      }
+    if (isCmsControlPlaneRequest(req) || !req.admin.roleId) {
+      req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
     }
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   return res.status(401).json({ error: 'Authentication required' });
 }
 
 // Middleware: require any authenticated user (session or JWT)
 function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
-  // DEV MODE: bypass auth
-  if (isDevMode) {
+  // Local super-admin injection is opt-in as well as non-production.
+  if (isDevAuthBypassAllowed()) {
     req.admin = { id: '1', email: 'dev@tidum.no', role: 'super_admin' };
     return next();
   }
@@ -425,7 +523,7 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
   if (authHeader?.startsWith('Bearer ')) {
     try {
       const token = authHeader.split(' ')[1];
-      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      const decoded = jwt.verify(token, requireAuthJwtSecret()) as any;
       req.admin = decoded;
       return next();
     } catch (err) {
@@ -433,6 +531,60 @@ function requireAuth(req: AuthRequest, res: Response, next: NextFunction) {
     }
   }
   return res.status(401).json({ error: 'Authentication required' });
+}
+
+type CaseReportActor = {
+  id: string;
+  vendorId: number;
+  role: string;
+};
+
+function caseReportActor(req: AuthRequest): CaseReportActor | null {
+  const identity = (req as any).authUser ?? req.user ?? req.admin;
+  const id = String((identity as any)?.id ?? '').trim();
+  const vendorId = Number((identity as any)?.vendorId ?? (identity as any)?.vendor_id);
+  const role = normalizeRole(String((identity as any)?.role ?? ''));
+  if (!id || !Number.isInteger(vendorId) || vendorId <= 0) return null;
+  return { id, vendorId, role };
+}
+
+function requireCaseReportActor(req: AuthRequest, res: Response): CaseReportActor | null {
+  const actor = caseReportActor(req);
+  if (!actor) {
+    res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+    return null;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return actor;
+}
+
+type CaseReportAdminScope = {
+  actorId: string;
+  vendorId: number | null;
+  isGlobal: boolean;
+};
+
+function requireCaseReportAdminScope(req: AuthRequest, res: Response): CaseReportAdminScope | null {
+  const identity = req.admin ?? (req as any).authUser ?? req.user;
+  const actorId = String((identity as any)?.id ?? '').trim();
+  const role = normalizeRole(String((identity as any)?.role ?? ''));
+  const rawVendorId = Number((identity as any)?.vendorId ?? (identity as any)?.vendor_id);
+  const vendorId = Number.isInteger(rawVendorId) && rawVendorId > 0 ? rawVendorId : null;
+
+  if (!actorId || !ADMIN_ROLES.includes(role)) {
+    res.status(403).json({ error: 'Krever leder- eller administratorrolle' });
+    return null;
+  }
+  if (role === 'super_admin' && vendorId === null) {
+    res.setHeader('Cache-Control', 'no-store');
+    return { actorId, vendorId: null, isGlobal: true };
+  }
+  if (vendorId === null) {
+    res.status(403).json({ error: 'Administrator mangler tenant-tilknytning' });
+    return null;
+  }
+  res.setHeader('Cache-Control', 'no-store');
+  return { actorId, vendorId, isGlobal: false };
 }
 
 function normalizeBlogMedia<T extends {
@@ -457,6 +609,10 @@ function normalizeBlogMedia<T extends {
 }
 
 export function registerSmartTimingRoutes(app: Express) {
+  // Route registration is exercised repeatedly by integration tests. Startup
+  // schema checks, seeders and intervals belong to the real server lifecycle,
+  // not to each temporary Express app created by a test.
+  const shouldRunStartupJobs = process.env.NODE_ENV !== 'test' && !process.env.VITEST;
   
   // ========== SERVER-SIDE PII DETECTION ==========
   // Mirrors client-side detection as a safety net for GDPR compliance
@@ -681,12 +837,6 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   }
   
-  // Serve uploaded files statically
-  app.use('/uploads', (req, res, next) => {
-    const express = require('express');
-    express.static(uploadDir)(req, res, next);
-  });
-
   // Serve attached assets (logos, images etc.)
   app.use('/assets', (req, res, next) => {
     const express = require('express');
@@ -734,28 +884,20 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // Health check
   app.get("/api/health", async (_req, res) => {
+    const secrets = getSecretBoxRuntimeStatus();
+    if (process.env.NODE_ENV === "production" && !secrets.productionReady) {
+      return res.status(503).json({ status: 'error', database: 'unknown', secrets: 'error' });
+    }
     try {
       const result = await pool.query('SELECT NOW()');
-      res.json({ status: 'ok', timestamp: result.rows[0].now });
-    } catch (err: any) {
-      res.status(500).json({ status: 'error', error: err.message });
-    }
-  });
-
-  // ========== IMAGE UPLOAD ==========
-  app.post("/api/upload", authenticateAdmin, upload.single('image'), (req: AuthRequest, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
-      const fileUrl = `/uploads/${req.file.filename}`;
-      res.json({ 
-        success: true, 
-        url: fileUrl,
-        filename: req.file.filename
+      res.json({
+        status: 'ok',
+        database: 'ready',
+        secrets: secrets.configured ? 'ready' : 'not_configured',
+        timestamp: result.rows[0].now,
       });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch {
+      res.status(503).json({ status: 'error', database: 'error', secrets: 'unknown' });
     }
   });
 
@@ -1129,7 +1271,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const result = await pool.query(
         `SELECT a.*, v.name as vendor_name, v.slug as vendor_slug 
          FROM tidum_admin_users a 
-         LEFT JOIN vendors v ON a.vendor_id::text = v.id::text 
+         LEFT JOIN tidum_vendors v ON a.vendor_id::text = v.id::text
          WHERE (a.username = $1 OR a.email = $1) AND a.is_active = true`,
         [username]
       );
@@ -1150,13 +1292,14 @@ export function registerSmartTimingRoutes(app: Express) {
       const token = jwt.sign(
         { 
           id: admin.id, 
+          authSource: 'tidum_admin_users',
           username: admin.username, 
           role: admin.role,
           vendorId: admin.vendor_id,
           vendorName: admin.vendor_name,
           vendorSlug: admin.vendor_slug
         },
-        JWT_SECRET,
+        requireAuthJwtSecret(),
         { expiresIn: '24h' }
       );
       
@@ -1194,7 +1337,7 @@ export function registerSmartTimingRoutes(app: Express) {
     let vendorSlug: string | null = null;
     if (sessionUser.vendorId) {
       try {
-        const v = await pool.query('SELECT name, slug FROM vendors WHERE id = $1', [sessionUser.vendorId]);
+        const v = await pool.query('SELECT name, slug FROM tidum_vendors WHERE id = $1', [sessionUser.vendorId]);
         vendorName = v.rows[0]?.name ?? null;
         vendorSlug = v.rows[0]?.slug ?? null;
       } catch {}
@@ -1203,6 +1346,7 @@ export function registerSmartTimingRoutes(app: Express) {
     const token = jwt.sign(
       {
         id: sessionUser.id,
+        authSource: 'users',
         username: sessionUser.email,
         email: sessionUser.email,
         role,
@@ -1210,7 +1354,7 @@ export function registerSmartTimingRoutes(app: Express) {
         vendorName,
         vendorSlug,
       },
-      JWT_SECRET,
+      requireAuthJwtSecret(),
       { expiresIn: '24h' }
     );
     res.json({ token, role, email: sessionUser.email, vendorId: sessionUser.vendorId ?? null });
@@ -1222,7 +1366,7 @@ export function registerSmartTimingRoutes(app: Express) {
         `SELECT a.id, a.username, a.email, a.role, a.vendor_id, a.last_login, a.created_at,
                 v.name as vendor_name, v.slug as vendor_slug
          FROM tidum_admin_users a
-         LEFT JOIN vendors v ON a.vendor_id = v.id
+         LEFT JOIN tidum_vendors v ON a.vendor_id = v.id
          WHERE a.id = $1`,
         [req.admin.id]
       );
@@ -1242,11 +1386,11 @@ export function registerSmartTimingRoutes(app: Express) {
         if (!req.admin.vendorId) {
           return res.status(403).json({ error: 'Access denied' });
         }
-        const result = await pool.query('SELECT * FROM vendors WHERE id = $1', [req.admin.vendorId]);
+        const result = await pool.query('SELECT * FROM tidum_vendors WHERE id = $1', [req.admin.vendorId]);
         return res.json(result.rows);
       }
       
-      const result = await pool.query('SELECT * FROM vendors ORDER BY name');
+      const result = await pool.query('SELECT * FROM tidum_vendors ORDER BY name');
       res.json(result.rows);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1262,7 +1406,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(403).json({ error: 'Access denied' });
       }
       
-      const result = await pool.query('SELECT * FROM vendors WHERE id = $1', [vendorId]);
+      const result = await pool.query('SELECT * FROM tidum_vendors WHERE id = $1', [vendorId]);
       if (result.rows.length === 0) return res.status(404).json({ error: 'Vendor not found' });
       res.json(result.rows[0]);
     } catch (err: any) {
@@ -1290,7 +1434,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `INSERT INTO vendors (name, slug, email, phone, address, org_number, institution_type, status, max_users, subscription_plan)
+        `INSERT INTO tidum_vendors (name, slug, email, phone, address, org_number, institution_type, status, max_users, subscription_plan)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
         [name, slug, email, phone, address, orgNumber || null, institutionType || null, status || 'active', maxUsers || 50, subscriptionPlan || 'standard']
       );
@@ -1321,7 +1465,7 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Ugyldig virksomhetstype' });
       }
       const result = await pool.query(
-        `UPDATE vendors SET
+        `UPDATE tidum_vendors SET
           name = COALESCE($1, name),
           email = COALESCE($2, email),
           phone = COALESCE($3, phone),
@@ -1352,7 +1496,7 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       const vendorId = parseInt(req.params.id);
-      await pool.query('DELETE FROM vendors WHERE id = $1', [vendorId]);
+      await pool.query('DELETE FROM tidum_vendors WHERE id = $1', [vendorId]);
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -1396,6 +1540,24 @@ export function registerSmartTimingRoutes(app: Express) {
         return res.status(400).json({ error: 'Brukernavn og e-post er påkrevd' });
       }
 
+      const normalizedEmail = email.toLowerCase().trim();
+
+      const { rows: [conflict] } = await pool.query(
+        `SELECT vendor_id FROM (
+           SELECT vendor_id::text AS vendor_id FROM users WHERE LOWER(TRIM(email)) = $1
+           UNION ALL
+           SELECT vendor_id::text FROM tidum_company_users WHERE LOWER(TRIM(user_email)) = $1
+           UNION ALL
+           SELECT vendor_id::text FROM tidum_admin_users WHERE LOWER(TRIM(email)) = $1
+         ) AS matches
+         WHERE vendor_id IS DISTINCT FROM $2::text
+         LIMIT 1`,
+        [normalizedEmail, String(vendorId)],
+      );
+      if (conflict) {
+        return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+      }
+
       // Password is optional — if omitted we generate a strong random one.
       // The admin logs in via magic link; password is a fallback.
       const effectivePassword = password?.trim()
@@ -1406,7 +1568,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const adminResult = await pool.query(
         `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id)
          VALUES ($1, $2, $3, 'vendor_admin', $4) RETURNING id, username, email, role, vendor_id, created_at`,
-        [username, email, passwordHash, vendorId]
+        [username, normalizedEmail, passwordHash, vendorId]
       );
 
       // 2. Portal user (users table) — magic-link logs in against this.
@@ -1423,7 +1585,6 @@ export function registerSmartTimingRoutes(app: Express) {
       // point is to deliberately overwrite it: a vendor explicitly invites
       // this person as vendor_admin, same intent as the tidum_company_users
       // insert right below.
-      const normalizedEmail = email.toLowerCase().trim();
       const vendorAdminRoleId = (await pool.query(
         `SELECT id FROM tidum_roles WHERE name = 'vendor_admin' AND scope = 'global' AND is_system_default = true`,
       )).rows[0]?.id ?? null;
@@ -1455,7 +1616,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (sendInvite !== false) {
         try {
           const [vendorRow] = (await pool.query(
-            'SELECT name, institution_type FROM vendors WHERE id = $1',
+            'SELECT name, institution_type FROM tidum_vendors WHERE id = $1',
             [vendorId]
           )).rows;
           const loginUrl = buildEmailLoginUrl(normalizedEmail);
@@ -1476,6 +1637,142 @@ export function registerSmartTimingRoutes(app: Express) {
     } catch (err: any) {
       if (String(err?.code) === '23505') {
         return res.status(409).json({ error: 'Brukernavn eller e-post finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/kommuner", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Kun super_admin kan opprette kommuner' });
+      }
+
+      const { navn, orgNummer, kommunenummer } = req.body;
+      if (!navn?.trim()) {
+        return res.status(400).json({ error: 'navn er påkrevd' });
+      }
+      if (!orgNummer || !/^\d{9}$/.test(String(orgNummer))) {
+        return res.status(400).json({ error: 'Organisasjonsnummer må være 9 siffer' });
+      }
+
+      const result = await pool.query(
+        `INSERT INTO tidum_kommuner (navn, org_nummer, kommunenummer)
+         VALUES ($1, $2, $3) RETURNING *`,
+        [navn, orgNummer, kommunenummer || null]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'Kommune med samme organisasjonsnummer finnes allerede' });
+      }
+      res.status(400).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/kommuner/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      if (req.admin.role !== 'super_admin') {
+        return res.status(403).json({ error: 'Kun super_admin kan endre kommuner' });
+      }
+
+      const kommuneId = parseInt(req.params.id);
+      const { navn, kommunenummer, entraIdTenantId, status } = req.body;
+
+      const result = await pool.query(
+        `UPDATE tidum_kommuner SET
+          navn = COALESCE($1, navn),
+          kommunenummer = COALESCE($2, kommunenummer),
+          entra_id_tenant_id = COALESCE($3, entra_id_tenant_id),
+          status = COALESCE($4, status),
+          updated_at = NOW()
+         WHERE id = $5 RETURNING *`,
+        [navn, kommunenummer, entraIdTenantId, status, kommuneId]
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Kommune ikke funnet' });
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Inviter en barnevernsleder eller kommune_saksbehandler til en kommune.
+  // Speiler POST /api/vendors/:id/admins, men enklere: kommune-brukere
+  // skriver KUN til users (ikke tidum_admin_users/tidum_company_users, som
+  // er vendor-spesifikke legacy-tabeller uten mening for en kommune-tenant).
+  app.post("/api/kommuner/:id/admins", authenticateAdmin, async (req: AuthRequest, res) => {
+    try {
+      const kommuneId = parseInt(req.params.id);
+      const { email, fullName, role = 'barnevernsleder', sendInvite = true } = req.body;
+
+      if (!email?.trim()) {
+        return res.status(400).json({ error: 'E-post er påkrevd' });
+      }
+      if (role !== 'barnevernsleder' && role !== 'kommune_saksbehandler') {
+        return res.status(400).json({ error: 'Ugyldig rolle — må være barnevernsleder eller kommune_saksbehandler' });
+      }
+
+      // Kun super_admin i denne runden. En ekte barnevernslederes selvbetjente
+      // invitasjon av kommune_saksbehandler krever en sesjonsbasert rute
+      // (req.user, ikke req.admin/authenticateAdmin sitt interne admin-panel-
+      // JWT-system) — kan først bygges korrekt når Task 3 (Entra ID) etablerer
+      // hvordan en ekte innlogget kommune-bruker-sesjon faktisk ser ut. Bevisst
+      // utelatt her fremfor å skipe en ikke-fungerende gren som ville sett ut
+      // som den virket.
+      //
+      // Autorisasjonssjekken (403) kjører FØR eksistenssjekken (404) —
+      // ellers kan en hvilken som helst autentisert admin-token-innehaver
+      // (ikke bare super_admin) skille eksisterende fra ikke-eksisterende
+      // kommune-IDer via 404-vs-403, uten å ha rettigheter til ruten i det
+      // hele tatt. Samme rekkefølge som søsken-rutene POST /api/kommuner og
+      // PATCH /api/kommuner/:id.
+      const allowed = req.admin.role === 'super_admin';
+      if (!allowed) {
+        return res.status(403).json({ error: 'Ikke tilgang til å invitere denne rollen på denne kommunen' });
+      }
+
+      const kommuneExists = await pool.query(`SELECT 1 FROM tidum_kommuner WHERE id = $1`, [kommuneId]);
+      if (kommuneExists.rows.length === 0) {
+        return res.status(404).json({ error: 'Kommune ikke funnet' });
+      }
+
+      const normalizedEmail = email.toLowerCase().trim();
+      const roleId = (await pool.query(
+        `SELECT id FROM tidum_roles WHERE name = $1 AND scope = 'global' AND is_system_default = true`,
+        [role],
+      )).rows[0]?.id ?? null;
+
+      const [firstName, ...rest] = (fullName || '').split(' ');
+      const userResult = await pool.query(
+        `INSERT INTO users (id, username, password, email, first_name, last_name, role, role_id, kommune_id)
+         VALUES (gen_random_uuid(), $1, 'unused-admin-users-pairing', $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (email) DO UPDATE
+         SET role = $5, role_id = $6, kommune_id = $7, vendor_id = NULL, updated_at = NOW()
+         RETURNING id, email, role, kommune_id`,
+        [normalizedEmail, normalizedEmail, firstName || null, rest.join(' ') || null, role, roleId, kommuneId]
+      );
+
+      let emailSent = false;
+      if (sendInvite !== false) {
+        try {
+          const loginUrl = buildEmailLoginUrl(normalizedEmail);
+          await emailService.sendVendorAdminMagicLinkInviteEmail({
+            to: normalizedEmail,
+            fullName: fullName || normalizedEmail,
+            company: null,
+            institutionType: null,
+            loginUrl,
+          });
+          emailSent = true;
+        } catch (e) {
+          console.error('⚠️ Kommune-invitasjon e-post feilet:', e);
+        }
+      }
+
+      res.status(201).json({ ...userResult.rows[0], emailSent });
+    } catch (err: any) {
+      if (String(err?.code) === '23505') {
+        return res.status(409).json({ error: 'E-post finnes allerede' });
       }
       res.status(400).json({ error: err.message });
     }
@@ -2209,7 +2506,7 @@ export function registerSmartTimingRoutes(app: Express) {
       if (!email) return res.json({ companyId: null });
 
       const result = await pool.query(
-        `SELECT company_id FROM tidum_company_users WHERE user_email = $1 LIMIT 1`,
+        `SELECT company_id FROM tidum_company_users WHERE LOWER(user_email) = LOWER($1) LIMIT 1`,
         [email]
       );
 
@@ -2230,12 +2527,22 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.get("/api/company/users", requireAuth, async (req, res) => {
     try {
-      const companyId = req.query.company_id || 1;
+      const actorRole = normalizeRole((req.user as any)?.role || (req as any).admin?.role);
+      const actorVendorId = (req.user as any)?.vendorId ?? (req as any).admin?.vendorId;
+      const requestedCompanyId = req.query.company_id != null ? Number(req.query.company_id) : undefined;
+      const companyId = requestedCompanyId ?? actorVendorId;
+
+      if (companyId == null) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens brukere' });
+      }
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens brukere' });
+      }
       const result = await pool.query(
-        `SELECT cu.*, 
+        `SELECT cu.*,
           (SELECT json_agg(uc.*) FROM tidum_user_cases uc WHERE uc.company_user_id = cu.id) as cases
-         FROM tidum_company_users cu 
-         WHERE cu.company_id = $1 
+         FROM tidum_company_users cu
+         WHERE cu.company_id = $1
          ORDER BY cu.created_at DESC`,
         [companyId]
       );
@@ -2269,7 +2576,15 @@ export function registerSmartTimingRoutes(app: Express) {
       );
 
       if (user_email) {
-        await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+        try {
+          await syncCompanyUserToPortalAccess(user_email, targetRole, companyId);
+        } catch (syncErr: any) {
+          if (syncErr?.message === 'TENANT_MISMATCH') {
+            await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [result.rows[0].id]);
+            return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+          }
+          throw syncErr;
+        }
       }
 
       // Insert-time seat-overrun-check (T17). Best-effort — skal aldri
@@ -2384,7 +2699,17 @@ export function registerSmartTimingRoutes(app: Express) {
           );
           if (result.rows[0]) {
             created.push(result.rows[0]);
-            await syncCompanyUserToPortalAccess(email, targetRole, companyId);
+            try {
+              await syncCompanyUserToPortalAccess(email, targetRole, companyId);
+            } catch (syncErr: any) {
+              if (syncErr?.message === 'TENANT_MISMATCH') {
+                await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [result.rows[0].id]);
+                skipped.push({ email, reason: 'E-postadressen tilhører allerede en annen virksomhet' });
+                created.pop();
+                continue;
+              }
+              throw syncErr;
+            }
             // Best-effort invite email
             emailService.sendCompanyInviteEmail(email, targetRole, inviterName)
               .catch(err => console.error(`bulk invite email failed for ${email}:`, err));
@@ -2418,7 +2743,14 @@ export function registerSmartTimingRoutes(app: Express) {
   app.patch("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { role, approved } = req.body;
-      const companyId = Number(req.body.company_id || req.query.company_id) || 1;
+      const rawCompanyId = req.body.company_id ?? req.query.company_id;
+      if (rawCompanyId == null) {
+        return res.status(400).json({ error: 'company_id er påkrevd' });
+      }
+      const companyId = Number(rawCompanyId);
+      if (!Number.isFinite(companyId)) {
+        return res.status(400).json({ error: 'company_id må være et tall' });
+      }
       const actorRole = await resolveActorRoleForCompany(req, companyId);
 
       if (!(await canManageUsersDynamic(actorRole))) {
@@ -2434,20 +2766,37 @@ export function registerSmartTimingRoutes(app: Express) {
         }
       }
 
+      const currentResult = await pool.query(
+        `SELECT * FROM tidum_company_users WHERE id = $1 AND company_id = $2`,
+        [req.params.id, companyId]
+      );
+      if (currentResult.rows.length === 0) return res.status(404).json({ error: 'User not found' });
+      const currentRow = currentResult.rows[0];
+
+      const finalRole = role != null ? normalizeRole(role) : currentRow.role;
+      const finalApproved = approved ?? currentRow.approved;
+
+      // Valider (og fail closed på TENANT_MISMATCH) FØR vi muterer
+      // tidum_company_users — ellers persisteres rolle/approved-endringen
+      // selv om syncen under svarer 409 (tidum_company_users brukes selv
+      // som autorisasjonskilde av resolveActorRoleForCompany).
+      if (finalApproved === true && currentRow.user_email) {
+        try {
+          await syncCompanyUserToPortalAccess(currentRow.user_email, finalRole || 'member', companyId);
+        } catch (syncErr: any) {
+          if (syncErr?.message === 'TENANT_MISMATCH') {
+            return res.status(409).json({ error: 'E-postadressen tilhører allerede en annen virksomhet' });
+          }
+          throw syncErr;
+        }
+      }
+
       const result = await pool.query(
         `UPDATE tidum_company_users SET role = COALESCE($1, role), approved = COALESCE($2, approved), updated_at = NOW()
-         WHERE id = $3 RETURNING *`,
-        [role ? normalizeRole(role) : null, approved, req.params.id]
+         WHERE id = $3 AND company_id = $4 RETURNING *`,
+        [role ? normalizeRole(role) : null, approved, req.params.id, companyId]
       );
       if (result.rows.length === 0) return res.status(404).json({ error: 'User not found' });
-
-      if (result.rows[0].approved === true && result.rows[0].user_email) {
-        await syncCompanyUserToPortalAccess(
-          result.rows[0].user_email,
-          result.rows[0].role || 'member',
-          companyId
-        );
-      }
 
       // Send email when user is approved
       if (approved === true && result.rows[0].user_email) {
@@ -2482,13 +2831,24 @@ export function registerSmartTimingRoutes(app: Express) {
 
   app.delete("/api/company/users/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const companyId = Number(req.body?.company_id || req.query.company_id) || 1;
+      const rawCompanyId = req.body?.company_id ?? req.query.company_id;
+      if (rawCompanyId == null) {
+        return res.status(400).json({ error: 'company_id er påkrevd' });
+      }
+      const companyId = Number(rawCompanyId);
+      if (!Number.isFinite(companyId)) {
+        return res.status(400).json({ error: 'company_id må være et tall' });
+      }
       const actorRole = await resolveActorRoleForCompany(req, companyId);
       if (!(await canManageUsersDynamic(actorRole))) {
         return res.status(403).json({ error: 'Du har ikke tilgang til å fjerne brukere.' });
       }
 
-      await pool.query('DELETE FROM tidum_company_users WHERE id = $1', [req.params.id]);
+      const delResult = await pool.query(
+        'DELETE FROM tidum_company_users WHERE id = $1 AND company_id = $2',
+        [req.params.id, companyId]
+      );
+      if (delResult.rowCount === 0) return res.status(404).json({ error: 'User not found' });
       res.status(204).send();
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -2541,14 +2901,20 @@ export function registerSmartTimingRoutes(app: Express) {
   app.get("/api/company/logs", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
       const { company_id, user_email, month, year } = req.query;
-      
+      const companyId = Number(company_id) || 1;
+      const actorRole = (req as any).authUser?.role;
+      const actorVendorId = (req as any).authUser?.vendorId;
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens logger' });
+      }
+
       let query = `
         SELECT lr.*, cu.user_email, cu.role
         FROM tidum_log_row lr
         JOIN tidum_company_users cu ON lr.user_id = cu.user_email
         WHERE cu.company_id = $1
       `;
-      const params: any[] = [company_id || 1];
+      const params: any[] = [companyId];
       let paramIndex = 2;
       
       if (user_email) {
@@ -2573,7 +2939,12 @@ export function registerSmartTimingRoutes(app: Express) {
   // ========== COMPANY AUDIT LOG ==========
   app.get("/api/company/audit", requireAuth, sharedRequireAdminRole, async (req, res) => {
     try {
-      const companyId = req.query.company_id || 1;
+      const companyId = Number(req.query.company_id) || 1;
+      const actorRole = (req as any).authUser?.role;
+      const actorVendorId = (req as any).authUser?.vendorId;
+      if (actorRole !== 'super_admin' && actorVendorId !== companyId) {
+        return res.status(403).json({ error: 'Ikke tilgang til denne virksomhetens revisjonslogg' });
+      }
       const result = await pool.query(
         `SELECT cal.*, cu.user_email as actor_email
          FROM tidum_company_audit_log cal
@@ -2773,7 +3144,7 @@ export function registerSmartTimingRoutes(app: Express) {
           submitted_at TIMESTAMP DEFAULT NOW()
         );
         
-        CREATE TABLE IF NOT EXISTS vendors (
+        CREATE TABLE IF NOT EXISTS tidum_vendors (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL,
           slug TEXT UNIQUE,
@@ -2802,7 +3173,7 @@ export function registerSmartTimingRoutes(app: Express) {
           email TEXT NOT NULL UNIQUE,
           password_hash TEXT NOT NULL,
           role TEXT DEFAULT 'admin',
-          vendor_id INTEGER REFERENCES vendors(id),
+          vendor_id INTEGER REFERENCES tidum_vendors(id),
           is_active BOOLEAN DEFAULT TRUE,
           last_login TIMESTAMP,
           created_at TIMESTAMP DEFAULT NOW(),
@@ -2812,30 +3183,9 @@ export function registerSmartTimingRoutes(app: Express) {
       
       // Add vendor_id column if it doesn't exist (for existing tables)
       await pool.query(`
-        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES vendors(id);
+        ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS vendor_id INTEGER REFERENCES tidum_vendors(id);
         ALTER TABLE tidum_admin_users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
       `);
-      
-      // Create default admin if none exists, or reset password if exists
-      const adminCheck = await pool.query('SELECT COUNT(*) FROM tidum_admin_users WHERE username = $1', ['admin']);
-      const passwordHash = await bcrypt.hash('admin123', 10);
-      if (parseInt(adminCheck.rows[0].count) === 0) {
-        await pool.query(
-          `INSERT INTO tidum_admin_users (username, email, password_hash, role) VALUES ($1, $2, $3, $4)`,
-          ['admin', 'admin@smarttiming.no', passwordHash, 'super_admin']
-        );
-        // Pare med users-tabellen, samme mønster som create-super/bootstrap.
-        await pairAdminUserWithUsersTable({
-          username: 'admin',
-          email: 'admin@smarttiming.no',
-          role: 'super_admin',
-        });
-      } else {
-        await pool.query(
-          `UPDATE tidum_admin_users SET password_hash = $1 WHERE username = $2`,
-          [passwordHash, 'admin']
-        );
-      }
       
       res.json({ success: true, message: 'CMS tables created successfully' });
     } catch (err: any) {
@@ -2862,7 +3212,9 @@ export function registerSmartTimingRoutes(app: Express) {
       console.error('Error updating testimonials table:', err);
     }
   }
-  updateTestimonialsTable();
+  if (shouldRunStartupJobs) {
+    void updateTestimonialsTable();
+  }
 
   // ========== CMS: SEED DEFAULT CONTENT ==========
   app.post("/api/cms/seed", authenticateAdmin, async (_req, res) => {
@@ -3344,7 +3696,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SITE SETTINGS ==========
-  app.get("/api/cms/settings", async (_req, res) => {
+  app.get("/api/cms/settings", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM site_settings ORDER BY key');
       res.json(result.rows);
@@ -3822,7 +4174,7 @@ export function registerSmartTimingRoutes(app: Express) {
         pool.query('SELECT * FROM tidum_landing_testimonials WHERE is_active = true ORDER BY display_order'),
         pool.query('SELECT * FROM tidum_landing_cta WHERE is_active = true LIMIT 1'),
         pool.query('SELECT * FROM tidum_landing_partners WHERE is_active = true ORDER BY display_order').catch(() => ({ rows: [] })),
-        pool.query("SELECT id, name, logo_url, website_url FROM vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
+        pool.query("SELECT id, name, logo_url, NULL::text AS website_url FROM tidum_vendors WHERE status = 'active' ORDER BY name").catch(() => ({ rows: [] })),
       ]);
       
       res.json({
@@ -4371,27 +4723,26 @@ export function registerSmartTimingRoutes(app: Express) {
       `);
       
       if (tableCheck.rows.length > 0) {
-        // Check if it has user_id column (snake_case)
+        // Never drop a live report table from application startup. Schema
+        // repair belongs in a reviewed migration; destructive recreation can
+        // permanently erase child-welfare case documentation.
         const columnCheck = await pool.query(`
           SELECT column_name FROM information_schema.columns 
           WHERE table_name = 'tidum_case_reports' AND column_name = 'user_id'
         `);
         
         if (columnCheck.rows.length === 0) {
-          // Table exists but with wrong column names (camelCase), drop and recreate
-          console.log('Dropping tidum_case_reports table with incorrect schema...');
-          await pool.query('DROP TABLE IF EXISTS tidum_case_reports');
-        } else {
-          console.log('Case reports table already exists with correct schema');
-          return;
+          throw new Error('tidum_case_reports has an unsupported schema; run a reviewed migration');
         }
+        console.log('Case reports table already exists with correct schema');
+        return;
       }
       
       // Create table with snake_case columns
       await pool.query(`
         CREATE TABLE IF NOT EXISTS tidum_case_reports (
           id SERIAL PRIMARY KEY,
-          vendor_id INTEGER,
+          vendor_id INTEGER NOT NULL,
           user_id TEXT NOT NULL,
           user_cases_id INTEGER,
           case_id TEXT NOT NULL,
@@ -4421,10 +4772,15 @@ export function registerSmartTimingRoutes(app: Express) {
   }
   
   // Ensure table exists on startup
-  ensureCaseReportsTable();
+  if (shouldRunStartupJobs) {
+    void ensureCaseReportsTable();
+  }
 
   // Setup tidum_case_reports table (admin endpoint)
-  app.post("/api/case-reports/setup", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.post("/api/case-reports/setup", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    if (!scope.isGlobal) return res.status(403).json({ error: 'Kun global super_admin kan kjøre skjemaoppsett' });
     try {
       await ensureCaseReportsTable();
       res.json({ success: true, message: 'Case reports table created' });
@@ -4434,41 +4790,50 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Get all case reports for a user
-  app.get("/api/case-reports", requireAuth, async (req, res) => {
+  app.get("/api/case-reports", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const { user_id } = req.query;
-      const userId = user_id || 'default';
-      
       const result = await pool.query(
-        `SELECT * FROM tidum_case_reports WHERE user_id = $1 ORDER BY created_at DESC`,
-        [userId]
+        `SELECT * FROM tidum_case_reports
+         WHERE vendor_id = $1 AND user_id = $2
+         ORDER BY created_at DESC`,
+        [actor.vendorId, actor.id]
       );
       res.json({ reports: result.rows });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporter' });
     }
   });
 
   // Get single case report
-  app.get("/api/case-reports/:id", requireAuth, async (req, res, next) => {
+  app.get("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res, next) => {
     // Skip non-numeric IDs so named routes like /suggestions can be handled elsewhere
     if (!/^\d+$/.test(req.params.id)) return next();
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const result = await pool.query(
+        `SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3`,
+        [id, actor.vendorId, actor.id],
+      );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporten' });
     }
   });
 
   // Create new case report
-  app.post("/api/case-reports", requireAuth, async (req, res) => {
+  app.post("/api/case-reports", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const authUserId: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
       const { 
         user_cases_id, case_id, month, background, actions, 
         progress, challenges, factors, assessment, recommendations, notes 
@@ -4479,10 +4844,10 @@ export function registerSmartTimingRoutes(app: Express) {
       
       const result = await pool.query(
         `INSERT INTO tidum_case_reports 
-         (user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'draft')
+         (vendor_id, user_id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes, status)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, 'draft')
          RETURNING *`,
-        [authUserId, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
+        [actor.vendorId, actor.id, user_cases_id, case_id, month, background, actions, progress, challenges, factors, assessment, recommendations, notes]
       );
 
       const response: any = result.rows[0];
@@ -4491,19 +4856,21 @@ export function registerSmartTimingRoutes(app: Express) {
         response.pii_warning_message = `Advarsel: ${piiWarnings.length} mulige personopplysninger oppdaget. Navn og personlig informasjon er ikke tillatt i Tidum. Vennligst gjennomgå rapporten.`;
       }
       res.status(201).json(response);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report create error:', err);
+      res.status(400).json({ error: 'Kunne ikke opprette saksrapporten' });
     }
   });
 
   // Update case report
-  app.put("/api/case-reports/:id", requireAuth, async (req, res) => {
+  app.put("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
       const { 
         background, actions, progress, challenges, factors, 
-        assessment, recommendations, notes, status,
-        rejection_reason, rejected_by,
+        assessment, recommendations, notes,
         case_id, month
       } = req.body;
       
@@ -4521,69 +4888,87 @@ export function registerSmartTimingRoutes(app: Express) {
       if (assessment !== undefined) { query += `, assessment = $${paramIndex++}`; values.push(assessment); }
       if (recommendations !== undefined) { query += `, recommendations = $${paramIndex++}`; values.push(recommendations); }
       if (notes !== undefined) { query += `, notes = $${paramIndex++}`; values.push(notes); }
-      if (status !== undefined) { 
-        query += `, status = $${paramIndex++}`; 
-        values.push(status);
-        if (status === 'rejected') {
-          query += `, rejection_reason = $${paramIndex++}, rejected_by = $${paramIndex++}, rejected_at = NOW()`;
-          values.push(rejection_reason || '');
-          values.push(rejected_by || 'admin');
-        } else if (status === 'approved') {
-          query += `, approved_at = NOW()`;
-        }
-      }
-      
-      query += ` WHERE id = $${paramIndex} RETURNING *`;
-      values.push(id);
+      query += ` WHERE id = $${paramIndex++} AND vendor_id = $${paramIndex++} AND user_id = $${paramIndex++}
+                 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`;
+      values.push(id, actor.vendorId, actor.id);
       
       const result = await pool.query(query, values);
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report update error:', err);
+      res.status(500).json({ error: 'Kunne ikke oppdatere saksrapporten' });
     }
   });
 
   // Delete case report
-  app.delete("/api/case-reports/:id", requireAuth, async (req, res) => {
+  app.delete("/api/case-reports/:id", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      await pool.query('DELETE FROM tidum_case_reports WHERE id = $1', [id]);
+      const result = await pool.query(
+        `DELETE FROM tidum_case_reports
+         WHERE id = $1 AND vendor_id = $2 AND user_id = $3 AND status = 'draft'
+         RETURNING id`,
+        [id, actor.vendorId, actor.id],
+      );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
       res.status(204).send();
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette saksrapporten' });
     }
   });
 
   // Admin: Get all reports for review
   app.get("/api/admin/case-reports", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { status } = req.query;
       let query = 'SELECT * FROM tidum_case_reports';
       const params: any[] = [];
-      
-      if (status) {
-        query += ' WHERE status = $1';
-        params.push(status);
+
+      const conditions: string[] = [];
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        conditions.push(`vendor_id = $${params.length}`);
       }
+      if (status) {
+        params.push(status);
+        conditions.push(`status = $${params.length}`);
+      }
+      if (conditions.length > 0) query += ` WHERE ${conditions.join(' AND ')}`;
       query += ' ORDER BY created_at DESC';
       
       const result = await pool.query(query, params);
       res.json({ reports: result.rows });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente saksrapporter' });
     }
   });
 
   // Admin: Approve report
   app.post("/api/admin/case-reports/:id/approve", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
+      const params: any[] = [req.admin?.username || scope.actorId, id];
+      let where = `id = $2 AND status IN ('pending', 'submitted')`;
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        where += ` AND vendor_id = $3`;
+      }
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW() WHERE id = $2 RETURNING *`,
-        [req.admin?.username || 'admin', id]
+        `UPDATE tidum_case_reports
+         SET status = 'approved', approved_by = $1, approved_at = NOW(), updated_at = NOW()
+         WHERE ${where} RETURNING *`,
+        params,
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
@@ -4592,30 +4977,45 @@ export function registerSmartTimingRoutes(app: Express) {
       // Notify the report author
       const cr = result.rows[0];
       if (cr.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: 'report_approved',
-          title: 'Saksrapport godkjent',
-          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er godkjent.`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: 'report_approved',
+            title: 'Saksrapport godkjent',
+            message: `Din saksrapport «${cr.title || 'Uten tittel'}» er godkjent.`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id },
+          });
+        } catch (notificationError) {
+          console.error('Case report approval notification error:', notificationError);
+        }
       }
 
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report approve error:', err);
+      res.status(500).json({ error: 'Kunne ikke godkjenne saksrapporten' });
     }
   });
 
   // Admin: Reject report
   app.post("/api/admin/case-reports/:id/reject", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
       const { reason } = req.body;
+      const params: any[] = [reason, req.admin?.username || scope.actorId, id];
+      let where = `id = $3 AND status IN ('pending', 'submitted')`;
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
+        where += ` AND vendor_id = $4`;
+      }
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW() WHERE id = $3 RETURNING *`,
-        [reason, req.admin?.username || 'admin', id]
+        `UPDATE tidum_case_reports
+         SET status = 'rejected', rejection_reason = $1, rejected_by = $2, rejected_at = NOW(), updated_at = NOW()
+         WHERE ${where} RETURNING *`,
+        params,
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
@@ -4624,19 +5024,24 @@ export function registerSmartTimingRoutes(app: Express) {
       // Notify the report author
       const cr = result.rows[0];
       if (cr.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: 'report_rejected',
-          title: 'Saksrapport avvist',
-          message: `Din saksrapport «${cr.title || 'Uten tittel'}» er avvist.${reason ? ` Grunn: ${reason}` : ''}`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id, reason },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: 'report_rejected',
+            title: 'Saksrapport avvist',
+            message: `Din saksrapport «${cr.title || 'Uten tittel'}» er avvist.${reason ? ` Grunn: ${reason}` : ''}`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id, reason },
+          });
+        } catch (notificationError) {
+          console.error('Case report rejection notification error:', notificationError);
+        }
       }
 
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Admin case report reject error:', err);
+      res.status(500).json({ error: 'Kunne ikke avvise saksrapporten' });
     }
   });
 
@@ -4647,7 +5052,7 @@ export function registerSmartTimingRoutes(app: Express) {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS tidum_report_comments (
         id SERIAL PRIMARY KEY,
-        report_id INTEGER NOT NULL,
+        report_id INTEGER NOT NULL REFERENCES tidum_case_reports(id) ON DELETE CASCADE,
         author_id TEXT NOT NULL,
         author_name TEXT,
         author_role TEXT DEFAULT 'user',
@@ -4663,44 +5068,54 @@ export function registerSmartTimingRoutes(app: Express) {
   ensureReportCommentsTable();
 
   // Get comments for a report (user must own the report or be admin)
-  app.get("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
+  app.get("/api/case-reports/:id/comments", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { id } = req.params;
-      const { include_internal, user_id } = req.query;
-      
-      // Verify user owns this report (basic auth check)
-      if (user_id) {
-        const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
-        if (reportCheck.rows.length === 0) {
-          return res.status(404).json({ error: 'Report not found' });
-        }
-        if (reportCheck.rows[0].user_id !== user_id) {
-          return res.status(403).json({ error: 'Access denied' });
-        }
+      const identity = req.admin ?? (req as any).authUser ?? req.user;
+      const role = normalizeRole(String((identity as any)?.role ?? ''));
+      const isAdminViewer = ADMIN_ROLES.includes(role);
+
+      if (isAdminViewer) {
+        const scope = requireCaseReportAdminScope(req, res);
+        if (!scope) return;
+        const reportCheck = scope.isGlobal
+          ? await pool.query('SELECT id FROM tidum_case_reports WHERE id = $1', [id])
+          : await pool.query('SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2', [id, scope.vendorId]);
+        if (reportCheck.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
+      } else {
+        const actor = requireCaseReportActor(req, res);
+        if (!actor) return;
+        const reportCheck = await pool.query(
+          'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+          [id, actor.vendorId, actor.id],
+        );
+        if (reportCheck.rows.length === 0) return res.status(404).json({ error: 'Report not found' });
       }
       
       let query = `SELECT * FROM tidum_report_comments WHERE report_id = $1`;
-      if (!include_internal) {
+      if (!isAdminViewer || req.query.include_internal !== 'true') {
         query += ` AND is_internal = false`;
       }
       query += ` ORDER BY created_at ASC`;
       
       const result = await pool.query(query, [id]);
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comments read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente kommentarer' });
     }
   });
 
   // Add comment to a report (user must own the report)
-  app.post("/api/case-reports/:id/comments", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/comments", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const { author_name, author_role, content, is_internal, parent_id } = req.body;
-      const author_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
+      const { content, parent_id } = req.body;
       
-      if (!content || !author_id) {
-        return res.status(400).json({ error: 'Content and author_id are required' });
+      if (!content || typeof content !== 'string') {
+        return res.status(400).json({ error: 'Content is required' });
       }
 
       // Validate content length
@@ -4709,86 +5124,93 @@ export function registerSmartTimingRoutes(app: Express) {
       }
       
       // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
-      if (reportCheck.rows[0].user_id !== author_id) {
-        return res.status(403).json({ error: 'Access denied - you can only comment on your own reports' });
-      }
-
-      // Users cannot add internal notes
-      const finalIsInternal = author_role === 'admin' ? (is_internal || false) : false;
       
       const result = await pool.query(
         `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal, parent_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-        [id, author_id, author_name, author_role || 'user', content, finalIsInternal, parent_id]
+         SELECT $1, $2, $3, $4, $5, $6, $7
+         WHERE $7::integer IS NULL
+            OR EXISTS (
+              SELECT 1 FROM tidum_report_comments parent
+              WHERE parent.id = $7 AND parent.report_id = $1
+            )
+         RETURNING *`,
+        [id, actor.id, actor.id, 'user', content, false, parent_id]
       );
+      if (result.rows.length === 0) {
+        return res.status(400).json({ error: 'Parent comment must belong to the same report' });
+      }
       res.status(201).json(result.rows[0]);
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comment create error:', err);
+      res.status(400).json({ error: 'Kunne ikke opprette kommentaren' });
     }
   });
 
   // Mark comments as read (user must own the report)
-  app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/comments/mark-read", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
-      const reader_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
-
-      if (!reader_id) {
-        return res.status(400).json({ error: 'reader_id required' });
-      }
-      
-      // Verify user owns this report
-      const reportCheck = await pool.query('SELECT user_id FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT id FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
-      }
-      if (reportCheck.rows[0].user_id !== reader_id) {
-        return res.status(403).json({ error: 'Access denied' });
       }
       
       await pool.query(
         `UPDATE tidum_report_comments SET read_at = NOW() WHERE report_id = $1 AND author_id != $2 AND read_at IS NULL`,
-        [id, reader_id]
+        [id, actor.id]
       );
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report comments mark-read error:', err);
+      res.status(500).json({ error: 'Kunne ikke markere kommentarer som lest' });
     }
   });
 
   // Get unread comment count for authenticated user
-  app.get("/api/case-reports/unread-count", requireAuth, async (req, res) => {
+  app.get("/api/case-reports/unread-count", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
-      const user_id: string = (req.user as any)?.id ?? (req as any).admin?.id ?? "";
-      if (!user_id) {
-        return res.status(400).json({ error: 'user_id required' });
-      }
-      
       // Get reports owned by user that have unread comments from others
       const result = await pool.query(`
         SELECT COUNT(DISTINCT rc.id) as unread_count
         FROM tidum_report_comments rc
         JOIN tidum_case_reports cr ON rc.report_id = cr.id
-        WHERE cr.user_id = $1 AND rc.author_id != $1 AND rc.read_at IS NULL AND rc.is_internal = false
-      `, [user_id]);
+        WHERE cr.vendor_id = $1 AND cr.user_id = $2
+          AND rc.author_id != $2 AND rc.read_at IS NULL AND rc.is_internal = false
+      `, [actor.vendorId, actor.id]);
       
       res.json({ unread_count: parseInt(result.rows[0].unread_count) || 0 });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report unread count error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente uleste kommentarer' });
     }
   });
 
   // Submit report for review (change status from draft to pending)
-  app.post("/api/case-reports/:id/submit", requireAuth, async (req, res) => {
+  app.post("/api/case-reports/:id/submit", requireAuth, async (req: AuthRequest, res) => {
+    const actor = requireCaseReportActor(req, res);
+    if (!actor) return;
     try {
       const { id } = req.params;
 
       // Fetch the report content for PII scanning before submission
-      const reportCheck = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const reportCheck = await pool.query(
+        'SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 AND user_id = $3',
+        [id, actor.vendorId, actor.id],
+      );
       if (reportCheck.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found' });
       }
@@ -4815,66 +5237,92 @@ export function registerSmartTimingRoutes(app: Express) {
       }
 
       const result = await pool.query(
-        `UPDATE tidum_case_reports SET status = 'pending', updated_at = NOW() WHERE id = $1 AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
-        [id]
+        `UPDATE tidum_case_reports SET status = 'pending', updated_at = NOW()
+         WHERE id = $1 AND vendor_id = $2 AND user_id = $3
+           AND status IN ('draft', 'rejected', 'needs_revision') RETURNING *`,
+        [id, actor.vendorId, actor.id]
       );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Report not found or cannot be submitted' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Case report submit error:', err);
+      res.status(500).json({ error: 'Kunne ikke sende inn saksrapporten' });
     }
   });
 
   // Admin: Add feedback comment and optionally request revision
   app.post("/api/admin/case-reports/:id/feedback", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    const client = await pool.connect();
     try {
       const { id } = req.params;
       const { content, request_revision, is_internal } = req.body;
-      
-      // Add comment
+      if (content != null && (typeof content !== 'string' || content.length > 5000)) {
+        return res.status(400).json({ error: 'Kommentar må være tekst på maksimalt 5000 tegn' });
+      }
+
+      await client.query('BEGIN');
+      const reportCheck = scope.isGlobal
+        ? await client.query('SELECT * FROM tidum_case_reports WHERE id = $1 FOR UPDATE', [id])
+        : await client.query('SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2 FOR UPDATE', [id, scope.vendorId]);
+      if (reportCheck.rows.length === 0) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ error: 'Report not found' });
+      }
+
       if (content) {
-        await pool.query(
+        await client.query(
           `INSERT INTO tidum_report_comments (report_id, author_id, author_name, author_role, content, is_internal)
            VALUES ($1, $2, $3, 'admin', $4, $5)`,
-          [id, req.admin?.username || 'admin', req.admin?.username || 'Administrator', content, is_internal || false]
+          [id, scope.actorId, req.admin?.username || scope.actorId, content, is_internal === true]
         );
       }
-      
-      // Optionally set status to needs_revision
+
       if (request_revision) {
-        await pool.query(
+        await client.query(
           `UPDATE tidum_case_reports SET status = 'needs_revision', updated_at = NOW() WHERE id = $1`,
           [id]
         );
       }
-      
-      const report = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
+      const report = await client.query('SELECT * FROM tidum_case_reports WHERE id = $1', [id]);
       const cr = report.rows[0];
+      await client.query('COMMIT');
 
       // Notify the report author about feedback / revision request
       if (cr?.user_id) {
-        await createNotification({
-          userId: cr.user_id,
-          type: request_revision ? 'report_revision' : 'report_feedback',
-          title: request_revision ? 'Saksrapport returnert for revidering' : 'Ny tilbakemelding på saksrapport',
-          message: request_revision
-            ? `Din saksrapport «${cr.title || 'Uten tittel'}» er sendt tilbake for revidering.${content ? ` Kommentar: ${content}` : ''}`
-            : `Ny kommentar på saksrapport «${cr.title || 'Uten tittel'}»: ${content?.substring(0, 100) || ''}`,
-          link: '/case-reports',
-          metadata: { reportId: cr.id },
-        });
+        try {
+          await createNotification({
+            userId: cr.user_id,
+            type: request_revision ? 'report_revision' : 'report_feedback',
+            title: request_revision ? 'Saksrapport returnert for revidering' : 'Ny tilbakemelding på saksrapport',
+            message: request_revision
+              ? `Din saksrapport «${cr.title || 'Uten tittel'}» er sendt tilbake for revidering.${content ? ` Kommentar: ${content}` : ''}`
+              : `Ny kommentar på saksrapport «${cr.title || 'Uten tittel'}»: ${content?.substring(0, 100) || ''}`,
+            link: '/case-reports',
+            metadata: { reportId: cr.id },
+          });
+        } catch (notificationError) {
+          // The feedback transaction is already committed. A notification
+          // outage must not turn that successful write into a false 500.
+          console.error('Case report feedback notification error:', notificationError);
+        }
       }
 
       res.json(report.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      console.error('Admin case report feedback error:', err);
+      res.status(500).json({ error: 'Kunne ikke lagre tilbakemeldingen' });
+    } finally {
+      client.release();
     }
   });
 
   // ========== CMS: MEDIA LIBRARY ==========
-  app.get("/api/cms/media", async (req, res) => {
+  app.get("/api/cms/media", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { folder_id } = req.query;
       let query = 'SELECT * FROM cms_media';
@@ -4895,7 +5343,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/media/folders", async (_req, res) => {
+  app.get("/api/cms/media/folders", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_media_folders ORDER BY name');
       res.json(result.rows);
@@ -5059,7 +5507,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: FORMS ==========
-  app.get("/api/cms/forms", async (_req, res) => {
+  app.get("/api/cms/forms", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_forms ORDER BY created_at DESC');
       res.json(result.rows);
@@ -5068,7 +5516,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/forms/:id", async (req, res) => {
+  app.get("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_forms WHERE id = $1', [req.params.id]);
       res.json(result.rows[0] || null);
@@ -5202,7 +5650,7 @@ export function registerSmartTimingRoutes(app: Express) {
   }
 
   // Admin: list posts with pagination
-  app.get("/api/cms/posts", async (req, res) => {
+  app.get("/api/cms/posts", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { status, category_id, page = '1', limit = '20' } = req.query;
       const pageNum = Math.max(1, parseInt(page as string, 10) || 1);
@@ -5432,7 +5880,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // Admin: get post by ID
-  app.get("/api/cms/posts/:id", async (req, res) => {
+  app.get("/api/cms/posts/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query(
         'SELECT p.*, c.name as category_name FROM tidum_cms_posts p LEFT JOIN tidum_cms_categories c ON p.category_id = c.id WHERE p.id = $1',
@@ -5700,19 +6148,21 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // ========== SCHEDULED PUBLISHING CRON ==========
   // Check for scheduled posts every 60 seconds
-  setInterval(async () => {
-    try {
-      const result = await pool.query(
-        `UPDATE tidum_cms_posts SET status = 'published', published_at = NOW(), updated_at = NOW()
-         WHERE status = 'scheduled' AND scheduled_at <= NOW() RETURNING id, title`
-      );
-      if (result.rows.length > 0) {
-        console.log(`[Blog] Auto-published ${result.rows.length} scheduled posts:`, result.rows.map((r: any) => r.title));
+  if (shouldRunStartupJobs) {
+    setInterval(async () => {
+      try {
+        const result = await pool.query(
+          `UPDATE tidum_cms_posts SET status = 'published', published_at = NOW(), updated_at = NOW()
+           WHERE status = 'scheduled' AND scheduled_at <= NOW() RETURNING id, title`
+        );
+        if (result.rows.length > 0) {
+          console.log(`[Blog] Auto-published ${result.rows.length} scheduled posts:`, result.rows.map((r: any) => r.title));
+        }
+      } catch (err) {
+        // Silently ignore - table might not exist yet
       }
-    } catch (err) {
-      // Silently ignore - table might not exist yet
-    }
-  }, 60000);
+    }, 60000);
+  }
 
   // ========== CONTENT VERSIONING ==========
 
@@ -6537,6 +6987,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       ` : '';
 
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipientEmail,
         replyTo: email,
         subject: `${company ? `[${company}] ` : ''}Henvendelse: ${subject}`,
@@ -6630,7 +7081,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Send test email
   app.post("/api/cms/email/test", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { template_id, recipient_email, variables } = req.body;
+      const parsed = cmsEmailTestSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig testmelding" });
+      const { template_id, recipient_email, variables } = parsed.data;
       
       // Get template
       const templateResult = await pool.query('SELECT * FROM email_templates WHERE id = $1', [template_id]);
@@ -6651,14 +7104,15 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       let subject = template.subject;
       if (variables) {
         for (const [key, value] of Object.entries(variables)) {
-          const regex = new RegExp(`{{${key}}}`, 'g');
-          htmlContent = htmlContent.replace(regex, value as string);
-          subject = subject.replace(regex, value as string);
+          const placeholder = `{{${key}}}`;
+          htmlContent = htmlContent.split(placeholder).join(value);
+          subject = subject.split(placeholder).join(value);
         }
       }
 
       // Send email using centralized email service
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipient_email,
         subject: subject,
         html: htmlContent,
@@ -6675,14 +7129,18 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       res.json({ success: true, message: 'Test email sent successfully' });
     } catch (err: any) {
       console.error('Email send error:', err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Kunne ikke sende testmeldingen" });
     }
   });
 
   // Get email send history
   app.get("/api/cms/email/history", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
+      const requestedLimit = Number(req.query.limit ?? 50);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+        return res.status(400).json({ error: "Ugyldig grense" });
+      }
+      const limit = Math.min(requestedLimit, 100);
       const result = await pool.query(
         `SELECT h.*, t.name as template_name FROM tidum_email_send_history h
          LEFT JOIN email_templates t ON h.template_id = t.id
@@ -6691,7 +7149,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       );
       res.json(result.rows);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("CMS email history failed:", err);
+      res.status(500).json({ error: "Kunne ikke hente e-posthistorikk" });
     }
   });
 
@@ -6861,7 +7320,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       await pool.query(`
         CREATE TABLE IF NOT EXISTS tidum_report_generated (
           id SERIAL PRIMARY KEY,
-          case_report_id INTEGER NOT NULL,
+          case_report_id INTEGER NOT NULL REFERENCES tidum_case_reports(id) ON DELETE CASCADE,
           template_id INTEGER NOT NULL,
           generated_by TEXT,
           pdf_url TEXT,
@@ -6893,39 +7352,61 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     }
   }
 
-  ensureReportTables();
+  if (shouldRunStartupJobs) {
+    void ensureReportTables();
+  }
 
   // Get all report templates
-  app.get("/api/report-templates", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const result = await pool.query(
-        `SELECT * FROM tidum_report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`
-      );
+      const result = scope.isGlobal
+        ? await pool.query(`SELECT * FROM tidum_report_templates WHERE is_active = true ORDER BY is_default DESC, name ASC`)
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE is_active = true
+               AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $1)
+             ORDER BY is_default DESC, name ASC`,
+            [scope.vendorId],
+          );
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportmaler' });
     }
   });
 
   // Get single report template
   app.get("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      const result = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [id])
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE id = $1 AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $2)`,
+            [id, scope.vendorId],
+          );
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template read error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportmalen' });
     }
   });
 
   // Create report template
   app.post("/api/report-templates", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const {
-        name, description, company_id, paper_size, orientation,
+        name, description, paper_size, orientation,
         margin_top, margin_bottom, margin_left, margin_right,
         header_enabled, header_height, header_logo_url, header_logo_position,
         header_title, header_subtitle, header_show_date, header_show_page_numbers,
@@ -6934,6 +7415,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         blocks, is_default,
         template_type, privacy_notice_enabled, privacy_notice_text
       } = req.body;
+      const scopedCompanyId = scope.isGlobal ? null : scope.vendorId;
 
       // GDPR enforcement: miljøarbeider templates MUST have privacy notice enabled
       let finalPrivacyEnabled = privacy_notice_enabled;
@@ -6958,7 +7440,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29, $30, $31, $32)
         RETURNING *`,
         [
-          name, description, company_id, paper_size || 'A4', orientation || 'portrait',
+          name, description, scopedCompanyId, paper_size || 'A4', orientation || 'portrait',
           margin_top || '20mm', margin_bottom || '20mm', margin_left || '15mm', margin_right || '15mm',
           header_enabled !== false, header_height || '25mm', header_logo_url, header_logo_position || 'left',
           header_title, header_subtitle, header_show_date !== false, header_show_page_numbers !== false,
@@ -6970,13 +7452,16 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ]
       );
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template create error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette rapportmalen' });
     }
   });
 
   // Update report template
   app.put("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
       const updates = { ...req.body };
@@ -6989,7 +7474,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         }
       }
       
-      const fields = Object.keys(updates).filter(k => k !== 'id' && k !== 'created_at');
+      const { fields, rejectedFields } = selectReportTemplateUpdateFields(updates);
+      if (rejectedFields.length > 0) {
+        return res.status(400).json({
+          error: 'Invalid fields in report template update',
+          fields: rejectedFields,
+        });
+      }
       if (fields.length === 0) {
         return res.status(400).json({ error: 'No fields to update' });
       }
@@ -6997,33 +7488,50 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const setClause = fields.map((f, i) => `${f} = $${i + 2}`).join(', ');
       const values = fields.map(f => f === 'blocks' ? JSON.stringify(updates[f]) : updates[f]);
 
+      const scopeFilter = scope.isGlobal
+        ? ''
+        : ` AND COALESCE(vendor_id, company_id) = $${values.length + 2}`;
       const result = await pool.query(
-        `UPDATE tidum_report_templates SET ${setClause}, updated_at = NOW() WHERE id = $1 RETURNING *`,
-        [id, ...values]
+        `UPDATE tidum_report_templates SET ${setClause}, updated_at = NOW()
+         WHERE id = $1${scopeFilter} RETURNING *`,
+        scope.isGlobal ? [id, ...values] : [id, ...values, scope.vendorId]
       );
 
       if (result.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template update error:', err);
+      res.status(500).json({ error: 'Kunne ikke oppdatere rapportmalen' });
     }
   });
 
   // Delete report template
   app.delete("/api/report-templates/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      await pool.query('UPDATE tidum_report_templates SET is_active = false WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('UPDATE tidum_report_templates SET is_active = false WHERE id = $1 RETURNING id', [id])
+        : await pool.query(
+            `UPDATE tidum_report_templates SET is_active = false
+             WHERE id = $1 AND COALESCE(vendor_id, company_id) = $2 RETURNING id`,
+            [id, scope.vendorId],
+          );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Template not found' });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette rapportmalen' });
     }
   });
 
   // Get available block types
-  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.get("/api/report-templates/blocks/types", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const result = await pool.query('SELECT * FROM tidum_report_block_types WHERE is_active = true ORDER BY name');
       if (result.rows.length === 0) {
@@ -7053,7 +7561,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   });
 
   // Seed default block types
-  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (_req: AuthRequest, res) => {
+  app.post("/api/report-templates/blocks/seed", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
+    if (!scope.isGlobal) return res.status(403).json({ error: 'Kun global super_admin kan endre systemblokker' });
     try {
       const defaultBlocks = [
         { type: 'header', name: 'Topptekst', description: 'Logo og tittel', icon: 'FileText', available_fields: ['logo', 'title', 'subtitle', 'date'], default_config: { showLogo: true, showDate: true } },
@@ -7089,13 +7600,15 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
   // Get report assets
   app.get("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const { company_id, type } = req.query;
+      const { type } = req.query;
       let query = 'SELECT * FROM tidum_report_assets WHERE is_active = true';
       const params: any[] = [];
-      
-      if (company_id) {
-        params.push(company_id);
+
+      if (!scope.isGlobal) {
+        params.push(scope.vendorId);
         query += ` AND (company_id = $${params.length} OR company_id IS NULL)`;
       }
       if (type) {
@@ -7106,51 +7619,79 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       query += ' ORDER BY created_at DESC';
       const result = await pool.query(query, params);
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset list error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente rapportressurser' });
     }
   });
 
   // Upload report asset
   app.post("/api/report-assets", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { name, type, url, mime_type, size, width, height, company_id } = req.body;
+      const requestedCompanyId = Number(company_id);
+      const scopedCompanyId = scope.isGlobal && Number.isInteger(requestedCompanyId) && requestedCompanyId > 0
+        ? requestedCompanyId
+        : scope.vendorId;
       const result = await pool.query(
         `INSERT INTO tidum_report_assets (name, type, url, mime_type, size, width, height, company_id, uploaded_by)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-        [name, type, url, mime_type, size, width, height, company_id, req.admin?.username]
+        [name, type, url, mime_type, size, width, height, scopedCompanyId, req.admin?.username || scope.actorId]
       );
       res.json(result.rows[0]);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset create error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette rapportressursen' });
     }
   });
 
   // Delete report asset
   app.delete("/api/report-assets/:id", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { id } = req.params;
-      await pool.query('UPDATE tidum_report_assets SET is_active = false WHERE id = $1', [id]);
+      const result = scope.isGlobal
+        ? await pool.query('UPDATE tidum_report_assets SET is_active = false WHERE id = $1 RETURNING id', [id])
+        : await pool.query(
+            'UPDATE tidum_report_assets SET is_active = false WHERE id = $1 AND company_id = $2 RETURNING id',
+            [id, scope.vendorId],
+          );
+      if (result.rows.length === 0) return res.status(404).json({ error: 'Asset not found' });
       res.json({ success: true });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report asset delete error:', err);
+      res.status(500).json({ error: 'Kunne ikke slette rapportressursen' });
     }
   });
 
   // Generate PDF from template
   app.post("/api/report-templates/:templateId/generate/:caseReportId", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const { templateId, caseReportId } = req.params;
 
       // Get template
-      const templateResult = await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1', [templateId]);
+      const templateResult = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_report_templates WHERE id = $1 AND is_active = true', [templateId])
+        : await pool.query(
+            `SELECT * FROM tidum_report_templates
+             WHERE id = $1 AND is_active = true
+               AND ((vendor_id IS NULL AND company_id IS NULL) OR COALESCE(vendor_id, company_id) = $2)`,
+            [templateId, scope.vendorId],
+          );
       if (templateResult.rows.length === 0) {
         return res.status(404).json({ error: 'Template not found' });
       }
       const template = templateResult.rows[0];
 
       // Get case report data
-      const reportResult = await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [caseReportId]);
+      const reportResult = scope.isGlobal
+        ? await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1', [caseReportId])
+        : await pool.query('SELECT * FROM tidum_case_reports WHERE id = $1 AND vendor_id = $2', [caseReportId, scope.vendorId]);
       if (reportResult.rows.length === 0) {
         return res.status(404).json({ error: 'Case report not found' });
       }
@@ -7359,36 +7900,53 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       await pool.query(
         `INSERT INTO tidum_report_generated (case_report_id, template_id, generated_by, metadata)
          VALUES ($1, $2, $3, $4)`,
-        [caseReportId, templateId, req.admin?.username, JSON.stringify({ generated_at: new Date() })]
+        [caseReportId, templateId, req.admin?.username || scope.actorId, JSON.stringify({ generated_at: new Date() })]
       );
 
       doc.end();
-    } catch (err: any) {
+    } catch (err) {
       console.error('PDF generation error:', err);
-      res.status(500).json({ error: err.message });
+      if (!res.headersSent) res.status(500).json({ error: 'Kunne ikke generere rapport-PDF' });
+      else res.end();
     }
   });
 
   // Get generation history
   app.get("/api/report-generated", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
-      const result = await pool.query(
-        `SELECT g.*, t.name as template_name, r.case_id, r.month
-         FROM tidum_report_generated g
-         LEFT JOIN tidum_report_templates t ON g.template_id = t.id
-         LEFT JOIN tidum_case_reports r ON g.case_report_id = r.id
-         ORDER BY g.created_at DESC LIMIT $1`,
-        [limit]
-      );
+      const requestedLimit = Number.parseInt(String(req.query.limit ?? '50'), 10);
+      const limit = Math.min(100, Math.max(1, Number.isFinite(requestedLimit) ? requestedLimit : 50));
+      const result = scope.isGlobal
+        ? await pool.query(
+            `SELECT g.*, t.name as template_name, r.case_id, r.month
+             FROM tidum_report_generated g
+             LEFT JOIN tidum_report_templates t ON g.template_id = t.id
+             JOIN tidum_case_reports r ON g.case_report_id = r.id
+             ORDER BY g.created_at DESC LIMIT $1`,
+            [limit],
+          )
+        : await pool.query(
+            `SELECT g.*, t.name as template_name, r.case_id, r.month
+             FROM tidum_report_generated g
+             LEFT JOIN tidum_report_templates t ON g.template_id = t.id
+             JOIN tidum_case_reports r ON g.case_report_id = r.id
+             WHERE r.vendor_id = $1
+             ORDER BY g.created_at DESC LIMIT $2`,
+            [scope.vendorId, limit],
+          );
       res.json(result.rows);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Generated report history error:', err);
+      res.status(500).json({ error: 'Kunne ikke hente genereringshistorikk' });
     }
   });
 
   // Seed a default template
   app.post("/api/report-templates/seed-default", authenticateAdmin, async (req: AuthRequest, res) => {
+    const scope = requireCaseReportAdminScope(req, res);
+    if (!scope) return;
     try {
       const defaultBlocks = [
         { id: '1', type: 'section', config: { title: 'Bakgrunn', field: 'background' } },
@@ -7408,23 +7966,25 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       ];
 
       const result = await pool.query(
-        `INSERT INTO tidum_report_templates (name, description, header_title, header_subtitle, blocks, is_default, created_by)
-         VALUES ($1, $2, $3, $4, $5, true, $6)
+        `INSERT INTO tidum_report_templates (name, description, company_id, header_title, header_subtitle, blocks, is_default, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, true, $7)
          ON CONFLICT DO NOTHING
          RETURNING *`,
         [
           'Standard Saksrapport',
           'Standard mal for saksrapporter med alle felter',
+          scope.vendorId,
           'Saksrapport',
           'Smart Timing - Timeføringssystem',
           JSON.stringify(defaultBlocks),
-          req.admin?.username
+          req.admin?.username || scope.actorId,
         ]
       );
 
       res.json({ success: true, template: result.rows[0] });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
+    } catch (err) {
+      console.error('Report template seed error:', err);
+      res.status(500).json({ error: 'Kunne ikke opprette standardmal' });
     }
   });
 
@@ -7552,7 +8112,7 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       let vendorCountValue = 0;
       try {
         const vendorCount = await pool.query(
-          `SELECT COUNT(*) as count FROM vendors WHERE status = 'active'`
+          `SELECT COUNT(*) as count FROM tidum_vendors WHERE status = 'active'`
         );
         vendorCountValue = parseInt(vendorCount.rows[0]?.count || 0);
       } catch {
@@ -8241,8 +8801,64 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       if (!target_url) return res.status(400).json({ error: "target_url is required" });
 
-      // Validate URL
-      try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
+      let safeTargetUrl: string;
+      let safeUrlList: string[] | undefined;
+      let safeMaxPages: number;
+      let safeMaxDepth: number;
+      let safeCrawlDelayMs: number;
+      let safeIncludePatterns: string[] | undefined;
+      let safeExcludePatterns: string[] | undefined;
+      try {
+        if (typeof target_url !== "string") throw new Error("target_url må være en URL");
+        safeTargetUrl = (await resolveCrawlerUrl(target_url)).url.href;
+        safeMaxPages = boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages");
+        safeMaxDepth = boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth");
+        safeCrawlDelayMs = boundedCrawlerInteger(crawl_delay_ms, 200, 0, 60_000, "crawl_delay_ms");
+        safeIncludePatterns = crawlerStringArray(include_patterns, "include_patterns", 25, 256);
+        safeExcludePatterns = crawlerStringArray(exclude_patterns, "exclude_patterns", 25, 256);
+        for (const pattern of [...(safeIncludePatterns || []), ...(safeExcludePatterns || [])]) {
+          new RegExp(pattern, "i");
+        }
+        const requestedUrls = crawlerStringArray(url_list, "url_list", 50, 2_048);
+        if (requestedUrls) {
+          safeUrlList = await Promise.all(requestedUrls.map(async (entry) => {
+            const absolute = new URL(entry, safeTargetUrl).href;
+            return (await resolveCrawlerUrl(absolute)).url.href;
+          }));
+        }
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+
+      if (typeof name === "string" && name.length > 200) return res.status(400).json({ error: "name er for langt" });
+      if (!["full", "links_only", "sitemap", "url_list"].includes(crawl_type)) {
+        return res.status(400).json({ error: "Ugyldig crawl_type" });
+      }
+      const crawlerFlags = [
+        respect_robots_txt, follow_external_links, follow_subdomains,
+        include_images, include_css, include_js, check_canonical,
+        check_hreflang, extract_structured_data, check_accessibility,
+      ];
+      if (crawlerFlags.some((flag) => typeof flag !== "boolean")) {
+        return res.status(400).json({ error: "Crawler-flagg må være boolean" });
+      }
+      if (custom_user_agent !== undefined && (
+        typeof custom_user_agent !== "string"
+        || custom_user_agent.length > 256
+        || /[\u0000-\u001f\u007f]/.test(custom_user_agent)
+      )) {
+        return res.status(400).json({ error: "Ugyldig custom_user_agent" });
+      }
+      if (typeof custom_robots_txt === "string" && custom_robots_txt.length > 100_000) {
+        return res.status(400).json({ error: "custom_robots_txt er for langt" });
+      }
+      if (custom_extraction !== undefined && (
+        !Array.isArray(custom_extraction)
+        || custom_extraction.length > 20
+        || JSON.stringify(custom_extraction).length > 64_000
+      )) {
+        return res.status(400).json({ error: "Ugyldig custom_extraction" });
+      }
 
       const result = await pool.query(
         `INSERT INTO tidum_crawler_jobs (
@@ -8256,13 +8872,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'pending')
         RETURNING *`,
         [
-          name || `Crawl ${target_url}`, target_url, crawl_type,
-          max_pages, max_depth, crawl_delay_ms,
+          name || `Crawl ${safeTargetUrl}`, safeTargetUrl, crawl_type,
+          safeMaxPages, safeMaxDepth, safeCrawlDelayMs,
           respect_robots_txt, follow_external_links, follow_subdomains,
           include_images, include_css, include_js,
           check_canonical, check_hreflang, extract_structured_data, check_accessibility,
           custom_user_agent || null, custom_robots_txt || null,
-          url_list || null, include_patterns || null, exclude_patterns || null,
+          safeUrlList || null, safeIncludePatterns || null, safeExcludePatterns || null,
           custom_extraction ? JSON.stringify(custom_extraction) : null,
         ]
       );
@@ -8273,10 +8889,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { runCrawlJob } = await import("./crawler-engine");
       runCrawlJob({
         jobId: job.id,
-        targetUrl: target_url,
-        maxPages: max_pages,
-        maxDepth: max_depth,
-        crawlDelayMs: crawl_delay_ms,
+        targetUrl: safeTargetUrl,
+        maxPages: safeMaxPages,
+        maxDepth: safeMaxDepth,
+        crawlDelayMs: safeCrawlDelayMs,
         respectRobotsTxt: respect_robots_txt,
         followExternalLinks: follow_external_links,
         followSubdomains: follow_subdomains,
@@ -8289,9 +8905,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         checkAccessibility: check_accessibility,
         customUserAgent: custom_user_agent,
         customRobotsTxt: custom_robots_txt,
-        urlList: url_list,
-        includePatterns: include_patterns,
-        excludePatterns: exclude_patterns,
+        urlList: safeUrlList,
+        includePatterns: safeIncludePatterns,
+        excludePatterns: safeExcludePatterns,
         customExtraction: custom_extraction,
       }).catch(err => console.error("[Crawler] Background job error:", err));
 
@@ -8566,10 +9182,32 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links } = req.body;
       if (!target_url) return res.status(400).json({ error: "target_url required" });
 
+      let safeTargetUrl: string;
+      let safeMaxPages: number;
+      let safeMaxDepth: number;
+      let safeCrawlDelayMs: number;
+      try {
+        if (typeof target_url !== "string") throw new Error("target_url må være en URL");
+        safeTargetUrl = (await resolveCrawlerUrl(target_url)).url.href;
+        safeMaxPages = boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages");
+        safeMaxDepth = boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth");
+        safeCrawlDelayMs = boundedCrawlerInteger(crawl_delay_ms, 200, 0, 60_000, "crawl_delay_ms");
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+      if (typeof name === "string" && name.length > 200) return res.status(400).json({ error: "name er for langt" });
+      if (typeof cron_expression === "string" && cron_expression.length > 100) return res.status(400).json({ error: "cron_expression er for langt" });
+      if (
+        (respect_robots_txt !== undefined && typeof respect_robots_txt !== "boolean")
+        || (follow_external_links !== undefined && typeof follow_external_links !== "boolean")
+      ) {
+        return res.status(400).json({ error: "Crawler-flagg må være boolean" });
+      }
+
       const result = await pool.query(
         `INSERT INTO tidum_crawler_schedules (name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links, is_active)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *`,
-        [name || `Schedule ${target_url}`, target_url, cron_expression || "0 3 * * 1", max_pages || 500, max_depth || 10, crawl_delay_ms || 200, respect_robots_txt ?? true, follow_external_links ?? false]
+        [name || `Schedule ${safeTargetUrl}`, safeTargetUrl, cron_expression || "0 3 * * 1", safeMaxPages, safeMaxDepth, safeCrawlDelayMs, respect_robots_txt ?? true, follow_external_links ?? false]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -8582,25 +9220,43 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { is_active, cron_expression, max_pages, max_depth } = req.body;
 
+      const scheduleId = Number(id);
+      if (!Number.isInteger(scheduleId) || scheduleId <= 0) return res.status(400).json({ error: "Ugyldig schedule-id" });
+      if (is_active !== undefined && typeof is_active !== "boolean") return res.status(400).json({ error: "is_active må være boolean" });
+      if (cron_expression !== undefined && (typeof cron_expression !== "string" || cron_expression.length === 0 || cron_expression.length > 100)) {
+        return res.status(400).json({ error: "Ugyldig cron_expression" });
+      }
+
       const updates: string[] = [];
       const params: any[] = [];
       let idx = 1;
 
       if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(is_active); }
-      if (cron_expression) { updates.push(`cron_expression = $${idx++}`); params.push(cron_expression); }
-      if (max_pages) { updates.push(`max_pages = $${idx++}`); params.push(max_pages); }
-      if (max_depth) { updates.push(`max_depth = $${idx++}`); params.push(max_depth); }
+      if (cron_expression !== undefined) { updates.push(`cron_expression = $${idx++}`); params.push(cron_expression); }
+      if (max_pages !== undefined) {
+        updates.push(`max_pages = $${idx++}`);
+        params.push(boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages"));
+      }
+      if (max_depth !== undefined) {
+        updates.push(`max_depth = $${idx++}`);
+        params.push(boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth"));
+      }
 
       if (updates.length === 0) return res.status(400).json({ error: "No updates provided" });
 
-      params.push(id);
+      params.push(scheduleId);
       const result = await pool.query(
         `UPDATE tidum_crawler_schedules SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
         params
       );
+      if (!result.rows[0]) return res.status(404).json({ error: "Schedule not found" });
       res.json(result.rows[0]);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      if (String(err?.message || "").includes("må være et heltall")) {
+        return res.status(400).json({ error: err.message });
+      }
+      console.error("Crawler schedule update failed:", err);
+      res.status(500).json({ error: "Kunne ikke oppdatere schedule" });
     }
   });
 
@@ -9037,14 +9693,16 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
     `);
   }
 
-  void (async () => {
-    try {
-      await ensureBlogSystemTables();
-      await ensureDefaultBlogSeed();
-    } catch (error) {
-      console.error("[blog-bootstrap] Failed to prepare blog tables", error);
-    }
-  })();
+  if (shouldRunStartupJobs) {
+    void (async () => {
+      try {
+        await ensureBlogSystemTables();
+        await ensureDefaultBlogSeed();
+      } catch (error) {
+        console.error("[blog-bootstrap] Failed to prepare blog tables", error);
+      }
+    })();
+  }
 
   console.log("Smart Timing API routes registered");
 }

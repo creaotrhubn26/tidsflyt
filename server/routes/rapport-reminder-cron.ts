@@ -15,13 +15,7 @@ import {
 } from '@shared/schema';
 import { emailService } from '../lib/email-service';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
-
-function isAdminRole(req: Request): boolean {
-  const role = String(((req as any).authUser ?? (req as any).user)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return ADMIN_ROLES.includes(role);
-}
+import { requireSuperAdmin } from '../custom-auth';
 
 /**
  * Run the reminder pass once. Returns counts of users reminded per institution.
@@ -75,29 +69,26 @@ export async function runRapportReminders(): Promise<Array<{ institutionId: stri
         if (!u.email) continue;
         try {
           await emailService.sendEmail({
+            purpose: "administrative",
             to: u.email,
-            subject: `Påminnelse: rapport for ${inst.name} — ${monthLabel}`,
+            subject: "Ny oppgave i Tidum",
             html: `
               <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:24px;">
-                <h2 style="color:#1a6b73;margin:0 0 16px;">Månedsrapport venter</h2>
+                <h2 style="color:#1a6b73;margin:0 0 16px;">Du har en ny oppgave</h2>
                 <p style="line-height:1.6;color:#333;">
-                  Hei ${u.firstName || "der"},
-                </p>
-                <p style="line-height:1.6;color:#333;">
-                  Du har ikke startet ${monthLabel.toLowerCase()}s rapport for <strong>${inst.name}</strong> ennå.
-                  Månedsslutt nærmer seg — husk å dokumentere aktivitetene dine.
+                  Logg inn i Tidum for å se og behandle oppgaven. Av hensyn til personvern inneholder denne e-posten ingen saksopplysninger.
                 </p>
                 <p style="margin:24px 0;">
                   <a href="https://tidum.no/rapporter/ny" style="display:inline-block;padding:12px 24px;background:#1a6b73;color:#fff;text-decoration:none;border-radius:6px;font-weight:600;">
-                    Start rapport
+                    Åpne Tidum
                   </a>
                 </p>
                 <hr style="border:none;border-top:1px solid #eee;margin:24px 0;"/>
                 <p style="color:#999;font-size:11px;">Påminnelse sendt automatisk via Tidum</p>
               </div>
             `,
-            text: `Hei ${u.firstName || "der"},\n\nDu har ikke startet ${monthLabel.toLowerCase()}s rapport for ${inst.name} ennå. Logg inn på Tidum og start rapporten: https://tidum.no/rapporter/ny\n\n— Tidum`,
-          } as any);
+            text: "Du har en ny oppgave. Logg inn i Tidum for å se detaljene: https://tidum.no/rapporter/ny",
+          });
           remindersSent++;
         } catch (err) {
           console.error(`Failed to send reminder to ${u.email}:`, err);
@@ -131,13 +122,13 @@ export function setupRapportReminderCron() {
 
 /** Register a manual-trigger endpoint for admins to test + force a run. */
 export function registerRapportReminderRoutes(app: Express) {
-  app.post('/api/rapport-reminders/run', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/rapport-reminders/run', requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
-      if (!isAdminRole(req)) return res.status(403).json({ error: 'Kun admin+ kan kjøre påminnelser manuelt' });
       const results = await runRapportReminders();
       res.json({ ok: true, results });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('[rapport-reminders] manual run failed', error);
+      res.status(500).json({ error: 'Kunne ikke kjøre rapportpåminnelser' });
     }
   });
 }

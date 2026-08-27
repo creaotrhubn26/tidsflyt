@@ -12,10 +12,11 @@
  * Per-vendor overrides live in `vendors.settings.gdpr` jsonb. Defaults below.
  */
 
-import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
+import bcrypt from 'bcrypt';
 import { pool } from '../db';
+import { resolveLeaveAttachmentStoragePath } from './leave-attachment-security';
 
 /**
  * Retention defaults aligned to Datatilsynets veiledning + norske lover.
@@ -78,7 +79,7 @@ export const RETENTION_POLICY_POLICY = [
   },
   {
     dataType: "Sykmeldinger (helsedata)",
-    storage: "tidum_leave_attachments + uploads/leave/",
+    storage: "tidum_leave_attachments + private-uploads/leave/",
     purpose: "Dokumentere fravær overfor arbeidsgiver",
     legalBasis: "Personopplysningsloven §6(1)(b) + §9(2)(b) — arbeidsforhold-forpliktelse",
     specialCategory: true,
@@ -113,7 +114,7 @@ interface VendorRetentionConfig {
 async function readVendorRetention(vendorId: number | null): Promise<VendorRetentionConfig> {
   if (!vendorId) return { ...GDPR_DEFAULTS };
   try {
-    const r = await pool.query('SELECT settings FROM vendors WHERE id = $1::text OR id::text = $1::text LIMIT 1', [String(vendorId)]);
+    const r = await pool.query('SELECT settings FROM tidum_vendors WHERE id = $1 LIMIT 1', [vendorId]);
     const settings = (r.rows[0]?.settings ?? {}) as Record<string, any>;
     const g = (settings.gdpr ?? {}) as Record<string, any>;
     const num = (v: any, d: number) => Number.isFinite(Number(v)) ? Number(v) : d;
@@ -209,16 +210,24 @@ export async function runGdprPurge(): Promise<PurgeResult> {
        WHERE uploaded_at < NOW() - ($1::int || ' years')::interval`,
       [cfg.leaveAttachmentRetentionYears],
     );
-    const uploadDir = path.join(process.cwd(), 'uploads', 'leave');
+    const deletableIds: string[] = [];
     for (const row of r.rows) {
+      const storagePath = resolveLeaveAttachmentStoragePath(row.filename);
+      if (!storagePath) {
+        result.errors.push(`tidum_leave_attachments invalid storage path: ${row.id}`);
+        continue;
+      }
       try {
-        await fs.unlink(path.join(uploadDir, row.filename));
-      } catch { /* file may already be missing */ }
+        await fs.unlink(storagePath);
+        deletableIds.push(row.id);
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') deletableIds.push(row.id);
+        else result.errors.push(`tidum_leave_attachments file delete failed: ${row.id}`);
+      }
     }
-    if (r.rows.length > 0) {
-      const ids = r.rows.map(x => x.id);
-      await pool.query('DELETE FROM tidum_leave_attachments WHERE id = ANY($1::uuid[])', [ids]);
-      result.leaveAttachmentsDeleted = r.rows.length;
+    if (deletableIds.length > 0) {
+      await pool.query('DELETE FROM tidum_leave_attachments WHERE id = ANY($1::uuid[])', [deletableIds]);
+      result.leaveAttachmentsDeleted = deletableIds.length;
     }
   } catch (e: any) {
     if (!String(e?.message || '').includes('relation "tidum_leave_attachments" does not exist')) {
@@ -241,13 +250,30 @@ export interface ErasureResult {
 
 /**
  * Hard-delete is rarely safe (FK refs, immutable accounting periods).
- * Pseudonymize instead: replace user_id with `erased-{shortHash}` so the
- * person is no longer identifiable, but aggregate / audit history remains
- * coherent. The mapping is intentionally one-way (no reverse lookup table).
+ * Pseudonymize identifiers in artifacts that permit it, clear health/free-text
+ * data, and anonymize the canonical users row while preserving validated FKs.
+ * The generated pseudonym is intentionally one-way (no reverse lookup table).
  */
-export async function eraseUser(userId: string, actorEmail: string | null): Promise<ErasureResult> {
+export async function eraseUser(
+  userId: string,
+  actorReference: string | null,
+  documentedReason?: string | null,
+): Promise<ErasureResult> {
   const hash = crypto.createHash('sha256').update(userId).digest('hex').slice(0, 12);
   const pseudonym = `erased-${hash}`;
+  const reason = documentedReason?.trim() ?? '';
+  if (reason.length < 10 || reason.length > 2_000) {
+    throw new Error('GDPR_ERASURE_REASON_REQUIRED');
+  }
+  const audit = await pool.query(
+    `INSERT INTO tidum_gdpr_erasure_audit
+       (target_pseudonym, actor_reference, reason, status)
+     VALUES ($1, $2, $3, 'started')
+     RETURNING id`,
+    [pseudonym, actorReference?.trim().slice(0, 255) || 'system', reason],
+  );
+  const auditId = audit.rows[0].id;
+  const replacementPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
   const rowsAffected: Record<string, number> = {};
   let filesDeleted = 0;
 
@@ -262,6 +288,36 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
       }
     }
   };
+
+  // Revoke every authentication path before changing profile data. The session
+  // store serializes the full Passport user object, while older rows may store
+  // only the user ID, so handle both JSON shapes.
+  await safeUpdate(
+    `DELETE FROM tidum_sessions
+      WHERE sess #>> '{passport,user,id}' = $1
+         OR sess #>> '{passport,user}' = $1`,
+    [userId],
+    'tidum_sessions',
+  );
+  await safeUpdate(
+    `DELETE FROM tidum_mobile_refresh_tokens WHERE user_id = $1`,
+    [userId],
+    'tidum_mobile_refresh_tokens',
+  );
+  await safeUpdate(
+    `DELETE FROM tidum_eid_identities WHERE user_id = $1`,
+    [userId],
+    'tidum_eid_identities',
+  );
+  await safeUpdate(
+    `UPDATE tidum_admin_users
+        SET is_active = false, updated_at = NOW()
+      WHERE lower(email) = (
+        SELECT lower(email) FROM users WHERE id = $1 LIMIT 1
+      )`,
+    [userId],
+    'tidum_admin_users',
+  );
 
   // tidum_log_row — pseudonymize user_id and clear notes that may contain personal data
   await safeUpdate(
@@ -292,10 +348,11 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
   // tidum_timer_sessions — drop entirely (live state, no audit value post-erasure)
   await safeUpdate(`DELETE FROM tidum_timer_sessions WHERE user_id = $1`, [userId], 'tidum_timer_sessions');
 
-  // tidum_leave_requests — pseudonymize + clear free-text reason
+  // tidum_leave_requests — clear free-text reason. Keep the canonical user ID
+  // for the validated (user_id, vendor_id) FK; the users row is anonymized below.
   await safeUpdate(
-    `UPDATE tidum_leave_requests SET user_id = $1, reason = NULL WHERE user_id = $2`,
-    [pseudonym, userId],
+    `UPDATE tidum_leave_requests SET reason = NULL WHERE user_id = $1`,
+    [userId],
     'tidum_leave_requests',
   );
 
@@ -305,16 +362,29 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
       `SELECT la.id, la.filename FROM tidum_leave_attachments la
        JOIN tidum_leave_requests lr ON lr.id = la.leave_request_id
        WHERE lr.user_id = $1`,
-      [pseudonym], // already pseudonymized above
+      [userId],
     );
-    const uploadDir = path.join(process.cwd(), 'uploads', 'leave');
+    const deletableIds: string[] = [];
     for (const row of r.rows) {
-      try { await fs.unlink(path.join(uploadDir, row.filename)); filesDeleted++; }
-      catch { /* file may already be missing */ }
+      const storagePath = resolveLeaveAttachmentStoragePath(row.filename);
+      if (!storagePath) {
+        rowsAffected.tidum_leave_attachments = -1;
+        continue;
+      }
+      try {
+        await fs.unlink(storagePath);
+        filesDeleted++;
+        deletableIds.push(row.id);
+      } catch (error: any) {
+        if (error?.code === 'ENOENT') deletableIds.push(row.id);
+        else rowsAffected.tidum_leave_attachments = -1;
+      }
     }
-    if (r.rows.length > 0) {
-      await pool.query('DELETE FROM tidum_leave_attachments WHERE id = ANY($1::uuid[])', [r.rows.map(x => x.id)]);
-      rowsAffected.tidum_leave_attachments = r.rows.length;
+    if (deletableIds.length > 0) {
+      await pool.query('DELETE FROM tidum_leave_attachments WHERE id = ANY($1::uuid[])', [deletableIds]);
+      if (rowsAffected.tidum_leave_attachments !== -1) {
+        rowsAffected.tidum_leave_attachments = deletableIds.length;
+      }
     }
   } catch (e: any) {
     if (!String(e?.message || '').includes('does not exist')) {
@@ -339,23 +409,36 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
   // keep the row for FK integrity. Anyone querying the table sees the pseudonym.
   await safeUpdate(
     `UPDATE users SET
+       username = $1,
+       password = $2,
        email = $1 || '@erased.tidum.local',
        first_name = NULL, last_name = NULL, phone = NULL,
        profile_image_url = NULL,
+       expected_ssn_hash = NULL,
+       role = 'member',
+       role_id = NULL,
+       notification_email = false,
+       notification_push = false,
+       notification_weekly = false,
        updated_at = NOW()
-     WHERE id = $2`,
-    [pseudonym, userId],
+     WHERE id = $3`,
+    [pseudonym, replacementPassword, userId],
     'users',
   );
 
-  // Final audit entry — record that erasure happened (non-personal metadata only)
-  try {
-    await pool.query(
-      `INSERT INTO activities (user_id, action, description, timestamp)
-       VALUES ($1, 'gdpr_erasure', $2, NOW())`,
-      [pseudonym, `Bruker pseudonymisert (Art. 17). Initiert av: ${actorEmail || 'system'}`],
-    );
-  } catch { /* activities is best-effort */ }
+  const completedStatus = Object.values(rowsAffected).some((count) => count === -1)
+    ? 'completed_with_errors'
+    : 'completed';
+  await pool.query(
+    `UPDATE tidum_gdpr_erasure_audit
+        SET status = $1, completed_at = NOW()
+      WHERE id = $2`,
+    [completedStatus, auditId],
+  );
+
+  if (completedStatus === 'completed_with_errors') {
+    throw new Error('GDPR_ERASURE_INCOMPLETE');
+  }
 
   return {
     userId,
@@ -434,16 +517,12 @@ export async function exportUserData(userId: string): Promise<DataExportBundle> 
     [userId],
   );
 
-  // rapporter.userId is integer in schema — try both string and integer form
-  const userIdNum = Number(userId);
   const rapporter = await get(
-    Number.isFinite(userIdNum)
-      ? `SELECT id, sak_id, status, klient_ref, periode_from::text AS periode_from,
-                periode_to::text AS periode_to, total_minutter, antall_dager,
-                innsendt, godkjent, created_at, updated_at
-         FROM tidum_rapporter WHERE user_id = $1 ORDER BY created_at DESC`
-      : `SELECT 1 WHERE FALSE`,
-    Number.isFinite(userIdNum) ? [userIdNum] : [],
+    `SELECT id, sak_id, status, klient_ref, periode_from::text AS periode_from,
+            periode_to::text AS periode_to, total_minutter, antall_dager,
+            innsendt, godkjent, created_at, updated_at
+     FROM tidum_rapporter WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId],
   );
 
   return {

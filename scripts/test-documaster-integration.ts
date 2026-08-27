@@ -27,7 +27,7 @@
  * ingen database kreves.
  */
 
-import { createArchiveProvider } from "../server/lib/archive/documaster-client";
+import { createArchiveProvider } from "../server/lib/archive/archive-provider";
 import { buildSaksmappeSpec, buildRapportJournalpost } from "../server/lib/archive/noark";
 
 const c = { reset: "\x1b[0m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", blue: "\x1b[34m" };
@@ -68,11 +68,11 @@ async function main() {
 
   const provider = createArchiveProvider("documaster", {
     baseUrl,
+    tokenUrl,
     clientId,
     clientSecret,
     arkivdelId,
     klasseId,
-    ...(tokenUrl ? { apiPaths: { token: tokenUrl } } : {}),
   });
 
   // En unik test-sak per kjøring, så gjentatte kjøringer ikke kolliderer.
@@ -91,7 +91,7 @@ async function main() {
     fail(`verify() feilet: ${err.message}`);
     if (err.status === 401) hint("Sjekk DOCUMASTER_CLIENT_ID / DOCUMASTER_CLIENT_SECRET");
     if (err.status === 403) hint("Klienten mangler lesetilgang til Noark 5-tjenestene");
-    if (err.status === 404) hint("API-stien er feil — sjekk baseUrl, ev. overstyr apiPaths");
+    if (err.status === 404) hint("API- eller token-stien er feil — sjekk baseUrl og DOCUMASTER_TOKEN_URL");
     if (err.body) console.error("   Respons:", err.body);
     process.exit(1);
   }
@@ -153,10 +153,10 @@ async function main() {
   section("Test 5: Feilhåndtering (ugyldig secret)");
   const badProvider = createArchiveProvider("documaster", {
     baseUrl,
+    tokenUrl,
     clientId,
     clientSecret: "feil-secret",
     arkivdelId,
-    ...(tokenUrl ? { apiPaths: { token: tokenUrl } } : {}),
   });
   try {
     await badProvider.verify();

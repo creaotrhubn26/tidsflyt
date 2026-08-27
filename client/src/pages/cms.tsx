@@ -19,6 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { getCsrfTokenForRequest } from "@/lib/csrf";
 import { 
   Loader2, Save, Plus, Trash2, GripVertical, Eye, ExternalLink, ArrowLeft,
   ArrowRight, Play, Clock, Zap, Star, Check, Shield, Users, TrendingUp, CheckCircle,
@@ -52,12 +53,12 @@ function clearAdminToken() {
 
 async function authenticatedApiRequest(url: string, options: { method?: string; body?: string } = {}) {
   const token = getAdminToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(url, {
     method: options.method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
+    credentials: 'include',
     body: options.body,
   });
   if (!response.ok) {
@@ -316,20 +317,22 @@ function ImageUploader({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      toast({ title: "Ugyldig bildeformat", description: "Bruk PNG, JPG, WebP eller GIF.", variant: "destructive" });
+      return;
+    }
+
     // Validate file size
     if (file.size > maxSizeMB * 1024 * 1024) {
       toast({ title: "For stor fil", description: `Maks filstørrelse er ${maxSizeMB} MB.`, variant: "destructive" });
       return;
     }
 
-    // Validate dimensions (non-blocking for SVG)
-    if (!file.type.includes('svg')) {
-      try {
-        await validateDimensions(file);
-      } catch (err: any) {
-        toast({ title: "Ugyldig bilde", description: err.message, variant: "destructive" });
-        return;
-      }
+    try {
+      await validateDimensions(file);
+    } catch (err: any) {
+      toast({ title: "Ugyldig bilde", description: err.message, variant: "destructive" });
+      return;
     }
 
     const formData = new FormData();
@@ -341,12 +344,14 @@ function ImageUploader({
 
     try {
       const token = getAdminToken();
+      const csrfToken = await getCsrfTokenForRequest();
 
       // Use XMLHttpRequest for progress tracking
       const data = await new Promise<any>((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/api/cms/upload');
         if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+        if (csrfToken) xhr.setRequestHeader('x-csrf-token', csrfToken);
 
         xhr.upload.onprogress = (event) => {
           if (event.lengthComputable) {
@@ -418,7 +423,7 @@ function ImageUploader({
         <label className="cursor-pointer" data-testid="button-upload-image">
           <input
             type="file"
-            accept="image/*"
+            accept="image/jpeg,image/png,image/gif,image/webp"
             onChange={handleFileChange}
             className="hidden"
             data-testid="input-file-upload"
@@ -3030,8 +3035,7 @@ function MediaLibrary() {
     queryKey: ['/api/cms/media', currentFolder],
     queryFn: async () => {
       const url = currentFolder ? `/api/cms/media?folder_id=${currentFolder}` : '/api/cms/media';
-      const res = await fetch(url);
-      const data = await res.json();
+      const data = await authenticatedApiRequest(url);
       return Array.isArray(data) ? data : [];
     }
   });
@@ -3040,8 +3044,7 @@ function MediaLibrary() {
   const { data: foldersData, refetch: refetchFolders } = useQuery<MediaFolder[]>({
     queryKey: ['/api/cms/media/folders'],
     queryFn: async () => {
-      const res = await fetch('/api/cms/media/folders');
-      const data = await res.json();
+      const data = await authenticatedApiRequest('/api/cms/media/folders');
       return Array.isArray(data) ? data : [];
     }
   });
@@ -3871,8 +3874,7 @@ function FormBuilder() {
   const { data: formsData, refetch: refetchForms } = useQuery<CMSForm[]>({
     queryKey: ['/api/cms/forms'],
     queryFn: async () => {
-      const res = await fetch('/api/cms/forms');
-      const data = await res.json();
+      const data = await authenticatedApiRequest('/api/cms/forms');
       return Array.isArray(data) ? data : [];
     }
   });
@@ -4491,9 +4493,7 @@ function BlogEditor() {
     queryKey: ['/api/cms/posts', filterStatus],
     queryFn: async () => {
       const url = filterStatus ? `/api/cms/posts?status=${filterStatus}&limit=100` : '/api/cms/posts?limit=100';
-      const res = await fetch(url);
-      const data = await res.json();
-      return data;
+      return authenticatedApiRequest(url);
     }
   });
   const posts: BlogPost[] = Array.isArray(postsResponse) ? postsResponse : (postsResponse?.posts ?? []);

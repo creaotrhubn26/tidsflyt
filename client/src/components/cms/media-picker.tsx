@@ -43,12 +43,24 @@ export function MediaPicker({
 
   const { data: media = [], isLoading } = useQuery<MediaItem[]>({
     queryKey: ["/api/cms/media"],
-    queryFn: () => fetch("/api/cms/media").then((r) => r.json()),
+    queryFn: async () => {
+      const token = sessionStorage.getItem("cms_admin_token");
+      const response = await fetch("/api/cms/media", {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        credentials: "include",
+      });
+      if (!response.ok) throw new Error("Kunne ikke hente mediebiblioteket");
+      return response.json();
+    },
     enabled: open,
   });
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+        throw new Error('Bruk PNG, JPG, WebP eller GIF.');
+      }
+      if (file.size > 10 * 1024 * 1024) throw new Error('Maks 10 MB per fil.');
       const fd = new FormData();
       fd.append("image", file);
       const token = sessionStorage.getItem("cms_admin_token");
@@ -125,7 +137,7 @@ export function MediaPicker({
             <input
               ref={fileInput}
               type="file"
-              accept="image/*"
+              accept="image/jpeg,image/png,image/gif,image/webp"
               hidden
               onChange={(e) => {
                 const file = e.target.files?.[0];

@@ -146,14 +146,9 @@ export function registerInviteLinkRoutes(app: Express) {
             const current = Array.isArray(sak.tildelteUserId) ? (sak.tildelteUserId as any[]).map(String) : [];
             if (!current.includes(userIdForAssignment)) {
               const next = [...current, userIdForAssignment];
-              // Lagre som number[] for konsistens med annen kode
-              const asNumbers = next.map(id => {
-                const n = Number(id);
-                return Number.isFinite(n) ? n : id;
-              });
               await db.update(saker)
-                .set({ tildelteUserId: asNumbers as any, updatedAt: new Date() })
-                .where(eq(saker.id, sak.id));
+                .set({ tildelteUserId: next, updatedAt: new Date() })
+                .where(and(eq(saker.id, sak.id), eq(saker.vendorId, link.vendorId)));
             }
           }
         } catch (sakErr) {

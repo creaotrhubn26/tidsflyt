@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 interface RapportAuditEvent {
   id: string;
   rapportId: string;
-  userId: number | null;
+  userId: string | null;
   userName: string | null;
   userRole: string | null;
   eventType: string;

@@ -11,6 +11,23 @@ import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { requireAuth } from '../middleware/auth';
+import {
+  boundedText,
+  canSendReportFor,
+  emailActor,
+  escapeEmailHtml,
+  normalizeEmailRecipients,
+  validateReportPeriod,
+} from '../lib/email-composer-security';
+import {
+  assertUserComposedSmtpAllowed,
+  loadEmailChannelPolicy,
+  recordEmailPolicyBlock,
+} from '../lib/email-channel-policy';
+import {
+  isSecureChannelRequiredError,
+  SECURE_CHANNEL_REQUIRED_CODE,
+} from '../lib/outbound-email-policy';
 
 interface AuthRequest extends Request {
   user?: any;
@@ -59,11 +76,50 @@ const reportTypeLabels: Record<string, string> = {
   overtime: 'Overtidsrapport',
 };
 
-async function buildReportData(targetUserId: string, periodStart: string, periodEnd: string) {
+function normalizeForwardRequest(body: any) {
+  const recipientEmail = normalizeEmailRecipients(body?.recipientEmail, true)!;
+  if (recipientEmail.includes(',')) throw new Error('INVALID_INPUT');
+  const reportType = boundedText(body?.reportType, 50, true)!;
+  if (!Object.prototype.hasOwnProperty.call(reportTypeLabels, reportType)) throw new Error('INVALID_INPUT');
+  const periodStart = boundedText(body?.periodStart, 10, true)!;
+  const periodEnd = boundedText(body?.periodEnd, 10, true)!;
+  if (!validateReportPeriod(periodStart, periodEnd)) throw new Error('INVALID_INPUT');
+  return {
+    recipientEmail,
+    recipientName: boundedText(body?.recipientName, 300) ?? undefined,
+    institutionName: boundedText(body?.institutionName, 300) ?? undefined,
+    reportType,
+    periodStart,
+    periodEnd,
+    message: boundedText(body?.message, 10_000) ?? undefined,
+    requestedUserId: boundedText(body?.userId, 500),
+  };
+}
+
+async function resolveTargetUserId(
+  actor: NonNullable<ReturnType<typeof emailActor>>,
+  currentRole: string,
+  requestedUserId: string | null,
+): Promise<string | null> {
+  const targetUserId = requestedUserId || actor.id;
+  if (!canSendReportFor({ ...actor, role: currentRole }, targetUserId)) return null;
+  const [target] = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.id, targetUserId), eq(users.vendorId, actor.vendorId)))
+    .limit(1);
+  return target?.id ?? null;
+}
+
+async function buildReportData(vendorId: number, targetUserId: string, periodStart: string, periodEnd: string) {
   const entries = await db
     .select()
     .from(logRow)
-    .where(and(eq(logRow.userId, targetUserId), between(logRow.date, periodStart, periodEnd)))
+    .where(and(
+      eq(logRow.vendorId, vendorId),
+      eq(logRow.userId, targetUserId),
+      between(logRow.date, periodStart, periodEnd),
+    ))
     .orderBy(logRow.date);
 
   const exportData = entries.map((entry) => {
@@ -99,23 +155,29 @@ function buildEmailContent(p: {
   reportLabel: string; periodLabel: string; totalHours: number;
   totalDays: number; entriesCount: number; message?: string; hasAttachment: boolean;
 }) {
+  const recipientName = p.recipientName ? escapeEmailHtml(p.recipientName) : '';
+  const institutionName = p.institutionName ? escapeEmailHtml(p.institutionName) : '';
+  const senderName = escapeEmailHtml(p.senderName);
+  const reportLabel = escapeEmailHtml(p.reportLabel);
+  const periodLabel = escapeEmailHtml(p.periodLabel);
+  const message = p.message ? escapeEmailHtml(p.message).replace(/\n/g, '<br>') : '';
   const html = `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
       <div style="background:#0066cc;color:#fff;padding:20px;border-radius:8px 8px 0 0">
-        <h2 style="margin:0;font-size:18px">📋 ${p.reportLabel}</h2>
+        <h2 style="margin:0;font-size:18px">📋 ${reportLabel}</h2>
       </div>
       <div style="padding:20px;background:#f9f9f9;border-radius:0 0 8px 8px">
-        ${p.recipientName ? `<p>Til: <strong>${p.recipientName}</strong></p>` : ''}
-        ${p.institutionName ? `<p>Institusjon: <strong>${p.institutionName}</strong></p>` : ''}
-        <p>Fra: <strong>${p.senderName}</strong></p>
-        <p>Periode: <strong>${p.periodLabel}</strong></p>
+        ${recipientName ? `<p>Til: <strong>${recipientName}</strong></p>` : ''}
+        ${institutionName ? `<p>Institusjon: <strong>${institutionName}</strong></p>` : ''}
+        <p>Fra: <strong>${senderName}</strong></p>
+        <p>Periode: <strong>${periodLabel}</strong></p>
         <div style="background:#fff;padding:15px;border-radius:4px;margin:15px 0;border-left:4px solid #0066cc">
           <strong>Oppsummering:</strong><br>
           Antall registreringer: ${p.entriesCount}<br>
           Totalt timer: ${p.totalHours.toFixed(1)}<br>
           Antall dager: ${p.totalDays}
         </div>
-        ${p.message ? `<div style="background:#fff;padding:15px;border-radius:4px;margin:15px 0"><strong>Melding:</strong><br>${p.message.replace(/\n/g, '<br>')}</div>` : ''}
+        ${message ? `<div style="background:#fff;padding:15px;border-radius:4px;margin:15px 0"><strong>Melding:</strong><br>${message}</div>` : ''}
         ${p.hasAttachment ? '<p>📎 Se vedlagt Excel-fil for detaljert oversikt.</p>' : ''}
         <p style="color:#666;font-size:12px;margin-top:20px">Sendt via Tidum – Smart Timing · ${format(new Date(), 'dd.MM.yyyy HH:mm', { locale: nb })}</p>
       </div>
@@ -141,8 +203,26 @@ async function logForward(userId: string, recipientEmail: string, institution: s
 export function registerForwardRoutes(app: Express) {
 
   // ─ Email-status (tells frontend whether SMTP direct-send is available) ─
-  app.get('/api/forward/email-status', (_req: Request, res: Response) => {
-    res.json({ smtp: emailService.getIsConfigured(), manual: true });
+  app.get('/api/forward/email-status', requireAuth, async (req: Request, res: Response) => {
+    const actor = emailActor(req);
+    if (!actor) return res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+    try {
+      const policy = await loadEmailChannelPolicy(actor);
+      let secureChannelRequired = false;
+      try {
+        assertUserComposedSmtpAllowed(policy);
+      } catch (error) {
+        if (!isSecureChannelRequiredError(error)) throw error;
+        secureChannelRequired = true;
+      }
+      res.json({
+        smtp: emailService.getIsConfigured() && !secureChannelRequired,
+        manual: !secureChannelRequired,
+        secureChannelRequired,
+      });
+    } catch {
+      res.status(500).json({ error: 'Kunne ikke kontrollere e-postpolicy' });
+    }
   });
 
   // ─ SMTP send (direct delivery with Excel attachment) ──────────────────
@@ -152,16 +232,45 @@ export function registerForwardRoutes(app: Express) {
       const user = authReq.user || authReq.admin;
       if (!user) return res.status(401).json({ error: 'Ikke autentisert' });
 
-      const { recipientEmail, recipientName, institutionName, reportType, periodStart, periodEnd, message, userId } = req.body;
-      if (!recipientEmail || !reportType || !periodStart || !periodEnd) {
-        return res.status(400).json({ error: 'Mottakerens e-post, rapporttype og periode er påkrevd' });
+      const {
+        recipientEmail,
+        recipientName,
+        institutionName,
+        reportType,
+        periodStart,
+        periodEnd,
+        message,
+        requestedUserId,
+      } = normalizeForwardRequest(req.body);
+
+      const actor = emailActor(req);
+      if (!actor) return res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+      const policy = await loadEmailChannelPolicy(actor);
+      try {
+        assertUserComposedSmtpAllowed(policy, { reportType });
+      } catch (error) {
+        if (!isSecureChannelRequiredError(error)) throw error;
+        await recordEmailPolicyBlock({
+          actorUserId: policy.actorUserId,
+          vendorId: policy.vendorId,
+          kommuneId: policy.kommuneId,
+          route: '/api/forward/send',
+          purpose: 'report_export',
+          reasonCode: error.reasonCode,
+          metadata: { reportType, hasAttachment: true },
+        });
+        return res.status(422).json({
+          error: 'Rapporten kan ikke sendes på e-post. Bruk Sikker sending.',
+          code: SECURE_CHANNEL_REQUIRED_CODE,
+        });
       }
 
-      const targetUserId = userId || user.id || user.email || 'default';
+      const targetUserId = await resolveTargetUserId(actor, policy.role, requestedUserId);
+      if (!targetUserId) return res.status(403).json({ error: 'Kan ikke eksportere rapport for valgt bruker' });
       const senderName = user.name || user.email || 'Ukjent';
       const reportLabel = reportTypeLabels[reportType] || 'Rapport';
 
-      const { exportData, totalHours, totalDays } = await buildReportData(targetUserId, periodStart, periodEnd);
+      const { exportData, totalHours, totalDays } = await buildReportData(policy.vendorId, targetUserId, periodStart, periodEnd);
 
       // Generate Excel attachment
       let attachment: { filename: string; content: Buffer; contentType: string } | undefined;
@@ -178,6 +287,7 @@ export function registerForwardRoutes(app: Express) {
       const replyTo = tiltakslederEmail || process.env.SMTP_REPLY_TO || user.email;
 
       const sent = await emailService.sendEmail({
+        purpose: "user_composed",
         to: recipientEmail,
         replyTo,
         subject: `${reportLabel} – ${senderName} – ${periodLabel}`,
@@ -194,7 +304,16 @@ export function registerForwardRoutes(app: Express) {
       }
     } catch (error: any) {
       console.error('Forward send error:', error);
-      res.status(500).json({ error: error.message });
+      if (isSecureChannelRequiredError(error)) {
+        return res.status(422).json({
+          error: 'Rapporten kan ikke sendes på e-post. Bruk Sikker sending.',
+          code: SECURE_CHANNEL_REQUIRED_CODE,
+        });
+      }
+      if (error instanceof Error && (error.message === 'INVALID_INPUT' || error.message === 'INVALID_EMAIL')) {
+        return res.status(400).json({ error: 'Ugyldige rapportdata' });
+      }
+      res.status(500).json({ error: 'Kunne ikke sende rapporten' });
     }
   });
 
@@ -205,23 +324,53 @@ export function registerForwardRoutes(app: Express) {
       const user = authReq.user || authReq.admin;
       if (!user) return res.status(401).json({ error: 'Ikke autentisert' });
 
-      const { recipientEmail, recipientName, institutionName, reportType, periodStart, periodEnd, message, userId } = req.body;
-      if (!recipientEmail || !periodStart || !periodEnd) {
-        return res.status(400).json({ error: 'Mottakerens e-post og periode er påkrevd' });
+      const {
+        recipientEmail,
+        recipientName,
+        institutionName,
+        reportType,
+        periodStart,
+        periodEnd,
+        message,
+        requestedUserId,
+      } = normalizeForwardRequest(req.body);
+
+      const actor = emailActor(req);
+      if (!actor) return res.status(403).json({ error: 'Brukeren mangler gyldig tenant-tilknytning' });
+      const policy = await loadEmailChannelPolicy(actor);
+      try {
+        assertUserComposedSmtpAllowed(policy, { reportType });
+      } catch (error) {
+        if (!isSecureChannelRequiredError(error)) throw error;
+        await recordEmailPolicyBlock({
+          actorUserId: policy.actorUserId,
+          vendorId: policy.vendorId,
+          kommuneId: policy.kommuneId,
+          route: '/api/forward/prepare',
+          purpose: 'manual_report_email',
+          reasonCode: error.reasonCode,
+          metadata: { reportType, hasAttachment: true },
+        });
+        return res.status(422).json({
+          error: 'Rapporten kan ikke deles på e-post. Bruk Sikker sending.',
+          code: SECURE_CHANNEL_REQUIRED_CODE,
+        });
       }
 
       cleanupOldFiles();
 
-      const targetUserId = userId || user.id || user.email || 'default';
+      const targetUserId = await resolveTargetUserId(actor, policy.role, requestedUserId);
+      if (!targetUserId) return res.status(403).json({ error: 'Kan ikke eksportere rapport for valgt bruker' });
       const senderName = user.name || user.email || 'Ukjent';
       const reportLabel = reportTypeLabels[reportType] || 'Rapport';
 
-      const { exportData, totalHours, totalDays } = await buildReportData(targetUserId, periodStart, periodEnd);
+      const { exportData, totalHours, totalDays } = await buildReportData(policy.vendorId, targetUserId, periodStart, periodEnd);
 
       // Generate Excel & save to disk
       const buffer = await ExportService.generateExcel(exportData, { startDate: periodStart, endDate: periodEnd, title: reportLabel, includeNotes: true });
       const token = crypto.randomBytes(16).toString('hex');
-      const fileName = `${reportLabel.toLowerCase().replace(/\s/g, '_')}_${periodStart}_${periodEnd}_${token}.xlsx`;
+      const actorHash = crypto.createHash('sha256').update(actor.id).digest('hex').slice(0, 16);
+      const fileName = `${reportLabel.toLowerCase().replace(/\s/g, '_')}_${periodStart}_${periodEnd}_${actorHash}_${token}.xlsx`;
       fs.writeFileSync(path.join(FORWARD_DIR, fileName), buffer);
 
       // Build mailto: link
@@ -237,7 +386,7 @@ export function registerForwardRoutes(app: Express) {
       res.json({
         success: true,
         downloadUrl: `/api/forward/download/${token}`,
-        fileName: fileName.replace(`_${token}`, ''),
+        fileName: fileName.replace(`_${actorHash}_${token}`, ''),
         mailtoLink,
         entriesCount: exportData.length,
         totalHours: totalHours.toFixed(1),
@@ -245,20 +394,27 @@ export function registerForwardRoutes(app: Express) {
       });
     } catch (error: any) {
       console.error('Forward prepare error:', error);
-      res.status(500).json({ error: error.message });
+      if (error instanceof Error && (error.message === 'INVALID_INPUT' || error.message === 'INVALID_EMAIL')) {
+        return res.status(400).json({ error: 'Ugyldige rapportdata' });
+      }
+      res.status(500).json({ error: 'Kunne ikke forberede rapporten' });
     }
   });
 
-  // ─ Download prepared file (token-based, 24 h expiry) ──────────────────
-  app.get('/api/forward/download/:token', (req: Request, res: Response) => {
+  // ─ Download prepared file (authenticated owner + token, 24 h expiry) ──
+  app.get('/api/forward/download/:token', requireAuth, (req: Request, res: Response) => {
     const { token } = req.params;
     try {
+      if (!/^[a-f0-9]{32}$/.test(token)) return res.status(404).json({ error: 'Fil ikke funnet eller utløpt' });
+      const actor = emailActor(req);
+      if (!actor) return res.status(403).json({ error: 'Ikke tilgang' });
+      const actorHash = crypto.createHash('sha256').update(actor.id).digest('hex').slice(0, 16);
       const files = fs.readdirSync(FORWARD_DIR);
-      const match = files.find((f) => f.includes(token));
+      const match = files.find((file) => file.endsWith(`_${actorHash}_${token}.xlsx`));
       if (!match) return res.status(404).json({ error: 'Fil ikke funnet eller utløpt' });
 
       const filePath = path.join(FORWARD_DIR, match);
-      const cleanName = match.replace(/_[a-f0-9]{32}/, '');
+      const cleanName = match.replace(/_[a-f0-9]{16}_[a-f0-9]{32}/, '');
       res.download(filePath, cleanName);
     } catch {
       res.status(404).json({ error: 'Fil ikke funnet' });
@@ -281,8 +437,9 @@ export function registerForwardRoutes(app: Express) {
       } catch { /* non-critical */ }
 
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error('Forward confirm error:', error);
+      res.status(500).json({ error: 'Kunne ikke bekrefte videresendingen' });
     }
   });
 
@@ -298,8 +455,9 @@ export function registerForwardRoutes(app: Express) {
         const result = await pool.query('SELECT * FROM tidum_forward_log WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50', [userId]);
         res.json(result.rows);
       } catch { res.json([]); }
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error('Forward history error:', error);
+      res.status(500).json({ error: 'Kunne ikke hente historikken' });
     }
   });
 }

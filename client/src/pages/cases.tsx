@@ -15,9 +15,11 @@ import {
   Loader2,
   CheckCircle2,
   MapPin,
+  BookOpen,
 } from "lucide-react";
 import { PortalLayout } from "@/components/portal/portal-layout";
 import { SakLocationDialog } from "@/components/saker/sak-location-dialog";
+import { SakJournalDialog } from "@/components/saker/sak-journal-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -102,6 +104,7 @@ export default function CasesPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "reports" | "saker">("overview");
   const [tildelSak, setTildelSak] = useState<any | null>(null);
   const [locationSak, setLocationSak] = useState<any | null>(null);
+  const [journalSak, setJournalSak] = useState<any | null>(null);
   const [selectedAssignees, setSelectedAssignees] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState("");
   const [showCaseDialog, setShowCaseDialog] = useState(false);
@@ -136,11 +139,13 @@ export default function CasesPage() {
     queryKey: ["/api/saker"],
   });
   const { data: companyTeam = [] } = useQuery<any[]>({
-    queryKey: ["/api/company/users"],
+    // Saks-API-et lagrer den kanoniske users.id (UUID/varchar), ikke den
+    // numeriske medlemsraden fra tidum_company_users.
+    queryKey: ["/api/email/team-members"],
   });
   const tildelMutation = useMutation({
     mutationFn: (data: { sakId: string; userIds: string[] }) =>
-      apiRequest("POST", `/api/saker/${data.sakId}/tildel`, { userIds: data.userIds.map(Number) }),
+      apiRequest("POST", `/api/saker/${data.sakId}/tildel`, { userIds: data.userIds }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saker"] });
       toast({ title: "Tildeling oppdatert" });
@@ -835,6 +840,10 @@ export default function CasesPage() {
                               <Pencil className="h-3.5 w-3.5 mr-1.5" />
                               Tildel
                             </Button>
+                            <Button size="sm" variant="outline" onClick={() => setJournalSak(sak)}>
+                              <BookOpen className="h-3.5 w-3.5 mr-1.5" />
+                              Journal
+                            </Button>
                           </div>
                         </div>
                       </CardContent>
@@ -950,6 +959,13 @@ export default function CasesPage() {
           sak={locationSak}
           open={!!locationSak}
           onClose={() => setLocationSak(null)}
+        />
+
+        <SakJournalDialog
+          sak={journalSak}
+          open={!!journalSak}
+          onClose={() => setJournalSak(null)}
+          companyTeam={companyTeam as any[]}
         />
 
         {/* Tildelings-dialog for saker */}

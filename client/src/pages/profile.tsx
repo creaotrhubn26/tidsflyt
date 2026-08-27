@@ -43,7 +43,13 @@ import { useTheme } from "@/components/theme-provider";
 import { useAuth } from "@/hooks/use-auth";
 import { useRolePreview } from "@/hooks/use-role-preview";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { canAccessVendorApiAdmin, getRoleLabel, normalizeRole } from "@shared/roles";
+import {
+  canAccessVendorApiAdmin,
+  canConfigureArchiveIntegration,
+  canManageVendorCredentials,
+  getRoleLabel,
+  normalizeRole,
+} from "@shared/roles";
 import { useToast } from "@/hooks/use-toast";
 import { setAppLanguage } from "@/lib/i18n";
 import { useSuggestionSettings } from "@/hooks/use-suggestion-settings";
@@ -1036,9 +1042,9 @@ export default function ProfilePage() {
 
         <IntegrationRequestsPanel showAdminTools={canAccessVendorApiAdmin(normalizedRole)} />
 
-        {canAccessVendorApiAdmin(normalizedRole) && <PowerOfficeConnectCard />}
+        {canManageVendorCredentials(normalizedRole) && <PowerOfficeConnectCard />}
 
-        {canAccessVendorApiAdmin(normalizedRole) && <ArkivConnectCard />}
+        {canConfigureArchiveIntegration(normalizedRole) && <ArkivConnectCard />}
 
         {/* ── Notifications ── */}
         <Card data-testid="notifications-card">

@@ -5,9 +5,10 @@ import { eq } from "drizzle-orm";
 import request from "supertest";
 import express from "express";
 import jwt from "jsonwebtoken";
-import { registerSmartTimingRoutes, authenticateAdmin } from "../../smartTimingRoutes";
+import { readFileSync } from "node:fs";
+import { authenticateAdmin } from "../../smartTimingRoutes";
 
-const JWT_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "change-me-in-production";
+const JWT_SECRET = process.env.AUTH_JWT_SECRET || "test-auth-jwt-secret";
 
 describe("authenticateAdmin sets req.admin.roleId", () => {
   afterEach(async () => {
@@ -24,29 +25,44 @@ describe("authenticateAdmin sets req.admin.roleId", () => {
   });
 
   it("dev-mode branch resolves the migrated super_admin role's real id", async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousBypass = process.env.ALLOW_DEV_AUTH_BYPASS;
     process.env.NODE_ENV = "development";
+    process.env.ALLOW_DEV_AUTH_BYPASS = "true";
 
-    // Real super_admin id, read fresh from the DB rather than hardcoded —
-    // it can differ across environments/reseeds.
-    const [superAdmin] = await db
-      .select()
-      .from(roles)
-      .where(eq(roles.name, "super_admin"));
-    expect(superAdmin?.id).toBeTruthy();
+    try {
+      // Real super_admin id, read fresh from the DB rather than hardcoded —
+      // it can differ across environments/reseeds.
+      const [superAdmin] = await db
+        .select()
+        .from(roles)
+        .where(eq(roles.name, "super_admin"));
+      expect(superAdmin?.id).toBeTruthy();
 
-    const app = express();
-    // Test-only route that runs the real authenticateAdmin middleware and
-    // echoes what it set — proves actual roleId resolution, not just that
-    // some unrelated route didn't 403 (that route only checks the legacy
-    // `role` string, so it would pass regardless of roleId).
-    app.get("/__test/roleId", authenticateAdmin, (req: any, res) => {
-      res.json({ roleId: req.admin.roleId });
-    });
-    registerSmartTimingRoutes(app);
+      const app = express();
+      // Test-only route that runs the real authenticateAdmin middleware and
+      // echoes what it set — proves actual roleId resolution, not just that
+      // some unrelated route didn't 403 (that route only checks the legacy
+      // `role` string, so it would pass regardless of roleId).
+      app.get("/__test/roleId", authenticateAdmin, (req: any, res) => {
+        res.json({ roleId: req.admin.roleId });
+      });
 
-    const res = await request(app).get("/__test/roleId");
-    expect(res.status).toBe(200);
-    expect(res.body.roleId).toBe(superAdmin.id);
+      const res = await request(app).get("/__test/roleId");
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBe(superAdmin.id);
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete process.env.NODE_ENV;
+      } else {
+        process.env.NODE_ENV = previousNodeEnv;
+      }
+      if (previousBypass === undefined) {
+        delete process.env.ALLOW_DEV_AUTH_BYPASS;
+      } else {
+        process.env.ALLOW_DEV_AUTH_BYPASS = previousBypass;
+      }
+    }
   });
 });
 
@@ -67,7 +83,7 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     const prevNodeEnv = process.env.NODE_ENV;
     process.env.NODE_ENV = "production";
     vi.resetModules();
-    const { registerSmartTimingRoutes: register, authenticateAdmin: authAdmin } = await import(
+    const { authenticateAdmin: authAdmin } = await import(
       "../../smartTimingRoutes"
     );
     ({ db: dynamicDb, pool: dynamicDbPool } = await import("../../db"));
@@ -77,7 +93,9 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     app.get("/__test/roleId", authAdmin, (req: any, res) => {
       res.json({ roleId: req.admin.roleId });
     });
-    register(app);
+    app.get("/api/cms/__test/roleId", authAdmin, (req: any, res) => {
+      res.json({ roleId: req.admin.roleId });
+    });
   });
 
   afterEach(async () => {
@@ -238,6 +256,105 @@ describe("authenticateAdmin JWT branch resolves both id spaces", () => {
     } finally {
       if (userId) await dynamicDbPool.query(`DELETE FROM users WHERE id = $1`, [userId]);
       if (adminUserId) await dynamicDbPool.query(`DELETE FROM tidum_admin_users WHERE id = $1`, [adminUserId]);
+    }
+  });
+
+  it("unknown string-shaped users JWT skips the integer admin-id lookup and fails closed", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      const token = jwt.sign(
+        { id: `test-string-jwt-${Date.now()}`, role: "vendor_admin" },
+        JWT_SECRET,
+      );
+      const res = await request(app).get("/__test/roleId").set("Authorization", `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.roleId).toBeUndefined();
+      expect(errorSpy).not.toHaveBeenCalledWith(
+        "[authenticateAdmin] failed tidum_admin_users email-join roleId lookup",
+        expect.anything(),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("does not let a numeric admin-token collide into an unrelated users.id", async () => {
+    const [vendorAdminRole] = await dynamicDb
+      .select()
+      .from(roles)
+      .where(eq(roles.name, "vendor_admin"));
+    const [superAdminRole] = await dynamicDb
+      .select()
+      .from(roles)
+      .where(eq(roles.name, "super_admin"));
+    const marker = Date.now();
+    const adminRow = await dynamicDbPool.query(
+      `INSERT INTO tidum_admin_users (username, email, password_hash, role)
+       VALUES ($1, $2, 'x', 'vendor_admin') RETURNING id`,
+      [`cms_collision_admin_${marker}`, `cms-collision-admin-${marker}@example.com`],
+    );
+    const adminId = adminRow.rows[0].id;
+    await dynamicDbPool.query(
+      `INSERT INTO users (id, username, password, email, role, role_id)
+       VALUES ($1, $2, 'x', $3, 'super_admin', $4)`,
+      [String(adminId), `cms_collision_user_${marker}`, `cms-collision-user-${marker}@example.com`, superAdminRole.id],
+    );
+
+    try {
+      const token = jwt.sign({ id: adminId, role: "vendor_admin" }, JWT_SECRET);
+      const response = await request(app).get("/__test/roleId").set("Authorization", `Bearer ${token}`);
+      expect(response.status).toBe(200);
+      expect(response.body.roleId).toBe(vendorAdminRole.id);
+    } finally {
+      await dynamicDbPool.query("DELETE FROM users WHERE id = $1", [String(adminId)]);
+      await dynamicDbPool.query("DELETE FROM tidum_admin_users WHERE id = $1", [adminId]);
+    }
+  });
+
+  it("allows only a currently assigned cms.manage role into the global CMS control plane", async () => {
+    const migrationSql = readFileSync("migrations/078_cms_control_plane_security.sql", "utf8");
+    await dynamicDbPool.query(migrationSql);
+    const roleRows = await dynamicDbPool.query(
+      `SELECT id, name FROM tidum_roles WHERE name IN ('super_admin', 'vendor_admin') AND is_system_default = true`,
+    );
+    const superRoleId = roleRows.rows.find((row) => row.name === "super_admin")?.id;
+    const vendorRoleId = roleRows.rows.find((row) => row.name === "vendor_admin")?.id;
+    expect(superRoleId).toBeTruthy();
+    expect(vendorRoleId).toBeTruthy();
+
+    const marker = Date.now();
+    const inserted = await dynamicDbPool.query(
+      `INSERT INTO users (username, password, email, role, role_id)
+       VALUES ($1, 'x', $2, 'super_admin', $3), ($4, 'x', $5, 'vendor_admin', $6)
+       RETURNING id, role`,
+      [
+        `cms_super_${marker}`,
+        `cms-super-${marker}@example.com`,
+        superRoleId,
+        `cms_vendor_${marker}`,
+        `cms-vendor-${marker}@example.com`,
+        vendorRoleId,
+      ],
+    );
+    const superUser = inserted.rows.find((row) => row.role === "super_admin");
+    const vendorUser = inserted.rows.find((row) => row.role === "vendor_admin");
+
+    try {
+      const vendorToken = jwt.sign({ id: vendorUser.id, role: "super_admin", roleId: superRoleId }, JWT_SECRET);
+      const denied = await request(app)
+        .get("/api/cms/__test/roleId")
+        .set("Authorization", `Bearer ${vendorToken}`);
+      expect(denied.status).toBe(403);
+
+      const superToken = jwt.sign({ id: superUser.id, role: "vendor_admin", roleId: vendorRoleId }, JWT_SECRET);
+      const allowed = await request(app)
+        .get("/api/cms/__test/roleId")
+        .set("Authorization", `Bearer ${superToken}`);
+      expect(allowed.status).toBe(200);
+      expect(allowed.body.roleId).toBe(superRoleId);
+    } finally {
+      await dynamicDbPool.query("DELETE FROM users WHERE id = ANY($1::text[])", [inserted.rows.map((row) => row.id)]);
     }
   });
 });

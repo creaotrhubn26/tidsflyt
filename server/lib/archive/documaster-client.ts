@@ -5,7 +5,7 @@
  * offisielle Noark 5-webtjenester v1 (github.com/documaster/noark5-web-services):
  *
  *   - Token:       POST {idp}/oauth2/token — Documaster IDP kan kjøre på egen
- *                  host; sett apiPaths.token til absolutt URL ved behov.
+ *                  host; sett tokenUrl til absolutt URL ved behov.
  *                  NB: klassisk Documaster IDP (idp-web-services) dokumenterer
  *                  authorization_code/password-flow; client_credentials hører
  *                  til det nyere «Noark5 Compliant API». Avklar flow og
@@ -35,29 +35,7 @@
 
 import { createHash } from "crypto";
 import type { ArchiveDocumentFile, JournalpostSpec, SaksmappeSpec } from "./noark";
-
-export interface ArchiveProviderConfig {
-  baseUrl: string;
-  clientId: string;
-  clientSecret: string;
-  arkivdelId?: string | null;
-  journalenhet?: string | null;
-  /** Valgfri primærklasse — settes hvis instansen krever klassifikasjon på mapper. */
-  klasseId?: string | null;
-  apiPaths?: Partial<typeof DEFAULT_PATHS>;
-}
-
-export interface ArchiveProvider {
-  /** Verifiser at tilkobling og rettigheter fungerer (token + enkel query). */
-  verify(): Promise<void>;
-  /** Finn eller opprett saksmappe. Returnerer ekstern id + ident. */
-  ensureSaksmappe(spec: SaksmappeSpec): Promise<{ id: string; mappeIdent: string | null }>;
-  /** Opprett journalpost m/dokument i gitt mappe. Idempotent på eksternId. */
-  createJournalpost(
-    mappeId: string,
-    spec: JournalpostSpec,
-  ): Promise<{ id: string; journalpostIdent: string | null }>;
-}
+import type { ArchiveProvider, ArchiveProviderConfig } from "./archive-provider";
 
 const DEFAULT_PATHS = {
   token: "/idp/oauth2/token",
@@ -77,7 +55,7 @@ export class DocumasterError extends Error {
 
 interface CachedToken { accessToken: string; expiresAt: number }
 
-// Token-cache per (baseUrl, clientId, secret). Secreten hashes (SHA-256) i
+// Token-cache per (token-endepunkt, clientId, secret). Secreten hashes (SHA-256) i
 // nøkkelen i stedet for å lagres i klartekst der — samme prinsipp som
 // resten av kodebasen bruker for sensitive verdier den bare trenger å
 // SAMMENLIGNE, ikke lese tilbake (jf. server/lib/totp.ts sine
@@ -99,23 +77,31 @@ export class DocumasterProvider implements ArchiveProvider {
   private paths: typeof DEFAULT_PATHS;
 
   constructor(private cfg: ArchiveProviderConfig) {
-    this.paths = { ...DEFAULT_PATHS, ...(cfg.apiPaths ?? {}) };
+    this.paths = {
+      ...DEFAULT_PATHS,
+      ...(cfg.apiPaths ?? {}),
+      ...(cfg.tokenUrl ? { token: cfg.tokenUrl } : {}),
+    };
   }
 
   private url(path: string): string {
-    // apiPaths kan inneholde en absolutt URL — IdP-en (token) kjører ofte
+    // tokenUrl/apiPaths kan inneholde en absolutt URL — IDP-en kjører ofte
     // på en annen host enn arkivet (github.com/documaster/idp-web-services).
     if (/^https?:\/\//.test(path)) return path;
     return this.cfg.baseUrl.replace(/\/+$/, "") + path;
   }
 
   private async getToken(): Promise<string> {
-    const cacheKey = `${this.cfg.baseUrl}:${this.cfg.clientId}:${hashSecret(this.cfg.clientSecret)}`;
+    // Token-endepunktet inngår i cache-nøkkelen. Ellers kan en endret IDP-URL
+    // feilaktig gjenbruke et token fra forrige konfigurasjon og maskere at den
+    // nye tilkoblingen ikke virker.
+    const cacheKey = `${this.url(this.paths.token)}:${this.cfg.clientId}:${hashSecret(this.cfg.clientSecret)}`;
     const cached = tokenCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) return cached.accessToken;
 
     const res = await fetch(this.url(this.paths.token), {
       method: "POST",
+      redirect: "error",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
         grant_type: "client_credentials",
@@ -137,6 +123,7 @@ export class DocumasterProvider implements ArchiveProvider {
     const token = await this.getToken();
     const res = await fetch(this.url(path), {
       method: "POST",
+      redirect: "error",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/json",
@@ -221,6 +208,7 @@ export class DocumasterProvider implements ArchiveProvider {
     const asciiName = file.filename.replace(/[^\x20-\x7E]/g, "_").replace(/["\\]/g, "_");
     const res = await fetch(this.url(this.paths.upload), {
       method: "POST",
+      redirect: "error",
       headers: {
         Authorization: `Bearer ${token}`,
         "Content-Type": "application/octet-stream",
@@ -320,15 +308,5 @@ async function safeBody(res: Response): Promise<unknown> {
     return await res.text();
   } catch {
     return undefined;
-  }
-}
-
-/** Fabrikk — utvides når flere arkivkjerner støttes (Fiks Arkiv m.fl.). */
-export function createArchiveProvider(provider: string, cfg: ArchiveProviderConfig): ArchiveProvider {
-  switch (provider) {
-    case "documaster":
-      return new DocumasterProvider(cfg);
-    default:
-      throw new Error(`Ukjent arkivprovider: ${provider}`);
   }
 }

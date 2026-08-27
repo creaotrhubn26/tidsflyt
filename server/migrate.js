@@ -19,7 +19,12 @@ if (!DATABASE_URL) {
 
 const pool = new Pool({
   connectionString: DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
+  ssl:
+    process.env.DATABASE_SSL === 'false' ||
+    process.env.PGSSLMODE === 'disable' ||
+    /localhost|127\.0\.0\.1/.test(DATABASE_URL)
+      ? false
+      : { rejectUnauthorized: true },
 });
 
 async function runMigration() {

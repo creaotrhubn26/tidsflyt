@@ -42,6 +42,45 @@ export const STARTUP_MIGRATIONS: string[] = [
   "055_admin_users_role_id_unification.sql",
   "056_admin_activity_log.sql",
   "058_role_hierarchy_rank.sql",
+  "059_task_assignment.sql",
+  "060_notifications_drop_stale_user_id_not_null.sql",
+  "061_notifications_drop_remaining_stale_not_null.sql",
+  "062_sak_journal.sql",
+  "063_kommuner.sql",
+  // 064 creates an integer FK to the canonical Tidum-owned vendor table.
+  // Run 066 first despite its higher number; startup order is explicit here.
+  "066_tidum_vendors.sql",
+  "064_barnevern_meldingsmottak.sql",
+  "065_rapport_templates_constraints.sql",
+  "067_tidum_invoices.sql",
+  "068_case_report_tenant_integrity.sql",
+  "069_email_composer_tenant_integrity.sql",
+  "070_outbound_email_policy.sql",
+  "071_secure_dialog_foundation.sql",
+  "072_secure_dialog_ui_support.sql",
+  "073_secure_attachment_malware_quarantine.sql",
+  "074_secure_dialog_archive_retention_keys.sql",
+  "075_archive_token_url.sql",
+  "076_elements_archive_provider.sql",
+  "077_saker_rapport_tenant_security.sql",
+  "078_cms_control_plane_security.sql",
+  "079_leave_tenant_security.sql",
+  "080_gdpr_erasure_audit.sql",
+  "081_poweroffice_client_key_encryption.sql",
+  "082_secret_rotation_run_audit.sql",
+  "083_barnevern_municipality_rls.sql",
+  "084_secure_dialog_municipality_rls.sql",
+  "085_archive_dual_tenant_rls.sql",
+  "086_deadline_tenant_rls.sql",
+  "087_barnevern_sak.sql",
+  "088_barnevern_melding_komplett.sql",
+  "089_barnevern_sak_journal.sql",
+  "090_barnevern_oppgaver.sql",
+  "091_barnevern_tilgangslogg.sql",
+  "092_barnevern_planer.sql",
+  "093_barnevern_dokumenter.sql",
+  "094_barnevern_innsynskrav.sql",
+  "095_barnevern_forebyggende.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -58,16 +97,56 @@ export async function runStartupMigrations(): Promise<void> {
     } catch (err: any) {
       console.error(`[migration] FAILED ${filename}:`, err?.message || err);
 
-      // 057 is uniquely load-bearing (see the ordering comment above): every
+      // 057 is load-bearing (see the ordering comment above): every
       // migration after it targets tidum_-prefixed names on the assumption
       // that 057 already renamed the data-holding tables. If 057 fails and
       // we let startup continue anyway, 036-056 recreate the exact empty
       // shadow-table incident this whole initiative had to clean up once
       // already. Abort startup instead of limping on with a half-migrated
-      // schema. Every other migration's failure is non-fatal — log and
-      // continue, schema mismatches show up on first query against the
-      // affected table.
-      if (filename === "057_tidum_table_rename.sql") {
+      // schema. 077 is also fail-closed: the application code stores current
+      // UUID/varchar user IDs in the case/report domain, so continuing with
+      // legacy integer columns would break authorization and assignment.
+      // 079 is likewise fail-closed: continuing without tenant constraints on
+      // health-/absence data would re-open cross-customer reads and writes.
+      // 080 is fail-closed because irreversible GDPR erasure must never run
+      // without first being able to persist its documented controller intent.
+      // 081 is fail-closed because new PowerOffice credentials must never be
+      // accepted without the sealed-format database guard and rotation audit.
+      // 082 is fail-closed because a platform rotation must never be reported
+      // as successful without durable append-only run evidence. 083 is
+      // fail-closed because request code now depends on FORCE RLS and its
+      // transaction-local municipality context for database-level isolation.
+      // 084 extends the same fail-closed boundary to secure dialog, including
+      // eID-party object access and internal queue/governance operations. 085
+      // protects archive credentials, case links and receipts for both vendor
+      // and municipality tenants. 086 applies the same boundary to deadlines
+      // and enforces recipient/user tenant integrity without placing the
+      // shared authentication registry itself behind RLS. 087 creates the
+      // municipal child-welfare case tables with the same FORCE RLS boundary
+      // that the sak routes depend on.
+      // Other migration failures remain non-fatal and are surfaced on first
+      // query against the affected table.
+      if (
+        filename === "057_tidum_table_rename.sql"
+        || filename === "077_saker_rapport_tenant_security.sql"
+        || filename === "079_leave_tenant_security.sql"
+        || filename === "080_gdpr_erasure_audit.sql"
+        || filename === "081_poweroffice_client_key_encryption.sql"
+        || filename === "082_secret_rotation_run_audit.sql"
+        || filename === "083_barnevern_municipality_rls.sql"
+        || filename === "084_secure_dialog_municipality_rls.sql"
+        || filename === "085_archive_dual_tenant_rls.sql"
+        || filename === "086_deadline_tenant_rls.sql"
+        || filename === "087_barnevern_sak.sql"
+        || filename === "088_barnevern_melding_komplett.sql"
+        || filename === "089_barnevern_sak_journal.sql"
+        || filename === "090_barnevern_oppgaver.sql"
+        || filename === "091_barnevern_tilgangslogg.sql"
+        || filename === "092_barnevern_planer.sql"
+        || filename === "093_barnevern_dokumenter.sql"
+        || filename === "094_barnevern_innsynskrav.sql"
+        || filename === "095_barnevern_forebyggende.sql"
+      ) {
         throw err;
       }
       continue;

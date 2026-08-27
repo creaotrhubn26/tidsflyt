@@ -74,6 +74,16 @@ export interface SakLike {
   klientRef?: string | null;
 }
 
+export interface BarnevernMeldingLike {
+  id: string;
+  meldingsnummer: string;
+}
+
+export interface SecureDialogLike {
+  id: string;
+  closedAt?: string | Date | null;
+}
+
 export interface SkjermingDefaults {
   skjermingshjemmel: string;
   tilgangsrestriksjon: string;
@@ -109,6 +119,42 @@ export function buildSaksmappeSpec(sak: SakLike, defaults: SkjermingDefaults, ar
     eksternId: `tidum:sak:${sak.id}`,
     skjerming: buildDefaultSkjerming(defaults),
     arkivdelId,
+  };
+}
+
+export function buildBarnevernMeldingMappeSpec(
+  melding: BarnevernMeldingLike,
+  defaults: SkjermingDefaults,
+  arkivdelId?: string,
+): SaksmappeSpec {
+  return {
+    tittel: `Barnevernssak ${melding.meldingsnummer}`,
+    offentligTittel: "Barnevernssak",
+    eksternId: `tidum:barnevern-melding:${melding.id}`,
+    skjerming: buildDefaultSkjerming(defaults),
+    arkivdelId,
+  };
+}
+
+export function buildSecureDialogJournalpost(
+  conversation: SecureDialogLike,
+  melding: BarnevernMeldingLike,
+  files: ArchiveDocumentFile[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const dokumentdato = conversation.closedAt
+    ? new Date(conversation.closedAt).toISOString().slice(0, 10)
+    : undefined;
+  return {
+    tittel: `Sikker dialog — melding ${melding.meldingsnummer}`,
+    offentligTittel: "Sikker dialog",
+    journalposttype: "X",
+    eksternId: `tidum:secure-dialog:${conversation.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files,
   };
 }
 
@@ -154,6 +200,117 @@ export function buildRapportJournalpost(
         variantformat: "Arkivformat",
       },
     ],
+  };
+}
+
+export interface JournalEntryLike {
+  id: string;
+  content: string;
+  createdAt?: string | Date | null;
+}
+
+export interface JournalAttachmentLike {
+  originalName: string;
+  mimeType: string;
+  content: Buffer;
+}
+
+/**
+ * Journalpost for én sak-journal-oppføring. Alltid organinternt (X) — en
+ * journaloppføring har ingen godkjennings-/ekspederingsflyt slik rapporter
+ * har. Selve journalteksten er ALLTID første fil (Produksjonsformat, ikke
+ * Arkivformat — ren tekst uten PDF/A-konvertering i denne runden); eventuelle
+ * vedlegg følger etter i sin opprinnelige mimeType.
+ */
+export function buildJournalJournalpost(
+  entry: JournalEntryLike,
+  sak: SakLike | null,
+  attachments: JournalAttachmentLike[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const klient = sak?.klientRef || null;
+  const parts = [
+    "Journalnotat",
+    sak ? `— sak ${sak.saksnummer}` : null,
+    klient ? `(${klient})` : null,
+  ].filter(Boolean);
+
+  const dokumentdato = entry.createdAt
+    ? new Date(entry.createdAt).toISOString().slice(0, 10)
+    : undefined;
+
+  const textFile: ArchiveDocumentFile = {
+    filename: `journal-${sak?.saksnummer ?? entry.id}.txt`.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: "text/plain",
+    content: Buffer.from(entry.content, "utf-8"),
+    variantformat: "Produksjonsformat",
+  };
+
+  const attachmentFiles: ArchiveDocumentFile[] = attachments.map((a) => ({
+    filename: a.originalName.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: a.mimeType,
+    content: a.content,
+    variantformat: a.mimeType === "application/pdf" ? "Arkivformat" : "Produksjonsformat",
+  }));
+
+  return {
+    tittel: parts.join(" "),
+    offentligTittel: "Journalnotat",
+    journalposttype: "X",
+    eksternId: `tidum:journal:${entry.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files: [textFile, ...attachmentFiles],
+  };
+}
+
+export interface BarnevernJournalEntryLike {
+  id: string;
+  kategori: string;
+  innhold: string;
+  createdAt?: string | Date | null;
+}
+
+/**
+ * Journalpost for én oppføring i den kommunale barnevernssakens journal.
+ * Alltid organinternt (X), samme fil-oppsett som buildJournalJournalpost:
+ * journalteksten først, deretter vedlegg i opprinnelig mimeType.
+ */
+export function buildBarnevernJournalJournalpost(
+  entry: BarnevernJournalEntryLike,
+  sak: { saksnummer: string },
+  attachments: JournalAttachmentLike[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const dokumentdato = entry.createdAt
+    ? new Date(entry.createdAt).toISOString().slice(0, 10)
+    : undefined;
+
+  const textFile: ArchiveDocumentFile = {
+    filename: `journal-${sak.saksnummer}-${entry.kategori}.txt`.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: "text/plain",
+    content: Buffer.from(entry.innhold, "utf-8"),
+    variantformat: "Produksjonsformat",
+  };
+  const attachmentFiles: ArchiveDocumentFile[] = attachments.map((a) => ({
+    filename: a.originalName.replace(/[^a-zA-Z0-9åæøÅÆØ._-]+/g, "_"),
+    mimeType: a.mimeType,
+    content: a.content,
+    variantformat: a.mimeType === "application/pdf" ? "Arkivformat" : "Produksjonsformat",
+  }));
+
+  return {
+    tittel: `Journalnotat (${entry.kategori}) — sak ${sak.saksnummer}`,
+    offentligTittel: "Journalnotat",
+    journalposttype: "X",
+    eksternId: `tidum:barnevern-journal:${entry.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files: [textFile, ...attachmentFiles],
   };
 }
 

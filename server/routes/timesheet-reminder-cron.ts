@@ -21,16 +21,10 @@ import cron from 'node-cron';
 import { db, pool } from '../db';
 import { and, eq, inArray } from 'drizzle-orm';
 import { vendors, users } from '@shared/schema';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
+import { requireSuperAdmin, requireVendorDataAdmin } from '../custom-auth';
 import { createNotification } from './notification-routes';
 
 const DEFAULT_DEADLINE_DAY = 5;
-
-function isAdminRole(req: Request): boolean {
-  const role = String(((req as any).authUser ?? (req as any).user)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return ADMIN_ROLES.includes(role);
-}
 
 function pad2(n: number): string { return String(n).padStart(2, '0'); }
 
@@ -209,14 +203,11 @@ export function setupTimesheetReminderCron() {
 
 export function registerTimesheetReminderRoutes(app: Express) {
   // Admin/tiltaksleder: set the deadline day for this vendor
-  app.patch('/api/vendor/timesheet-deadline', requireAuth, async (req: Request, res: Response) => {
+  app.patch('/api/vendor/timesheet-deadline', requireVendorDataAdmin, async (req: Request, res: Response) => {
     try {
-      const u = (req as any).authUser ?? (req as any).user;
-      if (!isAdminRole(req) && String(u?.role || '').toLowerCase() !== 'tiltaksleder') {
-        return res.status(403).json({ error: 'Krever tiltaksleder eller admin' });
-      }
+      const u = req.user as any;
       const vendorId = Number(u?.vendorId ?? u?.vendor_id);
-      if (!Number.isFinite(vendorId)) return res.status(400).json({ error: 'Mangler vendor_id' });
+      if (!Number.isInteger(vendorId) || vendorId <= 0) return res.status(403).json({ error: 'Mangler vendor_id' });
 
       const day = Number(req.body?.day);
       if (!Number.isInteger(day) || day < 1 || day > 28) {
@@ -229,16 +220,17 @@ export function registerTimesheetReminderRoutes(app: Express) {
       const nextSettings = { ...(vendor.settings as Record<string, any> ?? {}), timesheetDeadlineDayOfMonth: day };
       await db.update(vendors).set({ settings: nextSettings, updatedAt: new Date() }).where(eq(vendors.id, vendorId));
       res.json({ ok: true, timesheetDeadlineDayOfMonth: day });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('[timesheet-deadline] update failed', error);
+      res.status(500).json({ error: 'Kunne ikke oppdatere timelistefrist' });
     }
   });
 
   // Admin: run reminder pass on demand (for testing)
-  app.post('/api/timesheet-reminders/run', requireAuth, async (req: Request, res: Response) => {
+  app.post('/api/timesheet-reminders/run', requireSuperAdmin, async (req: Request, res: Response) => {
     try {
-      if (!isAdminRole(req)) return res.status(403).json({ error: 'Kun admin+ kan kjøre manuelt' });
       const now = req.body?.now ? new Date(req.body.now) : new Date();
+      if (Number.isNaN(now.getTime())) return res.status(400).json({ error: 'Ugyldig tidspunkt' });
       const results = await runTimesheetReminders(now);
       res.json({
         ok: true,
@@ -250,8 +242,9 @@ export function registerTimesheetReminderRoutes(app: Express) {
         },
         results,
       });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('[timesheet-reminders] manual run failed', error);
+      res.status(500).json({ error: 'Kunne ikke kjøre timelistepåminnelser' });
     }
   });
 }

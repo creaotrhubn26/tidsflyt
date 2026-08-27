@@ -83,7 +83,9 @@ export default function TiltakslederPage() {
     queryKey: ["/api/rapporter"],
     queryFn: async () => {
       const r = await apiRequest("GET", "/api/rapporter");
-      return r.json();
+      const data = await r.json();
+      // Feilobjekt eller uventet form skal ikke krasje siden.
+      return Array.isArray(data) ? data : [];
     },
   });
 

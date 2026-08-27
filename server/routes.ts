@@ -1,11 +1,12 @@
 import type { Express } from "express";
 import express from "express";
 import { type Server } from "http";
+import { randomBytes } from "node:crypto";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
 
 import { getUncachableGitHubClient } from "./github";
-import { registerSmartTimingRoutes } from "./smartTimingRoutes";
+import { authenticateAdmin, registerSmartTimingRoutes } from "./smartTimingRoutes";
 import { registerLeaveRoutes } from "./routes/leave-routes";
 import { registerInvoiceRoutes } from "./routes/invoice-routes";
 import { registerOvertimeRoutes } from "./routes/overtime-routes";
@@ -13,6 +14,22 @@ import { registerRecurringRoutes, setupRecurringEntriesCron } from "./routes/rec
 import { registerTesterFeedbackRoutes } from "./routes/tester-feedback-routes";
 import { registerInstitutionsRoutes } from "./routes/institutions-routes";
 import { registerRapportReminderRoutes, setupRapportReminderCron } from "./routes/rapport-reminder-cron";
+import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
+import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
+import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
+import { registerBarnevernSakRoutes } from "./routes/barnevern-sak-routes";
+import { registerBarnevernOppgaveRoutes } from "./routes/barnevern-oppgave-routes";
+import { registerBarnevernPlanRoutes } from "./routes/barnevern-plan-routes";
+import { registerBarnevernDokumentRoutes } from "./routes/barnevern-dokument-routes";
+import { registerBarnevernInnsynRoutes } from "./routes/barnevern-innsyn-routes";
+import { registerBarnevernForebyggendeRoutes } from "./routes/barnevern-forebyggende-routes";
+import { registerBarnevernRapporteringRoutes } from "./routes/barnevern-rapportering-routes";
+import {
+  registerSecureDialogRoutes,
+  setupSecureAttachmentQuarantineCleanup,
+  setupSecureDialogGovernanceCron,
+} from "./routes/secure-dialog-routes";
+import { setupFiksIoReceiver } from "./fiks-io/receiver";
 import { registerLeaveRolloverRoutes, setupLeaveRolloverCron } from "./routes/leave-rollover-cron";
 import { registerTimesheetReminderRoutes, setupTimesheetReminderCron } from "./routes/timesheet-reminder-cron";
 import { registerHolidaysRoutes } from "./routes/holidays-routes";
@@ -30,6 +47,7 @@ import { setupActivityLogCron } from "./routes/activity-log-cron";
 import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
 import { registerAvvikRoutes } from "./routes/avvik-routes";
 import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
+import { registerSecretOperationsRoutes } from "./routes/secret-operations-routes";
 import { registerArchiveRoutes, setupArchiveCron } from "./routes/archive-routes";
 import { registerEmployeeImportRoutes } from "./routes/employee-import-routes";
 import { registerSeatOverrunRoutes, setupSeatOverrunCron } from "./routes/seat-overrun-cron";
@@ -48,19 +66,20 @@ import vendorApi from "./vendor-api";
 import { generateApiKey } from "./api-middleware";
 import { db, pool } from "./db";
 import { apiKeys, vendors, accessRequests, insertAccessRequestSchema, builderPages, insertBuilderPageSchema, sectionTemplates, pageVersions, formSubmissions, pageAnalytics, users, pricingTiers, salesRoutingRules, leadPipelineStages } from "@shared/schema";
-import { eq, and, isNull, desc, sql, asc, lte, gte, or } from "drizzle-orm";
+import { eq, and, isNull, desc, sql, asc, lte, gte, or, ne } from "drizzle-orm";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import sharp from "sharp";
 import { z } from "zod";
-import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, hasSessionAuth } from "./custom-auth";
+import { buildEmailLoginUrl, setupCustomAuth, isAuthenticated, isAuthenticatedOrBearer, requireIntegrationAdmin, requireSuperAdmin, requireVendorAuth, requireVendorMember } from "./custom-auth";
 import { setupEidAuth } from "./eid-auth";
-import { requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
-import { canAccessVendorApiAdmin, isTopAdminRole, normalizeRole } from "@shared/roles";
+import { setupEntraIdAuth } from "./entra-id-auth";
+import { requireAuth as requireAnyAuth, requireAdminRole, ADMIN_ROLES } from "./middleware/auth";
+import { isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
 import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
-import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
+import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit, uploadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
 import { hasValidCreatorhubSyncSecret, syncTidumAccessRequestToCreatorhub } from "./lib/creatorhub-sync";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
@@ -94,6 +113,11 @@ const timerSessionSchema = z.object({
 const DATE_ONLY_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const YEAR_MONTH_REGEX = /^\d{4}-\d{2}$/;
 
+// Transaction-client type for the access-request approval helpers below —
+// derived from db.transaction's own callback param so it always matches
+// whatever drizzle-orm/node-postgres actually hands us.
+type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 function slugifyVendorName(input: string): string {
   return input
     .trim()
@@ -106,6 +130,7 @@ function slugifyVendorName(input: string): string {
 }
 
 async function ensureVendorForAccessRequest(
+  tx: DbTx,
   request: typeof accessRequests.$inferSelect,
 ): Promise<number> {
   const companyName = request.company?.trim() || request.fullName.trim();
@@ -113,22 +138,43 @@ async function ensureVendorForAccessRequest(
     throw new Error("Access request is missing organization details");
   }
 
-  const [existingByName] = await db
-    .select({ id: vendors.id })
-    .from(vendors)
-    .where(sql`lower(${vendors.name}) = lower(${companyName})`)
-    .limit(1);
-
-  if (existingByName) {
-    return existingByName.id;
+  const orgNumber = request.orgNumber?.replace(/\s/g, "") || null;
+  if (orgNumber && !/^\d{9}$/.test(orgNumber)) {
+    throw new Error("INVALID_ORG_NUMBER");
   }
 
   const slugBase = slugifyVendorName(companyName) || "vendor";
+  // Serialize all candidates that normalize to the same slug. This removes
+  // the SELECT-then-INSERT race without taking a table-wide lock.
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtext(${`tidum-vendor:${slugBase}`}))`,
+  );
+
+  if (orgNumber) {
+    const [existingByOrgNumber] = await tx
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(eq(vendors.orgNumber, orgNumber))
+      .limit(1);
+    if (existingByOrgNumber) {
+      return existingByOrgNumber.id;
+    }
+  } else {
+    const [existingByName] = await tx
+      .select({ id: vendors.id })
+      .from(vendors)
+      .where(sql`lower(${vendors.name}) = lower(${companyName})`)
+      .limit(1);
+    if (existingByName) {
+      return existingByName.id;
+    }
+  }
+
   let slug = slugBase;
-  let counter = 1;
+  let counter = 0;
 
   while (true) {
-    const [existingSlug] = await db
+    const [existingSlug] = await tx
       .select({ id: vendors.id })
       .from(vendors)
       .where(eq(vendors.slug, slug))
@@ -139,15 +185,15 @@ async function ensureVendorForAccessRequest(
     }
 
     counter += 1;
-    slug = `${slugBase}-${counter}`;
+    slug = `${slugBase}-${request.id}${counter > 1 ? `-${counter}` : ""}`;
   }
 
-  const [createdVendor] = await db
+  const [createdVendor] = await tx
     .insert(vendors)
     .values({
       name: companyName,
       slug,
-      orgNumber: request.orgNumber ?? null,
+      orgNumber,
       institutionType: request.institutionType ?? null,
       email: request.email ?? null,
       phone: request.phone ?? null,
@@ -161,20 +207,42 @@ async function ensureVendorForAccessRequest(
 }
 
 async function ensureHovedadminForAccessRequest(
+  tx: DbTx,
   request: typeof accessRequests.$inferSelect,
   vendorId: number,
   hovedadminEmail: string,
   hovedadminName: string | null,
 ): Promise<void> {
   const email = hovedadminEmail.trim().toLowerCase();
+
+  // Fail closed FØR INSERT-en: uten denne vakten
+  // overskriver ON CONFLICT (email) DO UPDATE under ubetinget vendor_id,
+  // role OG password_hash på en HVILKEN SOM HELST eksisterende rad som
+  // matcher e-posten — inkludert en rad som tilhører en annen vendor
+  // (kontoovertakelse via en angripers alt_hovedadmin_email, se
+  // applyAccessRequestDecision). Kallstedene fanger denne meldingen og
+  // svarer 409.
+  const conflictingAdmin = await tx.execute(
+    sql`SELECT 1 FROM tidum_admin_users
+        WHERE LOWER(email) = ${email}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingAdmin.rows.length > 0) {
+    throw new Error("HOVEDADMIN_TENANT_MISMATCH");
+  }
+
   const usernameBase =
     slugifyVendorName(hovedadminName || request.company || email.split("@")[0] || "hovedadmin") ||
     "hovedadmin";
-  const passwordHash = await bcrypt.hash(`invite-${email}-${Date.now()}`, 10);
+  // The password is never shown or used for login (magic-link is the real
+  // invite path), but the legacy NOT NULL column must still receive a secret
+  // that cannot be guessed from email address and invitation time.
+  const passwordHash = await bcrypt.hash(randomBytes(32).toString("base64url"), 10);
 
-  await pool.query(
-    `INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
-     VALUES ($1, $2, $3, 'hovedadmin', $4, true, NOW())
+  const upsertedAdmin = await tx.execute(
+    sql`INSERT INTO tidum_admin_users (username, email, password_hash, role, vendor_id, is_active, updated_at)
+     VALUES (${usernameBase}, ${email}, ${passwordHash}, 'hovedadmin', ${vendorId}, true, NOW())
      ON CONFLICT (email)
      DO UPDATE SET
        username = EXCLUDED.username,
@@ -182,53 +250,98 @@ async function ensureHovedadminForAccessRequest(
        role = 'hovedadmin',
        vendor_id = EXCLUDED.vendor_id,
        is_active = true,
-       updated_at = NOW()`,
-    [usernameBase, email, passwordHash, vendorId],
+       updated_at = NOW()
+     WHERE tidum_admin_users.vendor_id IS NOT DISTINCT FROM EXCLUDED.vendor_id
+     RETURNING id`,
   );
+  // The pre-check gives a clear fast failure, while the conditional UPSERT is
+  // the actual race-safe guard if another tenant claims the email between
+  // SELECT and INSERT.
+  if (upsertedAdmin.rows.length === 0) {
+    throw new Error("HOVEDADMIN_TENANT_MISMATCH");
+  }
 }
 
-async function syncApprovedPortalUser(email: string, role: string, vendorId: number | null) {
+async function syncApprovedPortalUser(tx: DbTx, email: string, role: string, vendorId: number) {
   const normalizedRole = normalizeRole(role);
-  const [existingUser] = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  const normalizedEmail = email.trim().toLowerCase();
+
+  // A bulk-imported employee may exist only in tidum_company_users. Treat
+  // that ownership as authoritative too; otherwise approval could create a
+  // new admin/users identity for the same email under another tenant.
+  const conflictingCompanyUser = await tx.execute(
+    sql`SELECT 1 FROM tidum_company_users
+        WHERE LOWER(user_email) = ${normalizedEmail}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingCompanyUser.rows.length > 0) {
+    throw new Error("COMPANY_USER_TENANT_MISMATCH");
+  }
+
+  const conflictingPortalUser = await tx.execute(
+    sql`SELECT 1 FROM users
+        WHERE LOWER(email) = ${normalizedEmail}
+          AND vendor_id IS DISTINCT FROM ${vendorId}
+        LIMIT 1`,
+  );
+  if (conflictingPortalUser.rows.length > 0) {
+    throw new Error("PORTAL_USER_TENANT_MISMATCH");
+  }
+
+  // LOWER(email) matcher det case-insensitive innloggingsoppslaget i
+  // custom-auth.ts og vakten i ensureHovedadminForAccessRequest — en
+  // case-eksakt WHERE her ville la en annen-case e-post smette forbi
+  // tenant-sjekken under (kontoovertakelse).
+  const [existingUser] = await tx
+    .select()
+    .from(users)
+    .where(sql`LOWER(${users.email}) = ${normalizedEmail}`)
+    .limit(1);
 
   if (existingUser) {
-    await db
+    // Fail closed FØR UPDATE-en: uten denne vakten overskriver denne
+    // ubetinget role/vendorId for en hvilken som helst eksisterende
+    // users-rad matchet på e-post, uansett eksisterende vendorId
+    // (kontoovertakelse — samme angrepsvei som over). Kallstedene fanger
+    // denne meldingen og svarer 409.
+    await tx
       .update(users)
       .set({
-        email,
+        email: normalizedEmail,
         role: normalizedRole,
         vendorId,
         updatedAt: new Date(),
       })
       .where(eq(users.id, existingUser.id));
   } else {
-    await db.insert(users).values({
-      email,
-      role: normalizedRole,
-      vendorId,
-    });
+    // username/password er NOT NULL-kolonner på det delte public.users-
+    // tabellen (eid av et urelatert produkt) uten default og uten felt i
+    // Drizzle-schemaet — et rått insert uten dem feiler med 23502. Samme
+    // placeholder-mønster som smartTimingRoutes.ts sin identiske
+    // users-insert: magic-link er den reelle auth-veien, så passordet
+    // leses aldri.
+    await tx.execute(
+      sql`INSERT INTO users (username, password, email, role, vendor_id)
+       VALUES (${normalizedEmail}, 'unused-admin-users-pairing', ${normalizedEmail}, ${normalizedRole}, ${vendorId})`,
+    );
   }
 
-  if (vendorId) {
-    const existingCompanyUser = await pool.query(
-      `SELECT id FROM tidum_company_users WHERE company_id = $1 AND LOWER(user_email) = LOWER($2) LIMIT 1`,
-      [vendorId, email]
-    );
+  const existingCompanyUser = await tx.execute(
+    sql`SELECT id FROM tidum_company_users WHERE company_id = ${vendorId} AND LOWER(user_email) = LOWER(${normalizedEmail}) LIMIT 1`,
+  );
 
-    if (existingCompanyUser.rows.length > 0) {
-      await pool.query(
-        `UPDATE tidum_company_users
-         SET role = $1, approved = true, updated_at = NOW()
-         WHERE id = $2`,
-        [normalizedRole, existingCompanyUser.rows[0].id]
-      );
-    } else {
-      await pool.query(
-        `INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
-         VALUES ($1, $1, $2, $3, true)`,
-        [vendorId, email, normalizedRole]
-      );
-    }
+  if (existingCompanyUser.rows.length > 0) {
+    await tx.execute(
+      sql`UPDATE tidum_company_users
+         SET role = ${normalizedRole}, approved = true, updated_at = NOW()
+         WHERE id = ${existingCompanyUser.rows[0].id}`,
+    );
+  } else {
+    await tx.execute(
+      sql`INSERT INTO tidum_company_users (vendor_id, company_id, user_email, role, approved)
+         VALUES (${vendorId}, ${vendorId}, ${normalizedEmail}, ${normalizedRole}, true)`,
+    );
   }
 }
 
@@ -268,6 +381,7 @@ async function notifyTidumSupportAboutAccessRequest(
     : `${request.altHovedadminName || "(navn mangler)"} — ${request.altHovedadminEmail || "(e-post mangler)"}`;
 
   await emailService.sendEmail({
+    purpose: "administrative",
     to: TIDUM_SUPPORT_EMAIL,
     replyTo: request.email,
     subject: `Ny tilgangsforespørsel til Tidum fra ${request.fullName}`,
@@ -361,62 +475,100 @@ async function applyAccessRequestDecision({
   role?: string | null;
   reviewedBy?: string | null;
 }) {
-  const approvedRole = normalizeRole(role || "tiltaksleder");
+  // Atomic: request lock/read + optional vendor creation + request update +
+  // hovedadmin provisioning all happen in one transaction. No orphan vendor,
+  // admin or portal row can survive a later guard or write failure.
+  const decision = await db.transaction(async (tx) => {
+    const [request] = await tx
+      .select()
+      .from(accessRequests)
+      .where(eq(accessRequests.id, requestId))
+      .limit(1)
+      .for("update");
 
-  const [request] = await db
-    .select()
-    .from(accessRequests)
-    .where(eq(accessRequests.id, requestId))
-    .limit(1);
+    if (!request) {
+      throw new Error("Request not found");
+    }
 
-  if (!request) {
-    throw new Error("Request not found");
-  }
+    const effectiveVendorId =
+      status === "approved"
+        ? (vendorId != null
+            ? Number(vendorId)
+            : await ensureVendorForAccessRequest(tx, request))
+        : null;
+    if (
+      status === "approved" &&
+      (!Number.isSafeInteger(effectiveVendorId) || (effectiveVendorId ?? 0) <= 0)
+    ) {
+      throw new Error("INVALID_VENDOR_ID");
+    }
 
-  const updateData: Record<string, unknown> = {
-    status,
-    reviewedBy: reviewedBy ?? null,
-    reviewedAt: new Date(),
-    updatedAt: new Date(),
-  };
-
-  const effectiveVendorId =
-    status === "approved"
-      ? (vendorId ? Number(vendorId) : await ensureVendorForAccessRequest(request))
+    // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
+    // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
+    const hovedadminEmailRaw = request.isHovedadmin
+      ? request.email
+      : (request.altHovedadminEmail || request.email);
+    const hovedadminEmail = hovedadminEmailRaw
+      ? hovedadminEmailRaw.trim().toLowerCase()
       : null;
+    const hovedadminName = request.isHovedadmin
+      ? request.fullName
+      : (request.altHovedadminName || request.fullName);
 
-  if (status === "approved") {
-    updateData.vendorId = effectiveVendorId;
-  }
+    const updateData: Record<string, unknown> = {
+      status,
+      reviewedBy: reviewedBy ?? null,
+      reviewedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    if (status === "approved") {
+      updateData.vendorId = effectiveVendorId;
+    }
 
-  const [updated] = await db
-    .update(accessRequests)
-    .set(updateData)
-    .where(eq(accessRequests.id, requestId))
-    .returning();
+    const [updatedRow] = await tx
+      .update(accessRequests)
+      .set(updateData)
+      .where(eq(accessRequests.id, requestId))
+      .returning();
 
-  // Hovedadmin er enten forespørsleren selv (default) eller noen annen som
-  // forespørsleren har oppgitt i alt_hovedadmin_*-feltene (migrasjon 041).
-  const hovedadminEmail = request.isHovedadmin
-    ? request.email
-    : (request.altHovedadminEmail || request.email);
-  const hovedadminName = request.isHovedadmin
-    ? request.fullName
-    : (request.altHovedadminName || request.fullName);
+    if (status === "approved" && hovedadminEmail) {
+      const approvedVendorId = effectiveVendorId;
+      if (approvedVendorId == null) {
+        throw new Error("INVALID_VENDOR_ID");
+      }
+      await ensureHovedadminForAccessRequest(
+        tx,
+        request,
+        approvedVendorId,
+        hovedadminEmail,
+        hovedadminName,
+      );
+      await syncApprovedPortalUser(
+        tx,
+        hovedadminEmail,
+        "hovedadmin",
+        approvedVendorId,
+      );
+    }
 
-  if (status === "approved" && hovedadminEmail) {
-    await ensureHovedadminForAccessRequest(
+    return {
+      updated: updatedRow,
       request,
-      effectiveVendorId as number,
+      effectiveVendorId,
       hovedadminEmail,
       hovedadminName,
-    );
-    await syncApprovedPortalUser(
-      hovedadminEmail,
-      "hovedadmin",
-      effectiveVendorId,
-    );
+    };
+  });
 
+  const {
+    updated,
+    request,
+    effectiveVendorId,
+    hovedadminEmail,
+    hovedadminName,
+  } = decision;
+
+  if (status === "approved" && hovedadminEmail) {
     // Insert-time seat-overrun-check (T17). Approval skaper en hovedadmin
     // som teller mot seat-cap. Best-effort — skal ikke blokkere approval.
     if (effectiveVendorId != null) {
@@ -626,6 +778,30 @@ const timeTrackingPdfTemplatePatchSchema = z.object({
   message: "At least one setting must be provided",
 });
 
+const cmsFormStatusSchema = z.enum(["new", "read", "replied", "archived"]);
+
+const cmsPublicFormSubmissionSchema = z.object({
+  pageId: z.coerce.number().int().positive(),
+  pageSlug: z.string().trim().min(1).max(160),
+  formName: z.string().trim().min(1).max(100).default("contact"),
+  data: z.record(z.string().max(4_000)),
+}).superRefine((value, ctx) => {
+  if (Object.keys(value.data).length > 50) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "For mange skjemafelt" });
+  }
+  if (Buffer.byteLength(JSON.stringify(value.data), "utf8") > 32 * 1024) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Skjemadata er for stor" });
+  }
+});
+
+const cmsPageAnalyticsSchema = z.object({
+  pageId: z.coerce.number().int().positive(),
+  pageSlug: z.string().trim().min(1).max(160),
+  duration: z.coerce.number().int().min(0).max(86_400).nullable().optional(),
+  referrer: z.string().trim().max(2_048).nullable().optional(),
+  device: z.enum(["desktop", "tablet", "mobile"]).default("desktop"),
+});
+
 const INTEGRATION_KEYS = ["fiken", "tripletex", "other"] as const;
 const INTEGRATION_ROADMAP_STATUSES = [
   "requested",
@@ -646,14 +822,12 @@ const integrationPrimaryRequestSchema = z.object({
   useCase: z.string().trim().max(1000).optional(),
   estimatedMonthlyVolume: z.number().int().min(0).max(100000000).optional(),
   urgency: z.enum(["low", "normal", "high"]).optional(),
-  vendorId: z.number().int().positive().optional(),
-});
+}).strict();
 
 const integrationSignalRequestSchema = z.object({
   integrationKey: integrationKeySchema,
-  vendorId: z.number().int().positive().optional(),
   note: z.string().trim().max(500).optional(),
-});
+}).strict();
 
 const integrationRoadmapPatchSchema = z.object({
   status: integrationRoadmapStatusSchema.optional(),
@@ -674,6 +848,11 @@ const integrationRoadmapPatchSchema = z.object({
 const integrationAnalyticsFilterSchema = z.object({
   days: z.coerce.number().int().min(1).max(365).optional(),
 });
+
+const vendorApiKeyCreateSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  permissions: z.array(z.literal("read:time_entries")).min(1).max(1).default(["read:time_entries"]),
+}).strict();
 
 type FeedbackStatsMap = Record<string, { accepted: number; rejected: number }>;
 
@@ -1551,12 +1730,14 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   const hasDatabaseConnection = hasDatabaseConnectionString();
+  const shouldRunStartupJobs = process.env.NODE_ENV !== "test" && !process.env.VITEST;
   const shouldSeedLocalData =
     process.env.NODE_ENV !== "production" && !hasDatabaseConnection;
   
   // Setup Custom OAuth Auth (MUST be before other routes)
   await setupCustomAuth(app);
   await setupEidAuth(app);
+  await setupEntraIdAuth(app);
 
   // Never seed data automatically in production.
   if (shouldSeedLocalData) {
@@ -1704,7 +1885,7 @@ export async function registerRoutes(
       `SELECT data_type, udt_name
          FROM information_schema.columns
         WHERE table_schema = current_schema()
-          AND table_name = 'vendors'
+          AND table_name = 'tidum_vendors'
           AND column_name = 'id'
         LIMIT 1`,
     );
@@ -1718,7 +1899,7 @@ export async function registerRoutes(
       vendorIdColumn?.udt_name === "int4" ||
       vendorIdColumn?.udt_name === "int8";
     const integrationVendorReferenceSql = vendorIdSupportsIntegerForeignKey
-      ? "REFERENCES vendors(id)"
+      ? "REFERENCES tidum_vendors(id)"
       : "";
 
     await pool.query(`
@@ -2008,7 +2189,7 @@ export async function registerRoutes(
     if (Number.isFinite(vendorIdRaw) && vendorIdRaw > 0) {
       try {
         const logoResult = await pool.query(
-          `SELECT logo_url FROM vendors WHERE id = $1 LIMIT 1`,
+          `SELECT logo_url FROM tidum_vendors WHERE id = $1 LIMIT 1`,
           [vendorIdRaw],
         );
         hasLogo = Boolean(String(logoResult.rows[0]?.logo_url || "").trim());
@@ -2255,85 +2436,12 @@ export async function registerRoutes(
   // Register Vendor API routes (v1)
   app.use("/api/v1/vendor", vendorApi);
 
-  // Middleware to require vendor authentication via OAuth
-  const requireVendorAuth = async (req: any, res: any, next: any) => {
-    // Check if user is authenticated
-    if (!req.isAuthenticated || !hasSessionAuth(req)) {
-      return res.status(401).json({ 
-        error: "Unauthorized", 
-        message: "Please log in to access this resource." 
-      });
-    }
-
-    const user = req.user;
-    if (!user || !user.id) {
-      return res.status(401).json({ 
-        error: "Unauthorized", 
-        message: "Invalid session." 
-      });
-    }
-
-    // Check if user has vendor admin or super admin role
-    if (!canAccessVendorApiAdmin(user.role)) {
-      return res.status(403).json({ 
-        error: "Forbidden", 
-        message: "You do not have admin access. Contact your administrator." 
-      });
-    }
-
-    // Super admin can access all vendors (vendorId from query/body/param)
-    // Vendor admin can only access their own vendor
-    if (user.role === 'super_admin') {
-      req.isSuperAdmin = true;
-      // Super admin can target a specific vendor via query, body, or params
-      const targetVendorId = parseInt(req.query.vendorId || req.body?.vendorId || req.params?.vendorId);
-      if (targetVendorId && !isNaN(targetVendorId)) {
-        req.vendorId = targetVendorId;
-      } else {
-        // For routes that need a vendorId, super admin must provide one
-        req.vendorId = null;
-      }
-    } else {
-      if (!user.vendorId) {
-        return res.status(403).json({ 
-          error: "Forbidden", 
-          message: "Vendor admin must be assigned to a vendor." 
-        });
-      }
-      req.vendorId = user.vendorId;
-      req.isSuperAdmin = false;
-    }
-    
-    req.userId = user.id;
-    req.userRole = user.role;
-    next();
-  };
-
   // Helper to get effective vendorId (for routes that require it)
   const getEffectiveVendorId = (req: any, res: any): number | null => {
-    if (req.vendorId) return req.vendorId;
-    if (req.isSuperAdmin) {
-      // Super admin must specify vendorId for vendor-specific routes
-      res.status(400).json({ 
-        error: "Bad Request", 
-        message: "Super admin must specify vendorId in query parameter." 
-      });
-      return null;
-    }
-    return req.vendorId;
-  };
-
-  // Middleware to require super admin role
-  const requireSuperAdmin = async (req: any, res: any, next: any) => {
-    await requireVendorAuth(req, res, () => {
-      if (!req.isSuperAdmin) {
-        return res.status(403).json({ 
-          error: "Forbidden", 
-          message: "Super admin access required." 
-        });
-      }
-      next();
-    });
+    const vendorId = Number(req.vendorId);
+    if (Number.isInteger(vendorId) && vendorId > 0) return vendorId;
+    res.status(403).json({ error: "Forbidden", message: "Brukeren mangler gyldig virksomhetstilknytning." });
+    return null;
   };
 
   type IntegrationKey = (typeof INTEGRATION_KEYS)[number];
@@ -2357,15 +2465,6 @@ export async function registerRoutes(
     not_now: "Ikke nå",
   };
 
-  function canManageIntegrationRoadmap(role: string | null | undefined): boolean {
-    const normalized = normalizeRole(role);
-    return normalized === "super_admin" || normalized === "hovedadmin";
-  }
-
-  function canCreatePrimaryIntegrationRequest(role: string | null | undefined): boolean {
-    return canAccessVendorApiAdmin(role);
-  }
-
   const requireVerifiedUser = (req: any, res: any, next: any) => {
     const userId = String(req.user?.id || "").trim();
     const userEmail = String(req.user?.email || "").trim();
@@ -2378,40 +2477,9 @@ export async function registerRoutes(
     next();
   };
 
-  async function resolveVendorIdForIntegrationRequest(req: any, explicitVendorId?: number): Promise<number | null> {
-    const sessionVendorId = Number(req.user?.vendorId);
-    if (Number.isFinite(sessionVendorId) && sessionVendorId > 0) {
-      return sessionVendorId;
-    }
-
-    const normalizedRole = normalizeRole(req.user?.role);
-    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
-      return explicitVendorId;
-    }
-
-    const authUserId = String(req.user?.id || "").trim();
-    if (!authUserId) {
-      return null;
-    }
-
-    const userResult = await pool.query(
-      `SELECT vendor_id
-       FROM users
-       WHERE id = $1
-       LIMIT 1`,
-      [authUserId],
-    );
-
-    const dbVendorId = Number(userResult.rows[0]?.vendor_id);
-    if (Number.isFinite(dbVendorId) && dbVendorId > 0) {
-      return dbVendorId;
-    }
-
-    if (canManageIntegrationRoadmap(normalizedRole) && Number.isFinite(explicitVendorId) && explicitVendorId && explicitVendorId > 0) {
-      return explicitVendorId;
-    }
-
-    return null;
+  function freshRequestVendorId(req: any): number | null {
+    const vendorId = Number(req.vendorId);
+    return Number.isInteger(vendorId) && vendorId > 0 ? vendorId : null;
   }
 
   function validateIntegrationKey(keyRaw: string): IntegrationKey | null {
@@ -2510,7 +2578,7 @@ export async function registerRoutes(
                         END * GREATEST(COALESCE(v.max_users, 0), 0)
                       )::float8 AS estimated_mrr_value
                  FROM tidum_integration_interest_primary p
-                 JOIN vendors v ON v.id::text = p.vendor_id::text
+                 JOIN tidum_vendors v ON v.id = p.vendor_id
              GROUP BY p.integration_key
               ) mrr_values
            ON mrr_values.integration_key = c.key
@@ -2764,6 +2832,7 @@ export async function registerRoutes(
       const greetingName = String(recipient.first_name || "").trim() || "der";
       const appUrl = process.env.APP_URL || "https://tidsflyt.no";
       await emailService.sendEmail({
+        purpose: "administrative",
         to: recipientEmail,
         subject: `Tidum: ${integrationName} er nå ${toLabel.toLowerCase()}`,
         html: `
@@ -2796,22 +2865,21 @@ export async function registerRoutes(
   }
 
   function resolveAdminVendorScope(req: any): { vendorId: number | null; error: string | null } {
-    const normalizedRole = normalizeRole(req.user?.role);
-    const sessionVendorId = Number(req.user?.vendorId);
-    const requestedVendorId = Number(req.query.vendorId);
-
-    if (normalizedRole === "vendor_admin") {
-      if (!Number.isFinite(sessionVendorId) || sessionVendorId <= 0) {
-        return { vendorId: null, error: "Vendor admin mangler vendor-tilknytning" };
-      }
-      return { vendorId: sessionVendorId, error: null };
+    if (!(req as any).isSuperAdmin) {
+      const vendorId = freshRequestVendorId(req);
+      return vendorId
+        ? { vendorId, error: null }
+        : { vendorId: null, error: "Integrasjonsadmin mangler virksomhetstilknytning" };
     }
 
-    if (Number.isFinite(requestedVendorId) && requestedVendorId > 0) {
-      return { vendorId: requestedVendorId, error: null };
+    const requestedRaw = req.query.vendorId;
+    if (requestedRaw === undefined || requestedRaw === "") {
+      return { vendorId: null, error: null };
     }
-
-    return { vendorId: null, error: null };
+    const requestedVendorId = Number(requestedRaw);
+    return Number.isInteger(requestedVendorId) && requestedVendorId > 0
+      ? { vendorId: requestedVendorId, error: null }
+      : { vendorId: null, error: "Ugyldig vendorId" };
   }
 
   // Integration catalog + roadmap (request-driven MVP)
@@ -2829,8 +2897,9 @@ export async function registerRoutes(
                 END`,
       );
       res.json({ catalog: result.rows });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-catalog] list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonskatalog" });
     }
   });
 
@@ -2854,25 +2923,21 @@ export async function registerRoutes(
         statuses: INTEGRATION_ROADMAP_STATUSES,
         roadmap,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsroadmap" });
     }
   });
 
-  app.post("/api/integrations/requests/primary", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/integrations/requests/primary", requireVendorAuth, requireVerifiedUser, async (req, res) => {
     try {
       const parsed = integrationPrimaryRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: "Validation failed", details: parsed.error.flatten() });
       }
 
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canCreatePrimaryIntegrationRequest(userRole)) {
-        return res.status(403).json({ error: "Kun admin/vendor_admin kan sende hovedforespørsel" });
-      }
-
       const authUserId = String((req.user as any)?.id || "").trim();
-      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      const vendorId = freshRequestVendorId(req);
       if (!vendorId) {
         return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for forespørselen" });
       }
@@ -2947,12 +3012,13 @@ export async function registerRoutes(
         request: insertResult.rows[0],
         roadmap: roadmapEntry,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] primary request failed", error);
+      res.status(500).json({ error: "Kunne ikke registrere integrasjonsforespørselen" });
     }
   });
 
-  app.post("/api/integrations/requests/signal", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/integrations/requests/signal", requireVendorMember, requireVerifiedUser, async (req, res) => {
     try {
       const parsed = integrationSignalRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -2960,7 +3026,7 @@ export async function registerRoutes(
       }
 
       const authUserId = String((req.user as any)?.id || "").trim();
-      const vendorId = await resolveVendorIdForIntegrationRequest(req, parsed.data.vendorId);
+      const vendorId = freshRequestVendorId(req);
       if (!vendorId) {
         return res.status(400).json({ error: "Kunne ikke finne virksomhet (vendor) for signalet" });
       }
@@ -3024,12 +3090,13 @@ export async function registerRoutes(
         signal: insertResult.rows[0],
         roadmap: roadmapEntry,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] team signal failed", error);
+      res.status(500).json({ error: "Kunne ikke registrere integrasjonssignalet" });
     }
   });
 
-  app.get("/api/integrations/requests/me", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/integrations/requests/me", requireVendorMember, requireVerifiedUser, async (req, res) => {
     try {
       const authUserId = String((req.user as any)?.id || "").trim();
 
@@ -3048,10 +3115,11 @@ export async function registerRoutes(
                   p.updated_at
              FROM tidum_integration_interest_primary p
         LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = p.vendor_id
             WHERE p.requested_by_user_id = $1
+              AND p.vendor_id = $2
          ORDER BY p.created_at DESC`,
-          [authUserId],
+          [authUserId, freshRequestVendorId(req)],
         ),
         pool.query(
           `SELECT s.id,
@@ -3064,10 +3132,11 @@ export async function registerRoutes(
                   s.updated_at
              FROM tidum_integration_interest_signals s
         LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = s.vendor_id
             WHERE s.user_id = $1
+              AND s.vendor_id = $2
          ORDER BY s.created_at DESC`,
-          [authUserId],
+          [authUserId, freshRequestVendorId(req)],
         ),
       ]);
 
@@ -3075,18 +3144,14 @@ export async function registerRoutes(
         primary: primaryResult.rows,
         signals: signalsResult.rows,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] own requests failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsforespørslene" });
     }
   });
 
-  app.get("/api/admin/integrations/requests", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/admin/integrations/requests", requireIntegrationAdmin, requireVerifiedUser, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canAccessVendorApiAdmin(userRole)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-
       const { vendorId: scopedVendorId, error } = resolveAdminVendorScope(req);
       if (error) {
         return res.status(403).json({ error });
@@ -3137,7 +3202,7 @@ export async function registerRoutes(
                   p.updated_at
              FROM tidum_integration_interest_primary p
         LEFT JOIN tidum_integration_catalog c ON c.key = p.integration_key
-        LEFT JOIN vendors v ON v.id::text = p.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = p.vendor_id
         LEFT JOIN users requester ON requester.id = p.requested_by_user_id
             ${primaryConditions.length ? `WHERE ${primaryConditions.join(" AND ")}` : ""}
          ORDER BY p.created_at DESC`,
@@ -3158,7 +3223,7 @@ export async function registerRoutes(
                   s.updated_at
              FROM tidum_integration_interest_signals s
         LEFT JOIN tidum_integration_catalog c ON c.key = s.integration_key
-        LEFT JOIN vendors v ON v.id::text = s.vendor_id::text
+        LEFT JOIN tidum_vendors v ON v.id = s.vendor_id
         LEFT JOIN users signal_user ON signal_user.id = s.user_id
             ${signalConditions.length ? `WHERE ${signalConditions.join(" AND ")}` : ""}
          ORDER BY s.created_at DESC`,
@@ -3173,18 +3238,14 @@ export async function registerRoutes(
         primary: primaryResult.rows,
         signals: signalsResult.rows,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] admin request list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsetterspørsel" });
     }
   });
 
-  app.get("/api/admin/integrations/analytics", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.get("/api/admin/integrations/analytics", requireIntegrationAdmin, requireVerifiedUser, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canAccessVendorApiAdmin(userRole)) {
-        return res.status(403).json({ error: "Forbidden" });
-      }
-
       const parsedFilter = integrationAnalyticsFilterSchema.safeParse({
         days: req.query.days,
       });
@@ -3374,18 +3435,14 @@ export async function registerRoutes(
         },
         generatedAt: new Date().toISOString(),
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-demand] analytics failed", error);
+      res.status(500).json({ error: "Kunne ikke hente integrasjonsanalyse" });
     }
   });
 
-  app.patch("/api/admin/integrations/roadmap/:integrationKey", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.patch("/api/admin/integrations/roadmap/:integrationKey", requireSuperAdmin, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canManageIntegrationRoadmap(userRole)) {
-        return res.status(403).json({ error: "Kun produkt/admin kan oppdatere roadmap-status" });
-      }
-
       const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
       if (!integrationKey) {
         return res.status(400).json({ error: "Ugyldig integrationKey" });
@@ -3496,18 +3553,14 @@ export async function registerRoutes(
         roadmap: updatedRoadmap,
         statusChanged,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] update failed", error);
+      res.status(500).json({ error: "Kunne ikke oppdatere integrasjonsroadmap" });
     }
   });
 
-  app.post("/api/admin/integrations/roadmap/:integrationKey/recalculate-score", isAuthenticated, requireVerifiedUser, async (req, res) => {
+  app.post("/api/admin/integrations/roadmap/:integrationKey/recalculate-score", requireSuperAdmin, async (req, res) => {
     try {
-      const userRole = normalizeRole((req.user as any)?.role);
-      if (!canManageIntegrationRoadmap(userRole)) {
-        return res.status(403).json({ error: "Kun produkt/admin kan recalculere score" });
-      }
-
       const integrationKey = validateIntegrationKey(String(req.params.integrationKey || ""));
       if (!integrationKey) {
         return res.status(400).json({ error: "Ugyldig integrationKey" });
@@ -3527,8 +3580,9 @@ export async function registerRoutes(
         score: scoreResult.target,
         roadmap,
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[integration-roadmap] score recalculation failed", error);
+      res.status(500).json({ error: "Kunne ikke beregne integrasjonsscore" });
     }
   });
 
@@ -3555,8 +3609,9 @@ export async function registerRoutes(
         apiSubscriptionEnd: null,
         apiMonthlyPrice: "99.00",
       });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] status lookup failed", error);
+      res.status(500).json({ error: "Kunne ikke hente API-status" });
     }
   });
 
@@ -3566,12 +3621,23 @@ export async function registerRoutes(
       if (vendorId === null) return;
       
       const keys = await db
-        .select()
+        .select({
+          id: apiKeys.id,
+          name: apiKeys.name,
+          keyPrefix: apiKeys.keyPrefix,
+          permissions: apiKeys.permissions,
+          rateLimit: apiKeys.rateLimit,
+          isActive: apiKeys.isActive,
+          lastUsedAt: apiKeys.lastUsedAt,
+          expiresAt: apiKeys.expiresAt,
+          createdAt: apiKeys.createdAt,
+        })
         .from(apiKeys)
         .where(and(eq(apiKeys.vendorId, vendorId), isNull(apiKeys.revokedAt)));
       res.json(keys);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key list failed", error);
+      res.status(500).json({ error: "Kunne ikke hente API-nøkler" });
     }
   });
 
@@ -3580,27 +3646,27 @@ export async function registerRoutes(
       const vendorId = getEffectiveVendorId(req, res);
       if (vendorId === null) return;
       
-      const { name, permissions } = req.body;
-      
-      if (!name) {
-        return res.status(400).json({ error: "Name is required" });
+      const parsed = vendorApiKeyCreateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Ugyldig navn eller rettighetssett" });
       }
       
       const { key, prefix, hash } = generateApiKey();
       
       await db.insert(apiKeys).values({
         vendorId,
-        name,
+        name: parsed.data.name,
         keyPrefix: prefix,
         keyHash: hash,
-        permissions: permissions || ["read:time_entries"],
+        permissions: parsed.data.permissions,
         rateLimit: 60,
         isActive: true,
       });
       
       res.json({ key, prefix });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key creation failed", error);
+      res.status(500).json({ error: "Kunne ikke opprette API-nøkkel" });
     }
   });
 
@@ -3609,9 +3675,12 @@ export async function registerRoutes(
       const vendorId = getEffectiveVendorId(req, res);
       if (vendorId === null) return;
       
-      const keyId = parseInt(req.params.id);
+      const keyId = Number(req.params.id);
+      if (!Number.isInteger(keyId) || keyId <= 0) {
+        return res.status(400).json({ error: "Ugyldig API-nøkkel-ID" });
+      }
       
-      // Verify the key belongs to this vendor before deleting (or super admin can delete any)
+      // Verify that the key belongs to the fresh tenant actor before revocation.
       const [existingKey] = await db
         .select()
         .from(apiKeys)
@@ -3628,8 +3697,9 @@ export async function registerRoutes(
         .where(eq(apiKeys.id, keyId));
       
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] key revocation failed", error);
+      res.status(500).json({ error: "Kunne ikke tilbakekalle API-nøkkelen" });
     }
   });
 
@@ -3652,8 +3722,9 @@ export async function registerRoutes(
         .where(eq(vendors.id, vendorId));
       
       res.json({ success: true });
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
+    } catch (error) {
+      console.error("[vendor-api] enablement failed", error);
+      res.status(500).json({ error: "Kunne ikke aktivere API-tilgang" });
     }
   });
 
@@ -3854,7 +3925,17 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
       }
-      res.status(500).json({ error: error.message });
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
+      }
+      if (String(error?.message || "").includes("INVALID_ORG_NUMBER")) {
+        return res.status(400).json({ error: "Organisasjonsnummer må være 9 siffer" });
+      }
+      if (String(error?.message || "").includes("INVALID_VENDOR_ID")) {
+        return res.status(400).json({ error: "Ugyldig leverandør-ID" });
+      }
+      console.error("Access request decision error:", error);
+      res.status(500).json({ error: "Could not update request" });
     }
   });
 
@@ -3865,7 +3946,7 @@ export async function registerRoutes(
       }
 
       const { rows } = await pool.query(
-        `SELECT id, name FROM vendors ORDER BY LOWER(name) ASC`,
+        `SELECT id, name FROM tidum_vendors ORDER BY LOWER(name) ASC`,
       );
       res.json(rows);
     } catch (error: any) {
@@ -3911,8 +3992,17 @@ export async function registerRoutes(
       if (String(error?.message || "").includes("Request not found")) {
         return res.status(404).json({ error: "Request not found" });
       }
+      if (String(error?.message || "").includes("TENANT_MISMATCH")) {
+        return res.status(409).json({ error: "E-postadressen tilhører allerede en annen virksomhet" });
+      }
+      if (String(error?.message || "").includes("INVALID_ORG_NUMBER")) {
+        return res.status(400).json({ error: "Organisasjonsnummer må være 9 siffer" });
+      }
+      if (String(error?.message || "").includes("INVALID_VENDOR_ID")) {
+        return res.status(400).json({ error: "Ugyldig leverandør-ID" });
+      }
       console.error("CreatorHub status sync error:", error);
-      res.status(500).json({ error: error.message || "Could not update request" });
+      res.status(500).json({ error: "Could not update request" });
     }
   });
   
@@ -4366,7 +4456,10 @@ export async function registerRoutes(
   app.get("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      // Fail-closed: kommune-roller skal aldri kunne lese/endre disse globale,
+      // vendor-brede innstillingene — se resolveActorRoleForCompany i
+      // smartTimingRoutes.ts for samme guard og full begrunnelse.
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
       const defaults = await readSuggestionTeamDefaults();
@@ -4379,7 +4472,7 @@ export async function registerRoutes(
   app.patch("/api/suggestion-team-defaults", isAuthenticated, async (req, res) => {
     try {
       const userRole = (req.user as any)?.role;
-      if (!(await canManageUsersDynamic(userRole))) {
+      if (isKommuneRole(userRole) || !(await canManageUsersDynamic(userRole))) {
         return res.status(403).json({ error: "Forbidden" });
       }
 
@@ -5442,12 +5535,96 @@ export async function registerRoutes(
     try {
       const userId = req.user?.id || req.user?.claims?.sub;
       if (!userId) return res.status(401).json({ error: "Unauthorized" });
-      const { title, linkedUrl, linkedLabel } = req.body;
+      const { title, linkedUrl, linkedLabel, assigneeUserId, dueAt } = req.body;
       if (!title || typeof title !== "string" || !title.trim()) {
         return res.status(400).json({ error: "title is required" });
       }
-      const task = await storage.createDashboardTask(userId, title.trim(), linkedUrl, linkedLabel);
+
+      let targetUserId = userId;
+      let assignedByUserId: string | undefined;
+      const parsedDueAt = dueAt ? new Date(dueAt) : undefined;
+
+      if (assigneeUserId && assigneeUserId !== userId) {
+        const actorRole = String(req.user?.role || "");
+        // Fail-closed defense-in-depth: kommune-roller skal aldri kvalifisere
+        // som aktør her, uansett rang — samme guard som
+        // resolveActorRoleForCompany (smartTimingRoutes.ts). Ikke i dag
+        // umiddelbart utnyttbart alene (vendorId-sjekket under stopper
+        // kommune-brukere, som alltid har vendorId=null), men lukker samme
+        // rangkollisjon som gjorde den andre stien kritisk.
+        const allowed = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
+        if (!allowed) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const actorVendorId = req.user?.vendorId;
+        if (!actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        const [targetUser] = await db
+          .select({ vendorId: users.vendorId })
+          .from(users)
+          .where(eq(users.id, assigneeUserId));
+        if (!targetUser || targetUser.vendorId !== actorVendorId) {
+          return res.status(403).json({ error: "Du har ikke rettigheter til å tildele oppgaver til andre." });
+        }
+        targetUserId = assigneeUserId;
+        assignedByUserId = userId;
+      }
+
+      const task = await storage.createDashboardTask(
+        targetUserId,
+        title.trim(),
+        linkedUrl,
+        linkedLabel,
+        assignedByUserId,
+        parsedDueAt,
+      );
+
+      if (assignedByUserId) {
+        await createNotification({
+          userId: targetUserId,
+          type: "task_assigned",
+          title: "Ny oppgave tildelt",
+          message: title.trim(),
+          link: "/dashboard",
+          createdBy: assignedByUserId,
+        });
+      }
+
       res.status(201).json(task);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/tasks/assignable-colleagues", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id || req.user?.claims?.sub;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+
+      const actorRole = String(req.user?.role || "");
+      // Fail-closed defense-in-depth, same guard/rationale as POST /api/tasks above.
+      const canAssign = !isKommuneRole(actorRole) && (await canManageUsersDynamic(actorRole));
+      if (!canAssign) {
+        return res.json({ canAssign: false, colleagues: [] });
+      }
+
+      const vendorId = req.user?.vendorId;
+      if (!vendorId) {
+        return res.json({ canAssign: true, colleagues: [] });
+      }
+
+      const colleagueRows = await db
+        .select({ id: users.id, firstName: users.firstName, lastName: users.lastName, email: users.email })
+        .from(users)
+        .where(and(eq(users.vendorId, vendorId), ne(users.id, userId)));
+
+      const colleagues = colleagueRows.map((u) => ({
+        id: u.id,
+        name: [u.firstName, u.lastName].filter(Boolean).join(" ").trim() || u.email || u.id,
+      }));
+
+      res.json({ canAssign: true, colleagues });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -6085,8 +6262,8 @@ export async function registerRoutes(
   // Builder Pages CRUD (Visual Editor)
   // ═══════════════════════════════════════════
 
-  // List all builder pages
-  app.get("/api/cms/builder-pages", async (_req, res) => {
+  // List all builder pages, including drafts and scheduled content (admin only).
+  app.get("/api/cms/builder-pages", authenticateAdmin, async (_req, res) => {
     try {
       const pages = await db.select().from(builderPages).orderBy(desc(builderPages.updatedAt));
       res.json(pages);
@@ -6095,10 +6272,31 @@ export async function registerRoutes(
     }
   });
 
-  // Get a single builder page by id
-  app.get("/api/cms/builder-pages/:id", async (req, res) => {
+  // The public slug route must be registered before /:id. Otherwise Express
+  // treats the literal "slug" segment as an id and never reaches this route.
+  app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
+    try {
+      const [page] = await db
+        .select()
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.slug, req.params.slug),
+          eq(builderPages.status, "published"),
+        ));
+      if (!page) return res.status(404).json({ error: "Page not found" });
+      res.json(page);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get a single builder page by id, including non-public content (admin only).
+  app.get("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!Number.isInteger(id)) {
+        return res.status(400).json({ error: "Invalid page id" });
+      }
       const [page] = await db.select().from(builderPages).where(eq(builderPages.id, id));
       if (!page) return res.status(404).json({ error: "Page not found" });
       res.json(page);
@@ -6107,19 +6305,8 @@ export async function registerRoutes(
     }
   });
 
-  // Get a builder page by slug (for public rendering)
-  app.get("/api/cms/builder-pages/slug/:slug", publicReadRateLimit, async (req, res) => {
-    try {
-      const [page] = await db.select().from(builderPages).where(eq(builderPages.slug, req.params.slug));
-      if (!page) return res.status(404).json({ error: "Page not found" });
-      res.json(page);
-    } catch (error: any) {
-      res.status(500).json({ error: error.message });
-    }
-  });
-
   // Create a new builder page
-  app.post("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/builder-pages", authenticateAdmin, async (req, res) => {
     try {
       const data = insertBuilderPageSchema.parse(req.body);
       const [page] = await db.insert(builderPages).values(data).returning();
@@ -6131,7 +6318,7 @@ export async function registerRoutes(
   });
 
   // Update a builder page
-  app.put("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.put("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { title, slug, description, sections: pageSections, themeKey, status,
@@ -6185,7 +6372,7 @@ export async function registerRoutes(
   });
 
   // Delete a builder page
-  app.delete("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.delete("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [page] = await db.delete(builderPages).where(eq(builderPages.id, id)).returning();
@@ -6200,7 +6387,7 @@ export async function registerRoutes(
   // Section Templates CRUD
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/section-templates", async (_req, res) => {
+  app.get("/api/cms/section-templates", authenticateAdmin, async (_req, res) => {
     try {
       const templates = await db.select().from(sectionTemplates).orderBy(desc(sectionTemplates.updatedAt));
       res.json(templates);
@@ -6209,7 +6396,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cms/section-templates", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/section-templates", authenticateAdmin, async (req, res) => {
     try {
       const [template] = await db.insert(sectionTemplates).values({
         name: req.body.name,
@@ -6224,7 +6411,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cms/section-templates/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.delete("/api/cms/section-templates/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(sectionTemplates).where(eq(sectionTemplates.id, id));
@@ -6238,51 +6425,59 @@ export async function registerRoutes(
   // Page Versions (Revision History)
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/page-versions/:pageId", async (req, res) => {
+  app.get("/api/cms/page-versions/:pageId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
+      if (!Number.isInteger(pageId) || pageId <= 0) return res.status(400).json({ error: "Ugyldig side" });
       const versions = await db.select().from(pageVersions)
         .where(eq(pageVersions.pageId, pageId))
         .orderBy(desc(pageVersions.version));
       res.json(versions);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page version list failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente versjonshistorikk" });
     }
   });
 
   // Restore a specific version
-  app.post("/api/cms/page-versions/:pageId/restore/:versionId", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/page-versions/:pageId/restore/:versionId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
       const versionId = parseInt(req.params.versionId);
-      const [ver] = await db.select().from(pageVersions).where(eq(pageVersions.id, versionId));
+      if (!Number.isInteger(pageId) || pageId <= 0 || !Number.isInteger(versionId) || versionId <= 0) {
+        return res.status(400).json({ error: "Ugyldig side eller versjon" });
+      }
+      const [ver] = await db.select().from(pageVersions).where(and(
+        eq(pageVersions.id, versionId),
+        eq(pageVersions.pageId, pageId),
+      ));
       if (!ver) return res.status(404).json({ error: "Version not found" });
 
       // Save current as new version before restore
       const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, pageId));
-      if (currentPage) {
-        await db.insert(pageVersions).values({
-          pageId,
-          version: (currentPage.version || 1),
-          title: currentPage.title,
-          sections: currentPage.sections,
-          themeKey: currentPage.themeKey,
-          customCss: currentPage.customCss,
-          changeNote: 'Pre-restore backup',
-        });
-      }
+      if (!currentPage) return res.status(404).json({ error: "Page not found" });
+      await db.insert(pageVersions).values({
+        pageId,
+        version: (currentPage.version || 1),
+        title: currentPage.title,
+        sections: currentPage.sections,
+        themeKey: currentPage.themeKey,
+        customCss: currentPage.customCss,
+        changeNote: 'Pre-restore backup',
+      });
 
       const [page] = await db.update(builderPages).set({
         title: ver.title,
         sections: ver.sections,
         themeKey: ver.themeKey,
         customCss: ver.customCss,
-        version: (currentPage?.version || 1) + 1,
+        version: (currentPage.version || 1) + 1,
         updatedAt: new Date(),
       }).where(eq(builderPages.id, pageId)).returning();
       res.json(page);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page version restore failed:", error);
+      res.status(500).json({ error: "Kunne ikke gjenopprette versjonen" });
     }
   });
 
@@ -6290,50 +6485,76 @@ export async function registerRoutes(
   // Form Submissions
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/form-submissions", async (req, res) => {
+  app.get("/api/cms/form-submissions", authenticateAdmin, async (req, res) => {
     try {
-      const { pageId, status: formStatus } = req.query;
-      let query = db.select().from(formSubmissions).orderBy(desc(formSubmissions.createdAt));
-      const results = await query;
-      const filtered = results.filter((s: any) => {
-        if (pageId && s.pageId !== parseInt(pageId as string)) return false;
-        if (formStatus && s.status !== formStatus) return false;
-        return true;
-      });
-      res.json(filtered);
+      const parsed = z.object({
+        pageId: z.coerce.number().int().positive().optional(),
+        status: cmsFormStatusSchema.optional(),
+      }).safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig filter" });
+
+      const conditions = [];
+      if (parsed.data.pageId != null) conditions.push(eq(formSubmissions.pageId, parsed.data.pageId));
+      if (parsed.data.status != null) conditions.push(eq(formSubmissions.status, parsed.data.status));
+      const query = db.select().from(formSubmissions);
+      const results = conditions.length > 0
+        ? await query.where(and(...conditions)).orderBy(desc(formSubmissions.createdAt))
+        : await query.orderBy(desc(formSubmissions.createdAt));
+      res.json(results);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS form submission list failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente skjemainnsendinger" });
     }
   });
 
   // Public form submission endpoint (no auth needed)
   app.post("/api/cms/form-submissions", publicWriteRateLimit, async (req, res) => {
     try {
-      const { pageId, pageSlug, formName, data } = req.body;
+      const parsed = cmsPublicFormSubmissionSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig skjemainnsending" });
+      const { pageId, pageSlug, formName, data } = parsed.data;
+
+      const [publishedPage] = await db
+        .select({ id: builderPages.id })
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.id, pageId),
+          eq(builderPages.slug, pageSlug),
+          eq(builderPages.status, "published"),
+        ))
+        .limit(1);
+      if (!publishedPage) return res.status(404).json({ error: "Publisert side ikke funnet" });
+
       const [submission] = await db.insert(formSubmissions).values({
-        pageId: pageId || null,
-        pageSlug: pageSlug || null,
-        formName: formName || 'contact',
-        data: data || {},
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
+        pageId,
+        pageSlug,
+        formName,
+        data,
+        ipAddress: String(req.ip || "").slice(0, 100),
+        userAgent: String(req.get("user-agent") || "").slice(0, 500),
       }).returning();
-      res.status(201).json(submission);
+      res.status(201).json({ id: submission.id, received: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("CMS form submission failed:", error);
+      res.status(500).json({ error: "Kunne ikke lagre skjemainnsending" });
     }
   });
 
-  app.put("/api/cms/form-submissions/:id/status", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.put("/api/cms/form-submissions/:id/status", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Ugyldig innsending" });
+      const status = cmsFormStatusSchema.safeParse(req.body?.status);
+      if (!status.success) return res.status(400).json({ error: "Ugyldig status" });
       const [sub] = await db.update(formSubmissions)
-        .set({ status: req.body.status })
+        .set({ status: status.data })
         .where(eq(formSubmissions.id, id))
         .returning();
+      if (!sub) return res.status(404).json({ error: "Innsending ikke funnet" });
       res.json(sub);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS form status update failed:", error);
+      res.status(500).json({ error: "Kunne ikke oppdatere skjemainnsending" });
     }
   });
 
@@ -6344,25 +6565,40 @@ export async function registerRoutes(
   // Track a page view (public, no auth)
   app.post("/api/cms/page-analytics/track", publicWriteRateLimit, async (req, res) => {
     try {
-      const { pageId, pageSlug, duration, referrer, device } = req.body;
+      const parsed = cmsPageAnalyticsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig analysedata" });
+      const { pageId, pageSlug, duration, referrer, device } = parsed.data;
+      const [publishedPage] = await db
+        .select({ id: builderPages.id })
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.id, pageId),
+          eq(builderPages.slug, pageSlug),
+          eq(builderPages.status, "published"),
+        ))
+        .limit(1);
+      if (!publishedPage) return res.status(404).json({ error: "Publisert side ikke funnet" });
+
       await db.insert(pageAnalytics).values({
-        pageId: pageId || 0,
+        pageId,
         pageSlug,
-        duration: duration || null,
+        duration: duration ?? null,
         referrer: referrer || null,
-        userAgent: req.get('user-agent'),
-        device: device || 'desktop',
+        userAgent: String(req.get("user-agent") || "").slice(0, 500),
+        device,
       });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("CMS page analytics tracking failed:", error);
+      res.status(500).json({ error: "Kunne ikke lagre analysedata" });
     }
   });
 
   // Get analytics for a page
-  app.get("/api/cms/page-analytics/:pageId", async (req, res) => {
+  app.get("/api/cms/page-analytics/:pageId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
+      if (!Number.isInteger(pageId) || pageId <= 0) return res.status(400).json({ error: "Ugyldig side" });
       const views = await db.select().from(pageAnalytics)
         .where(eq(pageAnalytics.pageId, pageId))
         .orderBy(desc(pageAnalytics.viewedAt));
@@ -6381,7 +6617,8 @@ export async function registerRoutes(
         recentViews: views.slice(0, 50),
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page analytics read failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente analysedata" });
     }
   });
 
@@ -6390,16 +6627,23 @@ export async function registerRoutes(
   // ═══════════════════════════════════════════
 
   const cmsUploadDir = path.join(process.cwd(), 'uploads', 'cms');
+  const cmsProcessingDir = path.join(process.cwd(), 'private-uploads', 'cms-processing');
   if (!fs.existsSync(cmsUploadDir)) {
     fs.mkdirSync(cmsUploadDir, { recursive: true });
   }
+  if (!fs.existsSync(cmsProcessingDir)) {
+    fs.mkdirSync(cmsProcessingDir, { recursive: true });
+  }
 
   const cmsStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, cmsUploadDir),
-    filename: (_req, file, cb) => {
+    // Rå, ennå ikke dekodede byte må aldri ligge under den statisk serverte
+    // /uploads-mappen, heller ikke i det korte behandlingsvinduet.
+    destination: (_req, _file, cb) => cb(null, cmsProcessingDir),
+    filename: (_req, _file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const ext = path.extname(file.originalname);
-      cb(null, 'cms-' + uniqueSuffix + ext);
+      // Mellomfilen får aldri brukerens filendelse. Bare den dekodede og
+      // re-enkodede WebP-filen publiseres under /uploads/cms.
+      cb(null, 'cms-' + uniqueSuffix + '.upload');
     }
   });
 
@@ -6407,40 +6651,43 @@ export async function registerRoutes(
     storage: cmsStorage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
     fileFilter: (_req, file, cb) => {
-      const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      // SVG er aktivt innhold på samme origin og kan gi lagret XSS. Raster-
+      // formatene dekodes og re-enkodes under; MIME alene er aldri nok.
+      const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
       if (allowed.includes(file.mimetype)) cb(null, true);
       else cb(new Error('Invalid file type'));
     }
   });
 
-  app.post("/api/cms/upload", cmsUpload.single('image'), async (req: any, res) => {
+  const receiveCmsImage = (req: any, res: any, next: any) => {
+    cmsUpload.single('image')(req, res, (error: any) => {
+      if (error) return res.status(400).json({ error: 'Ugyldig bildefil' });
+      next();
+    });
+  };
+
+  const processCmsImage = async (req: any, res: any) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const originalPath = req.file.path;
     const originalSize = req.file.size;
-    const isSvg = req.file.mimetype === 'image/svg+xml';
-    const isGif = req.file.mimetype === 'image/gif';
-
-    // Skip optimization for SVG and animated GIF
-    if (isSvg || isGif) {
-      const fileUrl = `/uploads/cms/${req.file.filename}`;
-      return res.json({
-        url: fileUrl,
-        filename: req.file.filename,
-        size: originalSize,
-        originalSize,
-        optimized: false,
-        format: isSvg ? 'svg' : 'gif',
-      });
-    }
+    const optimizedFilename = req.file.filename.replace(/\.upload$/, '.webp');
+    const optimizedPath = path.join(cmsUploadDir, optimizedFilename);
+    const thumbFilename = 'thumb-' + optimizedFilename;
+    const thumbPath = path.join(cmsUploadDir, thumbFilename);
 
     try {
-      // Read image metadata
-      const metadata = await sharp(originalPath).metadata();
+      // Dekoding er innholdskontrollen: en fil som bare påstår å være et
+      // bilde blir avvist. Pikselgrensen begrenser dekompresjonsbomber.
+      const source = sharp(originalPath, { limitInputPixels: 25_000_000, failOn: 'error' });
+      const metadata = await source.metadata();
+      if (!metadata.format || !['jpeg', 'png', 'gif', 'webp'].includes(metadata.format)) {
+        throw new Error('Unsupported decoded image format');
+      }
       const maxDimension = 2048;
 
       // Build the sharp pipeline
-      let pipeline = sharp(originalPath).rotate(); // auto-rotate based on EXIF
+      let pipeline = sharp(originalPath, { limitInputPixels: 25_000_000, failOn: 'error' }).rotate();
 
       // Resize if larger than max dimension
       if ((metadata.width && metadata.width > maxDimension) || (metadata.height && metadata.height > maxDimension)) {
@@ -6451,25 +6698,18 @@ export async function registerRoutes(
       }
 
       // Convert to WebP with quality 80 for best size/quality balance
-      const optimizedFilename = req.file.filename.replace(/\.[^.]+$/, '.webp');
-      const optimizedPath = path.join(cmsUploadDir, optimizedFilename);
-
       const result = await pipeline
         .webp({ quality: 80, effort: 4 })
         .toFile(optimizedPath);
 
       // Also generate a thumbnail (400px wide) for the editor
-      const thumbFilename = 'thumb-' + optimizedFilename;
-      const thumbPath = path.join(cmsUploadDir, thumbFilename);
       await sharp(optimizedPath)
         .resize(400, null, { fit: 'inside', withoutEnlargement: true })
         .webp({ quality: 70 })
         .toFile(thumbPath);
 
       // Remove original file if different from optimized
-      if (originalPath !== optimizedPath) {
-        fs.unlink(originalPath, () => {});
-      }
+      await fs.promises.unlink(originalPath);
 
       const savings = Math.round((1 - result.size / originalSize) * 100);
 
@@ -6489,19 +6729,21 @@ export async function registerRoutes(
         savings,
       });
     } catch (err: any) {
-      console.error('Image optimization failed, serving original:', err.message);
-      // Fallback: serve original
-      const fileUrl = `/uploads/cms/${req.file.filename}`;
-      res.json({
-        url: fileUrl,
-        filename: req.file.filename,
-        size: originalSize,
-        originalSize,
-        optimized: false,
-        error: 'Optimization failed, original served',
-      });
+      console.error('CMS image validation/optimization failed:', err?.message ?? err);
+      await Promise.all([
+        fs.promises.unlink(originalPath).catch(() => undefined),
+        fs.promises.unlink(optimizedPath).catch(() => undefined),
+        fs.promises.unlink(thumbPath).catch(() => undefined),
+      ]);
+      res.status(400).json({ error: 'Ugyldig eller skadet bildefil' });
     }
-  });
+  };
+
+  // CMS-et er et globalt leverandørkontrollplan. Tenantbrukeres rapportlogoer
+  // bruker en egen autentisert rute, slik at de ikke får skrive gjennom CMS-
+  // navnerommet eller trenger den globale cms.manage-rettigheten.
+  app.post("/api/cms/upload", authenticateAdmin, uploadRateLimit, receiveCmsImage, processCmsImage);
+  app.post("/api/report-assets/upload", requireAnyAuth, uploadRateLimit, receiveCmsImage, processCmsImage);
 
   // Serve CMS uploads (1 hour browser cache)
   app.use('/uploads/cms', express.static(cmsUploadDir, { maxAge: '1h' }));
@@ -6531,8 +6773,10 @@ export async function registerRoutes(
     }
   };
 
-  // Check every minute
-  setInterval(checkScheduledPages, 60 * 1000);
+  // Check every minute in the real server process, not in temporary test apps.
+  if (shouldRunStartupJobs) {
+    setInterval(checkScheduledPages, 60 * 1000);
+  }
 
   // Register feature routes
   registerLeaveRoutes(app);
@@ -6556,11 +6800,13 @@ export async function registerRoutes(
   registerPayrollExportRoutes(app);
   registerAvvikRoutes(app);
   registerPowerOfficeRoutes(app);
+  registerSecretOperationsRoutes(app);
   registerArchiveRoutes(app);
   registerEmployeeImportRoutes(app);
   registerSeatOverrunRoutes(app);
+  registerTaskEscalationRoutes(app);
   // Auto-generation cron (daily at 00:05). Skip in dev if explicitly disabled.
-  if (process.env.RECURRING_CRON_DISABLED !== 'true') {
+  if (shouldRunStartupJobs && process.env.RECURRING_CRON_DISABLED !== 'true') {
     setupRecurringEntriesCron();
     setupRapportReminderCron();
     setupLeaveRolloverCron();
@@ -6568,14 +6814,31 @@ export async function registerRoutes(
     setupGdprCron();
     setupActivityLogCron();
     setupSeatOverrunCron();
+    setupTaskEscalationCron();
+    setupFristEscalationCron();
     setupArchiveCron();
+    setupSecureAttachmentQuarantineCleanup();
+    setupSecureDialogGovernanceCron();
   }
-  // Seed system rapport templates (idempotent — safe to run on every boot)
-  seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));
+  // Seed system rapport templates once per real server boot, never per test app.
+  if (shouldRunStartupJobs) {
+    void seedSystemRapportTemplates().catch(err => console.error('Template seed failed:', err));
+  }
   registerExportRoutes(app);
   registerForwardRoutes(app);
   registerEmailComposerRoutes(app);
   registerNotificationRoutes(app);
+  registerFristEscalationRoutes(app);
+  registerBarnevernMeldingRoutes(app);
+  registerBarnevernSakRoutes(app);
+  registerBarnevernOppgaveRoutes(app);
+  registerBarnevernPlanRoutes(app);
+  registerBarnevernDokumentRoutes(app);
+  registerBarnevernInnsynRoutes(app);
+  registerBarnevernForebyggendeRoutes(app);
+  registerBarnevernRapporteringRoutes(app);
+  registerSecureDialogRoutes(app);
+  setupFiksIoReceiver(app);
   registerPricingRoutes(app);
   registerAnalyticsRoutes(app);
   registerStripeRoutes(app);

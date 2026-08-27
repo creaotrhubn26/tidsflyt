@@ -25,6 +25,21 @@ interface ExportOptions {
   includeNotes?: boolean;
 }
 
+/** Prevent spreadsheet programs from executing attacker-controlled formulas. */
+export function spreadsheetSafe(value: unknown): string {
+  const text = String(value ?? '');
+  return /^\s*[=+\-@]/.test(text) ? `'${text}` : text;
+}
+
+export function escapeExportHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export class ExportService {
   /**
    * Generate Excel file from time entries
@@ -64,11 +79,11 @@ export class ExportService {
         endTime: entry.endTime || '-',
         breakHours: entry.breakHours || 0,
         hours: entry.hours,
-        activity: entry.activity || '-',
-        title: entry.title || '-',
-        project: entry.project || '-',
-        place: entry.place || '-',
-        ...(options.includeNotes ? { notes: entry.notes || '-' } : {}),
+        activity: spreadsheetSafe(entry.activity || '-'),
+        title: spreadsheetSafe(entry.title || '-'),
+        project: spreadsheetSafe(entry.project || '-'),
+        place: spreadsheetSafe(entry.place || '-'),
+        ...(options.includeNotes ? { notes: spreadsheetSafe(entry.notes || '-') } : {}),
       });
     });
 
@@ -124,11 +139,11 @@ export class ExportService {
       entry.endTime || '-',
       entry.breakHours || 0,
       entry.hours,
-      entry.activity || '-',
-      entry.title || '-',
-      entry.project || '-',
-      entry.place || '-',
-      ...(options.includeNotes ? [entry.notes || '-'] : []),
+      spreadsheetSafe(entry.activity || '-'),
+      spreadsheetSafe(entry.title || '-'),
+      spreadsheetSafe(entry.project || '-'),
+      spreadsheetSafe(entry.place || '-'),
+      ...(options.includeNotes ? [spreadsheetSafe(entry.notes || '-')] : []),
     ]);
 
     // Add totals
@@ -137,7 +152,7 @@ export class ExportService {
 
     // Escape CSV values
     const escapeCsv = (value: any): string => {
-      const str = String(value);
+      const str = spreadsheetSafe(value);
       if (str.includes(',') || str.includes('"') || str.includes('\n')) {
         return `"${str.replace(/"/g, '""')}"`;
       }
@@ -215,7 +230,7 @@ export class ExportService {
 </head>
 <body>
   <div class="header">
-    <h1>${options.title || 'Timerapport'}</h1>
+    <h1>${escapeExportHtml(options.title || 'Timerapport')}</h1>
     <div class="period">Periode: ${period}</div>
   </div>
   
@@ -239,14 +254,14 @@ export class ExportService {
           (entry) => `
         <tr>
           <td>${format(new Date(entry.date), 'dd.MM.yyyy', { locale: nb })}</td>
-          <td>${entry.startTime || '-'}</td>
-          <td>${entry.endTime || '-'}</td>
+          <td>${escapeExportHtml(entry.startTime || '-')}</td>
+          <td>${escapeExportHtml(entry.endTime || '-')}</td>
           <td>${entry.breakHours || 0}</td>
           <td>${entry.hours.toFixed(2)}</td>
-          <td>${entry.activity || '-'}</td>
-          <td>${entry.title || '-'}</td>
-          <td>${entry.project || '-'}</td>
-          ${options.includeNotes ? `<td>${entry.notes || '-'}</td>` : ''}
+          <td>${escapeExportHtml(entry.activity || '-')}</td>
+          <td>${escapeExportHtml(entry.title || '-')}</td>
+          <td>${escapeExportHtml(entry.project || '-')}</td>
+          ${options.includeNotes ? `<td>${escapeExportHtml(entry.notes || '-')}</td>` : ''}
         </tr>
       `
         )

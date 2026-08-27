@@ -37,7 +37,7 @@ function authedUserId(req: Request): string | null {
   return u?.id ? String(u.id) : null;
 }
 
-async function buildTiltakslederKpis(userIdNum: number): Promise<DashboardKpi[]> {
+async function buildTiltakslederKpis(userId: string): Promise<DashboardKpi[]> {
   const today = new Date();
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd');
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd');
@@ -48,7 +48,7 @@ async function buildTiltakslederKpis(userIdNum: number): Promise<DashboardKpi[]>
     .select({ id: saker.id })
     .from(saker)
     .where(and(
-      eq(saker.tiltakslederId, userIdNum as any),
+      eq(saker.tiltakslederId, userId),
       eq(saker.status, 'aktiv'),
     ));
   const totalAktiveSaker = lederSaker.length;
@@ -122,7 +122,7 @@ async function buildTiltakslederKpis(userIdNum: number): Promise<DashboardKpi[]>
     })
     .from(rapporter)
     .where(and(
-      eq(rapporter.tiltakslederId, userIdNum as any),
+      eq(rapporter.tiltakslederId, userId),
       inArray(rapporter.status, ['til_godkjenning', 'godkjent', 'returnert'] as any),
       gte(rapporter.periodeTo, monthStart),
       lte(rapporter.periodeTo, monthEnd),
@@ -221,7 +221,7 @@ async function buildTiltakslederKpis(userIdNum: number): Promise<DashboardKpi[]>
   ];
 }
 
-async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Promise<DashboardKpi[]> {
+async function buildMiljoarbeiderKpis(userIdStr: string): Promise<DashboardKpi[]> {
   const today = new Date();
   const monthStart = format(startOfMonth(today), 'yyyy-MM-dd');
   const monthEnd = format(endOfMonth(today), 'yyyy-MM-dd');
@@ -264,7 +264,7 @@ async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Pro
   const myRapporter = await db
     .select({ status: rapporter.status })
     .from(rapporter)
-    .where(eq(rapporter.userId, userIdNum as any));
+    .where(eq(rapporter.userId, userIdStr));
   const draftCount = myRapporter.filter(r => r.status === 'utkast').length;
   const deliveredCount = myRapporter.filter(r => r.status === 'til_godkjenning' || r.status === 'godkjent').length;
   const returnedCount = myRapporter.filter(r => r.status === 'returnert').length;
@@ -281,7 +281,7 @@ async function buildMiljoarbeiderKpis(userIdStr: string, userIdNum: number): Pro
     .where(eq(saker.status, 'aktiv'));
   const mySaker = allAktiveSaker.filter((s) => {
     const arr = Array.isArray(s.tildelte) ? s.tildelte : [];
-    return arr.some((v: any) => String(v) === String(userIdNum));
+    return arr.some((v: any) => String(v) === userIdStr);
   });
   const myAktiveSaker = mySaker.length;
 
@@ -375,18 +375,14 @@ export function registerDashboardKpisRoutes(app: Express) {
     try {
       const userIdStr = authedUserId(req);
       if (!userIdStr) return res.status(401).json({ error: 'Ikke innlogget' });
-      const userIdNum = Number(userIdStr);
-      if (!Number.isFinite(userIdNum)) {
-        return res.json({ mode: 'default', kpis: [] });
-      }
 
       const mode = typeof req.query.mode === 'string' ? req.query.mode : 'default';
 
       let kpis: DashboardKpi[] = [];
       if (mode === 'tiltaksleder') {
-        kpis = await buildTiltakslederKpis(userIdNum);
+        kpis = await buildTiltakslederKpis(userIdStr);
       } else if (mode === 'miljoarbeider') {
-        kpis = await buildMiljoarbeiderKpis(userIdStr, userIdNum);
+        kpis = await buildMiljoarbeiderKpis(userIdStr);
       }
 
       res.setHeader('Cache-Control', 'private, max-age=30');

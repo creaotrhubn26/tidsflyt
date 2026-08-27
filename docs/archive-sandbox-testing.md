@@ -1,6 +1,13 @@
-# Documaster Sandbox Testing Guide
+# Documaster sandkassetest
 
-**Formål:** Verifisere at archive-integrasjonen fungerer mot en ekte Documaster-instans.
+**Formål:** Verifisere at arkivintegrasjonen fungerer mot en ekte
+Documaster-instans. Se først
+[`docs/runbooks/documaster-implementeringsoppstart.md`](runbooks/documaster-implementeringsoppstart.md)
+for ansvar, beslutningsport, beviskrav og produksjonsaksept.
+
+**Nåværende status:** Scriptet og transportkontrakten er verifisert lokalt,
+men er ikke kjørt mot Haldens tenant. Scriptet oppretter testmappe og
+journalpost i målmiljøet; bruk bare syntetiske, godkjente testdata.
 
 ## 1. Få Documaster Sandbox-tilgang
 
@@ -8,8 +15,10 @@ Kontakt Documaster support med følgende:
 
 - **Hva:** OAuth2 test-klient (client_credentials flow) for Noark 5 REST API
 - **Miljø:** Sandbox/test-instans
-- **Scopes:** Lesing + skriving til Saksmappe, Journalpost, Dokumentbeskrivelse, Dokumentobjekt, EksternId
-- **IP-whitelisting:** Ikke nødvendig (API er REST over HTTPS)
+- **Scopes:** Lesing og skriving til Saksmappe, Journalpost, Dokument,
+  Dokumentversjon, EksternId og filopplasting
+- **Nettverk:** Be leverandøren bekrefte DNS, brannmur, VPN, mTLS og eventuell
+  IP-allowlisting. HTTPS alene avgjør ikke nettverkskravene.
 
 Du mottar:
 - **Base URL** — f.eks. `https://sandbox-documaster.example.no`
@@ -26,6 +35,7 @@ Opprett `.env.local` (eller `.env.test` hvis du kjører tests):
 ```env
 # Dokumentaster sandbox
 DOCUMASTER_BASE_URL=https://sandbox-documaster.example.no
+DOCUMASTER_TOKEN_URL=https://idp.sandbox-documaster.example.no/oauth2/token
 DOCUMASTER_CLIENT_ID=<ditt-client-id>
 DOCUMASTER_CLIENT_SECRET=<ditt-client-secret>
 DOCUMASTER_ARKIVDEL_ID=<arkivdel-id>
@@ -34,13 +44,16 @@ DOCUMASTER_ARKIVDEL_ID=<arkivdel-id>
 TIDUM_SECRET_KEY=test-secret-key-32-chars-minimum-here
 ```
 
+Ikke commit denne filen. Bruk helst midlertidige shellvariabler eller lokalt
+hemmelighetshvelv, og roter test-secret dersom den er delt i en usikker kanal.
+
 ### Steg 1: Verifiser OAuth2 token-flow
 
 Kjør curl-kommandoen manuelt:
 
 ```bash
 curl -X POST \
-  "${DOCUMASTER_BASE_URL}/idp/oauth2/token" \
+  "${DOCUMASTER_TOKEN_URL:-${DOCUMASTER_BASE_URL}/idp/oauth2/token}" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -d "grant_type=client_credentials&client_id=${DOCUMASTER_CLIENT_ID}&client_secret=${DOCUMASTER_CLIENT_SECRET}"
 ```
@@ -200,6 +213,7 @@ feilhåndtering — kun mot provider-laget, uten Tidum-database.
 
 ```bash
 DOCUMASTER_BASE_URL=https://sandbox-documaster.example.no \
+DOCUMASTER_TOKEN_URL=https://idp.sandbox-documaster.example.no/oauth2/token \
 DOCUMASTER_CLIENT_ID=... \
 DOCUMASTER_CLIENT_SECRET=... \
 DOCUMASTER_ARKIVDEL_ID=... \
@@ -230,17 +244,14 @@ Før du godtar integrasjonen:
 
 Token utstedes av Documaster IDP, som ofte kjører på **egen host** —
 offisielt endepunkt er `https://{idpserver}/oauth2/token`
-(github.com/documaster/idp-web-services). `apiPaths.token` godtar en
-absolutt URL:
+(github.com/documaster/idp-web-services). `tokenUrl` godtar en absolutt URL:
 
 ```typescript
 createArchiveProvider("documaster", {
   baseUrl: "https://kunde.documaster.no",
+  tokenUrl: "https://idp.kunde.documaster.no/oauth2/token",
   clientId: "...",
   clientSecret: "...",
-  apiPaths: {
-    token: "https://idp.kunde.documaster.no/oauth2/token",
-  },
 })
 ```
 
@@ -319,7 +330,12 @@ Når sandkassetesting er OK:
 
 1. **Få produksjon-credentials fra Documaster** — eget client_id/secret, annen base URL
 2. **Oppdater dokumentasjonen** — fjern `[ ]` fra `docs/integrations/documaster.md` punkt «Sandkasseverifisering»
-3. **Deploy** — sett DOCUMASTER_* miljøvariabler i produksjon
-4. **Monitor** — følg `archive_entries` outbox-loggen og `rapport_audit_log` de første timene
+3. **Deploy** — legg API- og IDP-vert i `ARCHIVE_ALLOWED_HOSTS`, kontroller
+   den versjonerte Tidum-nøkkelringen og registrer tenantconfig via arkivkortet
+   i innstillinger. `DOCUMASTER_*` brukes av testscriptene, ikke av
+   produksjonsserveren.
+4. **Monitor** — følg `archive_entries`, arkivkvitteringene og relevante
+   audit-hendelser de første timene.
 
-Se `server/routes/archive-routes.ts:300-310` for cron-oppsett (kjører hvert 5. minutt).
+Arkivarbeideren kjører hvert femte minutt; bruk arkivloggen i innstillinger for
+status og kontrollert retry.

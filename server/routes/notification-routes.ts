@@ -32,6 +32,12 @@ export async function createNotification(opts: {
       ]
     );
   } catch (err) {
+    // Swallowed on purpose (callers never await failure), but this is why a
+    // schema drift here (e.g. migrations 060/061's orphaned legacy NOT NULL
+    // columns) goes silent app-wide instead of surfacing anywhere: every
+    // caller that "sent" a notification has no way to know it wasn't
+    // persisted. Check this log before assuming notifications are broken
+    // elsewhere.
     console.error("Failed to create notification:", err);
   }
 }

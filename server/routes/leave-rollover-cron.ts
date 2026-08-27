@@ -16,7 +16,8 @@ import cron from 'node-cron';
 import { db } from '../db';
 import { and, eq } from 'drizzle-orm';
 import { leaveBalances, leaveTypes } from '@shared/schema';
-import { requireAuth, ADMIN_ROLES } from '../middleware/auth';
+import { requireAuth } from '../middleware/auth';
+import { canManageLeave, resolveLeaveActor } from '../lib/leave-authorization';
 
 interface RolloverCap {
   /** max days carried over into the new year; undefined = unlimited */
@@ -36,12 +37,6 @@ function capForSlug(slug: string | null | undefined): RolloverCap {
   }
 }
 
-function isAdminRole(req: Request): boolean {
-  const role = String(((req as any).authUser ?? (req as any).user)?.role || '')
-    .toLowerCase().replace(/[\s-]/g, '_');
-  return ADMIN_ROLES.includes(role);
-}
-
 export interface RolloverResult {
   userId: string;
   leaveTypeSlug: string;
@@ -59,6 +54,7 @@ export interface RolloverResult {
 export async function runLeaveRollover(
   targetYear: number = new Date().getFullYear(),
   fromYear: number = targetYear - 1,
+  vendorId?: number,
 ): Promise<RolloverResult[]> {
   const results: RolloverResult[] = [];
 
@@ -68,7 +64,12 @@ export async function runLeaveRollover(
   const priorRows = await db
     .select()
     .from(leaveBalances)
-    .where(eq(leaveBalances.year, fromYear));
+    .where(vendorId == null
+      ? eq(leaveBalances.year, fromYear)
+      : and(
+          eq(leaveBalances.year, fromYear),
+          eq(leaveBalances.vendorId, vendorId),
+        ));
 
   for (const prior of priorRows) {
     const t = typeById.get(prior.leaveTypeId);
@@ -107,6 +108,7 @@ export async function runLeaveRollover(
       .select({ id: leaveBalances.id })
       .from(leaveBalances)
       .where(and(
+        eq(leaveBalances.vendorId, prior.vendorId),
         eq(leaveBalances.userId, prior.userId),
         eq(leaveBalances.leaveTypeId, prior.leaveTypeId),
         eq(leaveBalances.year, targetYear),
@@ -135,6 +137,7 @@ export async function runLeaveRollover(
     const totalDays = annualQuota > 0 ? annualQuota + carryover : carryover;
 
     await db.insert(leaveBalances).values({
+      vendorId: prior.vendorId,
       userId: prior.userId,
       leaveTypeId: prior.leaveTypeId,
       year: targetYear,
@@ -176,13 +179,23 @@ export function setupLeaveRolloverCron() {
 export function registerLeaveRolloverRoutes(app: Express) {
   app.post('/api/leave/rollover/run', requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!isAdminRole(req)) return res.status(403).json({ error: 'Kun admin+ kan kjøre overføring manuelt' });
+      const actor = await resolveLeaveActor(req);
+      if (!actor || !canManageLeave(actor)) {
+        return res.status(403).json({ error: 'Krever lederrolle i virksomheten' });
+      }
       const targetYear = Number(req.body?.targetYear ?? new Date().getFullYear());
       const fromYear = Number(req.body?.fromYear ?? targetYear - 1);
-      if (!Number.isFinite(targetYear) || !Number.isFinite(fromYear)) {
-        return res.status(400).json({ error: 'targetYear og fromYear må være tall' });
+      if (
+        !Number.isInteger(targetYear)
+        || !Number.isInteger(fromYear)
+        || targetYear < 2000
+        || targetYear > 2100
+        || fromYear < 2000
+        || fromYear > 2100
+      ) {
+        return res.status(400).json({ error: 'targetYear og fromYear må være gyldige år' });
       }
-      const results = await runLeaveRollover(targetYear, fromYear);
+      const results = await runLeaveRollover(targetYear, fromYear, actor.vendorId);
       const summary = {
         targetYear,
         fromYear,
@@ -191,8 +204,9 @@ export function registerLeaveRolloverRoutes(app: Express) {
         skipped: results.filter(r => r.skipped).length,
       };
       res.json({ ok: true, summary, results });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      console.error('[leave-rollover] manual run failed', error);
+      res.status(500).json({ error: 'Kunne ikke kjøre fraværsoverføring' });
     }
   });
 }

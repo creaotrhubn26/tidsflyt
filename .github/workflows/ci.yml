@@ -79,11 +79,12 @@ jobs:
         with:
           node-version: '24'
           cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund --loglevel=error
       
       - name: Run security audit
-        run: |
-          if npm audit --audit-level=moderate; then
-            echo "No moderate-or-higher audit findings."
-          else
-            echo "Non-blocking audit findings detected."
-          fi
+        run: npm audit --audit-level=moderate
+
+      - name: Verify security dependency compatibility
+        run: npx vitest run server/lib/__tests__/security-dependency-upgrades.test.ts

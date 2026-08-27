@@ -9,9 +9,30 @@ export const TIDUM_ROLES = [
   "prototype_tester",
   "member",
   "user",
+  "barnevernsleder",
+  "kommune_saksbehandler",
+  "innbygger",
 ] as const;
 
 export type TidumRole = (typeof TIDUM_ROLES)[number];
+
+const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler"]);
+const PORTAL_ROLES = new Set<TidumRole>(["innbygger"]);
+
+/** Kommune-roller skal ALDRI telle som gyldig aktør i vendor-side-administrasjon,
+ * uansett rang — de to tenant-hierarkiene (kommune/vendor) deler samme globale
+ * rank-navnerom i canManageRoleDynamic, som ikke kan uttrykke at de er disjunkte.
+ * Se .superpowers/sdd/2026-08-23-kommune-tenant-roller/progress.md, "Final
+ * whole-branch review" for den fulle hendelsen dette lukker. */
+export function isKommuneRole(role: string | null | undefined): boolean {
+  return KOMMUNE_ROLES.has(normalizeRole(role));
+}
+
+/** Portalroller provisjoneres bare gjennom partsflyten og kan aldri deles ut
+ * fra de ordinære brukeradministrasjonsendepunktene. */
+export function isPortalRole(role: string | null | undefined): boolean {
+  return PORTAL_ROLES.has(normalizeRole(role));
+}
 
 export const ROLE_LABELS: Record<string, string> = {
   super_admin: "Systemadmin",
@@ -25,6 +46,9 @@ export const ROLE_LABELS: Record<string, string> = {
   prototype_tester: "Prototype-tester",
   member: "Medlem",
   user: "Bruker",
+  barnevernsleder: "Barnevernsleder",
+  kommune_saksbehandler: "Saksbehandler",
+  innbygger: "Innbygger",
 };
 
 const ROLE_ALIASES: Record<string, TidumRole> = {
@@ -41,6 +65,9 @@ const ROLE_ALIASES: Record<string, TidumRole> = {
   "prototype-tester": "prototype_tester",
   member: "member",
   user: "user",
+  barnevernsleder: "barnevernsleder",
+  kommune_saksbehandler: "kommune_saksbehandler",
+  innbygger: "innbygger",
 };
 
 export function normalizeRole(role?: string | null): TidumRole {
@@ -60,6 +87,8 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
     "prototype_tester",
     "member",
     "user",
+    "barnevernsleder",
+    "kommune_saksbehandler",
   ],
   hovedadmin: ["vendor_admin", "tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
   vendor_admin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
@@ -70,6 +99,9 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   prototype_tester: [],
   member: [],
   user: [],
+  barnevernsleder: ["kommune_saksbehandler"],
+  kommune_saksbehandler: [],
+  innbygger: [],
 };
 
 export function canManageRole(managerRole: string | null | undefined, targetRole: string | null | undefined): boolean {
@@ -100,4 +132,20 @@ export function isSuperAdminLikeRole(role: string | null | undefined): boolean {
 export function canAccessVendorApiAdmin(role: string | null | undefined): boolean {
   const normalizedRole = normalizeRole(role);
   return ["super_admin", "hovedadmin", "vendor_admin"].includes(normalizedRole);
+}
+
+/** Tenant-owned credentials and API keys must be managed by the customer's
+ * own hovedadmin/vendor_admin. A global supplier admin may control whether an
+ * integration is offered, but does not get implicit access to customer
+ * credentials or data-plane API keys. */
+export function canManageVendorCredentials(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeRole(role);
+  return normalizedRole === "hovedadmin" || normalizedRole === "vendor_admin";
+}
+
+/** Arkivkonfigurasjon finnes i begge tenanthierarkier. Kommuneleder får bare
+ * arkivkortet; dette utvider ikke vendor-API-, PowerOffice- eller brukeradmin. */
+export function canConfigureArchiveIntegration(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeRole(role);
+  return canAccessVendorApiAdmin(normalizedRole) || normalizedRole === "barnevernsleder";
 }

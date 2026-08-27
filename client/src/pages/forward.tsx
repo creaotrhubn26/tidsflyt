@@ -34,6 +34,7 @@ interface ForwardHistoryItem {
 interface EmailStatus {
   smtp: boolean;
   manual: boolean;
+  secureChannelRequired?: boolean;
 }
 
 interface PrepareResult {
@@ -108,6 +109,7 @@ export default function ForwardPage() {
   });
 
   const smtpAvailable = emailStatus?.smtp ?? false;
+  const secureChannelRequired = emailStatus?.secureChannelRequired ?? false;
 
   const { data: history = [] } = useQuery<ForwardHistoryItem[]>({
     queryKey: ["/api/forward/history"],
@@ -248,12 +250,21 @@ export default function ForwardPage() {
         </div>
 
         {/* Email-status indicator */}
-        <Card className={smtpAvailable
-          ? "border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20"
-          : "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20"
+        <Card className={secureChannelRequired
+          ? "border-red-200 bg-red-50/50 dark:border-red-900 dark:bg-red-950/20"
+          : smtpAvailable
+            ? "border-green-200 bg-green-50/50 dark:border-green-900 dark:bg-green-950/20"
+            : "border-amber-200 bg-amber-50/50 dark:border-amber-900 dark:bg-amber-950/20"
         }>
           <CardContent className="flex items-center gap-3 py-3">
-            {smtpAvailable ? (
+            {secureChannelRequired ? (
+              <>
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <span className="text-sm font-medium text-red-800 dark:text-red-300">
+                  Saksopplysninger kan ikke sendes på e-post. Bruk Sikker sending.
+                </span>
+              </>
+            ) : smtpAvailable ? (
               <>
                 <Wifi className="h-4 w-4 text-green-600" />
                 <span className="text-sm font-medium text-green-800 dark:text-green-300">
@@ -271,6 +282,17 @@ export default function ForwardPage() {
           </CardContent>
         </Card>
 
+        {secureChannelRequired ? (
+          <Card className="border-red-200 dark:border-red-900">
+            <CardHeader>
+              <CardTitle>Sikker sending er under oppsett</CardTitle>
+              <CardDescription>
+                Når løsningen er klar, velger du bare «Send sikkert». Tidum sørger for riktig leveringsmåte. Inntil da kan rapporter ikke sendes fra denne siden.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        ) : (
+          <>
         {/* ───── Send / Prepare form ───── */}
         <Card>
           <CardHeader>
@@ -497,6 +519,8 @@ export default function ForwardPage() {
             </div>
           </CardContent>
         </Card>
+          </>
+        )}
 
         {/* History */}
         {history.length > 0 && (

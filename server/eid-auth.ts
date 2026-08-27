@@ -4,7 +4,7 @@ import { SignJWT, importPKCS8, createRemoteJWKSet, jwtVerify, type JWTPayload } 
 import { randomBytes, createHash } from "crypto";
 import { db } from "./db";
 import { authLoginEvents, eidIdentities, users } from "@shared/schema";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
@@ -209,6 +209,47 @@ async function upsertEidIdentity(params: {
   }
 }
 
+export async function resolveUserForVerifiedEid(params: {
+  provider: string;
+  sub: string;
+  ssnHash: string;
+  givenName: string | null;
+  familyName: string | null;
+  fullName: string | null;
+  rawClaims: Record<string, unknown>;
+}): Promise<AuthUser | null> {
+  let resolvedUser = await resolveUserByEidIdentity(params.ssnHash);
+
+  if (!resolvedUser) {
+    resolvedUser = await resolveUserByExpectedSsnHash(params.ssnHash);
+  }
+  if (!resolvedUser) return null;
+
+  // Also write the current provider. A person first linked with BankID must
+  // get a Buypass identity row when later logging in with Buypass (and vice
+  // versa), while the shared ssn hash still resolves to the same user.
+  await upsertEidIdentity({
+    userId: resolvedUser.id,
+    provider: params.provider,
+    sub: params.sub,
+    ssnHash: params.ssnHash,
+    givenName: params.givenName,
+    familyName: params.familyName,
+    fullName: params.fullName,
+    rawClaims: params.rawClaims,
+  });
+  await db
+    .update(users)
+    .set({ expectedSsnHash: null, updatedAt: new Date() })
+    .where(and(eq(users.id, resolvedUser.id), eq(users.expectedSsnHash, params.ssnHash)));
+
+  return { ...resolvedUser, provider: params.provider };
+}
+
+export function eidPostLoginPath(role: string | null | undefined): string {
+  return role === "innbygger" ? "/innbygger" : "/dashboard";
+}
+
 async function logAuthEvent(params: {
   provider: string;
   userId: string | null;
@@ -227,6 +268,32 @@ async function logAuthEvent(params: {
   } catch (err) {
     console.error("AUTH LOGIN EVENT WRITE FAILED", params.userId, params.provider, err);
   }
+}
+
+function sanitizeEidClaims(
+  claims: JWTPayload,
+  ssnClaimKey: string,
+  rawSsn: string,
+): Record<string, unknown> {
+  const sensitiveKey = /(ssn|socialno|fnr|fødsels|person.?number|national.?id|nnin)/i;
+  const scrubValue = (value: unknown): unknown => {
+    if (typeof value === "string") return value.split(rawSsn).join("[redacted]");
+    if (Array.isArray(value)) return value.map(scrubValue);
+    if (value && typeof value === "object") {
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>)
+          .filter(([key]) => !sensitiveKey.test(key))
+          .map(([key, nested]) => [key, scrubValue(nested)]),
+      );
+    }
+    return value;
+  };
+
+  return Object.fromEntries(
+    Object.entries(claims)
+      .filter(([key]) => key !== ssnClaimKey && !sensitiveKey.test(key))
+      .map(([key, value]) => [key, scrubValue(value)]),
+  );
 }
 
 // Delt callback-logikk mellom BankID og Buypass. Ikke dupliser denne per
@@ -259,13 +326,20 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
       const givenName = typeof claims.given_name === "string" ? claims.given_name : null;
       const familyName = typeof claims.family_name === "string" ? claims.family_name : null;
       const fullName = typeof claims.name === "string" ? claims.name : null;
-      const rawClaims: Record<string, unknown> = { ...claims };
-      delete rawClaims[ssnClaimKey];
+      const rawClaims = sanitizeEidClaims(claims, ssnClaimKey, fnr);
 
       if (hasSessionAuth(req) && req.user) {
         // Kobling: bruker er allerede innlogget (Google/e-post), dette er
         // eierskapsbeviset. Skriv koblingen og behold samme innloggede bruker.
         const currentUser = req.user as AuthUser;
+        const [currentUserRow] = await db
+          .select({ expectedSsnHash: users.expectedSsnHash })
+          .from(users)
+          .where(eq(users.id, currentUser.id))
+          .limit(1);
+        if (currentUserRow?.expectedSsnHash && currentUserRow.expectedSsnHash !== ssnHash) {
+          return res.redirect("/?error=eid_identity_mismatch");
+        }
         await upsertEidIdentity({
           userId: currentUser.id,
           provider,
@@ -276,6 +350,12 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
           fullName,
           rawClaims,
         });
+        if (currentUserRow?.expectedSsnHash === ssnHash) {
+          await db
+            .update(users)
+            .set({ expectedSsnHash: null, updatedAt: new Date() })
+            .where(and(eq(users.id, currentUser.id), eq(users.expectedSsnHash, ssnHash)));
+        }
         await logAuthEvent({
           provider,
           userId: currentUser.id,
@@ -283,37 +363,20 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
           ipAddress: req.ip,
           userAgent: req.get("user-agent") || undefined,
         });
-        return res.redirect("/dashboard");
+        return res.redirect(eidPostLoginPath(currentUser.role));
       }
 
       // Innlogging: slå opp eksisterende kobling på tvers av leverandører
       // (fnr-hash er nøkkelen). Opprett ALDRI ny bruker.
-      let resolvedUser = await resolveUserByEidIdentity(ssnHash);
-
-      if (!resolvedUser) {
-        // Ingen tidum_eid_identities ennå — men kanskje super admin har
-        // forhåndsregistrert nettopp dette fødselsnummeret på en konto
-        // (migrations/053). Første ekte eID-innlogging fullfører da
-        // koblingen automatisk, uten en mellomliggende Google/e-post-økt.
-        const expectedUser = await resolveUserByExpectedSsnHash(ssnHash);
-        if (expectedUser) {
-          await upsertEidIdentity({
-            userId: expectedUser.id,
-            provider,
-            sub,
-            ssnHash,
-            givenName,
-            familyName,
-            fullName,
-            rawClaims,
-          });
-          await db
-            .update(users)
-            .set({ expectedSsnHash: null, updatedAt: new Date() })
-            .where(eq(users.id, expectedUser.id));
-          resolvedUser = { ...expectedUser, provider };
-        }
-      }
+      const resolvedUser = await resolveUserForVerifiedEid({
+        provider,
+        sub,
+        ssnHash,
+        givenName,
+        familyName,
+        fullName,
+        rawClaims,
+      });
 
       if (!resolvedUser) {
         await logAuthEvent({
@@ -336,7 +399,7 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
 
       req.logIn(resolvedUser, (loginError) => {
         if (loginError) return next(loginError);
-        return res.redirect("/dashboard");
+        return res.redirect(eidPostLoginPath(resolvedUser.role));
       });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {
@@ -455,7 +518,15 @@ export async function setupEidAuth(app: Express): Promise<void> {
         }
 
         const ssnHash = hashSsn(fnr);
-        const resolvedUser = await resolveUserByEidIdentity(ssnHash);
+        const resolvedUser = await resolveUserForVerifiedEid({
+          provider: "bankid",
+          sub: typeof claims.sub === "string" ? claims.sub : String(claims.sub),
+          ssnHash,
+          givenName: typeof claims.given_name === "string" ? claims.given_name : null,
+          familyName: typeof claims.family_name === "string" ? claims.family_name : null,
+          fullName: typeof claims.name === "string" ? claims.name : null,
+          rawClaims: sanitizeEidClaims(claims, IDURA_SSN_CLAIM_KEY, fnr),
+        });
         if (!resolvedUser) {
           await logAuthEvent({
             provider: "bankid",

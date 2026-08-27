@@ -18,7 +18,7 @@
 import type { Express, Request, Response } from 'express';
 import cron from 'node-cron';
 import { sweepAllVendorsForSeatOverrun } from '../lib/seat-overrun';
-import { requireAuth } from '../middleware/auth';
+import { requireSuperAdmin } from '../custom-auth';
 
 let cronStarted = false;
 
@@ -42,18 +42,13 @@ export function setupSeatOverrunCron(): void {
 
 export function registerSeatOverrunRoutes(app: Express): void {
   // Manuell trigger (kun super_admin) — nyttig for testing og ad-hoc-sweep
-  app.post('/api/admin/seat-overrun/sweep', requireAuth, async (req: Request, res: Response) => {
-    const role = String(((req as any).authUser ?? (req as any).user)?.role || '')
-      .toLowerCase().replace(/[\s-]/g, '_');
-    if (role !== 'super_admin') {
-      return res.status(403).json({ error: 'Kun super_admin' });
-    }
+  app.post('/api/admin/seat-overrun/sweep', requireSuperAdmin, async (_req: Request, res: Response) => {
     try {
       const result = await sweepAllVendorsForSeatOverrun();
       return res.json({ ok: true, ...result });
-    } catch (err: any) {
-      console.error('[seat-overrun] manual sweep feilet:', err);
-      return res.status(500).json({ error: err?.message || 'Sweep feilet' });
+    } catch (error) {
+      console.error('[seat-overrun] manual sweep feilet:', error);
+      return res.status(500).json({ error: 'Kunne ikke kjøre kapasitetskontroll' });
     }
   });
 }

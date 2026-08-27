@@ -86,6 +86,9 @@ const AdminLeads = lazy(() => import("@/pages/admin-leads"));
 const TiltakslederDashboardPage = lazy(() => import("@/pages/tiltaksleder-dashboard"));
 const TiltakslederSatserPage = lazy(() => import("@/pages/tiltaksleder-satser"));
 const InviteAcceptPage = lazy(() => import("@/pages/invite-accept"));
+const SecureDialogStaffPage = lazy(() => import("@/pages/secure-dialog-staff"));
+const BarnevernPage = lazy(() => import("@/pages/barnevern"));
+const InnbyggerPage = lazy(() => import("@/pages/innbygger"));
 
 function RouteLoadingFallback() {
   return (
@@ -116,7 +119,7 @@ const PROTECTED_LAYOUT_PREFIXES = [
   "/profile", "/settings", "/invites", "/users", "/leave", "/invoices", "/overtime",
   "/recurring", "/timesheets", "/forward", "/email", "/rapporter", "/admin",
   "/vendors", "/cms", "/cms-legacy", "/api-docs", "/vendor", "/institusjoner",
-  "/tiltaksleder",
+  "/tiltaksleder", "/sikker-sending",
 ];
 
 function isProtectedLayoutPath(pathname: string): boolean {
@@ -159,8 +162,8 @@ function Router() {
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/reports">{() => <AuthGuard><Redirect to="/rapporter/godkjenning" /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
-        <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Cases /></AuthGuard>}</Route>
-        <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
+        <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder", "vendor_admin", "miljoarbeider", "case_manager", "teamleder", "member", "user", "super_admin"]}><Cases /></AuthGuard>}</Route>
+        <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
         <Route path="/profile">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/invites">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Users /></AuthGuard>}</Route>
@@ -172,6 +175,9 @@ function Router() {
         <Route path="/timesheets">{() => <AuthGuard requiredRoles={["miljoarbeider", "tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><TimesheetsPage /></AuthGuard>}</Route>
         <Route path="/forward">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ForwardPage /></AuthGuard>}</Route>
         <Route path="/email">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><EmailComposerPage /></AuthGuard>}</Route>
+        <Route path="/sikker-sending">{() => <AuthGuard requiredRoles={["barnevernsleder", "kommune_saksbehandler"]}><SecureDialogStaffPage /></AuthGuard>}</Route>
+        <Route path="/barnevern">{() => <AuthGuard requiredRoles={["barnevernsleder", "kommune_saksbehandler"]}><BarnevernPage /></AuthGuard>}</Route>
+        <Route path="/innbygger">{() => <AuthGuard requiredRoles={["innbygger"]}><InnbyggerPage /></AuthGuard>}</Route>
 
         {/* Institusjoner */}
         <Route path="/institusjoner">{() => <AuthGuard><InstitutionsPage /></AuthGuard>}</Route>
@@ -195,11 +201,11 @@ function Router() {
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/admin/roller">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminRoller /></AuthGuard>}</Route>
         <Route path="/admin/aktivitetslogg">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminAktivitetslogg /></AuthGuard>}</Route>
-        <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
-        <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
+        <Route path="/cms">{() => <AuthGuard requiredRoles={["super_admin"]}><CMS /></AuthGuard>}</Route>
+        <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
-        <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
-        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
+        <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
+        <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["super_admin"]}><AccessRequests /></AuthGuard>}</Route>
         <Route path="/import-employees">{() => <AuthGuard requiredRoles={["hovedadmin", "vendor_admin", "admin", "super_admin"]}><ImportEmployees /></AuthGuard>}</Route>
         <Route path="/import-employees/:id/preview">{() => <AuthGuard requiredRoles={["hovedadmin", "vendor_admin", "admin", "super_admin"]}><ImportEmployeesPreview /></AuthGuard>}</Route>
 

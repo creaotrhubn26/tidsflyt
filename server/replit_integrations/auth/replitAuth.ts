@@ -8,6 +8,11 @@ import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
 import { authStorage } from "./storage";
 import { requireDatabaseConnectionString } from "../../database-config";
+import {
+  generateCsrfToken,
+  requireCsrfSecret,
+  sessionCsrfProtection,
+} from "../../lib/csrf";
 
 const getOidcConfig = memoize(
   async () => {
@@ -62,10 +67,21 @@ async function upsertUser(claims: any) {
 }
 
 export async function setupAuth(app: Express) {
+  requireCsrfSecret();
   app.set("trust proxy", 1);
   app.use(getSession());
   app.use(passport.initialize());
   app.use(passport.session());
+
+  app.get("/api/csrf-token", (req, res, next) => {
+    try {
+      res.setHeader("Cache-Control", "no-store");
+      res.json({ token: generateCsrfToken(req, res) });
+    } catch (error) {
+      next(error);
+    }
+  });
+  app.use(sessionCsrfProtection);
 
   const config = await getOidcConfig();
 
@@ -119,15 +135,25 @@ export async function setupAuth(app: Express) {
     })(req, res, next);
   });
 
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
+  app.post("/api/logout", (req, res) => {
+    req.logout((error) => {
+      if (error) {
+        return res.status(500).json({ message: "Kunne ikke logge ut" });
+      }
+      const redirectUrl = client.buildEndSessionUrl(config, {
           client_id: process.env.REPL_ID!,
           post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+        }).href;
+      req.session.destroy(() => {
+        res.clearCookie("connect.sid");
+        res.json({ success: true, redirectUrl });
+      });
     });
+  });
+
+  app.get("/api/logout", (_req, res) => {
+    res.setHeader("Allow", "POST");
+    res.status(405).json({ message: "Bruk POST for å logge ut" });
   });
 }
 

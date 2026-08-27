@@ -18,6 +18,7 @@ const TIDUM_ROLES = [
   "prototype_tester",
   "member",
   "user",
+  "innbygger",
 ] as const;
 
 describe("canManageRoleDynamic matcher shared/roles.ts sin ekte canManageRole", () => {
