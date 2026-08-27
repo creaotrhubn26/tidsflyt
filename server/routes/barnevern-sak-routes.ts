@@ -6,7 +6,7 @@ import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
 import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
-import { requireKommuneActor } from "./barnevern-melding-routes";
+import { loggTilgang, requireKommuneActor } from "./barnevern-melding-routes";
 
 // Faseflyt for den kommunale barnevernssaken. En sak starter alltid i
 // undersøkelse (opprettet fra «send til undersøkelse» på en melding).
@@ -129,6 +129,10 @@ export function registerBarnevernSakRoutes(app: Express): void {
             WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at ASC`,
           [req.params.id, actor.kommuneId],
         );
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "lest", objektType: "sak", objektId: sak.id,
+        });
         return { sak, historikk };
       });
       if (!data) return res.status(404).json({ error: "Sak ikke funnet." });
@@ -258,6 +262,55 @@ export function registerBarnevernSakRoutes(app: Express): void {
     }
   });
 
+  // ── TILGANGSLOGG (krav 15) — søkbar revisorflate, kun barnevernsleder ────
+
+  app.get("/api/barnevern/tilgangslogg", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan lese tilgangsloggen." });
+    }
+
+    const { objektType, objektId, userId } = req.query;
+    try {
+      const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const betingelser = ["kommune_id = $1"];
+        const verdier: unknown[] = [actor.kommuneId];
+        if (typeof objektType === "string") {
+          verdier.push(objektType);
+          betingelser.push(`objekt_type = $${verdier.length}`);
+        }
+        if (typeof objektId === "string") {
+          verdier.push(objektId);
+          betingelser.push(`objekt_id = $${verdier.length}`);
+        }
+        if (typeof userId === "string") {
+          verdier.push(userId);
+          betingelser.push(`user_id = $${verdier.length}`);
+        }
+        const { rows } = await client.query(
+          `SELECT * FROM tidum_barnevern_tilgangslogg
+            WHERE ${betingelser.join(" AND ")}
+            ORDER BY created_at DESC LIMIT 500`,
+          verdier,
+        );
+        return rows;
+      });
+      res.json(rows.map((r: any) => ({
+        id: r.id,
+        userId: r.user_id,
+        handling: r.handling,
+        objektType: r.objekt_type,
+        objektId: r.objekt_id,
+        detaljer: r.detaljer,
+        createdAt: r.created_at,
+      })));
+    } catch (err) {
+      console.error("[barnevern] tilgangslogg feilet", err);
+      res.status(500).json({ error: "Kunne ikke hente tilgangsloggen." });
+    }
+  });
+
   // ── JOURNAL (krav 4) — append-only, rettelser via correctsEntryId ────────
 
   app.post("/api/barnevern/saker/:id/journal", async (req: Request, res: Response) => {
@@ -333,6 +386,11 @@ export function registerBarnevernSakRoutes(app: Express): void {
           WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at ASC`,
         [req.params.id, actor.kommuneId],
       );
+      await loggTilgang(client, {
+        kommuneId: actor.kommuneId, userId: actor.userId,
+        handling: "lest", objektType: "sak_journal", objektId: req.params.id,
+        detaljer: { antallOppforinger: rows.length },
+      });
       return rows;
     });
     res.json(rows.map((r: any) => ({
@@ -413,6 +471,13 @@ export function registerBarnevernSakRoutes(app: Express): void {
             WHERE id = $1 AND journal_entry_id = $2 AND kommune_id = $3`,
           [req.params.vedleggId, req.params.entryId, actor.kommuneId],
         );
+        if (row) {
+          await loggTilgang(client, {
+            kommuneId: actor.kommuneId, userId: actor.userId,
+            handling: "nedlastet", objektType: "journal_vedlegg", objektId: row.id,
+            detaljer: { sakId: req.params.id, journalEntryId: req.params.entryId, filnavn: row.original_name },
+          });
+        }
         return row ?? null;
       });
       if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });

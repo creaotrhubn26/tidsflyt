@@ -70,6 +70,34 @@ async function nextMeldingsnummer(client: Pick<PoolClient, "query">, kommunenumm
   return `BVM-${kommunenummer ?? "UKJENT"}-${row.n}`;
 }
 
+/**
+ * Krav 15: append-only logg over lesing/nedlasting. Skrives i SAMME
+ * transaksjon som lesingen — feiler loggen, feiler lesingen (fail-closed).
+ * Logges kun der innhold faktisk returneres til brukeren, ikke ved rene
+ * autorisasjonsoppslag.
+ */
+export async function loggTilgang(
+  client: Pick<PoolClient, "query">,
+  input: {
+    kommuneId: number;
+    userId: string;
+    handling: "lest" | "nedlastet";
+    objektType: string;
+    objektId: string;
+    detaljer?: Record<string, unknown>;
+  },
+): Promise<void> {
+  await client.query(
+    `INSERT INTO tidum_barnevern_tilgangslogg
+       (kommune_id, user_id, handling, objekt_type, objekt_id, detaljer)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [
+      input.kommuneId, input.userId, input.handling, input.objektType, input.objektId,
+      input.detaljer ? JSON.stringify(input.detaljer) : null,
+    ],
+  );
+}
+
 async function loadMeldingScoped(id: string, kommuneId: number) {
   return withKommuneRlsContext(kommuneId, async (client) => {
     const { rows } = await client.query(
@@ -331,7 +359,18 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const row = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+      const { rows: [melding] } = await client.query(
+        `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
+        [req.params.id, actor.kommuneId],
+      );
+      if (!melding) return null;
+      await loggTilgang(client, {
+        kommuneId: actor.kommuneId, userId: actor.userId,
+        handling: "lest", objektType: "melding", objektId: melding.id,
+      });
+      return melding;
+    });
     if (!row) return res.status(404).json({ error: "Melding ikke funnet." });
     res.json(toApiShape(row));
   });
@@ -450,6 +489,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           WHERE melding_id = $1 AND kommune_id = $2 ORDER BY created_at ASC`,
         [req.params.id, actor.kommuneId],
       );
+      await loggTilgang(client, {
+        kommuneId: actor.kommuneId, userId: actor.userId,
+        handling: "lest", objektType: "melding_revisjoner", objektId: req.params.id,
+      });
       return rows;
     });
     res.json(rows.map((r: any) => ({
@@ -690,6 +733,13 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
             WHERE id = $1 AND melding_id = $2 AND kommune_id = $3`,
           [req.params.vedleggId, req.params.id, actor.kommuneId],
         );
+        if (row) {
+          await loggTilgang(client, {
+            kommuneId: actor.kommuneId, userId: actor.userId,
+            handling: "nedlastet", objektType: "melding_vedlegg", objektId: row.id,
+            detaljer: { meldingId: req.params.id, filnavn: row.original_name },
+          });
+        }
         return row ?? null;
       });
       if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });

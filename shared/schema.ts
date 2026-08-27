@@ -695,6 +695,22 @@ export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_histo
   index("tidum_barnevern_sak_fase_historikk_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
 ]);
 
+// Append-only tilgangslogg for lesing/nedlasting (migrasjon 091, krav 15).
+export const barnevernTilgangslogg = pgTable("tidum_barnevern_tilgangslogg", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  // Ingen FK: bevislogg skal overleve brukersletting.
+  userId: varchar("user_id").notNull(),
+  handling: text("handling").notNull(),
+  objektType: text("objekt_type").notNull(),
+  objektId: uuid("objekt_id").notNull(),
+  detaljer: jsonb("detaljer"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_tilgangslogg_objekt_idx").on(table.kommuneId, table.objektType, table.objektId, table.createdAt),
+  index("tidum_barnevern_tilgangslogg_user_idx").on(table.kommuneId, table.userId, table.createdAt),
+]);
+
 // Oppgaver på barnevernsobjekter (migrasjon 090). Varsling/eskalering
 // går via fristmotoren (entity_type 'barnevern_oppgave').
 export const barnevernOppgaver = pgTable("tidum_barnevern_oppgaver", {
