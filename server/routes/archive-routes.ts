@@ -3,10 +3,10 @@
  *
  * Noark 5-arkivintegrasjon (Documaster). Endepunkter:
  *
- *   GET    /api/integrations/arkiv/status        — vendorens config (uten secret)
+ *   GET    /api/integrations/arkiv/status        — tenantens config (uten secret)
  *   POST   /api/integrations/arkiv/connect       — verifiser + lagre config
  *   DELETE /api/integrations/arkiv/disconnect    — fjern config
- *   GET    /api/integrations/arkiv/entries       — arkivlogg for vendoren
+ *   GET    /api/integrations/arkiv/entries       — tenantens arkivlogg
  *   POST   /api/integrations/arkiv/entries/:id/retry — manuell retry
  *   POST   /api/rapporter/:id/arkiver            — manuell arkivering av rapport
  *
@@ -21,7 +21,7 @@ import { archiveConfigs, archiveEntries, rapporter, saker, users } from "@shared
 import { requireAuth } from "../middleware/auth";
 import { openSecret, sealSecret } from "../lib/secret-box";
 import { createArchiveProvider } from "../lib/archive/documaster-client";
-import { validateArchiveBaseUrl } from "../lib/archive/archive-url-policy";
+import { validateArchiveBaseUrl, validateArchiveEndpointUrl } from "../lib/archive/archive-url-policy";
 import {
   getArchiveConfigForTenant,
   processDueArchiveEntries,
@@ -30,8 +30,8 @@ import {
   type ArchiveTenant,
 } from "../lib/archive/archive-service";
 
-// Config-endring krever admin på vendoren; innsyn/manuell arkivering kan
-// også tiltaksleder/teamleder (de eier godkjenningsflyten).
+// Config-endring krever vendor-admin eller kommunens barnevernsleder;
+// innsyn/manuell arkivering kan også operative roller i samme tenant.
 const CONFIG_ROLES = ["vendor_admin", "hovedadmin", "admin", "super_admin", "barnevernsleder"];
 const OPERATE_ROLES = [...CONFIG_ROLES, "tiltaksleder", "teamleder", "case_manager", "kommune_saksbehandler"];
 
@@ -99,7 +99,7 @@ export function registerArchiveRoutes(app: Express) {
 
   /**
    * POST /api/integrations/arkiv/connect
-   * Body: { provider?, baseUrl, clientId, clientSecret, arkivdelId?,
+   * Body: { provider?, baseUrl, tokenUrl?, clientId, clientSecret, arkivdelId?,
    *         journalenhet?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }
    */
   app.post("/api/integrations/arkiv/connect", requireAuth, async (req: Request, res: Response) => {
@@ -112,6 +112,7 @@ export function registerArchiveRoutes(app: Express) {
       const {
         provider = "documaster",
         baseUrl,
+        tokenUrl,
         clientId,
         clientSecret,
         arkivdelId,
@@ -125,16 +126,27 @@ export function registerArchiveRoutes(app: Express) {
       if (!baseUrl || !clientId || !clientSecret) {
         return res.status(400).json({ error: "baseUrl, clientId og clientSecret er påkrevd" });
       }
+      const normalizedBaseUrl = String(baseUrl).trim();
+      const tokenUrlValue = String(tokenUrl ?? "").trim();
+      const normalizedTokenUrl = tokenUrlValue || null;
       try {
-        validateArchiveBaseUrl(String(baseUrl));
+        validateArchiveBaseUrl(normalizedBaseUrl);
       } catch {
         return res.status(400).json({ error: "baseUrl er ikke en godkjent HTTPS-adresse for arkiv" });
+      }
+      if (normalizedTokenUrl) {
+        try {
+          validateArchiveEndpointUrl(normalizedTokenUrl);
+        } catch {
+          return res.status(400).json({ error: "tokenUrl er ikke en godkjent HTTPS-adresse for arkiv-IDP" });
+        }
       }
 
       // Verifiser tilkoblingen før noe lagres.
       try {
         await createArchiveProvider(String(provider), {
-          baseUrl: String(baseUrl),
+          baseUrl: normalizedBaseUrl,
+          tokenUrl: normalizedTokenUrl,
           clientId: String(clientId),
           clientSecret: String(clientSecret),
           arkivdelId: arkivdelId ? String(arkivdelId) : undefined,
@@ -149,7 +161,8 @@ export function registerArchiveRoutes(app: Express) {
         vendorId: tenant.vendorId ?? null,
         kommuneId: tenant.kommuneId ?? null,
         provider: String(provider),
-        baseUrl: String(baseUrl),
+        baseUrl: normalizedBaseUrl,
+        tokenUrl: normalizedTokenUrl,
         clientId: String(clientId),
         clientSecret: sealSecret(String(clientSecret)),
         arkivdelId: arkivdelId ? String(arkivdelId) : null,
@@ -222,8 +235,11 @@ export function registerArchiveRoutes(app: Express) {
       if (!cfg) return res.status(404).json({ error: "Ingen arkivkobling konfigurert" });
 
       try {
+        validateArchiveBaseUrl(cfg.baseUrl);
+        if (cfg.tokenUrl) validateArchiveEndpointUrl(cfg.tokenUrl);
         await createArchiveProvider(cfg.provider, {
           baseUrl: cfg.baseUrl,
+          tokenUrl: cfg.tokenUrl,
           clientId: cfg.clientId,
           clientSecret: openSecret(cfg.clientSecret),
           arkivdelId: cfg.arkivdelId,

@@ -133,3 +133,10 @@ export function canAccessVendorApiAdmin(role: string | null | undefined): boolea
   const normalizedRole = normalizeRole(role);
   return ["super_admin", "hovedadmin", "vendor_admin"].includes(normalizedRole);
 }
+
+/** Arkivkonfigurasjon finnes i begge tenanthierarkier. Kommuneleder får bare
+ * arkivkortet; dette utvider ikke vendor-API-, PowerOffice- eller brukeradmin. */
+export function canConfigureArchiveIntegration(role: string | null | undefined): boolean {
+  const normalizedRole = normalizeRole(role);
+  return canAccessVendorApiAdmin(normalizedRole) || normalizedRole === "barnevernsleder";
+}

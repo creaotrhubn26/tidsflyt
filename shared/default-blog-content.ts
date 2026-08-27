@@ -1643,10 +1643,10 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         },
       },
       {
-        heading: "Testet mot en ekte arkivkjerne, ikke bare beskrevet på papiret",
+        heading: "Kontraktstestet før kundens sandkasse kobles til",
         section: {
           paragraphs: [
-            "Klientkoden er skrevet direkte mot Documasters offisielle Noark 5-spesifikasjon for eksterne fagsystemer, og er testet mot en reell Documaster-instans: opprette saksmappe, laste opp dokument, opprette journalpost, med de samme kravene til referanser, dokumentversjoner og kodelister som spesifikasjonen selv beskriver. Det er forskjellen mellom kode som ser riktig ut, og kode som faktisk snakker korrekt med arkivet den skal levere til.",
+            "Klientkoden er skrevet mot Documasters Noark 5-webtjenestekontrakt og er verifisert med automatiserte transporttester for token, oppslag, saksmappe, upload, journalpost, dokumentversjoner og idempotens. Den enkelte kundens tokenflyt, kodelister og obligatoriske felt verifiseres i kundens sandkasse før produksjonssetting. Tidum omtaler ikke en integrasjon som produksjonsverifisert før dette testbeviset foreligger.",
           ],
         },
       },

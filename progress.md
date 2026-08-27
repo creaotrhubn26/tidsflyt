@@ -422,6 +422,45 @@ Haldens faktiske Documaster/Elements-tenant. Ingen retensjonsperiode er aktivert
 for Halden. Produksjonsakseptanse krever kundens kodelister, administrative
 enhet, testlegitimasjon, retensjonsvedtak og godkjent KMS/hvelv.
 
+## 11. Documaster — implementeringsoppstart uten kundetenant
+
+**Gjennomført:**
+
+- Migrasjon 075 og Drizzle-kontrakten legger til en valgfri, tenantbundet
+  `token_url`, slik at Documaster-IDP kan ligge på en annen vert enn arkiv-API.
+- Token-URL følger UI → API → kryptert config → tilkoblingstest → arkivworker.
+  Både API- og IDP-vert må være eksplisitt allowlistet i produksjon, URL-er med
+  query/legitimasjon avvises og transporten følger ikke HTTP-redirects.
+- Token-cachen skiller nå på faktisk token-endepunkt, client ID og hash av
+  secret; endret IDP kan derfor ikke maskeres av et tidligere token.
+- UI/API-kontrakten er samstemt: `barnevernsleder` ser og kan konfigurere
+  kommunens arkivkort, mens `kommune_saksbehandler` fortsatt får 403 og ingen
+  vendor-/PowerOffice-administrasjon.
+- En deterministisk transportkontrakttest dekker token, query, Noark-actions,
+  saksmappe, dokument/dokumentversjon, upload og ekstern-ID-idempotens uten å
+  utgi dette for kundesandkassebevis.
+- `docs/runbooks/documaster-implementeringsoppstart.md` fordeler ansvar mellom
+  Halden, arkivleverandøren og Tidum, beskriver beslutningsport, konfigurasjon,
+  akseptanseløp, bevis, go/no-go og rollback. Sandkasse- og
+  integrasjonsdokumentasjonen er korrigert tilsvarende.
+- Den ubeviste offentlige formuleringen «Testet mot en ekte
+  Documaster-instans» er erstattet med korrekt status i både integrasjonssiden
+  og standard blogginnhold.
+
+**Verifikasjon:** Migrasjon 075 er rollback-validert, varig anvendt og kjørt
+idempotent mot Neon-utviklingsdatabasen. **40/40 målrettede tester i fem
+testfiler** dekker transportkontrakt, IDP-cache, URL-policy, tenant-API,
+rollegrense og startup-rekkefølge. Hele Vitest-suiten består med **539/539
+tester i 74/74 testfiler**. Arkivkortet og separat IDP-konfigurasjon består med
+**2/2 Playwright-tester** på desktop og mobil. Testbrukere, testkommuner,
+arkivconfig og arkivoppføringer er kontrollert til null. `tsc`, designkontroll,
+produksjonsbuild og `npm audit` er grønne; audit rapporterer 0 sårbarheter.
+
+**Avgrensning:** Haldens faktiske API-generasjon, IDP, kodelister,
+nettverkskrav og arkiv-UI kan ikke verifiseres uten kundens/leverandørens
+testtilgang. Elements krever egen provider-adapter dersom Halden ikke tilbyr en
+Documaster-kompatibel Noark-kontrakt.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

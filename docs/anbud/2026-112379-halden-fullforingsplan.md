@@ -112,7 +112,9 @@ Følgende regler gjelder uten unntak:
   rapportmål/-aktiviteter, CreatorHub/CMS-e-post, andre filer, søk,
   bakgrunnsjobber og CMS/admin har fortsatt åpne objekt-/tenantkontroller og kan
   ikke brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
-- Offentlig integrasjonsside hevder at Documaster er testet mot en ekte instans, mens integrasjonsdokumentasjonen uttrykkelig sier at sandkasseverifisering gjenstår.
+- Den tidligere offentlige påstanden om test mot ekte Documaster-instans er
+  rettet i integrasjonsgrenen. Kundesandkasse er fortsatt et eksplisitt
+  akseptansepunkt og skal ikke beskrives som gjennomført før bevis foreligger.
 - Dagens underdatabehandleroppsett omfatter USA/Storbritannia og oppfyller ikke Norges-utgangspunktet i Haldens databehandleravtale.
 - Dagens backup-plan har RPO 24 timer; kontrakten krever maksimalt 2 timers datatap.
 - SLA, supportberedskap, statusside, ytelsesbevis, DPIA-underlag, ISMS-bevis og full sikkerhetsbesvarelse mangler.
@@ -390,8 +392,10 @@ produksjonsakseptansen nedenfor.
 
 **Krav:** 4, 6, 15–17, 24, 26, 29.
 
-1. Inngå partner-/API-avtale og få Documaster testtenant.
-2. Verifiser token, kodelister, skjerming, administrativ enhet, mapper, journalposter, dokumentversjoner og idempotens.
+1. Følg `docs/runbooks/documaster-implementeringsoppstart.md`, inngå
+   partner-/API-avtale og få Documaster-testtenant.
+2. Verifiser separat IDP/token-URL, kodelister, skjerming, administrativ enhet,
+   mapper, journalposter, dokumentversjoner og idempotens.
 3. Utvid arkivering fra rapport/journal til melding, undersøkelse, vedtak, plan, dialog, innsyn og klage.
 4. Bygg Elements-kobling for sak-/arkivflyt der Halden krever begge systemer.
 5. Støtt PDF/A, metadata, klassifikasjon, hjemmel, avlevering og avslutningsuttrekk.
@@ -638,7 +642,8 @@ Følgende skal startes umiddelbart:
 4. Reserver norsk drift, sikkerhetsgjennomgang og pentest.
 5. Kontakt KS Digital, Digdir, Documaster, EHF-aksesspunkt og integrasjonseiere.
 6. Opprett integrasjonsbranch for PR #21 og G-10; porter kritiske QA-fikser selektivt; legg testene inn som blokkerende CI.
-7. Fjern eller dokumenter påstanden «Testet mot en ekte Documaster-instans», og merk demo-/CMS-flater som `live`, `simulert` eller `prototype`.
+7. Behold den rettede, bevisbaserte Documaster-teksten, og merk øvrige
+   demo-/CMS-flater som `live`, `simulert` eller `prototype`.
 8. Ferdigstill Bilag 3–6 og 10, kvalifikasjonsbevis, signaturer og sladdingspakke.
 9. Ta eksplisitt bid/no-bid-vedtak før tilbudet bindes.
 

@@ -52,7 +52,7 @@ import {
   type SkjermingDefaults,
 } from "./noark";
 import { buildSecureDialogArchivePackage } from "./secure-dialog-package";
-import { validateArchiveBaseUrl } from "./archive-url-policy";
+import { validateArchiveBaseUrl, validateArchiveEndpointUrl } from "./archive-url-policy";
 
 const MAX_ATTEMPTS = 8;
 
@@ -84,8 +84,10 @@ export async function getArchiveConfigForTenant(tenant: ArchiveTenant): Promise<
 
 function providerFor(cfg: ArchiveConfig): ArchiveProvider {
   validateArchiveBaseUrl(cfg.baseUrl);
+  if (cfg.tokenUrl) validateArchiveEndpointUrl(cfg.tokenUrl);
   return createArchiveProvider(cfg.provider, {
     baseUrl: cfg.baseUrl,
+    tokenUrl: cfg.tokenUrl,
     clientId: cfg.clientId,
     clientSecret: openSecret(cfg.clientSecret),
     arkivdelId: cfg.arkivdelId,

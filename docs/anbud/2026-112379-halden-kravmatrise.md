@@ -206,7 +206,10 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   integrasjonsarbeidsflate, men er fortsatt et sikkerhetsstopp før endringene er
   reviewet og merget til `main`.
 - De ni systemmalene finnes i kildekoden, men `main` mangler startup-migrasjonen/indeksen som gjør `ON CONFLICT (vendor_id, slug)` gyldig på en frisk database. Funksjonen må derfor beskrives som implementert kildekode med kjent provisjoneringsfeil, ikke som stabil produksjonsfunksjon.
-- Documaster-koden og dokumentasjonen viser en sterk adapter, men ikke godkjent test mot Haldens/Documasters sandkasse. Den offentlige integrasjonssiden sier samtidig «Testet mot en ekte Documaster-instans»; påstanden motsies av `docs/integrations/documaster.md` og må fjernes eller bevises.
+- Documaster-koden og dokumentasjonen viser en sterk adapter og lokal
+  transportkontrakttest, men ikke godkjent test mot Haldens/Documasters
+  sandkasse. Den tidligere offentlige påstanden om ekte instans er rettet i
+  integrasjonsgrenen; kundesandkasse gjenstår som eksplisitt beviskrav.
 - Fakturaflyten i `main` sender andre feltnavn enn API-et krever, presenterer
   HTML som PDF og mangler eierskaps-/tenantfilter. Integrasjonsgrenen retter
   dette med egne tabeller og DB-test, men er fortsatt en smal
@@ -371,3 +374,4 @@ Et krav flyttes først til grønt når alle disse finnes:
 - `BACKUP_RESTORE.md`
 - `docs/integrations/documaster.md`
 - `docs/archive-sandbox-testing.md`
+- `docs/runbooks/documaster-implementeringsoppstart.md`

@@ -283,6 +283,7 @@ export const archiveConfigs = pgTable("archive_configs", {
   kommuneId:           integer("kommune_id").unique(),
   provider:            text("provider").notNull().default("documaster"),
   baseUrl:             text("base_url").notNull(),
+  tokenUrl:            text("token_url"),
   clientId:            text("client_id").notNull(),
   clientSecret:        text("client_secret").notNull(),
   arkivdelId:          text("arkivdel_id"),

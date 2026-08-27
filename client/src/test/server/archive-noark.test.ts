@@ -14,7 +14,10 @@ import {
   nextAttemptDelayMs,
 } from "../../../../server/lib/archive/noark";
 import { buildSecureDialogArchivePackage } from "../../../../server/lib/archive/secure-dialog-package";
-import { validateArchiveBaseUrl } from "../../../../server/lib/archive/archive-url-policy";
+import {
+  validateArchiveBaseUrl,
+  validateArchiveEndpointUrl,
+} from "../../../../server/lib/archive/archive-url-policy";
 
 const DEFAULTS = {
   skjermingshjemmel: "Offl. § 13 jf. bvl. § 13-1",
@@ -178,6 +181,7 @@ describe("archive URL policy", () => {
     expect(() => validateArchiveBaseUrl("https://127.0.0.1")).toThrow();
     expect(() => validateArchiveBaseUrl("https://169.254.169.254/latest/meta-data")).toThrow();
     expect(() => validateArchiveBaseUrl("https://user:secret@documaster.example.no")).toThrow();
+    expect(() => validateArchiveEndpointUrl("https://idp.example.no/oauth2/token?secret=leak")).toThrow();
     expect(validateArchiveBaseUrl("https://documaster.example.no").hostname).toBe("documaster.example.no");
   });
 
@@ -190,6 +194,11 @@ describe("archive URL policy", () => {
       expect(() => validateArchiveBaseUrl("https://documaster.example.no")).toThrow(/ALLOWLISTED/);
       process.env.ARCHIVE_ALLOWED_HOSTS = "documaster.example.no";
       expect(validateArchiveBaseUrl("https://documaster.example.no").hostname).toBe("documaster.example.no");
+      expect(() => validateArchiveEndpointUrl("https://idp.documaster.example.no/oauth2/token"))
+        .toThrow(/ALLOWLISTED/);
+      process.env.ARCHIVE_ALLOWED_HOSTS = "documaster.example.no,idp.documaster.example.no";
+      expect(validateArchiveEndpointUrl("https://idp.documaster.example.no/oauth2/token").hostname)
+        .toBe("idp.documaster.example.no");
     } finally {
       if (previousNodeEnv == null) delete process.env.NODE_ENV;
       else process.env.NODE_ENV = previousNodeEnv;

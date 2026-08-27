@@ -27,14 +27,14 @@ function isPrivateIpv6(hostname: string): boolean {
     || normalized.startsWith("::ffff:");
 }
 
-export function validateArchiveBaseUrl(raw: string): URL {
+export function validateArchiveEndpointUrl(raw: string): URL {
   let parsed: URL;
   try {
     parsed = new URL(raw);
   } catch {
     throw new Error("ARCHIVE_URL_INVALID");
   }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) {
+  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash) {
     throw new Error("ARCHIVE_URL_INVALID");
   }
   const hostname = parsed.hostname.toLowerCase().replace(/\.$/, "");
@@ -49,4 +49,9 @@ export function validateArchiveBaseUrl(raw: string): URL {
     throw new Error("ARCHIVE_HOST_NOT_ALLOWED");
   }
   return parsed;
+}
+
+/** Behold det etablerte navnet for eksisterende kallere. */
+export function validateArchiveBaseUrl(raw: string): URL {
+  return validateArchiveEndpointUrl(raw);
 }

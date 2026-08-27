@@ -67,7 +67,7 @@ const integrations: IntegrationCard[] = [
     points: [
       "Automatisk saksmappe- og journalpost-opprettelse",
       "Idempotent, ingen dobbeltarkivering",
-      "Testet mot en ekte Documaster-instans",
+      "Kontraktstestet lokalt — kundesandkasse verifiseres ved oppkobling",
     ],
     href: "/blog/documaster-noark5-arkivering-tidum",
   },

@@ -33,8 +33,8 @@ Utkast arkiveres ikke. Offentlig tittel inneholder ikke navn eller emne.
 Kundesatt skjerming, arkivdel, administrativ enhet og klasse brukes fra samme
 Documaster-konfigurasjon som øvrig arkivering.
 
-I produksjon må Documaster-vertsnavnet stå eksakt i
-`ARCHIVE_ALLOWED_HOSTS`. Dette gjør både tilkoblingstesten og
+I produksjon må både Documaster-API-verten og eventuell separat IDP-vert stå
+eksakt i `ARCHIVE_ALLOWED_HOSTS`. Dette gjør både tilkoblingstesten og
 bakgrunnsarbeideren fail-closed mot SSRF. Private arkivverter kan brukes, men
 bare når de er uttrykkelig allowlistet av drift.
 

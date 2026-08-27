@@ -39,6 +39,7 @@ interface ArkivStatusResponse {
   id?: string;
   provider?: string;
   baseUrl?: string;
+  tokenUrl?: string | null;
   arkivdelId?: string | null;
   journalenhet?: string | null;
   klasseId?: string | null;
@@ -216,6 +217,7 @@ function ArkivEntriesTable() {
 export function ArkivConnectCard() {
   const { toast } = useToast();
   const [baseUrl, setBaseUrl] = useState("");
+  const [tokenUrl, setTokenUrl] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
   const [arkivdelId, setArkivdelId] = useState("");
@@ -239,6 +241,7 @@ export function ArkivConnectCard() {
       const res = await apiRequest("POST", "/api/integrations/arkiv/connect", {
         provider: "documaster",
         baseUrl: baseUrl.trim(),
+        tokenUrl: tokenUrl.trim() || undefined,
         clientId: clientId.trim(),
         clientSecret: clientSecret.trim(),
         arkivdelId: arkivdelId.trim() || undefined,
@@ -304,7 +307,10 @@ export function ArkivConnectCard() {
   if (data?.hidden) return null;
 
   const canSubmit =
-    baseUrl.trim().startsWith("https://") && clientId.trim() && clientSecret.trim();
+    baseUrl.trim().startsWith("https://")
+    && (!tokenUrl.trim() || tokenUrl.trim().startsWith("https://"))
+    && clientId.trim()
+    && clientSecret.trim();
 
   return (
     <Card data-testid="arkiv-connect-card">
@@ -336,6 +342,12 @@ export function ArkivConnectCard() {
                 <dt className="text-muted-foreground">Instans:</dt>
                 <dd className="font-medium break-all">{data?.baseUrl}</dd>
               </div>
+              {data?.tokenUrl && (
+                <div className="flex gap-2">
+                  <dt className="text-muted-foreground">IDP:</dt>
+                  <dd className="font-medium break-all">{data.tokenUrl}</dd>
+                </div>
+              )}
               <div className="flex gap-2">
                 <dt className="text-muted-foreground">Arkivdel:</dt>
                 <dd className="font-mono text-xs self-center">{data?.arkivdelId ?? "—"}</dd>
@@ -455,6 +467,21 @@ export function ArkivConnectCard() {
               />
               <p className="text-xs text-muted-foreground">
                 Adressen til Documaster-instansen deres. Må bruke https.
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="arkiv-tokenurl">Token-URL (valgfritt)</Label>
+              <Input
+                id="arkiv-tokenurl"
+                type="url"
+                placeholder="https://idp.dinvirksomhet.documaster.no/oauth2/token"
+                value={tokenUrl}
+                onChange={(e) => setTokenUrl(e.target.value)}
+                autoComplete="off"
+                data-testid="arkiv-tokenurl-input"
+              />
+              <p className="text-xs text-muted-foreground">
+                Fylles bare ut når Documaster oppgir en separat IDP-adresse. Må bruke https.
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

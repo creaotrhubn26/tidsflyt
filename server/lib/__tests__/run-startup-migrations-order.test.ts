@@ -30,6 +30,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const secureDialogUi = STARTUP_MIGRATIONS.indexOf("072_secure_dialog_ui_support.sql");
     const secureAttachment = STARTUP_MIGRATIONS.indexOf("073_secure_attachment_malware_quarantine.sql");
     const secureGovernance = STARTUP_MIGRATIONS.indexOf("074_secure_dialog_archive_retention_keys.sql");
+    const archiveTokenUrl = STARTUP_MIGRATIONS.indexOf("075_archive_token_url.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -39,5 +40,6 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(secureDialogUi).toBeGreaterThan(secureDialog);
     expect(secureAttachment).toBeGreaterThan(secureDialogUi);
     expect(secureGovernance).toBeGreaterThan(secureAttachment);
+    expect(archiveTokenUrl).toBeGreaterThan(secureGovernance);
   });
 });

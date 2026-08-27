@@ -76,6 +76,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
     storageState.objects.clear();
     delete process.env.TIDUM_SECRET_KEYRING;
     delete process.env.TIDUM_SECRET_ACTIVE_KEY_ID;
+    delete process.env.ARCHIVE_ALLOWED_HOSTS;
     if (cleanupKommuneIds.length === 0) return;
     const ids = cleanupKommuneIds.splice(0);
     const client = await pool.connect();
@@ -623,6 +624,84 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       .post(`/api/integrations/arkiv/entries/${closed.body.archive.entryId}/retry`)
       .send({});
     expect(foreignRetry.status).toBe(404);
+  });
+
+  it("verifiserer og lagrer separat Documaster-IDP uten å eksponere secret", async () => {
+    const kommuneId = await createKommune("archive-connect");
+    const leaderId = await createStaff(kommuneId, "barnevernsleder");
+    const leaderApp = appFor({ id: leaderId, provider: "entra_id" });
+    process.env.ARCHIVE_ALLOWED_HOSTS = "archive.integration.example.no,idp.integration.example.no";
+
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "https://idp.integration.example.no/oauth2/token") {
+        expect(String(init?.body)).toContain("grant_type=client_credentials");
+        return new Response(JSON.stringify({ access_token: "integration-token", expires_in: 300 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url === "https://archive.integration.example.no/rms/api/public/noark5/v1/query") {
+        expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer integration-token");
+        return new Response(JSON.stringify({ results: [{ id: "archive-1" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const connected = await request(leaderApp).post("/api/integrations/arkiv/connect").send({
+      provider: "documaster",
+      baseUrl: "https://archive.integration.example.no",
+      tokenUrl: "https://idp.integration.example.no/oauth2/token",
+      clientId: "halden-test-client",
+      clientSecret: "halden-test-secret",
+      arkivdelId: "arkivdel-test",
+      journalenhet: "BARNEVERN",
+    });
+    expect(connected.status).toBe(200);
+    expect(connected.body).toEqual(expect.objectContaining({
+      connected: true,
+      kommuneId,
+      tokenUrl: "https://idp.integration.example.no/oauth2/token",
+    }));
+    expect(connected.body).not.toHaveProperty("clientSecret");
+    const stored = await pool.query(
+      `SELECT token_url, client_secret FROM archive_configs WHERE kommune_id = $1`,
+      [kommuneId],
+    );
+    expect(stored.rows[0].token_url).toBe("https://idp.integration.example.no/oauth2/token");
+    expect(stored.rows[0].client_secret).not.toBe("halden-test-secret");
+
+    const tested = await request(leaderApp).post("/api/integrations/arkiv/test").send({});
+    expect(tested.status).toBe(200);
+    expect(tested.body.tokenUrl).toBe("https://idp.integration.example.no/oauth2/token");
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "https://idp.integration.example.no/oauth2/token"))
+      .toBe(true);
+
+    const callsBeforeRejected = fetchMock.mock.calls.length;
+    const rejected = await request(leaderApp).post("/api/integrations/arkiv/connect").send({
+      baseUrl: "https://archive.integration.example.no",
+      tokenUrl: "https://127.0.0.1/oauth2/token",
+      clientId: "blocked",
+      clientSecret: "blocked",
+    });
+    expect(rejected.status).toBe(400);
+    expect(rejected.body.error).toContain("tokenUrl");
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeRejected);
+
+    const caseworkerId = await createStaff(kommuneId, "kommune_saksbehandler");
+    const caseworkerApp = appFor({ id: caseworkerId, provider: "entra_id" });
+    const forbidden = await request(caseworkerApp).post("/api/integrations/arkiv/connect").send({
+      baseUrl: "https://archive.integration.example.no",
+      tokenUrl: "https://idp.integration.example.no/oauth2/token",
+      clientId: "forbidden",
+      clientSecret: "forbidden",
+    });
+    expect(forbidden.status).toBe(403);
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeRejected);
   });
 
   it("arkiverer manifest, transkript og rent vedlegg idempotent mot Noark-adapteren", async () => {
