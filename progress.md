@@ -603,6 +603,41 @@ PostgreSQL-testene består med **4/4** for migrasjon/permission-katalog og
 **8/8** for autentisering, ID-romskollisjon, fersk rolleoppløsning og
 `cms.manage`-autorisasjon.
 
+## 15. Fravær og sykmeldingsvedlegg — tenant- og filherding
+
+Fraværsflyten behandlet årsakstekst og sykmeldingsvedlegg som om en lederrolle
+alene ga tilgang. Liste-, godkjennings- og vedleggsrutene manglet en konsekvent
+tenantgrense, og den gamle rotmonteringen av `/uploads` gjorde fraværsfiler
+direkte tilgjengelige uten objektkontroll.
+
+Pakken gjør tenant til en eksplisitt del av hele objektgrafen:
+
+- aktør, rolle og `vendor_id` hentes ferskt fra databasen; klient- og
+  sesjonsclaims kan ikke flytte en forespørsel til en annen tenant;
+- ansatte ser egne forespørsler og vedlegg, mens godkjennere bare kan behandle
+  brukere i egen leverandørtenant. Global leverandør-`super_admin` får ikke
+  implisitt innsyn i kundehelseopplysninger;
+- migrasjon `079_leave_tenant_security.sql` backfiller bare entydige rader og
+  stanser ellers fail-closed. Sammensatte fremmednøkler håndhever samme tenant
+  mellom bruker, fraværsrad, saldo og vedlegg;
+- vedlegg godtar bare validert PDF/JPEG/PNG/WebP, dekodes/signaturkontrolleres,
+  skannes med fail-closed malwarekontroll og lagres med tilfeldig navn og
+  private filrettigheter under `private-uploads/leave`;
+- nedlasting krever objektkontroll og sendes som vedlegg med `no-store`,
+  `nosniff` og sandbox-policy. SVG og den gamle offentlige `/api/upload`-/
+  `/uploads`-flaten er fjernet;
+- GDPR-retensjon og sletting bruker samme innelåste stioppløsning, og
+  årsrollover viderefører og matcher `vendor_id`. Manuell rollover henter fersk
+  lederrolle og kan bare kjøre for egen tenant; systemjobben er den eneste
+  globale varianten.
+
+**Verifikasjon:** Migrasjon 079 er anvendt og idempotent mot
+Neon-utviklingsdatabasen. Ekte PostgreSQL-test med to tenants, forfalskede
+claims, global leverandøradministrator, vedlegg, GDPR-sletting og rollover
+består **11/11**.
+DB-uavhengige innholds-, rutekontrakt- og migrasjonsrekkefølgetester består
+**18/18**. `npm run check`, designkontroll og produksjonsbygg er grønne.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
@@ -613,9 +648,11 @@ PostgreSQL-testene består med **4/4** for migrasjon/permission-katalog og
   eldre saksrapport-/rapportdesignerflyten, den ordinære e-postkomponisten og
   hovedflyten for saker, journal, rapporter, mål og aktiviteter.
   Det globale CMS-kontrollplanet, CMS-e-post, builderdata, media, analyse og
-  crawler er nå herdet. Andre filflater, søk, bakgrunnsjobber utenfor crawleren
-  og øvrige adminflater gjenstår i den systematiske endepunktsmatrisen. En full
-  uavhengig pentest og blokkert CI-kjøring med isolert database gjenstår også.
+  crawler er nå herdet. Fravær, saldoer og sykmeldingsvedlegg er tenantbundet
+  og private. Andre filflater, søk, bakgrunnsjobber utenfor de kontrollerte
+  flytene og øvrige adminflater gjenstår i den systematiske endepunktsmatrisen.
+  En full uavhengig pentest og blokkert CI-kjøring med isolert database
+  gjenstår også.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede
   korrekt username/password-håndtering; ingen handling er nødvendig for akkurat
   dette punktet.

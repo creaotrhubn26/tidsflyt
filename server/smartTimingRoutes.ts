@@ -2,7 +2,6 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { pool } from "./db";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import multer from "multer";
 import { authRateLimit } from "./rate-limit";
 import path from "path";
 import fs from "fs";
@@ -76,35 +75,6 @@ function crawlerStringArray(value: unknown, field: string, maxItems: number, max
   }
   return values;
 }
-
-const uploadDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadDir)) {
-  fs.mkdirSync(uploadDir, { recursive: true });
-}
-
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (_req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, file.fieldname + '-' + uniqueSuffix + ext);
-  }
-});
-
-const upload = multer({ 
-  storage,
-  limits: { fileSize: 5 * 1024 * 1024 },
-  fileFilter: (_req, file, cb) => {
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
-    if (allowedTypes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Invalid file type. Only JPEG, PNG, GIF, WebP, and SVG are allowed.'));
-    }
-  }
-});
 
 interface AuthRequest extends Request {
   admin?: any & { roleId?: string; kommuneId?: number | null };
@@ -866,12 +836,6 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   }
   
-  // Serve uploaded files statically
-  app.use('/uploads', (req, res, next) => {
-    const express = require('express');
-    express.static(uploadDir)(req, res, next);
-  });
-
   // Serve attached assets (logos, images etc.)
   app.use('/assets', (req, res, next) => {
     const express = require('express');
@@ -924,23 +888,6 @@ export function registerSmartTimingRoutes(app: Express) {
       res.json({ status: 'ok', timestamp: result.rows[0].now });
     } catch (err: any) {
       res.status(500).json({ status: 'error', error: err.message });
-    }
-  });
-
-  // ========== IMAGE UPLOAD ==========
-  app.post("/api/upload", authenticateAdmin, upload.single('image'), (req: AuthRequest, res) => {
-    try {
-      if (!req.file) {
-        return res.status(400).json({ error: 'No file uploaded' });
-      }
-      const fileUrl = `/uploads/${req.file.filename}`;
-      res.json({ 
-        success: true, 
-        url: fileUrl,
-        filename: req.file.filename
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
     }
   });
 

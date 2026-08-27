@@ -34,6 +34,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const elementsArchive = STARTUP_MIGRATIONS.indexOf("076_elements_archive_provider.sql");
     const caseReportSecurity = STARTUP_MIGRATIONS.indexOf("077_saker_rapport_tenant_security.sql");
     const cmsControlPlane = STARTUP_MIGRATIONS.indexOf("078_cms_control_plane_security.sql");
+    const leaveTenantSecurity = STARTUP_MIGRATIONS.indexOf("079_leave_tenant_security.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -47,9 +48,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(elementsArchive).toBeGreaterThan(archiveTokenUrl);
     expect(caseReportSecurity).toBeGreaterThan(elementsArchive);
     expect(cmsControlPlane).toBeGreaterThan(caseReportSecurity);
+    expect(leaveTenantSecurity).toBeGreaterThan(cmsControlPlane);
   });
 
-  it("har CMS-kontrollplantillatelsen som siste oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("078_cms_control_plane_security.sql");
+  it("har tenantvakten for fraværsdata som siste oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("079_leave_tenant_security.sql");
   });
 });

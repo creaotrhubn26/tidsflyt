@@ -12,10 +12,10 @@
  * Per-vendor overrides live in `vendors.settings.gdpr` jsonb. Defaults below.
  */
 
-import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
 import { pool } from '../db';
+import { resolveLeaveAttachmentStoragePath } from './leave-attachment-security';
 
 /**
  * Retention defaults aligned to Datatilsynets veiledning + norske lover.
@@ -78,7 +78,7 @@ export const RETENTION_POLICY_POLICY = [
   },
   {
     dataType: "Sykmeldinger (helsedata)",
-    storage: "tidum_leave_attachments + uploads/leave/",
+    storage: "tidum_leave_attachments + private-uploads/leave/",
     purpose: "Dokumentere fravær overfor arbeidsgiver",
     legalBasis: "Personopplysningsloven §6(1)(b) + §9(2)(b) — arbeidsforhold-forpliktelse",
     specialCategory: true,
@@ -209,10 +209,11 @@ export async function runGdprPurge(): Promise<PurgeResult> {
        WHERE uploaded_at < NOW() - ($1::int || ' years')::interval`,
       [cfg.leaveAttachmentRetentionYears],
     );
-    const uploadDir = path.join(process.cwd(), 'uploads', 'leave');
     for (const row of r.rows) {
+      const storagePath = resolveLeaveAttachmentStoragePath(row.filename);
+      if (!storagePath) continue;
       try {
-        await fs.unlink(path.join(uploadDir, row.filename));
+        await fs.unlink(storagePath);
       } catch { /* file may already be missing */ }
     }
     if (r.rows.length > 0) {
@@ -241,9 +242,9 @@ export interface ErasureResult {
 
 /**
  * Hard-delete is rarely safe (FK refs, immutable accounting periods).
- * Pseudonymize instead: replace user_id with `erased-{shortHash}` so the
- * person is no longer identifiable, but aggregate / audit history remains
- * coherent. The mapping is intentionally one-way (no reverse lookup table).
+ * Pseudonymize identifiers in artifacts that permit it, clear health/free-text
+ * data, and anonymize the canonical users row while preserving validated FKs.
+ * The generated pseudonym is intentionally one-way (no reverse lookup table).
  */
 export async function eraseUser(userId: string, actorEmail: string | null): Promise<ErasureResult> {
   const hash = crypto.createHash('sha256').update(userId).digest('hex').slice(0, 12);
@@ -292,10 +293,11 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
   // tidum_timer_sessions — drop entirely (live state, no audit value post-erasure)
   await safeUpdate(`DELETE FROM tidum_timer_sessions WHERE user_id = $1`, [userId], 'tidum_timer_sessions');
 
-  // tidum_leave_requests — pseudonymize + clear free-text reason
+  // tidum_leave_requests — clear free-text reason. Keep the canonical user ID
+  // for the validated (user_id, vendor_id) FK; the users row is anonymized below.
   await safeUpdate(
-    `UPDATE tidum_leave_requests SET user_id = $1, reason = NULL WHERE user_id = $2`,
-    [pseudonym, userId],
+    `UPDATE tidum_leave_requests SET reason = NULL WHERE user_id = $1`,
+    [userId],
     'tidum_leave_requests',
   );
 
@@ -305,11 +307,12 @@ export async function eraseUser(userId: string, actorEmail: string | null): Prom
       `SELECT la.id, la.filename FROM tidum_leave_attachments la
        JOIN tidum_leave_requests lr ON lr.id = la.leave_request_id
        WHERE lr.user_id = $1`,
-      [pseudonym], // already pseudonymized above
+      [userId],
     );
-    const uploadDir = path.join(process.cwd(), 'uploads', 'leave');
     for (const row of r.rows) {
-      try { await fs.unlink(path.join(uploadDir, row.filename)); filesDeleted++; }
+      const storagePath = resolveLeaveAttachmentStoragePath(row.filename);
+      if (!storagePath) continue;
+      try { await fs.unlink(storagePath); filesDeleted++; }
       catch { /* file may already be missing */ }
     }
     if (r.rows.length > 0) {

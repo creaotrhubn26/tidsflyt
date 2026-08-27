@@ -59,6 +59,8 @@ describe("CMS route security contract", () => {
     expect(routesSource).toContain(
       'app.post("/api/report-assets/upload", requireAnyAuth, uploadRateLimit, receiveCmsImage',
     );
+    expect(smartRoutesSource).not.toContain('app.post("/api/upload"');
+    expect(smartRoutesSource).not.toContain("app.use('/uploads'");
     expect(reportDesignerSource).toContain('fetch("/api/report-assets/upload"');
     expect(routesSource).not.toContain("image/svg+xml");
     expect(routesSource).not.toContain("serve original file instead");

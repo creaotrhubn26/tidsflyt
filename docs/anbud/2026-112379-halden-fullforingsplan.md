@@ -69,6 +69,12 @@ Følgende regler gjelder uten unntak:
   typesjekk, build og 42 DB-uavhengige måltester er grønne. Migrasjon 078 er
   anvendt idempotent i Neon-utviklingsdatabasen, grantet er kontrollert til
   kun global system-`super_admin`, og 12/12 fokuserte DB-tester er grønne.
+- Fravær, årsbalanser og sykmeldingsvedlegg er nå tenantbundet i API og
+  database. Fersk databaseidentitet overstyrer stale claims, global
+  leverandøradministrator har ikke implisitt kundeinnsyn, og private vedlegg
+  valideres, skannes og leveres gjennom autorisert nedlasting. Migrasjon 079 er
+  idempotent anvendt; 11/11 ekte PostgreSQL-tester og 18/18 DB-uavhengige
+  kontrakttester er grønne.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -126,9 +132,11 @@ Følgende regler gjelder uten unntak:
 - Generisk eksport, eldre saksrapport-/rapportdesignerruter, den ordinære
   e-postkomponisten, hovedflyten for saker/rapport og det globale
   CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
-  integrasjonsarbeidsflaten. Andre filflater, søk, bakgrunnsjobber utenfor
-  crawleren og øvrige adminflater har fortsatt åpne kontroller og kan ikke
-  brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
+  integrasjonsarbeidsflaten. Fraværs- og sykmeldingsvedlegg er også lukket som
+  én tenantbundet helseobjektgraf. Andre filflater, søk, bakgrunnsjobber
+  utenfor de kontrollerte flytene og øvrige adminflater har fortsatt åpne
+  kontroller og kan ikke brukes med ekte eksterne data før hele
+  endepunktsmatrisen er lukket.
 - Den tidligere offentlige påstanden om test mot ekte Documaster-instans er
   rettet i integrasjonsgrenen. Kundesandkasse er fortsatt et eksplisitt
   akseptansepunkt og skal ikke beskrives som gjennomført før bevis foreligger.
@@ -301,8 +309,10 @@ Tiltak:
    saker, sakjournal, rapporter, mål og aktiviteter er herdet med
    to-tenant-tester. Migrasjon 067–069 og 077, faktura-E2E, e-posttesten og
    parent-child-constraints er gjennomført. Det globale CMS-kontrollplanet,
-   CMS-e-post, builder/media/analyse og crawler er også herdet. Fortsett med
-   andre filflater, søk, logger, øvrige bakgrunnsjobber og administrasjon.
+   CMS-e-post, builder/media/analyse og crawler er også herdet. Fravær,
+   saldoer, rollover og sykmeldingsvedlegg er tenantbundet med migrasjon 079 og
+   målrettede DB-/filtester. Fortsett med andre filflater, søk, logger, øvrige
+   bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er

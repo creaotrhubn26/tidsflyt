@@ -2116,7 +2116,8 @@ export const leaveTypes = pgTable("tidum_leave_types", {
 
 export const leaveRequests = pgTable("tidum_leave_requests", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull().default("default"),
+  vendorId: integer("vendor_id").notNull(),
+  userId: text("user_id").notNull(),
   leaveTypeId: integer("leave_type_id").notNull(),
   startDate: text("start_date").notNull(),
   endDate: text("end_date").notNull(),
@@ -2131,7 +2132,8 @@ export const leaveRequests = pgTable("tidum_leave_requests", {
 
 export const leaveBalances = pgTable("tidum_leave_balances", {
   id: serial("id").primaryKey(),
-  userId: text("user_id").notNull().default("default"),
+  vendorId: integer("vendor_id").notNull(),
+  userId: text("user_id").notNull(),
   leaveTypeId: integer("leave_type_id").notNull(),
   year: integer("year").notNull(),
   totalDays: text("total_days").default("0"),

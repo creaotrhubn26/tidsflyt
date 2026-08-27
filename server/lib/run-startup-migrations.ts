@@ -64,6 +64,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "076_elements_archive_provider.sql",
   "077_saker_rapport_tenant_security.sql",
   "078_cms_control_plane_security.sql",
+  "079_leave_tenant_security.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -89,11 +90,14 @@ export async function runStartupMigrations(): Promise<void> {
       // schema. 077 is also fail-closed: the application code stores current
       // UUID/varchar user IDs in the case/report domain, so continuing with
       // legacy integer columns would break authorization and assignment.
+      // 079 is likewise fail-closed: continuing without tenant constraints on
+      // health-/absence data would re-open cross-customer reads and writes.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
         filename === "057_tidum_table_rename.sql"
         || filename === "077_saker_rapport_tenant_security.sql"
+        || filename === "079_leave_tenant_security.sql"
       ) {
         throw err;
       }

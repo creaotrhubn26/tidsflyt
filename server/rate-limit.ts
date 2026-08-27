@@ -85,5 +85,5 @@ export const publicReadRateLimit = rateLimit({
 export const uploadRateLimit = rateLimit({
   windowMs: 60 * 60 * 1000,
   maxRequests: 30,
-  message: "For mange bildeopplastinger. Prøv igjen senere.",
+  message: "For mange filopplastinger. Prøv igjen senere.",
 });

@@ -39,7 +39,8 @@ Det finnes nå en verifisert integrasjonsgren,
 men deployer ikke produksjon; `main` er urørt. Etter denne commiten er nye
 BOLA/IDOR-pakker ferdigstilt for eksport, faktura, saksrapporter,
 rapportdesigner, ordinær e-postkomponering og hovedflyten for saker,
-sakjournal, rapporter, mål og aktiviteter:
+sakjournal, rapporter, mål og aktiviteter. Det globale CMS-kontrollplanet og
+fraværs-/sykmeldingsobjektgrafen er deretter herdet:
 
 - PR #21 er portet inn, inkludert migrasjon 059–064. Lokal migrasjon 065
   stabiliserer rapportmaler, og migrasjon 066 etablerer en separat Tidum-eid
@@ -96,6 +97,11 @@ sakjournal, rapporter, mål og aktiviteter:
   og fjernet, og invariantsuiten besto 29/29. Ingen av de sju feilene er
   reproducerbar isolert, men ny komplett CI-kjøring med isolert testdatabase og
   kontrollert parallellitet gjenstår.
+- Fravær, årsbalanser og sykmeldingsvedlegg bruker serveravledet, fersk aktør
+  og eksplisitt `vendor_id`. Migrasjon 079 håndhever samme tenant mellom
+  bruker, forespørsel, saldo og vedlegg. Vedlegg valideres, malware-skannes og
+  lagres privat; den gamle offentlige `/uploads`-flaten er fjernet. 11/11 ekte
+  PostgreSQL-tester og 18/18 DB-uavhengige sikkerhets-/kontrakttester består.
 
 Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
 reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
@@ -238,9 +244,10 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 - Generisk eksport, faktura, den eldre saksrapport-/rapportdesignerflyten, den
   ordinære e-postkomponisten, hovedflyten for saker/rapport og det globale
   CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
-  integrasjonsgrenen. Andre filflater, søk, øvrige bakgrunnsjobber og
-  adminflater må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i
-  kommunal løsning.
+  integrasjonsgrenen. Fravær, saldoer og sykmeldingsvedlegg er også tenant- og
+  objektkontrollert. Andre filflater, søk, øvrige bakgrunnsjobber og adminflater
+  må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i kommunal
+  løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -252,6 +259,7 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 |---|---|---|---|
 | Tiltaksplan og evaluering | Detaljerte § 6-3-maler, mål, fremdrift, aktiviteter, perioder, godkjenning og PDF | Stor gjenbruk for 5, 6, 18 og 29 | Stabil seeding, eget planobjekt, faglig validering og objektsikring |
 | GDPR-selvbetjening | Eksport av egne data, anonymisering/sletting, adminfunksjoner og retensjonsjobb | Gjenbruk for 16, 17 og 22 | Saksrettet partsinnsyn, arkivunntak, BOLA-test og komplett utleveringspakke |
+| Fravær og sykmeldingsvedlegg | Tenantbundet forespørsel, saldo, rollover, godkjenning og privat validert/malware-skannet vedlegg; global leverandøradmin er eksplisitt avvist | Gjenbrukbar personvern-/arbeidsgiverflyt og kontrollbevis for 14 og 22 | Norsk/avtalt kryptert objektlager, produksjonsprøvd malwaremotor, retensjonsvedtak og audit av alle lesinger/nedlastinger |
 | Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push | Gjenbruk for 27 og demo 31 | Ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
 | Fakturautkast | Tabeller, side, generering, linjer og HTML-utskrift | Prototype for 27/31 | Rett klient/API-kontrakt, tenant/eierskap, MVA/KID/EHF, ekte PDF og tester |
 | E-postmotor | Tenant-/eierskopede maler, variabler, private vedleggs-ID-er, utkast, atomisk planlagt sending og historikk; global CMS-e-post krever `cms.manage` og har validert testutsending/historikkgrense. Migrasjon 078 er idempotent anvendt i utviklingsdatabasen og 12/12 fokuserte DB-tester er grønne. | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, norsk/avtalt vedleggslagring og retensjon; isolert CI-regresjon og produksjonskonfigurasjon før åpning. |
@@ -341,8 +349,9 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    for saker, sakjournal, rapporter, mål og aktiviteter er tenant-/eierskopet.
    Migrasjon 067–069 og 077, målrettede to-tenant-tester og DB-constraints er
    gjennomført. Globalt CMS, CMS-e-post, builder/media/analyse og crawler er
-   også herdet. Fortsett med andre filflater, søk, øvrige bakgrunnsjobber og
-   adminflater.
+   også herdet. Fravær, saldoer, rollover og sykmeldingsvedlegg er tenantbundet
+   med migrasjon 079 og målrettede DB-/filtester. Fortsett med andre filflater,
+   søk, øvrige bakgrunnsjobber og adminflater.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; tidligere full lokal Vitest-baseline er grønn 443/443 mot
    utviklingsdatabase. Den siste sikkerhetspakkens målrettede tester er grønne,
