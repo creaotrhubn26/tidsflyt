@@ -27,7 +27,7 @@
  * ingen database kreves.
  */
 
-import { createArchiveProvider } from "../server/lib/archive/documaster-client";
+import { createArchiveProvider } from "../server/lib/archive/archive-provider";
 import { buildSaksmappeSpec, buildRapportJournalpost } from "../server/lib/archive/noark";
 
 const c = { reset: "\x1b[0m", green: "\x1b[32m", red: "\x1b[31m", yellow: "\x1b[33m", blue: "\x1b[34m" };

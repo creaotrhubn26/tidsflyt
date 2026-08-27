@@ -77,6 +77,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
     delete process.env.TIDUM_SECRET_KEYRING;
     delete process.env.TIDUM_SECRET_ACTIVE_KEY_ID;
     delete process.env.ARCHIVE_ALLOWED_HOSTS;
+    delete process.env.ELEMENTS_ARCHIVE_ENABLED;
     if (cleanupKommuneIds.length === 0) return;
     const ids = cleanupKommuneIds.splice(0);
     const client = await pool.connect();
@@ -702,6 +703,133 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
     });
     expect(forbidden.status).toBe(403);
     expect(fetchMock.mock.calls).toHaveLength(callsBeforeRejected);
+  });
+
+  it("viser Elements som avslått opsjon og nekter aktivering uten driftsavtale", async () => {
+    const kommuneId = await createKommune("elements-disabled");
+    const leaderId = await createStaff(kommuneId, "barnevernsleder");
+    const leaderApp = appFor({ id: leaderId, provider: "entra_id" });
+    delete process.env.ELEMENTS_ARCHIVE_ENABLED;
+    process.env.ARCHIVE_ALLOWED_HOSTS = "elements.integration.example.no,idp.elements.integration.example.no";
+    const fetchMock = vi.fn(async () => {
+      throw new Error("Elements-nettverket skal ikke kontaktes når opsjonen er avslått");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const status = await request(leaderApp).get("/api/integrations/arkiv/status");
+    expect(status.status).toBe(200);
+    expect(status.body.connected).toBe(false);
+    expect(status.body.availableProviders).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "elements", enabled: false, contractProfile: "elements-noark5-tg-1.1" }),
+    ]));
+
+    const response = await request(leaderApp).post("/api/integrations/arkiv/connect").send({
+      provider: "elements",
+      contractProfile: "elements-noark5-tg-1.1",
+      externalIdMetadataKey: "vnd-tidum-v1:eksternid",
+      baseUrl: "https://elements.integration.example.no/api",
+      tokenUrl: "https://idp.elements.integration.example.no/oauth2/token",
+      clientId: "halden-elements-client",
+      clientSecret: "halden-elements-secret",
+      arkivdelId: "arkivdel-elements",
+    });
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain("ikke aktivert");
+    expect(fetchMock).not.toHaveBeenCalled();
+    const stored = await pool.query(`SELECT COUNT(*)::int AS count FROM archive_configs WHERE kommune_id = $1`, [kommuneId]);
+    expect(stored.rows[0].count).toBe(0);
+  });
+
+  it("verifiserer målbytte, rydder lokale provider-ID-er og blokkerer aktive jobber", async () => {
+    const scenario = await createPartyAndAccess();
+    const leaderId = await createStaff(scenario.kommuneId, "barnevernsleder");
+    const leaderApp = appFor({ id: leaderId, provider: "entra_id" });
+    process.env.ARCHIVE_ALLOWED_HOSTS = [
+      "archive-a.integration.example.no",
+      "archive-b.integration.example.no",
+      "archive-c.integration.example.no",
+      "idp-switch.integration.example.no",
+    ].join(",");
+
+    const fetchMock = vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url === "https://idp-switch.integration.example.no/oauth2/token") {
+        return new Response(JSON.stringify({ access_token: "switch-token", expires_in: 300 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/rms/api/public/noark5/v1/query")) {
+        return new Response(JSON.stringify({ results: [{ id: "archive-root" }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const connect = (baseUrl: string) => request(leaderApp).post("/api/integrations/arkiv/connect").send({
+      provider: "documaster",
+      baseUrl,
+      tokenUrl: "https://idp-switch.integration.example.no/oauth2/token",
+      clientId: "target-switch-client",
+      clientSecret: "target-switch-secret",
+      arkivdelId: "arkivdel-switch",
+    });
+
+    expect((await connect("https://archive-a.integration.example.no")).status).toBe(200);
+    await pool.query(
+      `INSERT INTO archive_case_links
+         (vendor_id, kommune_id, sak_id, barnevern_melding_id, ekstern_mappe_id)
+       VALUES (NULL, $1, NULL, $2, 'provider-a-map')`,
+      [scenario.kommuneId, scenario.meldingId],
+    );
+
+    const bypass = await request(leaderApp).patch("/api/integrations/arkiv/settings").send({
+      arkivdelId: "uverifisert-arkivdel",
+    });
+    expect(bypass.status).toBe(400);
+    expect(bypass.body.error).toContain("verifisert tilkobling");
+
+    expect((await connect("https://archive-b.integration.example.no")).status).toBe(200);
+    const cleared = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM archive_case_links WHERE kommune_id = $1`,
+      [scenario.kommuneId],
+    );
+    expect(cleared.rows[0].count).toBe(0);
+
+    await pool.query(
+      `INSERT INTO archive_case_links
+         (vendor_id, kommune_id, sak_id, barnevern_melding_id, ekstern_mappe_id)
+       VALUES (NULL, $1, NULL, $2, 'provider-b-map')`,
+      [scenario.kommuneId, scenario.meldingId],
+    );
+    await pool.query(
+      `INSERT INTO archive_entries
+         (vendor_id, kommune_id, entity_type, entity_id, barnevern_melding_id, status)
+       VALUES (NULL, $1, 'secure_dialog', $2, $3, 'pending')`,
+      [scenario.kommuneId, `target-switch-${randomUUID()}`, scenario.meldingId],
+    );
+    const callsBeforeBlocked = fetchMock.mock.calls.length;
+    const blocked = await connect("https://archive-c.integration.example.no");
+    expect(blocked.status).toBe(409);
+    expect(fetchMock.mock.calls).toHaveLength(callsBeforeBlocked);
+    const disconnectBlocked = await request(leaderApp).delete("/api/integrations/arkiv/disconnect");
+    expect(disconnectBlocked.status).toBe(409);
+
+    const preserved = await pool.query(
+      `SELECT config.base_url, COUNT(link.id)::int AS links
+         FROM archive_configs config
+         LEFT JOIN archive_case_links link ON link.kommune_id = config.kommune_id
+        WHERE config.kommune_id = $1
+        GROUP BY config.base_url`,
+      [scenario.kommuneId],
+    );
+    expect(preserved.rows[0]).toEqual({
+      base_url: "https://archive-b.integration.example.no",
+      links: 1,
+    });
   });
 
   it("arkiverer manifest, transkript og rent vedlegg idempotent mot Noark-adapteren", async () => {

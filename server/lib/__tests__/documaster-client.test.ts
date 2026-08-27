@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createArchiveProvider } from "../archive/documaster-client";
+import { createArchiveProvider } from "../archive/archive-provider";
 import type { JournalpostSpec, SaksmappeSpec } from "../archive/noark";
 
 function jsonResponse(body: unknown, status = 200): Response {

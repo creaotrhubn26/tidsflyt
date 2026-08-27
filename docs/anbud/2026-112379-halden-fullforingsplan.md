@@ -62,8 +62,9 @@ Følgende regler gjelder uten unntak:
 - Sikker dialog har leverandørklar arkivpakke, transaksjonell kommune-outbox,
   arkiv-før-sletting, juridisk sperring og versjonert datanøkkelrotasjon.
   Kundens Documaster-oppsett, retensjonsvedtak og KMS er fortsatt eksterne
-  akseptansepunkter. Elements med avvikende kontrakt tilbys som separat,
-  priset opsjon O1.
+  akseptansepunkter. Elements-provider for Noark 5 tjenestegrensesnitt 1.1 er
+  implementert fail-closed som priset opsjon O1, men er ikke kundetestet eller
+  aktivert. En annen Elements-kontrakt krever transporttilpasning.
 - Direkte BankID og Buypass ID er implementert i `main` for web/mobil og identitetskobling.
 - Ni rapport-/planmaler finnes i kildekoden, herunder § 6-3-tiltaksplan og periodisk evaluering, sammen med mål, fremdrift, aktivitetslogg, godkjenning og PDF.
 - GDPR-selvbetjening for dataeksport og anonymisering/sletting, PII-sjekk/maskering og retensjonsjobb finnes.
@@ -398,9 +399,11 @@ produksjonsakseptansen nedenfor.
 2. Verifiser separat IDP/token-URL, kodelister, skjerming, administrativ enhet,
    mapper, journalposter, dokumentversjoner og idempotens.
 3. Utvid arkivering fra rapport/journal til melding, undersøkelse, vedtak, plan, dialog, innsyn og klage.
-4. Lever Elements-adapter med avvikende kontrakt som
-   [priset opsjon O1](./2026-112379-halden-opsjon-elements-adapter.md). O1 er
-   alternativt arkivmål; samtidig Elements+Documaster krever eget omfang.
+4. Kontraktsbekreft, kundetest og aktiver den implementerte Elements-providerens
+   [prisede opsjon O1](./2026-112379-halden-opsjon-elements-adapter.md) etter
+   [aktiveringsløpet](../integrations/elements.md). En avvikende kontrakt krever
+   transporttilpasning. O1 er alternativt arkivmål; samtidig
+   Elements+Documaster krever eget omfang.
 5. Støtt PDF/A, metadata, klassifikasjon, hjemmel, avlevering og avslutningsuttrekk.
 6. Gjennomfør feil-/retry-test, duplikattest og avstemming mellom Tidum og arkivkjerne.
 

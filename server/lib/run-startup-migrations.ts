@@ -61,6 +61,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "073_secure_attachment_malware_quarantine.sql",
   "074_secure_dialog_archive_retention_keys.sql",
   "075_archive_token_url.sql",
+  "076_elements_archive_provider.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

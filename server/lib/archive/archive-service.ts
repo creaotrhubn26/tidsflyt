@@ -41,7 +41,7 @@ import { downloadJournalAttachment } from "../journal-attachment-storage";
 import { openSecureDialogContent } from "../secure-dialog-content";
 import { downloadSecureDialogAttachment } from "../secure-dialog-storage";
 import { openSecret } from "../secret-box";
-import { createArchiveProvider, type ArchiveProvider } from "./documaster-client";
+import { createArchiveProvider, type ArchiveProvider } from "./archive-provider";
 import {
   buildBarnevernMeldingMappeSpec,
   buildJournalJournalpost,
@@ -93,6 +93,8 @@ function providerFor(cfg: ArchiveConfig): ArchiveProvider {
     arkivdelId: cfg.arkivdelId,
     journalenhet: cfg.journalenhet,
     klasseId: cfg.klasseId,
+    contractProfile: cfg.contractProfile,
+    externalIdMetadataKey: cfg.externalIdMetadataKey,
   });
 }
 

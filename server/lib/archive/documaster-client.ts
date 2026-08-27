@@ -35,31 +35,7 @@
 
 import { createHash } from "crypto";
 import type { ArchiveDocumentFile, JournalpostSpec, SaksmappeSpec } from "./noark";
-
-export interface ArchiveProviderConfig {
-  baseUrl: string;
-  /** Absolutt OAuth2-token-URL når Documaster IDP ligger på en annen vert. */
-  tokenUrl?: string | null;
-  clientId: string;
-  clientSecret: string;
-  arkivdelId?: string | null;
-  journalenhet?: string | null;
-  /** Valgfri primærklasse — settes hvis instansen krever klassifikasjon på mapper. */
-  klasseId?: string | null;
-  apiPaths?: Partial<typeof DEFAULT_PATHS>;
-}
-
-export interface ArchiveProvider {
-  /** Verifiser at tilkobling og rettigheter fungerer (token + enkel query). */
-  verify(): Promise<void>;
-  /** Finn eller opprett saksmappe. Returnerer ekstern id + ident. */
-  ensureSaksmappe(spec: SaksmappeSpec): Promise<{ id: string; mappeIdent: string | null }>;
-  /** Opprett journalpost m/dokument i gitt mappe. Idempotent på eksternId. */
-  createJournalpost(
-    mappeId: string,
-    spec: JournalpostSpec,
-  ): Promise<{ id: string; journalpostIdent: string | null }>;
-}
+import type { ArchiveProvider, ArchiveProviderConfig } from "./archive-provider";
 
 const DEFAULT_PATHS = {
   token: "/idp/oauth2/token",
@@ -332,15 +308,5 @@ async function safeBody(res: Response): Promise<unknown> {
     return await res.text();
   } catch {
     return undefined;
-  }
-}
-
-/** Fabrikk — utvides når flere arkivkjerner støttes (Fiks Arkiv m.fl.). */
-export function createArchiveProvider(provider: string, cfg: ArchiveProviderConfig): ArchiveProvider {
-  switch (provider) {
-    case "documaster":
-      return new DocumasterProvider(cfg);
-    default:
-      throw new Error(`Ukjent arkivprovider: ${provider}`);
   }
 }

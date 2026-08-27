@@ -1,8 +1,8 @@
 /**
- * Arkiv-tilkoblingskort (Noark 5 via Documaster).
+ * Arkiv-tilkoblingskort (Noark 5 via Documaster eller Elements).
  *
  * Vises på /settings for vendor_admin+ — samme plassering og mønster som
- * PowerOffice-kortet. Admin fyller inn Documaster-instansens base-URL,
+ * PowerOffice-kortet. Admin fyller inn arkivinstansens base-URL,
  * OAuth2 client_id/secret og arkivdel; serveren verifiserer tilkoblingen
  * før noe lagres. Secret vises aldri tilbake.
  *
@@ -17,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -49,6 +50,14 @@ interface ArkivStatusResponse {
   status?: string;
   lastVerifiedAt?: string | null;
   lastError?: string | null;
+  contractProfile?: string | null;
+  externalIdMetadataKey?: string | null;
+  availableProviders?: Array<{
+    id: "documaster" | "elements";
+    label: string;
+    enabled: boolean;
+    contractProfile: string;
+  }>;
 }
 
 interface ArkivEntry {
@@ -66,6 +75,9 @@ interface ArkivEntry {
 
 const STATUS_KEY = ["/api/integrations/arkiv/status"];
 const ENTRIES_KEY = ["/api/integrations/arkiv/entries"];
+const ELEMENTS_CONTRACT_PROFILE = "elements-noark5-tg-1.1";
+const DOCUMASTER_CONTRACT_PROFILE = "documaster-noark5-ws-v1";
+const DEFAULT_ELEMENTS_EXTERNAL_ID_KEY = "vnd-tidum-v1:eksternid";
 
 // Vanlige hjemler for skjerming i klientrettet arbeid — fritekstfeltet
 // tillater alt, disse er bare snarveier.
@@ -216,6 +228,7 @@ function ArkivEntriesTable() {
 
 export function ArkivConnectCard() {
   const { toast } = useToast();
+  const [provider, setProvider] = useState<"documaster" | "elements">("documaster");
   const [baseUrl, setBaseUrl] = useState("");
   const [tokenUrl, setTokenUrl] = useState("");
   const [clientId, setClientId] = useState("");
@@ -223,6 +236,7 @@ export function ArkivConnectCard() {
   const [arkivdelId, setArkivdelId] = useState("");
   const [journalenhet, setJournalenhet] = useState("");
   const [klasseId, setKlasseId] = useState("");
+  const [externalIdMetadataKey, setExternalIdMetadataKey] = useState(DEFAULT_ELEMENTS_EXTERNAL_ID_KEY);
   const [skjermingshjemmel, setSkjermingshjemmel] = useState(HJEMMEL_PRESETS[0]);
   const [logOpen, setLogOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -239,7 +253,9 @@ export function ArkivConnectCard() {
   const connectMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("POST", "/api/integrations/arkiv/connect", {
-        provider: "documaster",
+        provider,
+        contractProfile: provider === "elements" ? ELEMENTS_CONTRACT_PROFILE : DOCUMASTER_CONTRACT_PROFILE,
+        externalIdMetadataKey: provider === "elements" ? externalIdMetadataKey.trim() : undefined,
         baseUrl: baseUrl.trim(),
         tokenUrl: tokenUrl.trim() || undefined,
         clientId: clientId.trim(),
@@ -304,20 +320,30 @@ export function ArkivConnectCard() {
   });
 
   const connected = !!data?.connected;
+  const elementsCapability = data?.availableProviders?.find((item) => item.id === "elements");
+  const enabledProviders = data?.availableProviders?.filter((item) => item.enabled) ?? [{
+    id: "documaster" as const,
+    label: "Documaster",
+    enabled: true,
+    contractProfile: DOCUMASTER_CONTRACT_PROFILE,
+  }];
   if (data?.hidden) return null;
 
   const canSubmit =
     baseUrl.trim().startsWith("https://")
-    && (!tokenUrl.trim() || tokenUrl.trim().startsWith("https://"))
+    && (provider === "elements"
+      ? tokenUrl.trim().startsWith("https://")
+      : (!tokenUrl.trim() || tokenUrl.trim().startsWith("https://")))
     && clientId.trim()
-    && clientSecret.trim();
+    && clientSecret.trim()
+    && (provider !== "elements" || (arkivdelId.trim() && externalIdMetadataKey.trim()));
 
   return (
     <Card data-testid="arkiv-connect-card">
       <CardHeader>
         <CardTitle className="text-lg flex items-center gap-2">
           <Archive className="h-5 w-5" />
-          Arkiv (Noark 5 / Documaster)
+          Arkiv (Noark 5)
           {connected && (
             <Badge variant="outline" className="gap-1 border-emerald-300 text-emerald-700 bg-emerald-50">
               <CheckCircle2 className="h-3 w-3" /> Tilkoblet
@@ -338,6 +364,16 @@ export function ArkivConnectCard() {
         ) : connected ? (
           <div className="space-y-3">
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+              <div className="flex gap-2">
+                <dt className="text-muted-foreground">Provider:</dt>
+                <dd className="font-medium capitalize">{data?.provider ?? "—"}</dd>
+              </div>
+              {data?.contractProfile && (
+                <div className="flex gap-2">
+                  <dt className="text-muted-foreground">Kontrakt:</dt>
+                  <dd className="font-mono text-xs self-center">{data.contractProfile}</dd>
+                </div>
+              )}
               <div className="flex gap-2">
                 <dt className="text-muted-foreground">Instans:</dt>
                 <dd className="font-medium break-all">{data?.baseUrl}</dd>
@@ -455,33 +491,53 @@ export function ArkivConnectCard() {
         ) : (
           <div className="space-y-3">
             <div className="space-y-1.5">
+              <Label htmlFor="arkiv-provider">Arkivsystem</Label>
+              <Select value={provider} onValueChange={(value) => setProvider(value as "documaster" | "elements")}>
+                <SelectTrigger id="arkiv-provider" data-testid="arkiv-provider-select">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {enabledProviders.map((item) => (
+                    <SelectItem key={item.id} value={item.id}>{item.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {elementsCapability && !elementsCapability.enabled && (
+                <p className="text-xs text-muted-foreground" data-testid="elements-disabled-hint">
+                  Elements kan velges når avtalen er inngått og integrasjonen er aktivert i driftsmiljøet.
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
               <Label htmlFor="arkiv-baseurl">Base-URL</Label>
               <Input
                 id="arkiv-baseurl"
                 type="url"
-                placeholder="https://dinvirksomhet.documaster.no"
+                placeholder={provider === "elements" ? "https://elements.kommune.no/api" : "https://dinvirksomhet.documaster.no"}
                 value={baseUrl}
                 onChange={(e) => setBaseUrl(e.target.value)}
                 autoComplete="off"
                 data-testid="arkiv-baseurl-input"
               />
               <p className="text-xs text-muted-foreground">
-                Adressen til Documaster-instansen deres. Må bruke https.
+                Adressen til {provider === "elements" ? "Elements API-roten" : "Documaster-instansen"}. Må bruke https.
               </p>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="arkiv-tokenurl">Token-URL (valgfritt)</Label>
+              <Label htmlFor="arkiv-tokenurl">Token-URL {provider === "elements" ? "" : "(valgfritt)"}</Label>
               <Input
                 id="arkiv-tokenurl"
                 type="url"
-                placeholder="https://idp.dinvirksomhet.documaster.no/oauth2/token"
+                placeholder={provider === "elements" ? "https://idp.kommune.no/oauth2/token" : "https://idp.dinvirksomhet.documaster.no/oauth2/token"}
                 value={tokenUrl}
                 onChange={(e) => setTokenUrl(e.target.value)}
                 autoComplete="off"
                 data-testid="arkiv-tokenurl-input"
               />
               <p className="text-xs text-muted-foreground">
-                Fylles bare ut når Documaster oppgir en separat IDP-adresse. Må bruke https.
+                {provider === "elements"
+                  ? "Påkrevd for Elements-profilen. Må oppgis i den avtalte integrasjonskontrakten."
+                  : "Fylles bare ut når Documaster oppgir en separat IDP-adresse. Må bruke https."}
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -546,6 +602,21 @@ export function ArkivConnectCard() {
                 id-en til klassen mappene skal knyttes til.
               </p>
             </div>
+            {provider === "elements" && (
+              <div className="space-y-1.5">
+                <Label htmlFor="arkiv-external-id-key">Ekstern-ID-metadata</Label>
+                <Input
+                  id="arkiv-external-id-key"
+                  value={externalIdMetadataKey}
+                  onChange={(event) => setExternalIdMetadataKey(event.target.value)}
+                  autoComplete="off"
+                  data-testid="arkiv-external-id-key-input"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Må være registrert i Elements-kontrakten. Brukes til replay-sikker idempotens.
+                </p>
+              </div>
+            )}
             <div className="space-y-1.5">
               <Label htmlFor="arkiv-hjemmel">Skjermingshjemmel</Label>
               <Input

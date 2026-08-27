@@ -110,5 +110,7 @@ Se [implementeringsoppstart for Halden](../runbooks/documaster-implementeringsop
 [sandkassetesten](../archive-sandbox-testing.md) og
 [runbook for sikker dialog, arkiv, retensjon og nøkkelrotasjon](../runbooks/sikker-dialog-arkiv-retensjon-og-nokkelrotasjon.md).
 Elements med avvikende API-kontrakt er beskrevet separat som
-[opsjon O1](../anbud/2026-112379-halden-opsjon-elements-adapter.md); den er ikke
-en del av den implementerte Documaster-adapteren.
+[opsjon O1](../anbud/2026-112379-halden-opsjon-elements-adapter.md). En
+avslått-standard provider for Noark 5 tjenestegrensesnitt 1.1 og dens
+[aktiveringsløp](./elements.md) er implementert separat; den er ikke en del av
+Documaster-adapteren.

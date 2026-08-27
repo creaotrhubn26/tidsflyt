@@ -1,7 +1,7 @@
 /**
  * server/routes/archive-routes.ts
  *
- * Noark 5-arkivintegrasjon (Documaster). Endepunkter:
+ * Noark 5-arkivintegrasjon (Documaster eller Elements). Endepunkter:
  *
  *   GET    /api/integrations/arkiv/status        — tenantens config (uten secret)
  *   POST   /api/integrations/arkiv/connect       — verifiser + lagre config
@@ -15,12 +15,17 @@
 
 import type { Express, Request, Response } from "express";
 import cron from "node-cron";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "../db";
-import { archiveConfigs, archiveEntries, rapporter, saker, users } from "@shared/schema";
+import { archiveCaseLinks, archiveConfigs, archiveEntries, rapporter, saker, users } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
 import { openSecret, sealSecret } from "../lib/secret-box";
-import { createArchiveProvider } from "../lib/archive/documaster-client";
+import {
+  archiveProviderCapabilities,
+  createArchiveProvider,
+  defaultContractProfile,
+  normalizeArchiveProvider,
+} from "../lib/archive/archive-provider";
 import { validateArchiveBaseUrl, validateArchiveEndpointUrl } from "../lib/archive/archive-url-policy";
 import {
   getArchiveConfigForTenant,
@@ -67,13 +72,34 @@ function configTenantCondition(tenant: ArchiveTenant) {
     ? eq(archiveConfigs.kommuneId, tenant.kommuneId)
     : eq(archiveConfigs.vendorId, tenant.vendorId);
 }
+function caseLinkTenantCondition(tenant: ArchiveTenant) {
+  return tenant.kommuneId != null
+    ? eq(archiveCaseLinks.kommuneId, tenant.kommuneId)
+    : eq(archiveCaseLinks.vendorId, tenant.vendorId);
+}
 function hasRole(actor: ArchiveActor | null, roles: string[]): boolean {
   return actor != null && roles.includes(actor.role);
 }
 
+async function hasActiveArchiveEntries(tenant: ArchiveTenant): Promise<boolean> {
+  const [activeEntry] = await db
+    .select({ id: archiveEntries.id })
+    .from(archiveEntries)
+    .where(and(
+      tenantCondition(tenant),
+      inArray(archiveEntries.status, ["pending", "processing"]),
+    ))
+    .limit(1);
+  return activeEntry != null;
+}
+
 function publicView(row: typeof archiveConfigs.$inferSelect) {
   const { clientSecret, ...rest } = row;
-  return { ...rest, connected: true };
+  return { ...rest, connected: true, availableProviders: archiveProviderCapabilities() };
+}
+
+function disconnectedView() {
+  return { connected: false, availableProviders: archiveProviderCapabilities() };
 }
 
 function archiveRouteError(res: Response, operation: string, error: unknown): Response {
@@ -88,9 +114,9 @@ export function registerArchiveRoutes(app: Express) {
       const actor = await resolveArchiveActor(req);
       if (!hasRole(actor, OPERATE_ROLES)) return res.json({ connected: false, hidden: true });
       const tenant = actor?.tenant;
-      if (!tenant) return res.json({ connected: false });
+      if (!tenant) return res.json(disconnectedView());
       const cfg = await getArchiveConfigForTenant(tenant);
-      if (!cfg) return res.json({ connected: false });
+      if (!cfg) return res.json(disconnectedView());
       return res.json(publicView(cfg));
     } catch (error) {
       archiveRouteError(res, "status", error);
@@ -99,8 +125,9 @@ export function registerArchiveRoutes(app: Express) {
 
   /**
    * POST /api/integrations/arkiv/connect
-   * Body: { provider?, baseUrl, tokenUrl?, clientId, clientSecret, arkivdelId?,
-   *         journalenhet?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }
+   * Body: { provider?, contractProfile?, externalIdMetadataKey?, baseUrl,
+   *         tokenUrl?, clientId, clientSecret, arkivdelId?, journalenhet?,
+   *         klasseId?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }
    */
   app.post("/api/integrations/arkiv/connect", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -121,7 +148,23 @@ export function registerArchiveRoutes(app: Express) {
         skjermingshjemmel,
         tilgangsrestriksjon,
         autoArchive,
+        contractProfile,
+        externalIdMetadataKey,
       } = req.body ?? {};
+
+      let normalizedProvider;
+      try {
+        normalizedProvider = normalizeArchiveProvider(provider);
+      } catch {
+        return res.status(400).json({ error: "Ukjent arkivprovider" });
+      }
+      const normalizedContractProfile = String(
+        contractProfile || defaultContractProfile(normalizedProvider),
+      ).trim();
+      const normalizedExternalIdKey = normalizedProvider === "elements"
+        ? String(externalIdMetadataKey ?? "").trim() || null
+        : null;
+      const existingConfig = await getArchiveConfigForTenant(tenant);
 
       if (!baseUrl || !clientId || !clientSecret) {
         return res.status(400).json({ error: "baseUrl, clientId og clientSecret er påkrevd" });
@@ -142,14 +185,34 @@ export function registerArchiveRoutes(app: Express) {
         }
       }
 
+      const targetChanged = existingConfig != null && (
+        existingConfig.provider !== normalizedProvider
+        || existingConfig.contractProfile !== normalizedContractProfile
+        || existingConfig.externalIdMetadataKey !== normalizedExternalIdKey
+        || existingConfig.baseUrl !== normalizedBaseUrl
+        || existingConfig.arkivdelId !== (arkivdelId ? String(arkivdelId) : null)
+        || existingConfig.klasseId !== (klasseId ? String(klasseId) : null)
+      );
+      if (targetChanged) {
+        if (await hasActiveArchiveEntries(tenant)) {
+          return res.status(409).json({
+            error: "Arkivmål kan ikke byttes mens arkiveringer venter eller behandles",
+          });
+        }
+      }
+
       // Verifiser tilkoblingen før noe lagres.
       try {
-        await createArchiveProvider(String(provider), {
+        await createArchiveProvider(normalizedProvider, {
           baseUrl: normalizedBaseUrl,
           tokenUrl: normalizedTokenUrl,
           clientId: String(clientId),
           clientSecret: String(clientSecret),
           arkivdelId: arkivdelId ? String(arkivdelId) : undefined,
+          klasseId: klasseId ? String(klasseId) : undefined,
+          journalenhet: journalenhet ? String(journalenhet) : undefined,
+          contractProfile: normalizedContractProfile,
+          externalIdMetadataKey: normalizedExternalIdKey,
         }).verify();
       } catch (verifyErr: any) {
         return res.status(422).json({
@@ -160,7 +223,9 @@ export function registerArchiveRoutes(app: Express) {
       const values = {
         vendorId: tenant.vendorId ?? null,
         kommuneId: tenant.kommuneId ?? null,
-        provider: String(provider),
+        provider: normalizedProvider,
+        contractProfile: normalizedContractProfile,
+        externalIdMetadataKey: normalizedExternalIdKey,
         baseUrl: normalizedBaseUrl,
         tokenUrl: normalizedTokenUrl,
         clientId: String(clientId),
@@ -178,11 +243,17 @@ export function registerArchiveRoutes(app: Express) {
         updatedAt: new Date(),
       };
 
-      const [row] = tenant.kommuneId != null
-        ? await db.insert(archiveConfigs).values(values)
-          .onConflictDoUpdate({ target: archiveConfigs.kommuneId, set: values }).returning()
-        : await db.insert(archiveConfigs).values(values)
-          .onConflictDoUpdate({ target: archiveConfigs.vendorId, set: values }).returning();
+      const row = await db.transaction(async (tx) => {
+        if (targetChanged) {
+          await tx.delete(archiveCaseLinks).where(caseLinkTenantCondition(tenant));
+        }
+        const [saved] = tenant.kommuneId != null
+          ? await tx.insert(archiveConfigs).values(values)
+            .onConflictDoUpdate({ target: archiveConfigs.kommuneId, set: values }).returning()
+          : await tx.insert(archiveConfigs).values(values)
+            .onConflictDoUpdate({ target: archiveConfigs.vendorId, set: values }).returning();
+        return saved;
+      });
 
       res.json(publicView(row));
     } catch (error) {
@@ -192,8 +263,8 @@ export function registerArchiveRoutes(app: Express) {
 
   /**
    * PATCH /api/integrations/arkiv/settings
-   * Oppdater innstillinger som ikke krever ny secret:
-   * Body: { autoArchive?, skjermingshjemmel?, tilgangsrestriksjon?, arkivdelId?, journalenhet? }
+   * Oppdater bare innstillinger som ikke endrer det verifiserte arkivmålet.
+   * Body: { autoArchive?, skjermingshjemmel?, tilgangsrestriksjon? }
    */
   app.patch("/api/integrations/arkiv/settings", requireAuth, async (req: Request, res: Response) => {
     try {
@@ -202,14 +273,21 @@ export function registerArchiveRoutes(app: Express) {
       const tenant = actor?.tenant;
       if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
 
-      const { autoArchive, skjermingshjemmel, tilgangsrestriksjon, arkivdelId, journalenhet, klasseId } = req.body ?? {};
+      const body = req.body ?? {};
+      const targetFields = [
+        "provider", "contractProfile", "externalIdMetadataKey", "baseUrl", "tokenUrl",
+        "clientId", "clientSecret", "arkivdelId", "journalenhet", "klasseId",
+      ];
+      if (targetFields.some((field) => Object.prototype.hasOwnProperty.call(body, field))) {
+        return res.status(400).json({
+          error: "Arkivmål og tilkoblingsdetaljer må endres gjennom verifisert tilkobling",
+        });
+      }
+      const { autoArchive, skjermingshjemmel, tilgangsrestriksjon } = body;
       const set: Record<string, unknown> = { updatedAt: new Date() };
       if (typeof autoArchive === "boolean") set.autoArchive = autoArchive;
       if (skjermingshjemmel !== undefined) set.skjermingshjemmel = String(skjermingshjemmel);
       if (tilgangsrestriksjon !== undefined) set.tilgangsrestriksjon = String(tilgangsrestriksjon);
-      if (arkivdelId !== undefined) set.arkivdelId = arkivdelId ? String(arkivdelId) : null;
-      if (journalenhet !== undefined) set.journalenhet = journalenhet ? String(journalenhet) : null;
-      if (klasseId !== undefined) set.klasseId = klasseId ? String(klasseId) : null;
       if (Object.keys(set).length === 1) return res.status(400).json({ error: "Ingen felter å oppdatere" });
 
       const [row] = await db
@@ -243,6 +321,10 @@ export function registerArchiveRoutes(app: Express) {
           clientId: cfg.clientId,
           clientSecret: openSecret(cfg.clientSecret),
           arkivdelId: cfg.arkivdelId,
+          klasseId: cfg.klasseId,
+          journalenhet: cfg.journalenhet,
+          contractProfile: cfg.contractProfile,
+          externalIdMetadataKey: cfg.externalIdMetadataKey,
         }).verify();
         const [row] = await db
           .update(archiveConfigs)
@@ -270,7 +352,15 @@ export function registerArchiveRoutes(app: Express) {
       if (!hasRole(actor, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan koble fra arkiv" });
       const tenant = actor?.tenant;
       if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
-      await db.delete(archiveConfigs).where(configTenantCondition(tenant));
+      if (await hasActiveArchiveEntries(tenant)) {
+        return res.status(409).json({
+          error: "Arkivet kan ikke kobles fra mens arkiveringer venter eller behandles",
+        });
+      }
+      await db.transaction(async (tx) => {
+        await tx.delete(archiveCaseLinks).where(caseLinkTenantCondition(tenant));
+        await tx.delete(archiveConfigs).where(configTenantCondition(tenant));
+      });
       res.json({ ok: true });
     } catch (error) {
       archiveRouteError(res, "disconnect", error);

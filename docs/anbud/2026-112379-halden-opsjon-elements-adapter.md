@@ -7,6 +7,10 @@
 **Status:** Tilbudsutkast. Pris, leveringstid og utøvelsesfrist må fylles inn i
 Bilag 6 før tilbudet signeres.
 
+**Teknisk status:** Provider for Noark 5 tjenestegrensesnitt 1.1 er implementert
+fail-closed og kan først aktiveres etter avtale og kundesandkassetest. En annen
+Elements-kontrakt krever tilpasning av transportadapteren.
+
 > **Tilbudsrisiko:** Krav 26 er et evalueringskrav og nevner både Elements og
 > Documaster. En priset opsjon gir en konkret leveranseforpliktelse, men Halden
 > kan fortsatt vurdere grunnleveransen som delvis dersom Elements ikke inngår

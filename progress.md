@@ -479,6 +479,30 @@ utøvelsesfrist er bevisst ikke oppdiktet. Disse feltene må besluttes og fylles
 Bilag 6 før tilbudet kan signeres eller krav 26 kan besvares bindende med
 henvisning til O1.
 
+### Teknisk klargjøring av Elements
+
+En egen `ElementsProvider` er nå implementert mot Nasjonalarkivets HATEOAS-
+baserte Noark 5 tjenestegrensesnitt 1.1. Den gjenbruker eksisterende Noark-
+domene, outbox, retry, kvittering, skjerming og tenantavgrensning. Provider-
+fabrikken, migrasjon 076, arkiv-API-et og innstillingsflaten støtter eksplisitt
+Elements-valg.
+
+Integrasjonen er fail-closed: `ELEMENTS_ARCHIVE_ENABLED=true`, vertsallowlist,
+forseglet secret, korrekt kontraktprofil, arkivdel og avtalt ekstern-ID-metadata
+må foreligge, og tilkoblingen må verifiseres før konfigurasjonen lagres. Bytte
+av arkivmål blokkeres mens jobber er aktive og rydder bare lokale mappekoblinger.
+Se `docs/integrations/elements.md`.
+
+**Gjenstående eksternt bevis:** Ingen test er kjørt mot Haldens Elements. Sikri/
+Halden må bekrefte at kontrakten faktisk er tjenestegrensesnitt 1.1 og levere
+testtenant, OAuth-oppsett, kodelister og arkivfaglig godkjenning. Mock- og lokal
+kontrakttest er ikke produksjonsakseptanse.
+
+**Verifikasjon av denne pakken:** Hele Vitest-suiten består med **545/545
+tester i 75/75 testfiler**, inkludert databaseintegrasjon mot utviklingsbasen.
+Arkivkortet består med **4/4 Playwright-tester** på desktop og mobil. `tsc` og
+produksjonsbuild er grønne.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

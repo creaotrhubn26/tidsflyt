@@ -35,7 +35,9 @@ Halden eller arkivleverandøren må skriftlig bekrefte:
 
 Hvis Halden bruker Elements eller en annen API-kontrakt, er ikke det automatisk
 dekket av Documaster-adapteren. Da beholdes Noark-domenet og arkivkøen, mens en
-egen `ArchiveProvider`-adapter bygges og kontrakttestes før oppkobling. Dette er
+egen `ArchiveProvider` brukes. Provider for Noark 5 tjenestegrensesnitt 1.1 er
+implementert fail-closed og følger [Elements-aktiveringsløpet](../integrations/elements.md).
+En annen kontrakt må tilpasses og kontrakttestes før oppkobling. Dette er
 beskrevet som [priset opsjon O1](../anbud/2026-112379-halden-opsjon-elements-adapter.md),
 med ett alternativt arkivmål per kommune. Samtidig levering til både Elements
 og Documaster er ikke inkludert i O1.
