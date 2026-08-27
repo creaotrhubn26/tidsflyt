@@ -50,8 +50,15 @@ import {
   processExpiredSecureAttachmentQuarantine,
   registerSecureDialogRoutes,
 } from "../../routes/secure-dialog-routes";
+import { registerArchiveRoutes } from "../../routes/archive-routes";
 import { resolveUserForVerifiedEid } from "../../eid-auth";
 import { emailService } from "../email-service";
+import {
+  processSecureDialogKeyRotation,
+  processSecureDialogRetention,
+} from "../secure-dialog-governance";
+import { processArchiveEntry } from "../archive/archive-service";
+import { sealSecret } from "../secret-box";
 
 describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 30000 }, () => {
   const cleanupKommuneIds: number[] = [];
@@ -64,8 +71,11 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
     malwareState.mode = "clean";
     storageState.objects.clear();
+    delete process.env.TIDUM_SECRET_KEYRING;
+    delete process.env.TIDUM_SECRET_ACTIVE_KEY_ID;
     if (cleanupKommuneIds.length === 0) return;
     const ids = cleanupKommuneIds.splice(0);
     const client = await pool.connect();
@@ -80,6 +90,11 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
         `SELECT portal_user_id FROM tidum_secure_parties WHERE kommune_id = ANY($1::int[])`,
         [ids],
       );
+      await client.query(`DELETE FROM archive_entries WHERE kommune_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM archive_case_links WHERE kommune_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM archive_configs WHERE kommune_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM tidum_secure_dialog_legal_holds WHERE kommune_id = ANY($1::int[])`, [ids]);
+      await client.query(`DELETE FROM tidum_secure_dialog_retention_policies WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_notification_outbox WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_message_receipts WHERE kommune_id = ANY($1::int[])`, [ids]);
       await client.query(`DELETE FROM tidum_secure_attachment_quarantine WHERE kommune_id = ANY($1::int[])`, [ids]);
@@ -164,6 +179,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       next();
     });
     registerSecureDialogRoutes(app);
+    registerArchiveRoutes(app);
     return app;
   }
 
@@ -314,10 +330,27 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
         WHERE message.id = $1`,
       [draft.body.id],
     );
-    expect(stored.rows[0].body_encrypted).toMatch(/^enc:v1:/);
+    expect(stored.rows[0].body_encrypted).toMatch(/^sdc:v1:legacy-v1:/);
     expect(stored.rows[0].body_encrypted).not.toContain("Endelig og sensitiv melding");
-    expect(stored.rows[0].subject).toMatch(/^enc:v1:/);
+    expect(stored.rows[0].subject).toMatch(/^sdc:v1:legacy-v1:/);
     expect(stored.rows[0].subject).not.toContain("Oppfølging");
+
+    process.env.TIDUM_SECRET_KEYRING = JSON.stringify({
+      "2026-11": "secure-dialog-rotated-test-key-never-production",
+    });
+    process.env.TIDUM_SECRET_ACTIVE_KEY_ID = "2026-11";
+    const rotatedCount = await processSecureDialogKeyRotation(20, scenario.kommuneId);
+    expect(rotatedCount).toEqual(expect.objectContaining({ conversations: 1, messages: 1, activeKeyId: "2026-11" }));
+    const rotatedStored = await pool.query(
+      `SELECT message.body_encrypted, conversation.subject
+         FROM tidum_secure_messages message
+         JOIN tidum_secure_conversations conversation ON conversation.id = message.conversation_id
+        WHERE message.id = $1`,
+      [draft.body.id],
+    );
+    expect(rotatedStored.rows[0].body_encrypted).toMatch(/^sdc:v1:2026-11:/);
+    expect(String(rotatedStored.rows[0].body_encrypted).split(":").slice(4))
+      .toEqual(String(stored.rows[0].body_encrypted).split(":").slice(4));
 
     const editAfterSend = await request(scenario.staffApp)
       .patch(`/api/secure-dialog/messages/${draft.body.id}/draft`)
@@ -362,6 +395,7 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       "message_read",
       "attachment_downloaded",
       "audit_viewed",
+      "encryption_key_rotated",
     ]));
     expect(JSON.stringify(audit.body)).not.toContain("Endelig og sensitiv melding");
     expect(JSON.stringify(audit.body)).not.toContain("varsling-");
@@ -369,6 +403,25 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       `UPDATE tidum_secure_dialog_audit_events SET action = 'draft_updated' WHERE conversation_id = $1`,
       [conversation.body.id],
     )).rejects.toThrow(/immutable/);
+
+    const closed = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/close`)
+      .send({});
+    expect(closed.status).toBe(200);
+    expect(closed.body.archive).toEqual(expect.objectContaining({ status: "pending" }));
+    const archiveEntry = await pool.query(
+      `SELECT vendor_id, kommune_id, entity_type, entity_id, barnevern_melding_id, status
+         FROM archive_entries WHERE id = $1`,
+      [closed.body.archive.entryId],
+    );
+    expect(archiveEntry.rows[0]).toEqual(expect.objectContaining({
+      vendor_id: null,
+      kommune_id: scenario.kommuneId,
+      entity_type: "secure_dialog",
+      entity_id: conversation.body.id,
+      barnevern_melding_id: scenario.meldingId,
+      status: "pending",
+    }));
   });
 
   it("setter skadevare i privat karantene og feiler lukket når skanneren er utilgjengelig", async () => {
@@ -457,6 +510,213 @@ describe("sikker dialog: part, eID, autorisasjon, audit og vedlegg", { timeout: 
       "attachment_scan_failed",
     ]));
     expect(JSON.stringify(audit.body)).not.toContain("Eicar-Signature");
+  });
+
+  it("sletter aldri før arkivkvittering og lar juridisk sperring overstyre retensjon", async () => {
+    const scenario = await createPartyAndAccess();
+    const partyApp = await verifyPartyEid(scenario.portalUserId, scenario.personnummer, "bankid");
+    const leaderId = await createStaff(scenario.kommuneId, "barnevernsleder");
+    const leaderApp = appFor({ id: leaderId, provider: "entra_id" });
+    const conversation = await request(scenario.staffApp).post("/api/secure-dialog/conversations").send({
+      meldingId: scenario.meldingId,
+      subject: "Retensjonstest",
+      participantPartyIds: [scenario.partyId],
+    });
+    const draft = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/drafts`)
+      .send({ content: "Skal arkiveres før lokal sletting" });
+    vi.spyOn(emailService, "sendSecurePortalNotification").mockResolvedValue(true);
+    expect((await request(scenario.staffApp).post(`/api/secure-dialog/messages/${draft.body.id}/send`).send({})).status).toBe(200);
+    expect((await request(scenario.staffApp).post(`/api/secure-dialog/conversations/${conversation.body.id}/close`).send({})).status).toBe(200);
+
+    const policy = await request(leaderApp).patch("/api/secure-dialog/governance/retention").send({
+      enabled: true,
+      retentionDays: 1,
+      policyReference: "Testvedtak 2026-08",
+    });
+    expect(policy.status).toBe(200);
+    await pool.query(
+      `UPDATE tidum_secure_conversations
+          SET retention_due_at = NOW() - INTERVAL '1 minute',
+              retention_next_attempt_at = NOW() - INTERVAL '1 minute'
+        WHERE id = $1`,
+      [conversation.body.id],
+    );
+
+    // Ingen arkivkvittering: selv en forfalt, aktiv policy gir ingen sletting.
+    expect(await processSecureDialogRetention(5, scenario.kommuneId)).toEqual({ processed: 0, purged: 0, failed: 0 });
+    expect((await pool.query(`SELECT COUNT(*)::int AS count FROM tidum_secure_messages WHERE id = $1`, [draft.body.id])).rows[0].count).toBe(1);
+
+    await pool.query(
+      `UPDATE archive_entries
+          SET status = 'archived', archived_at = NOW(), payload_hash = $2
+        WHERE entity_type = 'secure_dialog' AND entity_id = $1 AND kommune_id = $3`,
+      [conversation.body.id, "a".repeat(64), scenario.kommuneId],
+    );
+    const hold = await request(leaderApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/legal-holds`)
+      .send({ reason: "Pågående klagebehandling" });
+    expect(hold.status).toBe(201);
+    expect(await processSecureDialogRetention(5, scenario.kommuneId)).toEqual({ processed: 0, purged: 0, failed: 0 });
+
+    const governance = await request(leaderApp)
+      .get(`/api/secure-dialog/conversations/${conversation.body.id}/governance`);
+    expect(governance.status).toBe(200);
+    expect(governance.body).toEqual(expect.objectContaining({
+      archive_status: "archived",
+      legal_hold_id: hold.body.id,
+      retention_state: "active",
+    }));
+
+    expect((await request(leaderApp)
+      .delete(`/api/secure-dialog/conversations/${conversation.body.id}/legal-holds/${hold.body.id}`)).status).toBe(200);
+    expect(await processSecureDialogRetention(5, scenario.kommuneId)).toEqual({ processed: 1, purged: 1, failed: 0 });
+    const purged = await pool.query(
+      `SELECT subject, retention_state, purged_at FROM tidum_secure_conversations WHERE id = $1`,
+      [conversation.body.id],
+    );
+    expect(purged.rows[0]).toEqual(expect.objectContaining({
+      subject: null,
+      retention_state: "purged",
+      purged_at: expect.any(Date),
+    }));
+    expect((await pool.query(`SELECT COUNT(*)::int AS count FROM tidum_secure_messages WHERE conversation_id = $1`, [conversation.body.id])).rows[0].count).toBe(0);
+    expect((await request(partyApp).get(`/api/secure-dialog/conversations/${conversation.body.id}`)).status).toBe(404);
+    const audit = await pool.query(
+      `SELECT action FROM tidum_secure_dialog_audit_events WHERE conversation_id = $1 ORDER BY created_at`,
+      [conversation.body.id],
+    );
+    expect(audit.rows.map((row) => row.action)).toEqual(expect.arrayContaining([
+      "archive_queued",
+      "legal_hold_applied",
+      "legal_hold_released",
+      "retention_purge_started",
+      "retention_purged",
+    ]));
+  });
+
+  it("avgrenser kommune-arkivloggen og retry til serveravledet tenant", async () => {
+    const scenario = await createPartyAndAccess();
+    const conversation = await request(scenario.staffApp).post("/api/secure-dialog/conversations").send({
+      meldingId: scenario.meldingId,
+      subject: "Arkivscope",
+      participantPartyIds: [scenario.partyId],
+    });
+    const closed = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/close`)
+      .send({});
+    expect(closed.status).toBe(200);
+
+    const leaderA = await createStaff(scenario.kommuneId, "barnevernsleder");
+    const leaderAApp = appFor({ id: leaderA, provider: "entra_id" });
+    const kommuneB = await createKommune("archive-B");
+    const leaderB = await createStaff(kommuneB, "barnevernsleder");
+    const leaderBApp = appFor({ id: leaderB, provider: "entra_id" });
+
+    const entriesA = await request(leaderAApp).get("/api/integrations/arkiv/entries");
+    const entriesB = await request(leaderBApp).get("/api/integrations/arkiv/entries");
+    expect(entriesA.status).toBe(200);
+    expect(entriesA.body.map((entry: any) => entry.id)).toContain(closed.body.archive.entryId);
+    expect(entriesB.status).toBe(200);
+    expect(entriesB.body.map((entry: any) => entry.id)).not.toContain(closed.body.archive.entryId);
+    const foreignRetry = await request(leaderBApp)
+      .post(`/api/integrations/arkiv/entries/${closed.body.archive.entryId}/retry`)
+      .send({});
+    expect(foreignRetry.status).toBe(404);
+  });
+
+  it("arkiverer manifest, transkript og rent vedlegg idempotent mot Noark-adapteren", async () => {
+    const scenario = await createPartyAndAccess();
+    const conversation = await request(scenario.staffApp).post("/api/secure-dialog/conversations").send({
+      meldingId: scenario.meldingId,
+      subject: "Arkivpakke",
+      participantPartyIds: [scenario.partyId],
+    });
+    const draft = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/drafts`)
+      .send({ content: "Dialoginnhold i arkivpakken" });
+    const attachmentBytes = Buffer.from("%PDF-1.7\narchive-package");
+    const attachment = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/messages/${draft.body.id}/attachments`)
+      .attach("file", attachmentBytes, { filename: "arkivvedlegg.pdf", contentType: "application/pdf" });
+    expect(attachment.status).toBe(201);
+    vi.spyOn(emailService, "sendSecurePortalNotification").mockResolvedValue(true);
+    expect((await request(scenario.staffApp).post(`/api/secure-dialog/messages/${draft.body.id}/send`).send({})).status).toBe(200);
+    const closed = await request(scenario.staffApp)
+      .post(`/api/secure-dialog/conversations/${conversation.body.id}/close`)
+      .send({});
+    expect(closed.status).toBe(200);
+
+    await pool.query(
+      `INSERT INTO archive_configs
+         (vendor_id, kommune_id, provider, base_url, client_id, client_secret,
+          arkivdel_id, journalenhet, status, created_by)
+       VALUES (NULL, $1, 'documaster', 'https://documaster.test', 'client', $2,
+               'arkivdel-1', 'barnevern', 'active', $3)`,
+      [scenario.kommuneId, sealSecret("documaster-test-secret"), scenario.staffId],
+    );
+
+    let uploads = 0;
+    const fetchMock = vi.fn(async (urlInput: string | URL, init?: RequestInit) => {
+      const url = String(urlInput);
+      if (url.endsWith("/idp/oauth2/token")) {
+        return new Response(JSON.stringify({ access_token: "token", expires_in: 300 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/query")) {
+        return new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/upload")) {
+        uploads += 1;
+        return new Response(JSON.stringify({ id: `upload-${uploads}` }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      if (url.endsWith("/transaction")) {
+        const body = JSON.parse(String(init?.body ?? "{}"));
+        const createsMappe = body.actions?.some((action: any) => action.type === "Saksmappe");
+        return new Response(JSON.stringify({
+          saved: createsMappe
+            ? { "@mappe": { id: "mappe-1", fields: { mappeIdent: "M-1" } } }
+            : { "@jp": { id: "journalpost-1", fields: { journalpostIdent: "JP-1" } } },
+        }), { status: 200, headers: { "Content-Type": "application/json" } });
+      }
+      return new Response("not found", { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const archived = await processArchiveEntry(closed.body.archive.entryId);
+    expect(archived.status).toBe("archived");
+    expect(uploads).toBe(3);
+    expect(archived.payloadHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(archived.archiveManifest).toEqual(expect.objectContaining({
+      schemaVersion: 1,
+      conversationId: conversation.body.id,
+      auditEventCount: expect.any(Number),
+      documents: expect.arrayContaining([
+        expect.objectContaining({ logicalType: "transcript" }),
+        expect.objectContaining({ logicalType: "attachment", sourceId: attachment.body.id }),
+      ]),
+    }));
+    expect(archived.archiveEvidence).toEqual(expect.objectContaining({
+      externalJournalpostId: "journalpost-1",
+      documentCount: 3,
+    }));
+    const callsAfterFirst = fetchMock.mock.calls.length;
+    expect((await processArchiveEntry(closed.body.archive.entryId)).status).toBe("archived");
+    expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
+    const completed = await pool.query(
+      `SELECT action FROM tidum_secure_dialog_audit_events
+        WHERE conversation_id = $1 AND action = 'archive_completed'`,
+      [conversation.body.id],
+    );
+    expect(completed.rowCount).toBe(1);
   });
 
   it("avviser kommune B, ugranted part og e-postautentisert part uten å røpe objektet", async () => {

@@ -3,8 +3,9 @@
 **Status:** Implementert, venter på verifisering mot Documaster-sandkasse
 **Veikart:** [Fase 2 — Samhandlingsvertikalen](../veikart-barnevern-vertikal.md)
 
-Godkjente rapporter arkiveres automatisk som **journalposter** i vendorens
-arkivkjerne, i en **saksmappe per Tidum-sak**, med **skjerming/gradering**.
+Godkjente rapporter, journalnotater og avsluttede sikre dialoger kan arkiveres
+som **journalposter** i tenantens arkivkjerne, i en mappe per sak eller
+bekymringsmelding, med **skjerming/gradering**.
 Modulen er provider-uavhengig (`ArchiveProvider`-grensesnitt) — Documaster er
 første implementasjon; Fiks Arkiv m.fl. kan legges til i samme fabrikk.
 
@@ -29,15 +30,17 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 | `server/lib/archive/documaster-client.ts` | Transport mot Documasters Noark 5-webtjenester + provider-fabrikk |
 | `server/lib/archive/archive-service.ts` | Outbox-orkestrering, idempotens, backoff, audit-logg |
 | `server/routes/archive-routes.ts` | API-endepunkter + cron |
-| `server/lib/secret-box.ts` | AES-256-GCM-forsegling av client_secret (krever `TIDUM_SECRET_KEY`) |
-| `migrations/052_archive_integration.sql` | `archive_configs`, `archive_case_links`, `archive_entries` |
+| `server/lib/secret-box.ts` | Versjonert AES-256-GCM-forsegling av client_secret og datanøkler |
+| `server/lib/archive/secure-dialog-package.ts` | Deterministisk manifest, transkript og dokumentkontrollsummer |
+| `migrations/052_archive_integration.sql` | Grunnskjema for `archive_configs`, `archive_case_links`, `archive_entries` |
+| `migrations/074_secure_dialog_archive_retention_keys.sql` | Kommune-tenant, sikker dialog, kvitteringsbevis og retensjonsvakter |
 
 ## Endepunkter
 
 | Metode | Sti | Roller | Beskrivelse |
 |---|---|---|---|
-| GET | `/api/integrations/arkiv/status` | admin + tiltaksleder-tier | Vendorens config (uten secret) |
-| POST | `/api/integrations/arkiv/connect` | vendor_admin+ | Verifiser tilkobling + lagre. Body: `{ baseUrl, clientId, clientSecret, arkivdelId?, journalenhet?, klasseId?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }` |
+| GET | `/api/integrations/arkiv/status` | tenantens arkivoperatører | Tenantens config (uten secret) |
+| POST | `/api/integrations/arkiv/connect` | vendor_admin+ / barnevernsleder | Verifiser tilkobling + lagre. Body: `{ baseUrl, clientId, clientSecret, arkivdelId?, journalenhet?, klasseId?, skjermingshjemmel?, tilgangsrestriksjon?, autoArchive? }` |
 | DELETE | `/api/integrations/arkiv/disconnect` | vendor_admin+ | Fjern config |
 | GET | `/api/integrations/arkiv/entries?status=` | admin + tiltaksleder-tier | Arkivlogg (outbox-rader) |
 | POST | `/api/integrations/arkiv/entries/:id/retry` | admin + tiltaksleder-tier | Manuell retry, nullstiller backoff |
@@ -57,7 +60,8 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 
 ## Pålitelighet
 
-- **Outbox-mønster:** `archive_entries` har UNIQUE(entity_type, entity_id);
+- **Outbox-mønster:** `archive_entries` har UNIQUE(entity_type, entity_id),
+  atomisk `processing`-claim og gjenoppretting av foreldede claims;
   feilede forsøk får eksponentiell backoff (5 min · 2^n, tak 24 t), etter
   8 forsøk kreves manuell retry.
 - **Idempotens mot arkivkjernen:** alle objekter merkes med `EksternId`
@@ -68,14 +72,17 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 
 ## Oppsett
 
-1. Sett `TIDUM_SECRET_KEY` (vilkårlig sterk streng) i miljøet — uten den
-   lagres client_secret i klartekst (kun akseptabelt i dev).
-2. Vendor-admin henter fra Documaster: base-URL for instansen, OAuth2
+1. Sett versjonert `TIDUM_SECRET_KEYRING` og `TIDUM_SECRET_ACTIVE_KEY_ID` i
+   hemmelighetshvelvet. `TIDUM_SECRET_KEY` beholdes bare under overgang fra
+   eldre `enc:v1`-data. Se runbooken for sikker nøkkelrotasjon.
+2. Legg Documaster-vertsnavnet i `ARCHIVE_ALLOWED_HOSTS`; produksjon nekter
+   alle arkivmål som ikke er eksplisitt allowlistet.
+3. Vendor-admin eller barnevernsleder henter fra Documaster: base-URL for instansen, OAuth2
    client_id/secret (client_credentials) og id for arkivdelen journalposter
    skal inn i.
-3. `POST /api/integrations/arkiv/connect` — verifiserer tilkoblingen før noe
+4. `POST /api/integrations/arkiv/connect` — verifiserer tilkoblingen før noe
    lagres.
-4. Fra nå arkiveres godkjente rapporter automatisk (skru av med
+5. Fra nå arkiveres godkjente rapporter automatisk (skru av med
    `autoArchive: false`; manuell arkivering er alltid tilgjengelig).
 
 ## Gjenstår før produksjon
@@ -92,5 +99,8 @@ godkjenn rapport ──► queueRapportArchiving() ──► archive_entries (ou
 - [x] UI i innstillinger — `ArkivConnectCard` på `/settings` for vendor_admin+
       (`client/src/components/integrations/arkiv-connect-card.tsx`): connect-skjema
       med hjemmel-forslag, auto-arkivering av/på, tilkoblingstest, arkivlogg med retry.
-- [ ] Utvide til `vedtak` og `dialog` som entity_types når de modulene
-      finnes (fase 3 i veikartet) — outbox og provider støtter det allerede.
+- [x] Sikker dialog arkiveres som manifest, transkript og rene vedlegg med
+      kontrollsummer og idempotent ekstern-ID. Faktisk kundesandkasse gjenstår.
+- [ ] Utvide til `vedtak` og øvrige dokumenttyper når de domenene finnes.
+
+Se [runbook for sikker dialog, arkiv, retensjon og nøkkelrotasjon](../runbooks/sikker-dialog-arkiv-retensjon-og-nokkelrotasjon.md).

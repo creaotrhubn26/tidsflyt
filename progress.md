@@ -373,6 +373,55 @@ deployes, signatur-/helseovervåkes og bestå samme EICAR-test i faktisk
 produksjonsarkitektur. Dette er et driftsakseptansepunkt, ikke manglende
 fail-closed applikasjonskontroll.
 
+## 10. Sikker dialog — arkiv, retensjon, juridisk sperring og nøkkelrotasjon
+
+**Gjennomført:**
+
+- Migrasjon 074 utvider den eksisterende Documaster/Noark-outboxen fra ren
+  leverandør-tenant til gjensidig utelukkende leverandør eller kommune, med
+  sammensatte fremmednøkler til bekymringsmeldingen og tenantformkontroller.
+- Lukking av en sikker dialog oppretter/reaktiverer `secure_dialog`-oppføringen
+  i samme databasetransaksjon som statusendringen og append-only audit.
+- Arkivarbeideren claimer rader atomisk, frigir foreldede claims og bruker
+  providerens ekstern-ID for replay. Dialogpakken inneholder deterministisk
+  JSON-manifest, transkript, audit-hash, dokumentkontrollsummer og alle rene
+  vedlegg etter ny SHA-256-kontroll. Arkivkvitteringen lagrer mappe,
+  journalpost, dokumentantall og payload-hash.
+- Kommune-arkivstatus, logg og retry leser rolle og tenant på nytt fra
+  databasen. To-kommune-testen avviser både fremmed logginnsyn og fremmed retry.
+- Retensjon er avslått som standard og har ingen innebygd juridisk periode.
+  Bare `barnevernsleder` kan aktivere en eksplisitt kommune-policy eller
+  legge på/frigi juridisk sperring. Lokal sletting krever avsluttet samtale,
+  forfalt policy, vellykket arkivkvittering og fravær av aktiv sperring.
+- Retensjonsjobben skjuler samtalen som `purging`, sletter private filer
+  idempotent og fjerner lokal tekst/vedlegg/kvitteringer i én transaksjon.
+  Samtaletombstone, arkivkvittering og audit beholdes; feil retries med backoff.
+- Nye sikker-dialogverdier bruker tilfeldig datanøkkel i en `sdc:v1`-
+  konvolutt. Den versjonerte nøkkelringen pakker bare om datanøkkelen, mens
+  databasevakten krever byte-identisk innholdschiffer for sendte meldinger.
+  Samme timejobb roterer også arkivhemmeligheter, FIKS-privatnøkkel og
+  kryptert FIKS-rålogg før en gammel servernøkkel kan tas ut.
+- `.env.example`, Render-kontrakten, Documaster-dokumentasjonen og
+  `docs/runbooks/sikker-dialog-arkiv-retensjon-og-nokkelrotasjon.md` beskriver
+  sikker aktivering, nullrestkontroll, rollback og kundens beslutningspunkter.
+
+**Verifikasjon:** Migrasjon 074 er rollback-validert, varig anvendt og kjørt
+idempotent mot Neon-utviklingsdatabasen. 28/28 målrettede tester dekker
+nøkkelring/ompakking, uendret innholdschiffer, Noark-byggere, deterministisk
+manifest, transaksjonell kø, kontrollsum, tre dokumentopplastinger, arkivbevis,
+idempotent replay, to-kommune-BOLA, arkiv-før-sletting, juridisk sperring,
+vellykket purge og produksjonskrav til eksplisitt arkivvertliste. Hele
+Vitest-suiten består med **527/527 tester i 72/72 testfiler**, og den eksisterende
+sikker-dialogflyten består med **8/8 Playwright-tester** på desktop og mobil.
+Testfiksurer for arkiv/policy/sperring er kontrollert til null. `tsc`,
+designkontroll og produksjonsbuild er grønne, og `npm audit` rapporterer
+0 sårbarheter.
+
+**Avgrensning:** Noark-flyten er testet mot kontrollert transportmock, ikke
+Haldens faktiske Documaster/Elements-tenant. Ingen retensjonsperiode er aktivert
+for Halden. Produksjonsakseptanse krever kundens kodelister, administrative
+enhet, testlegitimasjon, retensjonsvedtak og godkjent KMS/hvelv.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

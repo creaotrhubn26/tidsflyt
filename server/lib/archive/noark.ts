@@ -74,6 +74,16 @@ export interface SakLike {
   klientRef?: string | null;
 }
 
+export interface BarnevernMeldingLike {
+  id: string;
+  meldingsnummer: string;
+}
+
+export interface SecureDialogLike {
+  id: string;
+  closedAt?: string | Date | null;
+}
+
 export interface SkjermingDefaults {
   skjermingshjemmel: string;
   tilgangsrestriksjon: string;
@@ -109,6 +119,42 @@ export function buildSaksmappeSpec(sak: SakLike, defaults: SkjermingDefaults, ar
     eksternId: `tidum:sak:${sak.id}`,
     skjerming: buildDefaultSkjerming(defaults),
     arkivdelId,
+  };
+}
+
+export function buildBarnevernMeldingMappeSpec(
+  melding: BarnevernMeldingLike,
+  defaults: SkjermingDefaults,
+  arkivdelId?: string,
+): SaksmappeSpec {
+  return {
+    tittel: `Barnevernssak ${melding.meldingsnummer}`,
+    offentligTittel: "Barnevernssak",
+    eksternId: `tidum:barnevern-melding:${melding.id}`,
+    skjerming: buildDefaultSkjerming(defaults),
+    arkivdelId,
+  };
+}
+
+export function buildSecureDialogJournalpost(
+  conversation: SecureDialogLike,
+  melding: BarnevernMeldingLike,
+  files: ArchiveDocumentFile[],
+  defaults: SkjermingDefaults,
+  opts: { journalenhet?: string } = {},
+): JournalpostSpec {
+  const dokumentdato = conversation.closedAt
+    ? new Date(conversation.closedAt).toISOString().slice(0, 10)
+    : undefined;
+  return {
+    tittel: `Sikker dialog — melding ${melding.meldingsnummer}`,
+    offentligTittel: "Sikker dialog",
+    journalposttype: "X",
+    eksternId: `tidum:secure-dialog:${conversation.id}`,
+    dokumentdato,
+    skjerming: buildDefaultSkjerming(defaults),
+    journalenhet: opts.journalenhet,
+    files,
   };
 }
 

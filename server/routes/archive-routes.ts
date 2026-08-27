@@ -17,33 +17,58 @@ import type { Express, Request, Response } from "express";
 import cron from "node-cron";
 import { and, desc, eq } from "drizzle-orm";
 import { db } from "../db";
-import { archiveConfigs, archiveEntries, rapporter, saker } from "@shared/schema";
+import { archiveConfigs, archiveEntries, rapporter, saker, users } from "@shared/schema";
 import { requireAuth } from "../middleware/auth";
 import { openSecret, sealSecret } from "../lib/secret-box";
 import { createArchiveProvider } from "../lib/archive/documaster-client";
+import { validateArchiveBaseUrl } from "../lib/archive/archive-url-policy";
 import {
-  getArchiveConfig,
+  getArchiveConfigForTenant,
   processDueArchiveEntries,
   queueRapportArchiving,
   retryArchiveEntry,
+  type ArchiveTenant,
 } from "../lib/archive/archive-service";
 
 // Config-endring krever admin på vendoren; innsyn/manuell arkivering kan
 // også tiltaksleder/teamleder (de eier godkjenningsflyten).
-const CONFIG_ROLES = ["vendor_admin", "hovedadmin", "admin", "super_admin"];
-const OPERATE_ROLES = [...CONFIG_ROLES, "tiltaksleder", "teamleder", "case_manager"];
+const CONFIG_ROLES = ["vendor_admin", "hovedadmin", "admin", "super_admin", "barnevernsleder"];
+const OPERATE_ROLES = [...CONFIG_ROLES, "tiltaksleder", "teamleder", "case_manager", "kommune_saksbehandler"];
 
 function currentUser(req: Request) {
   return (req as any).authUser ?? (req as any).user ?? null;
 }
-function userVendorId(req: Request): number | null {
-  const u = currentUser(req);
-  const v = u?.vendorId ?? u?.vendor_id;
-  return v ? Number(v) : null;
+type ArchiveActor = { id: string; role: string; tenant: ArchiveTenant | null };
+async function resolveArchiveActor(req: Request): Promise<ArchiveActor | null> {
+  const id = String(currentUser(req)?.id ?? "").trim();
+  if (!id) return null;
+  const [row] = await db
+    .select({ id: users.id, role: users.role, vendorId: users.vendorId, kommuneId: users.kommuneId })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+  if (!row) return null;
+  const vendorId = row.vendorId == null ? null : Number(row.vendorId);
+  const kommuneId = row.kommuneId == null ? null : Number(row.kommuneId);
+  if ((vendorId == null) === (kommuneId == null)) return null;
+  return {
+    id: String(row.id),
+    role: String(row.role || "").toLowerCase().replace(/[\s-]/g, "_"),
+    tenant: kommuneId != null ? { kommuneId } : { vendorId: vendorId! },
+  };
 }
-function hasRole(req: Request, roles: string[]): boolean {
-  const role = String(currentUser(req)?.role || "").toLowerCase().replace(/[\s-]/g, "_");
-  return roles.includes(role);
+function tenantCondition(tenant: ArchiveTenant) {
+  return tenant.kommuneId != null
+    ? eq(archiveEntries.kommuneId, tenant.kommuneId)
+    : eq(archiveEntries.vendorId, tenant.vendorId);
+}
+function configTenantCondition(tenant: ArchiveTenant) {
+  return tenant.kommuneId != null
+    ? eq(archiveConfigs.kommuneId, tenant.kommuneId)
+    : eq(archiveConfigs.vendorId, tenant.vendorId);
+}
+function hasRole(actor: ArchiveActor | null, roles: string[]): boolean {
+  return actor != null && roles.includes(actor.role);
 }
 
 function publicView(row: typeof archiveConfigs.$inferSelect) {
@@ -51,18 +76,24 @@ function publicView(row: typeof archiveConfigs.$inferSelect) {
   return { ...rest, connected: true };
 }
 
+function archiveRouteError(res: Response, operation: string, error: unknown): Response {
+  console.error(`[archive] ${operation} failed`, error instanceof Error ? error.message : "unknown");
+  return res.status(500).json({ error: "Arkivoperasjonen kunne ikke fullføres" });
+}
+
 export function registerArchiveRoutes(app: Express) {
   /** GET /api/integrations/arkiv/status */
   app.get("/api/integrations/arkiv/status", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, OPERATE_ROLES)) return res.json({ connected: false, hidden: true });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.json({ connected: false });
-      const cfg = await getArchiveConfig(vendorId);
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, OPERATE_ROLES)) return res.json({ connected: false, hidden: true });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.json({ connected: false });
+      const cfg = await getArchiveConfigForTenant(tenant);
       if (!cfg) return res.json({ connected: false });
       return res.json(publicView(cfg));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "status", error);
     }
   });
 
@@ -73,9 +104,10 @@ export function registerArchiveRoutes(app: Express) {
    */
   app.post("/api/integrations/arkiv/connect", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan koble til arkiv" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan koble til arkiv" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
 
       const {
         provider = "documaster",
@@ -93,14 +125,10 @@ export function registerArchiveRoutes(app: Express) {
       if (!baseUrl || !clientId || !clientSecret) {
         return res.status(400).json({ error: "baseUrl, clientId og clientSecret er påkrevd" });
       }
-      let parsedUrl: URL;
       try {
-        parsedUrl = new URL(String(baseUrl));
+        validateArchiveBaseUrl(String(baseUrl));
       } catch {
-        return res.status(400).json({ error: "baseUrl er ikke en gyldig URL" });
-      }
-      if (parsedUrl.protocol !== "https:") {
-        return res.status(400).json({ error: "baseUrl må bruke https" });
+        return res.status(400).json({ error: "baseUrl er ikke en godkjent HTTPS-adresse for arkiv" });
       }
 
       // Verifiser tilkoblingen før noe lagres.
@@ -118,7 +146,8 @@ export function registerArchiveRoutes(app: Express) {
       }
 
       const values = {
-        vendorId,
+        vendorId: tenant.vendorId ?? null,
+        kommuneId: tenant.kommuneId ?? null,
         provider: String(provider),
         baseUrl: String(baseUrl),
         clientId: String(clientId),
@@ -132,19 +161,19 @@ export function registerArchiveRoutes(app: Express) {
         status: "active" as const,
         lastVerifiedAt: new Date(),
         lastError: null,
-        createdBy: String(currentUser(req)?.id ?? ""),
+        createdBy: actor!.id,
         updatedAt: new Date(),
       };
 
-      const [row] = await db
-        .insert(archiveConfigs)
-        .values(values)
-        .onConflictDoUpdate({ target: archiveConfigs.vendorId, set: values })
-        .returning();
+      const [row] = tenant.kommuneId != null
+        ? await db.insert(archiveConfigs).values(values)
+          .onConflictDoUpdate({ target: archiveConfigs.kommuneId, set: values }).returning()
+        : await db.insert(archiveConfigs).values(values)
+          .onConflictDoUpdate({ target: archiveConfigs.vendorId, set: values }).returning();
 
       res.json(publicView(row));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "connect", error);
     }
   });
 
@@ -155,9 +184,10 @@ export function registerArchiveRoutes(app: Express) {
    */
   app.patch("/api/integrations/arkiv/settings", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan endre arkivinnstillinger" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan endre arkivinnstillinger" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
 
       const { autoArchive, skjermingshjemmel, tilgangsrestriksjon, arkivdelId, journalenhet, klasseId } = req.body ?? {};
       const set: Record<string, unknown> = { updatedAt: new Date() };
@@ -172,22 +202,23 @@ export function registerArchiveRoutes(app: Express) {
       const [row] = await db
         .update(archiveConfigs)
         .set(set)
-        .where(eq(archiveConfigs.vendorId, vendorId))
+        .where(configTenantCondition(tenant))
         .returning();
       if (!row) return res.status(404).json({ error: "Ingen arkivkobling å oppdatere" });
       res.json(publicView(row));
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "settings", error);
     }
   });
 
   /** POST /api/integrations/arkiv/test — verifiser lagret tilkobling. */
   app.post("/api/integrations/arkiv/test", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
-      const cfg = await getArchiveConfig(vendorId);
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
+      const cfg = await getArchiveConfigForTenant(tenant);
       if (!cfg) return res.status(404).json({ error: "Ingen arkivkobling konfigurert" });
 
       try {
@@ -200,7 +231,7 @@ export function registerArchiveRoutes(app: Express) {
         const [row] = await db
           .update(archiveConfigs)
           .set({ lastVerifiedAt: new Date(), lastError: null, status: "active", updatedAt: new Date() })
-          .where(eq(archiveConfigs.vendorId, vendorId))
+          .where(configTenantCondition(tenant))
           .returning();
         res.json(publicView(row));
       } catch (verifyErr: any) {
@@ -208,38 +239,43 @@ export function registerArchiveRoutes(app: Express) {
         await db
           .update(archiveConfigs)
           .set({ lastError: message.slice(0, 2000), updatedAt: new Date() })
-          .where(eq(archiveConfigs.vendorId, vendorId));
+          .where(configTenantCondition(tenant));
         res.status(422).json({ error: `Tilkoblingstest feilet: ${message}` });
       }
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "test", error);
     }
   });
 
   /** DELETE /api/integrations/arkiv/disconnect */
   app.delete("/api/integrations/arkiv/disconnect", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan koble fra arkiv" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
-      await db.delete(archiveConfigs).where(eq(archiveConfigs.vendorId, vendorId));
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, CONFIG_ROLES)) return res.status(403).json({ error: "Kun admin kan koble fra arkiv" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
+      await db.delete(archiveConfigs).where(configTenantCondition(tenant));
       res.json({ ok: true });
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "disconnect", error);
     }
   });
 
   /** GET /api/integrations/arkiv/entries?status=pending|archived|failed */
   app.get("/api/integrations/arkiv/entries", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
 
       const status = req.query.status ? String(req.query.status) : null;
+      if (status && !["pending", "processing", "archived", "failed", "skipped"].includes(status)) {
+        return res.status(400).json({ error: "Ugyldig arkivstatus" });
+      }
       const conditions = status
-        ? and(eq(archiveEntries.vendorId, vendorId), eq(archiveEntries.status, status))
-        : eq(archiveEntries.vendorId, vendorId);
+        ? and(tenantCondition(tenant), eq(archiveEntries.status, status))
+        : tenantCondition(tenant);
 
       const rows = await db
         .select()
@@ -248,22 +284,23 @@ export function registerArchiveRoutes(app: Express) {
         .orderBy(desc(archiveEntries.createdAt))
         .limit(200);
       res.json(rows);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "entries", error);
     }
   });
 
   /** POST /api/integrations/arkiv/entries/:id/retry */
   app.post("/api/integrations/arkiv/entries/:id/retry", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
-      const entry = await retryArchiveEntry(String(req.params.id), vendorId);
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
+      const tenant = actor?.tenant;
+      if (!tenant) return res.status(400).json({ error: "Bruker mangler entydig arkivtenant" });
+      const entry = await retryArchiveEntry(String(req.params.id), tenant);
       if (!entry) return res.status(404).json({ error: "Fant ingen rad å prøve på nytt" });
       res.json(entry);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "retry", error);
     }
   });
 
@@ -273,9 +310,10 @@ export function registerArchiveRoutes(app: Express) {
    */
   app.post("/api/rapporter/:id/arkiver", requireAuth, async (req: Request, res: Response) => {
     try {
-      if (!hasRole(req, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
-      const vendorId = userVendorId(req);
-      if (!vendorId) return res.status(400).json({ error: "Bruker mangler vendor" });
+      const actor = await resolveArchiveActor(req);
+      if (!hasRole(actor, OPERATE_ROLES)) return res.status(403).json({ error: "Ikke tilgang" });
+      const vendorId = actor?.tenant?.vendorId;
+      if (!vendorId) return res.status(400).json({ error: "Denne arkivhandlingen krever en leverandørtenant" });
 
       const [rapport] = await db.select().from(rapporter).where(eq(rapporter.id, String(req.params.id))).limit(1);
       if (!rapport) return res.status(404).json({ error: "Rapport ikke funnet" });
@@ -286,13 +324,13 @@ export function registerArchiveRoutes(app: Express) {
       const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
       if (!sak || sak.vendorId !== vendorId) return res.status(404).json({ error: "Rapport ikke funnet" });
 
-      const result = await queueRapportArchiving(rapport.id, "manual", String(currentUser(req)?.id ?? ""));
+      const result = await queueRapportArchiving(rapport.id, "manual", actor!.id);
       if (!result.queued && result.reason !== "Allerede arkivert") {
         return res.status(422).json({ error: result.reason });
       }
       res.json(result);
-    } catch (e: any) {
-      res.status(500).json({ error: e.message });
+    } catch (error) {
+      archiveRouteError(res, "rapport archive", error);
     }
   });
 }

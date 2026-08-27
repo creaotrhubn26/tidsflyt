@@ -279,7 +279,8 @@ export const vendorIntegrations = pgTable("tidum_vendor_integrations", {
 
 export const archiveConfigs = pgTable("archive_configs", {
   id:                  uuid("id").defaultRandom().primaryKey(),
-  vendorId:            integer("vendor_id").notNull().unique(),
+  vendorId:            integer("vendor_id").unique(),
+  kommuneId:           integer("kommune_id").unique(),
   provider:            text("provider").notNull().default("documaster"),
   baseUrl:             text("base_url").notNull(),
   clientId:            text("client_id").notNull(),
@@ -300,8 +301,10 @@ export const archiveConfigs = pgTable("archive_configs", {
 
 export const archiveCaseLinks = pgTable("archive_case_links", {
   id:             uuid("id").defaultRandom().primaryKey(),
-  vendorId:       integer("vendor_id").notNull(),
-  sakId:          uuid("sak_id").notNull().unique(),
+  vendorId:       integer("vendor_id"),
+  kommuneId:      integer("kommune_id"),
+  sakId:          uuid("sak_id").unique(),
+  barnevernMeldingId: uuid("barnevern_melding_id").unique(),
   eksternMappeId: text("ekstern_mappe_id").notNull(),
   mappeIdent:     text("mappe_ident"),
   createdAt:      timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -309,19 +312,25 @@ export const archiveCaseLinks = pgTable("archive_case_links", {
 
 export const archiveEntries = pgTable("archive_entries", {
   id:                   uuid("id").defaultRandom().primaryKey(),
-  vendorId:             integer("vendor_id").notNull(),
+  vendorId:             integer("vendor_id"),
+  kommuneId:            integer("kommune_id"),
   entityType:           text("entity_type").notNull(), // rapport | vedtak | dialog
   entityId:             text("entity_id").notNull(),
   sakId:                uuid("sak_id"),
+  barnevernMeldingId:   uuid("barnevern_melding_id"),
   status:               text("status").notNull().default("pending"), // pending | archived | failed | skipped
   triggerKind:          text("trigger_kind"), // approved | manual | retry
   attempts:             integer("attempts").notNull().default(0),
   nextAttemptAt:        timestamp("next_attempt_at", { withTimezone: true }).defaultNow(),
+  processingStartedAt:  timestamp("processing_started_at", { withTimezone: true }),
+  processingToken:      uuid("processing_token"),
   eksternMappeId:       text("ekstern_mappe_id"),
   eksternJournalpostId: text("ekstern_journalpost_id"),
   journalpostIdent:     text("journalpost_ident"),
   payloadHash:          text("payload_hash"),
   skjerming:            jsonb("skjerming"),
+  archiveManifest:      jsonb("archive_manifest"),
+  archiveEvidence:      jsonb("archive_evidence"),
   error:                text("error"),
   archivedAt:           timestamp("archived_at", { withTimezone: true }),
   createdBy:            text("created_by"),
@@ -626,11 +635,17 @@ export const secureConversations = pgTable("tidum_secure_conversations", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
   barnevernMeldingId: uuid("barnevern_melding_id").notNull().references(() => barnevernMeldinger.id),
-  subject: text("subject").notNull(),
+  subject: text("subject"),
   status: text("status").notNull().default("open"),
   createdBy: varchar("created_by").notNull().references(() => users.id),
   closedBy: varchar("closed_by").references(() => users.id),
   closedAt: timestamp("closed_at", { withTimezone: true }),
+  retentionState: text("retention_state").notNull().default("active"),
+  retentionDueAt: timestamp("retention_due_at", { withTimezone: true }),
+  retentionAttempts: integer("retention_attempts").notNull().default(0),
+  retentionNextAttemptAt: timestamp("retention_next_attempt_at", { withTimezone: true }),
+  retentionLastError: text("retention_last_error"),
+  purgedAt: timestamp("purged_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -679,6 +694,9 @@ export const secureMessageAttachments = pgTable("tidum_secure_message_attachment
   mimeType: text("mime_type").notNull(),
   sizeBytes: integer("size_bytes").notNull(),
   checksumSha256: text("checksum_sha256").notNull(),
+  scanStatus: text("scan_status").notNull().default("pending"),
+  scanEngine: text("scan_engine"),
+  scannedAt: timestamp("scanned_at", { withTimezone: true }),
   uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -732,10 +750,39 @@ export const secureNotificationOutbox = pgTable("tidum_secure_notification_outbo
     .where(sql`${table.status} IN ('pending', 'failed')`),
 ]);
 
+export const secureDialogRetentionPolicies = pgTable("tidum_secure_dialog_retention_policies", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id).unique(),
+  enabled: boolean("enabled").notNull().default(false),
+  retentionDays: integer("retention_days"),
+  policyReference: text("policy_reference"),
+  updatedBy: varchar("updated_by").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const secureDialogLegalHolds = pgTable("tidum_secure_dialog_legal_holds", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  conversationId: uuid("conversation_id").notNull().references(() => secureConversations.id),
+  reason: text("reason").notNull(),
+  appliedBy: varchar("applied_by").notNull().references(() => users.id),
+  appliedAt: timestamp("applied_at", { withTimezone: true }).notNull().defaultNow(),
+  releasedBy: varchar("released_by").references(() => users.id),
+  releasedAt: timestamp("released_at", { withTimezone: true }),
+}, (table) => [
+  uniqueIndex("tidum_secure_legal_hold_active_uidx")
+    .on(table.conversationId)
+    .where(sql`${table.releasedAt} IS NULL`),
+  index("tidum_secure_legal_hold_kommune_idx").on(table.kommuneId, table.appliedAt),
+]);
+
 export type SecureParty = typeof secureParties.$inferSelect;
 export type SecureCaseAccess = typeof secureCaseAccess.$inferSelect;
 export type SecureConversation = typeof secureConversations.$inferSelect;
 export type SecureMessage = typeof secureMessages.$inferSelect;
+export type SecureDialogRetentionPolicy = typeof secureDialogRetentionPolicies.$inferSelect;
+export type SecureDialogLegalHold = typeof secureDialogLegalHolds.$inferSelect;
 
 export const fristStatusEnum = pgEnum("tidum_frist_status", [
   "aktiv",

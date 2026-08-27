@@ -54,7 +54,7 @@ interface ArkivEntry {
   id: string;
   entityType: string;
   entityId: string;
-  status: "pending" | "archived" | "failed" | "skipped";
+  status: "pending" | "processing" | "archived" | "failed" | "skipped";
   triggerKind?: string | null;
   attempts: number;
   journalpostIdent?: string | null;
@@ -89,6 +89,12 @@ function EntryStatusBadge({ status }: { status: ArkivEntry["status"] }) {
       return (
         <Badge variant="outline" className="gap-1 border-amber-300 text-amber-700 bg-amber-50">
           <Loader2 className="h-3 w-3" /> Venter
+        </Badge>
+      );
+    case "processing":
+      return (
+        <Badge variant="outline" className="gap-1 border-blue-300 text-blue-700 bg-blue-50">
+          <Loader2 className="h-3 w-3 animate-spin" /> Arkiverer
         </Badge>
       );
     case "failed":
@@ -145,7 +151,7 @@ function ArkivEntriesTable() {
   if (!entries?.length) {
     return (
       <p className="text-sm text-muted-foreground py-2">
-        Ingen arkiveringer ennå. Godkjente rapporter dukker opp her.
+        Ingen arkiveringer ennå. Dokumenter og avsluttede sikre dialoger dukker opp her.
       </p>
     );
   }
@@ -313,8 +319,8 @@ export function ArkivConnectCard() {
           )}
         </CardTitle>
         <CardDescription>
-          Godkjente rapporter arkiveres automatisk som journalposter i arkivkjernen deres, i en
-          saksmappe per sak, med skjerming. Titler bygges av saksnummer og klientreferanse — aldri navn.
+          Dokumenter og avsluttede sikre dialoger arkiveres som journalposter i arkivkjernen deres,
+          med skjerming og idempotent kvittering. Offentlige titler inneholder ikke navn eller emne.
         </CardDescription>
       </CardHeader>
 

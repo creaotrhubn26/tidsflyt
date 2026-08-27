@@ -25,6 +25,12 @@ services:
         sync: false
       - key: TIDUM_SECRET_KEY
         sync: false
+      - key: TIDUM_SECRET_KEYRING
+        sync: false
+      - key: TIDUM_SECRET_ACTIVE_KEY_ID
+        sync: false
+      - key: ARCHIVE_ALLOWED_HOSTS
+        sync: false
       - key: APP_BASE_URL
         sync: false
       - key: APP_URL

@@ -27,6 +27,10 @@ import {
   MalwareScannerUnavailableError,
   scanSecureAttachmentForMalware,
 } from "../lib/secure-attachment-malware-scanner";
+import {
+  processSecureDialogKeyRotation,
+  processSecureDialogRetention,
+} from "../lib/secure-dialog-governance";
 
 type SecureActor = {
   userId: string;
@@ -74,6 +78,17 @@ const conversationCreateSchema = z.object({
 }).strict();
 const messageBodySchema = z.object({
   content: z.string().trim().min(1).max(100_000),
+}).strict();
+const retentionPolicySchema = z.object({
+  enabled: z.boolean(),
+  retentionDays: z.number().int().min(1).max(36_500).nullable(),
+  policyReference: z.string().trim().max(500).nullable().optional(),
+}).strict().refine((value) => !value.enabled || value.retentionDays != null, {
+  message: "Oppbevaringsdager kreves når policyen er aktiv",
+  path: ["retentionDays"],
+});
+const legalHoldSchema = z.object({
+  reason: z.string().trim().min(1).max(1_000),
 }).strict();
 
 const attachmentUpload = multer({
@@ -160,6 +175,14 @@ function requireStaff(actor: SecureActor): number {
   return actor.staffKommuneId;
 }
 
+function requireGovernanceLeader(actor: SecureActor): number {
+  const kommuneId = requireStaff(actor);
+  if (actor.role !== "barnevernsleder") {
+    throw new SecureDialogRouteError(403, "Kun barnevernsleder kan endre oppbevaring eller juridisk sperring", "LEADER_REQUIRED");
+  }
+  return kommuneId;
+}
+
 const SAFE_AUDIT_METADATA = new Set([
   "alreadyEidLinked",
   "participantCount",
@@ -170,6 +193,9 @@ const SAFE_AUDIT_METADATA = new Set([
   "sizeBytes",
   "status",
   "scanEngine",
+  "enabled",
+  "retentionDays",
+  "keyId",
 ]);
 
 async function appendAudit(
@@ -216,7 +242,7 @@ async function loadConversationAccess(
   const { rows: [conversation] } = await client.query(
     `SELECT id, kommune_id, barnevern_melding_id, subject, status
        FROM tidum_secure_conversations
-      WHERE id = $1`,
+      WHERE id = $1 AND retention_state = 'active'`,
     [conversationId],
   );
   if (!conversation) return null;
@@ -453,8 +479,209 @@ export function setupSecureAttachmentQuarantineCleanup(): void {
   quarantineCleanupStarted = true;
 }
 
+let governanceCronStarted = false;
+export function setupSecureDialogGovernanceCron(): void {
+  if (governanceCronStarted) return;
+  cron.schedule("37 2 * * *", async () => {
+    try {
+      await processSecureDialogRetention(50);
+    } catch (error) {
+      console.error("[secure-dialog] retention cleanup failed", error instanceof Error ? error.message : "unknown");
+    }
+  });
+  cron.schedule("43 * * * *", async () => {
+    try {
+      await processSecureDialogKeyRotation(200);
+    } catch (error) {
+      console.error("[secure-dialog] key rotation failed", error instanceof Error ? error.message : "unknown");
+    }
+  });
+  governanceCronStarted = true;
+}
+
 export function registerSecureDialogRoutes(app: Express): void {
   const common = [requireAuth, apiRateLimit] as const;
+
+  app.get("/api/secure-dialog/governance/retention", ...common, async (req: Request, res: Response) => {
+    try {
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireStaff(actor);
+      const { rows: [policy] } = await pool.query(
+        `SELECT enabled, retention_days, policy_reference, updated_by, updated_at
+           FROM tidum_secure_dialog_retention_policies WHERE kommune_id = $1`,
+        [kommuneId],
+      );
+      res.json(policy ?? {
+        enabled: false,
+        retention_days: null,
+        policy_reference: null,
+        configured: false,
+      });
+    } catch (error) {
+      routeError(res, "retention policy read", error);
+    }
+  });
+
+  app.patch("/api/secure-dialog/governance/retention", ...common, async (req: Request, res: Response) => {
+    try {
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireGovernanceLeader(actor);
+      const input = retentionPolicySchema.parse(req.body);
+      const result = await withTransaction(async (client) => {
+        const { rows: [policy] } = await client.query(
+          `INSERT INTO tidum_secure_dialog_retention_policies
+             (kommune_id, enabled, retention_days, policy_reference, updated_by)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (kommune_id) DO UPDATE SET
+             enabled = EXCLUDED.enabled,
+             retention_days = EXCLUDED.retention_days,
+             policy_reference = EXCLUDED.policy_reference,
+             updated_by = EXCLUDED.updated_by,
+             updated_at = NOW()
+           RETURNING enabled, retention_days, policy_reference, updated_by, updated_at`,
+          [kommuneId, input.enabled, input.retentionDays, input.policyReference ?? null, actor.userId],
+        );
+        await client.query(
+          `UPDATE tidum_secure_conversations
+              SET retention_due_at = CASE
+                    WHEN $2::boolean THEN closed_at + ($3::integer * INTERVAL '1 day')
+                    ELSE NULL
+                  END,
+                  retention_next_attempt_at = CASE
+                    WHEN $2::boolean THEN closed_at + ($3::integer * INTERVAL '1 day')
+                    ELSE NULL
+                  END,
+                  retention_last_error = NULL,
+                  updated_at = NOW()
+            WHERE kommune_id = $1 AND status = 'closed' AND retention_state = 'active'`,
+          [kommuneId, input.enabled, input.retentionDays],
+        );
+        await appendAudit(client, {
+          kommuneId,
+          actorUserId: actor.userId,
+          actorKind: "staff",
+          action: "retention_policy_updated",
+          metadata: { enabled: input.enabled, retentionDays: input.retentionDays },
+        });
+        return policy;
+      });
+      res.json(result);
+    } catch (error) {
+      routeError(res, "retention policy update", error);
+    }
+  });
+
+  app.post("/api/secure-dialog/governance/retention/run", ...common, async (req: Request, res: Response) => {
+    try {
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireGovernanceLeader(actor);
+      const result = await processSecureDialogRetention(50, kommuneId);
+      res.json(result);
+    } catch (error) {
+      routeError(res, "retention run", error);
+    }
+  });
+
+  app.get("/api/secure-dialog/conversations/:conversationId/governance", ...common, async (req: Request, res: Response) => {
+    try {
+      const conversationId = uuidSchema.parse(req.params.conversationId);
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireStaff(actor);
+      const { rows: [row] } = await pool.query(
+        `SELECT conversation.id, conversation.retention_state, conversation.retention_due_at,
+                conversation.retention_attempts, conversation.retention_last_error, conversation.purged_at,
+                entry.id AS archive_entry_id, entry.status AS archive_status,
+                entry.archived_at, entry.payload_hash, entry.journalpost_ident,
+                hold.id AS legal_hold_id, hold.reason AS legal_hold_reason,
+                hold.applied_at AS legal_hold_applied_at
+           FROM tidum_secure_conversations conversation
+           LEFT JOIN archive_entries entry
+             ON entry.entity_type = 'secure_dialog' AND entry.entity_id = conversation.id::text
+            AND entry.kommune_id = conversation.kommune_id
+           LEFT JOIN tidum_secure_dialog_legal_holds hold
+             ON hold.conversation_id = conversation.id AND hold.kommune_id = conversation.kommune_id
+            AND hold.released_at IS NULL
+          WHERE conversation.id = $1 AND conversation.kommune_id = $2`,
+        [conversationId, kommuneId],
+      );
+      if (!row) throw new SecureDialogRouteError(404, "Samtale ikke funnet", "CONVERSATION_NOT_FOUND");
+      res.json(row);
+    } catch (error) {
+      routeError(res, "conversation governance read", error);
+    }
+  });
+
+  app.post("/api/secure-dialog/conversations/:conversationId/legal-holds", ...common, async (req: Request, res: Response) => {
+    try {
+      const conversationId = uuidSchema.parse(req.params.conversationId);
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireGovernanceLeader(actor);
+      const input = legalHoldSchema.parse(req.body);
+      const result = await withTransaction(async (client) => {
+        const conversation = await client.query(
+          `SELECT id FROM tidum_secure_conversations
+            WHERE id = $1 AND kommune_id = $2 AND retention_state = 'active'
+            FOR UPDATE`,
+          [conversationId, kommuneId],
+        );
+        if (!conversation.rowCount) throw new SecureDialogRouteError(409, "Samtalen kan ikke sperres i denne tilstanden", "LEGAL_HOLD_STATE_CONFLICT");
+        const existing = await client.query(
+          `SELECT id FROM tidum_secure_dialog_legal_holds
+            WHERE conversation_id = $1 AND kommune_id = $2 AND released_at IS NULL`,
+          [conversationId, kommuneId],
+        );
+        if (existing.rowCount) throw new SecureDialogRouteError(409, "Samtalen har allerede juridisk sperring", "LEGAL_HOLD_EXISTS");
+        const { rows: [hold] } = await client.query(
+          `INSERT INTO tidum_secure_dialog_legal_holds
+             (kommune_id, conversation_id, reason, applied_by)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id, reason, applied_by, applied_at`,
+          [kommuneId, conversationId, input.reason, actor.userId],
+        );
+        await appendAudit(client, {
+          kommuneId,
+          actorUserId: actor.userId,
+          actorKind: "staff",
+          action: "legal_hold_applied",
+          conversationId,
+        });
+        return hold;
+      });
+      res.status(201).json(result);
+    } catch (error) {
+      routeError(res, "legal hold apply", error);
+    }
+  });
+
+  app.delete("/api/secure-dialog/conversations/:conversationId/legal-holds/:holdId", ...common, async (req: Request, res: Response) => {
+    try {
+      const conversationId = uuidSchema.parse(req.params.conversationId);
+      const holdId = uuidSchema.parse(req.params.holdId);
+      const actor = await resolveSecureActor(req);
+      const kommuneId = requireGovernanceLeader(actor);
+      const result = await withTransaction(async (client) => {
+        const { rows: [hold] } = await client.query(
+          `UPDATE tidum_secure_dialog_legal_holds
+              SET released_by = $1, released_at = NOW()
+            WHERE id = $2 AND conversation_id = $3 AND kommune_id = $4 AND released_at IS NULL
+            RETURNING id, released_by, released_at`,
+          [actor.userId, holdId, conversationId, kommuneId],
+        );
+        if (!hold) throw new SecureDialogRouteError(404, "Aktiv juridisk sperring ikke funnet", "LEGAL_HOLD_NOT_FOUND");
+        await appendAudit(client, {
+          kommuneId,
+          actorUserId: actor.userId,
+          actorKind: "staff",
+          action: "legal_hold_released",
+          conversationId,
+        });
+        return hold;
+      });
+      res.json(result);
+    } catch (error) {
+      routeError(res, "legal hold release", error);
+    }
+  });
 
   app.get("/api/secure-dialog/parties", ...common, async (req: Request, res: Response) => {
     try {
@@ -755,7 +982,7 @@ export function registerSecureDialogRoutes(app: Express): void {
         const { rows } = await client.query(
           `SELECT DISTINCT c.id, c.kommune_id, c.barnevern_melding_id, c.subject, c.status, c.created_at, c.updated_at
              FROM tidum_secure_conversations c
-            WHERE (
+            WHERE c.retention_state = 'active' AND (
               ($1::integer IS NOT NULL AND c.kommune_id = $1)
                OR ($2::boolean = TRUE AND EXISTS (
                  SELECT 1
@@ -1248,12 +1475,53 @@ export function registerSecureDialogRoutes(app: Express): void {
       const result = await withTransaction(async (client) => {
         const { rows: [conversation] } = await client.query(
           `UPDATE tidum_secure_conversations
-              SET status = 'closed', closed_by = $1, closed_at = NOW(), updated_at = NOW()
+              SET status = 'closed', closed_by = $1, closed_at = NOW(),
+                  retention_due_at = CASE
+                    WHEN EXISTS (
+                      SELECT 1 FROM tidum_secure_dialog_retention_policies policy
+                       WHERE policy.kommune_id = tidum_secure_conversations.kommune_id
+                         AND policy.enabled = TRUE AND policy.retention_days IS NOT NULL
+                    ) THEN NOW() + (
+                      SELECT policy.retention_days * INTERVAL '1 day'
+                        FROM tidum_secure_dialog_retention_policies policy
+                       WHERE policy.kommune_id = tidum_secure_conversations.kommune_id
+                    )
+                    ELSE NULL
+                  END,
+                  retention_next_attempt_at = CASE
+                    WHEN EXISTS (
+                      SELECT 1 FROM tidum_secure_dialog_retention_policies policy
+                       WHERE policy.kommune_id = tidum_secure_conversations.kommune_id
+                         AND policy.enabled = TRUE AND policy.retention_days IS NOT NULL
+                    ) THEN NOW() + (
+                      SELECT policy.retention_days * INTERVAL '1 day'
+                        FROM tidum_secure_dialog_retention_policies policy
+                       WHERE policy.kommune_id = tidum_secure_conversations.kommune_id
+                    )
+                    ELSE NULL
+                  END,
+                  updated_at = NOW()
             WHERE id = $2 AND kommune_id = $3 AND status = 'open'
-            RETURNING id, status, closed_at`,
+            RETURNING id, status, closed_at, barnevern_melding_id, retention_due_at`,
           [actor.userId, conversationId, kommuneId],
         );
         if (!conversation) throw new SecureDialogRouteError(404, "Åpen samtale ikke funnet", "CONVERSATION_NOT_FOUND");
+        const { rows: [archiveEntry] } = await client.query(
+          `INSERT INTO archive_entries
+             (vendor_id, kommune_id, entity_type, entity_id, sak_id, barnevern_melding_id,
+              status, trigger_kind, next_attempt_at, created_by)
+           VALUES (NULL, $1, 'secure_dialog', $2, NULL, $3, 'pending', 'closed', NOW(), $4)
+           ON CONFLICT (entity_type, entity_id) DO UPDATE SET
+             status = CASE WHEN archive_entries.status IN ('archived', 'processing') THEN archive_entries.status ELSE 'pending' END,
+             attempts = CASE WHEN archive_entries.status IN ('archived', 'processing') THEN archive_entries.attempts ELSE 0 END,
+             next_attempt_at = CASE WHEN archive_entries.status IN ('archived', 'processing') THEN archive_entries.next_attempt_at ELSE NOW() END,
+             processing_started_at = CASE WHEN archive_entries.status = 'processing' THEN archive_entries.processing_started_at ELSE NULL END,
+             processing_token = CASE WHEN archive_entries.status = 'processing' THEN archive_entries.processing_token ELSE NULL END,
+             error = CASE WHEN archive_entries.status IN ('archived', 'processing') THEN archive_entries.error ELSE NULL END,
+             updated_at = NOW()
+           RETURNING id, status`,
+          [kommuneId, conversationId, conversation.barnevern_melding_id, actor.userId],
+        );
         await appendAudit(client, {
           kommuneId,
           actorUserId: actor.userId,
@@ -1261,7 +1529,17 @@ export function registerSecureDialogRoutes(app: Express): void {
           action: "conversation_closed",
           conversationId,
         });
-        return conversation;
+        await appendAudit(client, {
+          kommuneId,
+          actorUserId: actor.userId,
+          actorKind: "staff",
+          action: "archive_queued",
+          conversationId,
+        });
+        return {
+          ...conversation,
+          archive: { entryId: archiveEntry.id, status: archiveEntry.status },
+        };
       });
       res.json(result);
     } catch (error) {

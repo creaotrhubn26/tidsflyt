@@ -59,6 +59,10 @@ Følgende regler gjelder uten unntak:
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
 - Manuelt mottak og avklaring av bekymringsmeldinger er påbegynt.
 - Documaster-adapter og Maskinporten-tokenklient finnes, men er ikke produksjonsverifisert.
+- Sikker dialog har leverandørklar arkivpakke, transaksjonell kommune-outbox,
+  arkiv-før-sletting, juridisk sperring og versjonert datanøkkelrotasjon.
+  Kundens Documaster/Elements-oppsett, retensjonsvedtak og KMS er fortsatt
+  eksterne akseptansepunkter.
 - Direkte BankID og Buypass ID er implementert i `main` for web/mobil og identitetskobling.
 - Ni rapport-/planmaler finnes i kildekoden, herunder § 6-3-tiltaksplan og periodisk evaluering, sammen med mål, fremdrift, aktivitetslogg, godkjenning og PDF.
 - GDPR-selvbetjening for dataeksport og anonymisering/sletting, PII-sjekk/maskering og retensjonsjobb finnes.
