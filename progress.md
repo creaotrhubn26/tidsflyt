@@ -848,6 +848,41 @@ produksjonslogin uten eier-/DDL-/`BYPASSRLS`-rettigheter, separat
 migrasjonsidentitet, resten av kommune-/vendor-tabellmatrisen, last-/pooltest
 og uavhengig sikkerhetstest gjenstår.
 
+## 21. PostgreSQL RLS fase 2 — sikker dialog og eID-partstilgang
+
+Migrasjon 084 utvider `ENABLE` + `FORCE ROW LEVEL SECURITY` til alle de tolv
+tabellene i sikker-dialoggrafen: parter, sakstilganger, samtaler, deltakere,
+meldinger, vedlegg, kvitteringer, audit, varslingskø, skadevarekarantene,
+oppbevaringspolicy og juridisk sperring.
+
+Ansatte kjører med transaksjonslokal kommunekontekst. BankID-/Buypass-brukere
+kjører med egen `secure_party`-kontekst der policyene følger den aktive kjeden
+part → sakstilgang → deltaker → samtale. En part kan derfor ikke se en annen
+parts samtale, heller ikke når begge tilhører samme kommune. Innlogging uten
+sterk eID bruker en eksplisitt deny-kontekst; konkrete objektoppslag svarer
+nøytralt uten å gjøre et privilegert eksistensoppslag. Varslingskø,
+karantenerydding, retensjon, arkiv og nøkkelrotasjon bruker faste, navngitte
+systemoperasjoner og kan ikke velges fra request-data.
+
+Arkivpakken leser nå samtale, meldinger, rene vedlegg og audit gjennom samme
+kommuneavgrensede databaseforbindelse. Plattformens hemmelighetsinventory og
+rotasjon bruker systemkontekst også for sikker-dialogtabellene. Portalpartens
+begrensede deltakerinnsyn suppleres av en smal, idempotent systemjobb for
+varslingsmottakere; den re-verifiserer at meldingen er sendt av den oppgitte
+brukeren før køskriving.
+
+**Verifikasjon:** Migrasjon 084 er kjørt idempotent mot Neon. Den samlede
+berørte pakken består **10 testfiler og 58/58 tester**, inkludert to kommuner,
+to ulike parter i samme kommune, manglende kontekst, kontekstreset,
+kryssoppdatering, forfalsket parts-ID, nøytral 404, vedlegg, karantene,
+varsling, retensjon, arkiv og nøkkelrotasjon. Typekontroll, designkontroll og
+produksjonsbygg er grønne. Se `docs/runbooks/postgresql-rls-kommunedata.md`.
+
+**Gjenstående:** Fase 3 må dekke arkivtabellene som eget tenantdomene, frister,
+bruker-/kommunetilknytning og deretter relevante vendorflater. Produksjon må
+fortsatt ha separat applikasjonslogin, dedikert `NOLOGIN NOBYPASSRLS`-rolle,
+separat migrasjonsidentitet, last-/pooltest og uavhengig penetrasjonstest.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

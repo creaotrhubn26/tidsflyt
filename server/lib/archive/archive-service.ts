@@ -14,7 +14,9 @@
 
 import { createHash, randomUUID } from "crypto";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import { db } from "../../db";
+import * as schema from "@shared/schema";
 import {
   archiveCaseLinks,
   archiveConfigs,
@@ -391,27 +393,62 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       if (entry.kommuneId == null || !entry.barnevernMeldingId) {
         throw new Error("Sikker dialog mangler kommune- eller meldingsbinding");
       }
-      const [conversation] = await db
-        .select()
-        .from(secureConversations)
-        .where(and(
-          eq(secureConversations.id, entry.entityId),
-          eq(secureConversations.kommuneId, entry.kommuneId),
-          eq(secureConversations.barnevernMeldingId, entry.barnevernMeldingId),
-        ))
-        .limit(1);
-      if (!conversation || conversation.status !== "closed" || !conversation.closedAt || !conversation.subject) {
-        throw new Error("Sikker dialog er ikke avsluttet eller finnes ikke lenger");
-      }
-      const melding = await withKommuneRlsContext(entry.kommuneId, async (client) => {
-        const { rows: [row] } = await client.query(
+      const secureSnapshot = await withKommuneRlsContext(entry.kommuneId, async (client) => {
+        const scopedDb = drizzle(client, { schema });
+        const [conversation] = await scopedDb
+          .select()
+          .from(secureConversations)
+          .where(and(
+            eq(secureConversations.id, entry.entityId),
+            eq(secureConversations.kommuneId, entry.kommuneId!),
+            eq(secureConversations.barnevernMeldingId, entry.barnevernMeldingId!),
+          ))
+          .limit(1);
+        const { rows: [melding] } = await client.query(
           `SELECT id, meldingsnummer
              FROM tidum_barnevern_meldinger
             WHERE id = $1 AND kommune_id = $2`,
           [entry.barnevernMeldingId, entry.kommuneId],
         );
-        return row ?? null;
+        if (!conversation || !melding) {
+          return { conversation, melding: melding ?? null, messageRows: [], attachmentRows: [], auditRows: [] };
+        }
+        const messageRows = await scopedDb
+          .select()
+          .from(secureMessages)
+          .where(and(
+            eq(secureMessages.conversationId, conversation.id),
+            eq(secureMessages.kommuneId, entry.kommuneId!),
+            eq(secureMessages.status, "sent"),
+          ))
+          .orderBy(asc(secureMessages.sentAt), asc(secureMessages.id));
+        const attachmentRows = await scopedDb
+          .select({ attachment: secureMessageAttachments })
+          .from(secureMessageAttachments)
+          .innerJoin(secureMessages, and(
+            eq(secureMessages.id, secureMessageAttachments.messageId),
+            eq(secureMessages.kommuneId, secureMessageAttachments.kommuneId),
+          ))
+          .where(and(
+            eq(secureMessages.conversationId, conversation.id),
+            eq(secureMessages.status, "sent"),
+            eq(secureMessageAttachments.scanStatus, "clean"),
+          ))
+          .orderBy(asc(secureMessageAttachments.createdAt));
+        const auditRows = await scopedDb
+          .select()
+          .from(secureDialogAuditEvents)
+          .where(and(
+            eq(secureDialogAuditEvents.conversationId, conversation.id),
+            eq(secureDialogAuditEvents.kommuneId, entry.kommuneId!),
+          ))
+          .orderBy(asc(secureDialogAuditEvents.createdAt), asc(secureDialogAuditEvents.id));
+        return { conversation, melding, messageRows, attachmentRows, auditRows };
       });
+      const { conversation, melding, messageRows, attachmentRows, auditRows } = secureSnapshot;
+      if (!conversation || conversation.status !== "closed" || !conversation.closedAt || !conversation.subject) {
+        throw new Error("Sikker dialog er ikke avsluttet eller finnes ikke lenger");
+      }
       if (!melding) throw new Error("Bekymringsmeldingen finnes ikke lenger");
 
       let [link] = await db
@@ -439,37 +476,6 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
           })
           .returning();
       }
-
-      const messageRows = await db
-        .select()
-        .from(secureMessages)
-        .where(and(
-          eq(secureMessages.conversationId, conversation.id),
-          eq(secureMessages.kommuneId, entry.kommuneId),
-          eq(secureMessages.status, "sent"),
-        ))
-        .orderBy(asc(secureMessages.sentAt), asc(secureMessages.id));
-      const attachmentRows = await db
-        .select({ attachment: secureMessageAttachments })
-        .from(secureMessageAttachments)
-        .innerJoin(secureMessages, and(
-          eq(secureMessages.id, secureMessageAttachments.messageId),
-          eq(secureMessages.kommuneId, secureMessageAttachments.kommuneId),
-        ))
-        .where(and(
-          eq(secureMessages.conversationId, conversation.id),
-          eq(secureMessages.status, "sent"),
-          eq(secureMessageAttachments.scanStatus, "clean"),
-        ))
-        .orderBy(asc(secureMessageAttachments.createdAt));
-      const auditRows = await db
-        .select()
-        .from(secureDialogAuditEvents)
-        .where(and(
-          eq(secureDialogAuditEvents.conversationId, conversation.id),
-          eq(secureDialogAuditEvents.kommuneId, entry.kommuneId),
-        ))
-        .orderBy(asc(secureDialogAuditEvents.createdAt), asc(secureDialogAuditEvents.id));
 
       const packagedAttachments = await Promise.all(attachmentRows.map(async ({ attachment }) => {
         const content = await downloadSecureDialogAttachment(attachment.storageKey);
@@ -518,8 +524,9 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       );
       const jp = await provider.createJournalpost(link.eksternMappeId, spec);
 
-      const done = await db.transaction(async (tx) => {
-        const [updated] = await tx
+      const done = await withKommuneRlsContext(entry.kommuneId, async (client) => {
+        const scopedDb = drizzle(client, { schema });
+        const [updated] = await scopedDb
           .update(archiveEntries)
           .set({
             status: "archived",
@@ -549,7 +556,7 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
           ))
           .returning();
         if (!updated) return null;
-        await tx.insert(secureDialogAuditEvents).values({
+        await scopedDb.insert(secureDialogAuditEvents).values({
           kommuneId: entry.kommuneId!,
           actorUserId: null,
           actorKind: "system",
@@ -589,13 +596,16 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       return (await db.select().from(archiveEntries).where(eq(archiveEntries.id, entry.id)).limit(1))[0];
     }
     if (terminal && entry.entityType === "secure_dialog" && entry.kommuneId != null) {
-      await db.insert(secureDialogAuditEvents).values({
-        kommuneId: entry.kommuneId,
-        actorUserId: null,
-        actorKind: "system",
-        conversationId: entry.entityId,
-        action: "archive_failed",
-        metadata: { attempts },
+      await withKommuneRlsContext(entry.kommuneId, async (client) => {
+        const scopedDb = drizzle(client, { schema });
+        await scopedDb.insert(secureDialogAuditEvents).values({
+          kommuneId: entry.kommuneId!,
+          actorUserId: null,
+          actorKind: "system",
+          conversationId: entry.entityId,
+          action: "archive_failed",
+          metadata: { attempts },
+        });
       }).catch(() => undefined);
     }
     console.error(

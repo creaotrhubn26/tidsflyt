@@ -15,9 +15,24 @@ SECURITY`. Vedlegg har fått egen `kommune_id`, indeks og sammensatt
 fremmednøkkel mot `(melding_id, kommune_id)`. En vedleggsrad kan dermed ikke
 peke på en melding i en annen kommune, heller ikke fra intern systemkode.
 
-Dette er fase 1, ikke en påstand om full systemomfattende RLS. Sikker dialog,
-arkiv, frister, brukere, vendor-domenet og øvrige saksobjekter skal føres inn i
-en kontrollert tabell-/endepunktsmatrise før RLS kan beskrives som komplett.
+Migrasjon 084 innfører fase 2 for hele sikker-dialoggrafen:
+
+- parter, sakstilganger, samtaler og deltakere;
+- meldinger, vedlegg, lesekvitteringer og append-only audit;
+- varslingskø og skadevarekarantene;
+- oppbevaringspolicy og juridisk sperring.
+
+Alle de tolv tabellene har `ENABLE` + `FORCE RLS`. Kommunalt ansatte ser bare
+egen kommune. En BankID-/Buypass-autentisert part får en egen
+`secure_party`-kontekst og kan bare følge sin egen aktive kjede fra part via
+sakstilgang og deltaker til samtale, melding og vedlegg. En annen part i samme
+kommune er dermed også skjult på databasenivå. Uten sterk eID brukes en
+eksplisitt `deny`-kontekst som returnerer null rader og bevarer nøytrale
+404-svar uten et privilegert eksistensoppslag.
+
+Dette er fase 1 og 2, ikke en påstand om full systemomfattende RLS. Arkiv,
+frister, brukere, vendor-domenet og øvrige saksobjekter skal føres inn i en
+kontrollert tabell-/endepunktsmatrise før RLS kan beskrives som komplett.
 
 ## Transaksjonslokal kontekst
 
@@ -26,7 +41,8 @@ Beskyttede operasjoner går gjennom
 
 1. starter en eksplisitt transaksjon;
 2. bytter lokalt til en rolle uten `BYPASSRLS`;
-3. setter `tidum.rls_mode` og `tidum.kommune_id` med `set_config(..., true)`;
+3. setter modus og nødvendig kommune-, parts- eller systemkontekst med
+   `set_config(..., true)`;
 4. utfører operasjonen;
 5. committer eller ruller tilbake og frigir tilkoblingen.
 
@@ -34,27 +50,31 @@ Beskyttede operasjoner går gjennom
 poolen kan derfor ikke arve forrige kommunes kontekst. Manglende, ugyldig eller
 utløpt kontekst gir ingen rader og avviser nye rader.
 
-Manuelle forespørsler bruker alltid kommunekontekst avledet fra fersk
-`users.kommune_id`. Systemkontekst er avgrenset til navngitte interne jobber,
-som hemmelighetsinventory/-rotasjon, og skal aldri bygges fra request-data.
+Manuelle ansatteforespørsler bruker alltid kommunekontekst avledet fra fersk
+`users.kommune_id`. Innbyggerkontekst bruker fersk bruker-ID etter sterk eID;
+policyene beviser aktivt parts-/samtalemedlemskap og stoler ikke på kommune-ID
+fra requesten. Systemkontekst er avgrenset til navngitte interne jobber, som
+varslingskø, karantenerydding, retensjon, arkivering og
+hemmelighetsinventory/-rotasjon, og skal aldri bygges fra request-data.
 
 ## Databaseeier og produksjonsrolle
 
 Den delte Neon-utviklingsdatabasen bruker en administrert eierkonto som kan
 omgå RLS. Neon tillater ikke denne kontoen å opprette eller endre roller.
-Migrasjon 083 bruker derfor PostgreSQLs innebygde `pg_database_owner`
+Migrasjon 083 og 084 bruker derfor PostgreSQLs innebygde `pg_database_owner`
 transaksjonslokalt. Rollen er `NOLOGIN`, `NOSUPERUSER` og `NOBYPASSRLS`, og
-migrasjonen gir bare eksplisitte tabellrettigheter på fase-1-tabellene samt nødvendige
-avhengigheter (`users`, `tidum_kommuner`, `tidum_frister` og
-meldingsnummersekvensen). Det gis ingen standardrettigheter på fremtidige
-objekter.
+migrasjonene gir bare eksplisitte rettigheter på fase-1/-2-tabellene og
+nødvendige avhengigheter. Brukeropprettelse er begrenset til kolonnene som
+trengs for en eID-only portalidentitet. Det gis ingen standardrettigheter på
+fremtidige objekter.
 
 I produksjon skal plattformteamet opprette en separat applikasjonslogin uten
 eier-, DDL- eller `BYPASSRLS`-rettigheter, en dedikert `NOLOGIN
 NOBYPASSRLS`-runtime-rolle og en separat migrasjonsidentitet. Sett
 `TIDUM_RLS_RUNTIME_ROLE` til runtime-rollen og gi applikasjonsloginen rett til
 å `SET ROLE` til den. Rollen skal få samme eksplisitte objektrettigheter som i
-migrasjon 083, ikke generelle rettigheter på alle eller fremtidige tabeller.
+migrasjon 083 og 084, ikke generelle rettigheter på alle eller fremtidige
+tabeller.
 Tilkoblingshemmelighetene skal ligge i godkjent hvelv. `pg_database_owner` er
 en kompatibilitetsgrense for dagens administrerte utviklingsdatabase, ikke
 erstatning for minste privilegium i produksjon. Produksjonsoppstart feiler
@@ -65,22 +85,25 @@ lukket dersom variabelen mangler eller peker på `pg_database_owner`.
 Før deploy:
 
 1. ta verifisert databasebackup og registrer endrings-ID;
-2. kjør migrasjon 083 idempotent med migrasjonsidentiteten;
-3. bekreft `relrowsecurity=true` og `relforcerowsecurity=true` på alle tre
-   tabellene;
+2. kjør migrasjon 083 og 084 idempotent med migrasjonsidentiteten;
+3. bekreft `relrowsecurity=true` og `relforcerowsecurity=true` på alle 15
+   tabellene i fase 1 og 2;
 4. bekreft at runtime-rollen ikke kan logge inn, ikke er superbruker og ikke
    har `BYPASSRLS`;
 5. kjør to-kommunetesten og kontroller at A aldri ser eller endrer B;
-6. test opprettelse, tildeling, vedlegg, sikker dialogreferanse, rått FIKS-
-   inntak, arkivering og nøkkelrotasjon;
-7. kontroller at en tilkobling uten kontekst ser null beskyttede rader etter
+6. kjør to-partstesten og kontroller at en part ikke ser en annen parts
+   samtale i samme kommune;
+7. test opprettelse, tildeling, vedlegg, sikker dialog, varsling, karantene,
+   retensjon, rått FIKS-inntak, arkivering og nøkkelrotasjon;
+8. kontroller at en tilkobling uten kontekst ser null beskyttede rader etter
    commit.
 
-Utviklingsbevis 27.08.2026: migrasjonen ble kjørt to ganger mot Neon, og ni
-berørte testfiler besto 49/49 tester. Testene dekker fail-closed uten kontekst,
-to kommuner, kryssoppdatering, sammensatt vedleggsbinding, pool-reset,
-krysskommunal tildeling samt regresjon for sikker dialog, arkiv, FIKS og
-nøkkelrotasjon.
+Utviklingsbevis 27.08.2026: migrasjon 083 og 084 er kjørt idempotent mot Neon.
+Ti berørte testfiler besto 58/58 tester. Testene dekker fail-closed uten
+kontekst, to kommuner, to parter i samme kommune, kryssoppdatering,
+sammensatte bindinger, pool-reset, nøytral anti-enumerering,
+krysskommunal tildeling samt regresjon for sikker dialog, varsling, karantene,
+retensjon, arkiv, FIKS og nøkkelrotasjon.
 
 ## Gjenstående akseptanse
 

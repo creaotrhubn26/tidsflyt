@@ -37,8 +37,32 @@ export async function setLocalKommuneRlsContext(
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'kommune', true),
             set_config('tidum.kommune_id', $1, true),
-            set_config('tidum.rls_system_operation', '', true)`,
+            set_config('tidum.rls_system_operation', '', true),
+            set_config('tidum.rls_actor_user_id', '', true)`,
     [String(scopedKommuneId)],
+  );
+}
+
+/**
+ * Restricts secure-dialog access to the conversations an eID-authenticated
+ * portal user actively participates in. The database policies, not request
+ * parameters, resolve the user's permitted objects.
+ */
+export async function setLocalSecurePartyRlsContext(
+  client: QueryClient,
+  actorUserId: string,
+): Promise<void> {
+  const normalizedActorUserId = actorUserId.trim();
+  if (!normalizedActorUserId || normalizedActorUserId.length > 128 || /[\u0000-\u001f\u007f]/.test(normalizedActorUserId)) {
+    throw new Error("INVALID_RLS_ACTOR_USER_ID");
+  }
+  await assumeRlsRuntimeRole(client);
+  await client.query(
+    `SELECT set_config('tidum.rls_mode', 'secure_party', true),
+            set_config('tidum.kommune_id', '', true),
+            set_config('tidum.rls_system_operation', '', true),
+            set_config('tidum.rls_actor_user_id', $1, true)`,
+    [normalizedActorUserId],
   );
 }
 
@@ -58,8 +82,24 @@ export async function setLocalSystemRlsContext(
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'system', true),
             set_config('tidum.kommune_id', '', true),
-            set_config('tidum.rls_system_operation', $1, true)`,
+            set_config('tidum.rls_system_operation', $1, true),
+            set_config('tidum.rls_actor_user_id', '', true)`,
     [normalizedOperation],
+  );
+}
+
+/**
+ * Runs an object lookup through the runtime role without granting any RLS
+ * scope. This preserves neutral not-found responses for unauthorised callers
+ * without performing a privileged existence check first.
+ */
+export async function setLocalDeniedRlsContext(client: QueryClient): Promise<void> {
+  await assumeRlsRuntimeRole(client);
+  await client.query(
+    `SELECT set_config('tidum.rls_mode', 'deny', true),
+            set_config('tidum.kommune_id', '', true),
+            set_config('tidum.rls_system_operation', '', true),
+            set_config('tidum.rls_actor_user_id', '', true)`,
   );
 }
 
@@ -90,6 +130,22 @@ export function withKommuneRlsContext<T>(
     (client) => setLocalKommuneRlsContext(client, kommuneId),
     callback,
   );
+}
+
+export function withSecurePartyRlsContext<T>(
+  actorUserId: string,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return withRlsTransaction(
+    (client) => setLocalSecurePartyRlsContext(client, actorUserId),
+    callback,
+  );
+}
+
+export function withDeniedRlsContext<T>(
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return withRlsTransaction(setLocalDeniedRlsContext, callback);
 }
 
 export function withSystemRlsContext<T>(

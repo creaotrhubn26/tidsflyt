@@ -51,9 +51,11 @@ beforeEach(() => {
 
 describe("platform secret rotation", () => {
   it("returns aggregate exact-key inventory without selecting secret values", async () => {
-    mocks.query.mockResolvedValueOnce({
-      rows: [{ ...emptyInventoryRow, archive_configs: "2", secure_messages: 3 }],
-    });
+    mocks.clientQuery.mockImplementation(async (sql: string) => (
+      sql.includes("AS secure_conversations")
+        ? { rows: [{ ...emptyInventoryRow, archive_configs: "2", secure_messages: 3 }] }
+        : { rows: [] }
+    ));
     const inventory = await getSecretRotationInventory("2026_11");
 
     expect(inventory).toEqual({
@@ -64,7 +66,9 @@ describe("platform secret rotation", () => {
       rawIntakePayloads: 0,
       powerOfficeCredentials: 0,
     });
-    const [sql, params] = mocks.query.mock.calls[0];
+    const [sql, params] = mocks.clientQuery.mock.calls.find(([statement]) => (
+      String(statement).includes("AS secure_conversations")
+    ))!;
     expect(sql).toContain("split_part(client_secret, ':', 3) = $1");
     expect(sql).toContain("COUNT(*)");
     expect(sql).not.toMatch(/SELECT\s+client_secret|SELECT\s+client_key/);
@@ -81,9 +85,10 @@ describe("platform secret rotation", () => {
       powerOfficeCredentials: 6,
       activeKeyId: "2026_11",
     });
-    mocks.query
-      .mockResolvedValueOnce({ rows: [emptyInventoryRow] })
-      .mockResolvedValueOnce({ rows: [] });
+    mocks.clientQuery.mockImplementation(async (sql: string) => (
+      sql.includes("AS secure_conversations") ? { rows: [emptyInventoryRow] } : { rows: [] }
+    ));
+    mocks.query.mockResolvedValueOnce({ rows: [] });
 
     const result = await runPlatformSecretRotation({
       limit: 50,
@@ -103,7 +108,7 @@ describe("platform secret rotation", () => {
       },
     }));
     expect(mocks.processRotation).toHaveBeenCalledWith(50, undefined, "manual");
-    const auditParams = mocks.query.mock.calls[1][1];
+    const auditParams = mocks.query.mock.calls[0][1];
     expect(auditParams).toEqual(expect.arrayContaining([
       "manual",
       "operator-1",

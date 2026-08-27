@@ -1,5 +1,4 @@
 import type { PoolClient } from "pg";
-import { pool } from "../db";
 import { deleteSecureDialogAttachment } from "./secure-dialog-storage";
 import {
   rewrapSecureDialogContent,
@@ -9,19 +8,21 @@ import { getActiveSecretKeyId, rewrapSecret, sealedSecretKeyId } from "./secret-
 import { rotatePowerOfficeClientKeys } from "./poweroffice-credentials";
 import { withKommuneRlsContext, withSystemRlsContext } from "./database-rls-context";
 
-async function transaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const result = await callback(client);
-    await client.query("COMMIT");
-    return result;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
+type SecureGovernanceSystemOperation =
+  | "secure_retention_claim"
+  | "secure_retention_storage"
+  | "secure_retention_purge"
+  | "secure_retention_retry"
+  | "secure_key_rotation";
+
+function withGovernanceRlsContext<T>(
+  kommuneId: number | undefined,
+  systemOperation: SecureGovernanceSystemOperation,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return kommuneId == null
+    ? withSystemRlsContext(systemOperation, callback)
+    : withKommuneRlsContext(kommuneId, callback);
 }
 
 export async function processSecureDialogRetention(limit = 20, kommuneId?: number): Promise<{
@@ -35,7 +36,7 @@ export async function processSecureDialogRetention(limit = 20, kommuneId?: numbe
   let failed = 0;
 
   for (let index = 0; index < safeLimit; index += 1) {
-    const claimed = await transaction(async (client) => {
+    const claimed = await withGovernanceRlsContext(kommuneId, "secure_retention_claim", async (client) => {
       const { rows: [row] } = await client.query(
         `WITH candidate AS (
            SELECT conversation.id, conversation.kommune_id, conversation.retention_state AS previous_state
@@ -99,24 +100,28 @@ export async function processSecureDialogRetention(limit = 20, kommuneId?: numbe
     processed += 1;
 
     try {
-      const storageRows = await pool.query(
-        `SELECT storage_key
-           FROM tidum_secure_message_attachments attachment
-          WHERE attachment.kommune_id = $1
-            AND attachment.message_id IN (
-              SELECT id FROM tidum_secure_messages WHERE conversation_id = $2 AND kommune_id = $1
-            )
-         UNION
-         SELECT storage_key
-           FROM tidum_secure_attachment_quarantine
-          WHERE kommune_id = $1 AND conversation_id = $2 AND status <> 'deleted'`,
-        [claimed.kommune_id, claimed.id],
+      const storageRows = await withGovernanceRlsContext(
+        kommuneId,
+        "secure_retention_storage",
+        (client) => client.query(
+          `SELECT storage_key
+             FROM tidum_secure_message_attachments attachment
+            WHERE attachment.kommune_id = $1
+              AND attachment.message_id IN (
+                SELECT id FROM tidum_secure_messages WHERE conversation_id = $2 AND kommune_id = $1
+              )
+           UNION
+           SELECT storage_key
+             FROM tidum_secure_attachment_quarantine
+            WHERE kommune_id = $1 AND conversation_id = $2 AND status <> 'deleted'`,
+          [claimed.kommune_id, claimed.id],
+        ),
       );
       for (const row of storageRows.rows) {
         await deleteSecureDialogAttachment(String(row.storage_key));
       }
 
-      await transaction(async (client) => {
+      await withGovernanceRlsContext(kommuneId, "secure_retention_purge", async (client) => {
         const guard = await client.query(
           `SELECT 1
              FROM tidum_secure_conversations conversation
@@ -189,7 +194,7 @@ export async function processSecureDialogRetention(limit = 20, kommuneId?: numbe
       purged += 1;
     } catch {
       failed += 1;
-      await transaction(async (client) => {
+      await withGovernanceRlsContext(kommuneId, "secure_retention_retry", async (client) => {
         await client.query(
           `UPDATE tidum_secure_conversations
               SET retention_last_error = 'retention_purge_failed',
@@ -225,7 +230,7 @@ export async function processSecureDialogKeyRotation(
 }> {
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 500));
   const activeKeyId = getActiveSecretKeyId();
-  const result = await transaction(async (client) => {
+  const result = await withGovernanceRlsContext(kommuneId, "secure_key_rotation", async (client) => {
     const conversations = await client.query(
       `SELECT id, kommune_id, subject
          FROM tidum_secure_conversations

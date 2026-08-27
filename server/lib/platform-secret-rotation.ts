@@ -39,48 +39,43 @@ function numericInventory(row: Record<string, unknown>): SecretRotationInventory
 export async function getSecretRotationInventory(
   activeKeyId: string,
 ): Promise<SecretRotationInventory> {
-  const { rows: [row] } = await pool.query(
-    `SELECT
-       (SELECT COUNT(*)::int FROM tidum_secure_conversations
-         WHERE subject IS NOT NULL AND NOT (
-           subject ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-           AND split_part(subject, ':', 3) = $1
-         )) AS secure_conversations,
-       (SELECT COUNT(*)::int FROM tidum_secure_messages
-         WHERE NOT (
-           body_encrypted ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-           AND split_part(body_encrypted, ':', 3) = $1
-         )) AS secure_messages,
-       (SELECT COUNT(*)::int FROM archive_configs
-         WHERE NOT (
-           client_secret ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-           AND split_part(client_secret, ':', 3) = $1
-         )) AS archive_configs,
-       (SELECT COUNT(*)::int FROM tidum_kommuner
-         WHERE fiks_private_key_encrypted IS NOT NULL AND NOT (
-           fiks_private_key_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-           AND split_part(fiks_private_key_encrypted, ':', 3) = $1
-         )) AS municipality_keys,
-       (SELECT COUNT(*)::int FROM tidum_vendor_integrations
-         WHERE provider = 'poweroffice' AND NOT (
-           client_key ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-           AND split_part(client_key, ':', 3) = $1
-         )) AS poweroffice_credentials`,
-    [activeKeyId],
-  );
-  const rawIntakePayloads = await withSystemRlsContext("secret_inventory", async (client) => {
-    const { rows: [raw] } = await client.query(
-      `SELECT COUNT(*)::int AS count
-         FROM tidum_fiks_raw_intake_log
-        WHERE NOT (
-          raw_payload_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
-          AND split_part(raw_payload_encrypted, ':', 3) = $1
-        )`,
+  return withSystemRlsContext("secret_inventory", async (client) => {
+    const { rows: [row] } = await client.query(
+      `SELECT
+         (SELECT COUNT(*)::int FROM tidum_secure_conversations
+           WHERE subject IS NOT NULL AND NOT (
+             subject ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(subject, ':', 3) = $1
+           )) AS secure_conversations,
+         (SELECT COUNT(*)::int FROM tidum_secure_messages
+           WHERE NOT (
+             body_encrypted ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(body_encrypted, ':', 3) = $1
+           )) AS secure_messages,
+         (SELECT COUNT(*)::int FROM archive_configs
+           WHERE NOT (
+             client_secret ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(client_secret, ':', 3) = $1
+           )) AS archive_configs,
+         (SELECT COUNT(*)::int FROM tidum_kommuner
+           WHERE fiks_private_key_encrypted IS NOT NULL AND NOT (
+             fiks_private_key_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(fiks_private_key_encrypted, ':', 3) = $1
+           )) AS municipality_keys,
+         (SELECT COUNT(*)::int FROM tidum_fiks_raw_intake_log
+           WHERE NOT (
+             raw_payload_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(raw_payload_encrypted, ':', 3) = $1
+           )) AS raw_intake_payloads,
+         (SELECT COUNT(*)::int FROM tidum_vendor_integrations
+           WHERE provider = 'poweroffice' AND NOT (
+             client_key ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+             AND split_part(client_key, ':', 3) = $1
+           )) AS poweroffice_credentials`,
       [activeKeyId],
     );
-    return Number(raw?.count ?? 0);
+    return numericInventory(row ?? {});
   });
-  return numericInventory({ ...(row ?? {}), raw_intake_payloads: rawIntakePayloads });
 }
 
 function rotatedCounts(result: Awaited<ReturnType<typeof processSecureDialogKeyRotation>>): SecretRotationInventory {

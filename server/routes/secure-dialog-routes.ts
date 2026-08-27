@@ -32,7 +32,12 @@ import {
   processSecureDialogRetention,
 } from "../lib/secure-dialog-governance";
 import { runPlatformSecretRotation } from "../lib/platform-secret-rotation";
-import { withKommuneRlsContext } from "../lib/database-rls-context";
+import {
+  withDeniedRlsContext,
+  withKommuneRlsContext,
+  withSecurePartyRlsContext,
+  withSystemRlsContext,
+} from "../lib/database-rls-context";
 
 type SecureActor = {
   userId: string;
@@ -126,21 +131,6 @@ function routeError(res: Response, operation: string, error: unknown): Response 
   return res.status(500).json({ error: "Operasjonen kunne ikke fullføres" });
 }
 
-async function withTransaction<T>(callback: (client: PoolClient) => Promise<T>): Promise<T> {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-    const value = await callback(client);
-    await client.query("COMMIT");
-    return value;
-  } catch (error) {
-    await client.query("ROLLBACK").catch(() => undefined);
-    throw error;
-  } finally {
-    client.release();
-  }
-}
-
 async function resolveSecureActor(req: Request): Promise<SecureActor> {
   const identity = (req as any).authUser ?? (req as any).user;
   const userId = String(identity?.id ?? "").trim();
@@ -183,6 +173,19 @@ function requireGovernanceLeader(actor: SecureActor): number {
     throw new SecureDialogRouteError(403, "Kun barnevernsleder kan endre oppbevaring eller juridisk sperring", "LEADER_REQUIRED");
   }
   return kommuneId;
+}
+
+function withSecureActorRlsContext<T>(
+  actor: SecureActor,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  if (actor.staffKommuneId != null) {
+    return withKommuneRlsContext(actor.staffKommuneId, callback);
+  }
+  if (actor.strongEid) {
+    return withSecurePartyRlsContext(actor.userId, callback);
+  }
+  return withDeniedRlsContext(callback);
 }
 
 async function barnevernMeldingExists(kommuneId: number, meldingId: string): Promise<boolean> {
@@ -327,7 +330,10 @@ async function requireOwnedDraftMiddleware(req: Request, res: Response, next: Ne
   try {
     uuidSchema.parse(req.params.messageId);
     const actor = await resolveSecureActor(req);
-    const draft = await loadOwnedDraft(pool as unknown as Pick<PoolClient, "query">, req.params.messageId, actor);
+    const draft = await withSecureActorRlsContext(
+      actor,
+      (client) => loadOwnedDraft(client, req.params.messageId, actor),
+    );
     if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
     (req as any).secureDialogActor = actor;
     next();
@@ -338,14 +344,14 @@ async function requireOwnedDraftMiddleware(req: Request, res: Response, next: Ne
 
 export async function processSecureNotificationOutbox(messageId?: string, limit = 20): Promise<number> {
   let processed = 0;
-  await pool.query(
+  await withSystemRlsContext("secure_notification_recover", (client) => client.query(
     `UPDATE tidum_secure_notification_outbox
         SET status = 'failed', next_attempt_at = NOW(), updated_at = NOW(), last_error = 'stale_claim'
       WHERE status = 'sending' AND updated_at < NOW() - INTERVAL '10 minutes'`,
-  );
+  ));
 
   for (let index = 0; index < limit; index += 1) {
-    const claimed = await withTransaction(async (client) => {
+    const claimed = await withSystemRlsContext("secure_notification_claim", async (client) => {
       const { rows: [row] } = await client.query(
         `SELECT outbox.id, outbox.kommune_id, outbox.message_id, outbox.party_id,
                 outbox.attempts, party.notification_email, message.conversation_id
@@ -379,7 +385,7 @@ export async function processSecureNotificationOutbox(messageId?: string, limit 
     } catch (error) {
       console.error("[secure-dialog] neutral notification failed", error instanceof Error ? error.message : "unknown");
     }
-    await withTransaction(async (client) => {
+    await withSystemRlsContext("secure_notification_finalize", async (client) => {
       if (sent) {
         await client.query(
           `UPDATE tidum_secure_notification_outbox
@@ -412,6 +418,38 @@ export async function processSecureNotificationOutbox(messageId?: string, limit 
   return processed;
 }
 
+async function queueSecureNotifications(messageId: string, senderUserId: string): Promise<number> {
+  return withSystemRlsContext("secure_notification_queue", async (client) => {
+    const queued = await client.query(
+      `INSERT INTO tidum_secure_notification_outbox (kommune_id, message_id, party_id)
+       SELECT message.kommune_id, message.id, party.id
+         FROM tidum_secure_messages message
+         JOIN tidum_secure_conversation_participants participant
+           ON participant.conversation_id = message.conversation_id
+          AND participant.kommune_id = message.kommune_id
+         JOIN tidum_secure_case_access access
+           ON access.id = participant.party_access_id
+          AND access.kommune_id = participant.kommune_id
+         JOIN tidum_secure_parties party
+           ON party.id = access.party_id
+          AND party.kommune_id = access.kommune_id
+        WHERE message.id = $1
+          AND message.sender_user_id = $2
+          AND message.status = 'sent'
+          AND participant.revoked_at IS NULL
+          AND access.revoked_at IS NULL
+          AND access.valid_from <= NOW()
+          AND (access.valid_until IS NULL OR access.valid_until > NOW())
+          AND party.status = 'active'
+          AND party.notification_email IS NOT NULL
+          AND party.portal_user_id <> $2
+       ON CONFLICT (message_id, party_id) DO NOTHING`,
+      [messageId, senderUserId],
+    );
+    return queued.rowCount ?? 0;
+  });
+}
+
 function quarantineRetentionDays(): number {
   const parsed = Number.parseInt(process.env.SECURE_ATTACHMENT_QUARANTINE_DAYS || "30", 10);
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 365 ? parsed : 30;
@@ -421,7 +459,7 @@ export async function processExpiredSecureAttachmentQuarantine(limit = 20): Prom
   let processed = 0;
   const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 100));
   for (let index = 0; index < safeLimit; index += 1) {
-    const claimed = await withTransaction(async (client) => {
+    const claimed = await withSystemRlsContext("secure_quarantine_claim", async (client) => {
       const { rows: [row] } = await client.query(
         `WITH candidate AS (
            SELECT id
@@ -445,7 +483,7 @@ export async function processExpiredSecureAttachmentQuarantine(limit = 20): Prom
 
     try {
       await deleteSecureDialogAttachment(String(claimed.storage_key));
-      await withTransaction(async (client) => {
+      await withSystemRlsContext("secure_quarantine_finalize", async (client) => {
         await client.query(
           `UPDATE tidum_secure_attachment_quarantine
               SET status = 'deleted', deleted_at = NOW(), updated_at = NOW(), last_error = NULL
@@ -464,14 +502,14 @@ export async function processExpiredSecureAttachmentQuarantine(limit = 20): Prom
         });
       });
     } catch {
-      await pool.query(
+      await withSystemRlsContext("secure_quarantine_retry", (client) => client.query(
         `UPDATE tidum_secure_attachment_quarantine
             SET status = 'delete_failed',
                 next_attempt_at = NOW() + (INTERVAL '15 minutes' * LEAST(deletion_attempts, 16)),
                 updated_at = NOW(), last_error = 'storage_delete_failed'
           WHERE id = $1 AND status = 'deleting'`,
         [claimed.id],
-      );
+      ));
     }
     processed += 1;
   }
@@ -522,11 +560,14 @@ export function registerSecureDialogRoutes(app: Express): void {
     try {
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
-      const { rows: [policy] } = await pool.query(
-        `SELECT enabled, retention_days, policy_reference, updated_by, updated_at
-           FROM tidum_secure_dialog_retention_policies WHERE kommune_id = $1`,
-        [kommuneId],
-      );
+      const policy = await withKommuneRlsContext(kommuneId, async (client) => {
+        const { rows: [row] } = await client.query(
+          `SELECT enabled, retention_days, policy_reference, updated_by, updated_at
+             FROM tidum_secure_dialog_retention_policies WHERE kommune_id = $1`,
+          [kommuneId],
+        );
+        return row;
+      });
       res.json(policy ?? {
         enabled: false,
         retention_days: null,
@@ -543,7 +584,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const actor = await resolveSecureActor(req);
       const kommuneId = requireGovernanceLeader(actor);
       const input = retentionPolicySchema.parse(req.body);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows: [policy] } = await client.query(
           `INSERT INTO tidum_secure_dialog_retention_policies
              (kommune_id, enabled, retention_days, policy_reference, updated_by)
@@ -603,23 +644,26 @@ export function registerSecureDialogRoutes(app: Express): void {
       const conversationId = uuidSchema.parse(req.params.conversationId);
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
-      const { rows: [row] } = await pool.query(
-        `SELECT conversation.id, conversation.retention_state, conversation.retention_due_at,
-                conversation.retention_attempts, conversation.retention_last_error, conversation.purged_at,
-                entry.id AS archive_entry_id, entry.status AS archive_status,
-                entry.archived_at, entry.payload_hash, entry.journalpost_ident,
-                hold.id AS legal_hold_id, hold.reason AS legal_hold_reason,
-                hold.applied_at AS legal_hold_applied_at
-           FROM tidum_secure_conversations conversation
-           LEFT JOIN archive_entries entry
-             ON entry.entity_type = 'secure_dialog' AND entry.entity_id = conversation.id::text
-            AND entry.kommune_id = conversation.kommune_id
-           LEFT JOIN tidum_secure_dialog_legal_holds hold
-             ON hold.conversation_id = conversation.id AND hold.kommune_id = conversation.kommune_id
-            AND hold.released_at IS NULL
-          WHERE conversation.id = $1 AND conversation.kommune_id = $2`,
-        [conversationId, kommuneId],
-      );
+      const row = await withKommuneRlsContext(kommuneId, async (client) => {
+        const { rows: [governance] } = await client.query(
+          `SELECT conversation.id, conversation.retention_state, conversation.retention_due_at,
+                  conversation.retention_attempts, conversation.retention_last_error, conversation.purged_at,
+                  entry.id AS archive_entry_id, entry.status AS archive_status,
+                  entry.archived_at, entry.payload_hash, entry.journalpost_ident,
+                  hold.id AS legal_hold_id, hold.reason AS legal_hold_reason,
+                  hold.applied_at AS legal_hold_applied_at
+             FROM tidum_secure_conversations conversation
+             LEFT JOIN archive_entries entry
+               ON entry.entity_type = 'secure_dialog' AND entry.entity_id = conversation.id::text
+              AND entry.kommune_id = conversation.kommune_id
+             LEFT JOIN tidum_secure_dialog_legal_holds hold
+               ON hold.conversation_id = conversation.id AND hold.kommune_id = conversation.kommune_id
+              AND hold.released_at IS NULL
+            WHERE conversation.id = $1 AND conversation.kommune_id = $2`,
+          [conversationId, kommuneId],
+        );
+        return governance;
+      });
       if (!row) throw new SecureDialogRouteError(404, "Samtale ikke funnet", "CONVERSATION_NOT_FOUND");
       res.json(row);
     } catch (error) {
@@ -633,7 +677,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const actor = await resolveSecureActor(req);
       const kommuneId = requireGovernanceLeader(actor);
       const input = legalHoldSchema.parse(req.body);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const conversation = await client.query(
           `SELECT id FROM tidum_secure_conversations
             WHERE id = $1 AND kommune_id = $2 AND retention_state = 'active'
@@ -675,7 +719,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const holdId = uuidSchema.parse(req.params.holdId);
       const actor = await resolveSecureActor(req);
       const kommuneId = requireGovernanceLeader(actor);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows: [hold] } = await client.query(
           `UPDATE tidum_secure_dialog_legal_holds
               SET released_by = $1, released_at = NOW()
@@ -707,7 +751,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (meldingId && !(await barnevernMeldingExists(kommuneId, meldingId))) {
         throw new SecureDialogRouteError(404, "Melding ikke funnet", "CASE_NOT_FOUND");
       }
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows } = await client.query(
           `SELECT party.id, party.display_name, party.notification_email, party.status, party.created_at,
                   EXISTS (
@@ -765,7 +809,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
       const input = partyCreateSchema.parse(req.body);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const identity = await provisionSecurePartyIdentity(client, input);
         const existing = await client.query(
           `SELECT id FROM tidum_secure_parties WHERE kommune_id = $1 AND portal_user_id = $2`,
@@ -823,7 +867,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (!(await barnevernMeldingExists(kommuneId, meldingId))) {
         throw new SecureDialogRouteError(404, "Sak eller part ikke funnet", "SCOPE_NOT_FOUND");
       }
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const partyResult = await client.query(
           `SELECT id FROM tidum_secure_parties WHERE id = $1 AND kommune_id = $2 AND status = 'active'`,
           [input.partyId, kommuneId],
@@ -872,7 +916,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const accessId = uuidSchema.parse(req.params.accessId);
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows: [access] } = await client.query(
           `UPDATE tidum_secure_case_access
               SET revoked_at = NOW(), revoked_by = $1, updated_at = NOW()
@@ -933,7 +977,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (!(await barnevernMeldingExists(kommuneId, input.meldingId))) {
         throw new SecureDialogRouteError(404, "Sak ikke funnet", "CASE_NOT_FOUND");
       }
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const accesses = await client.query(
           `SELECT id, party_id
              FROM tidum_secure_case_access
@@ -984,7 +1028,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       if (actor.staffKommuneId == null && !actor.strongEid) {
         throw new SecureDialogRouteError(403, "BankID eller Buypass kreves", "STRONG_EID_REQUIRED");
       }
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows } = await client.query(
           `SELECT DISTINCT c.id, c.kommune_id, c.barnevern_melding_id, c.subject, c.status, c.created_at, c.updated_at
              FROM tidum_secure_conversations c
@@ -1033,7 +1077,7 @@ export function registerSecureDialogRoutes(app: Express): void {
     try {
       const conversationId = uuidSchema.parse(req.params.conversationId);
       const actor = await resolveSecureActor(req);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const access = await loadConversationAccess(client, conversationId, actor);
         if (!access) throw new SecureDialogRouteError(404, "Samtale ikke funnet", "CONVERSATION_NOT_FOUND");
         const participants = await client.query(
@@ -1130,7 +1174,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const conversationId = uuidSchema.parse(req.params.conversationId);
       const input = messageBodySchema.parse(req.body);
       const actor = await resolveSecureActor(req);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const access = await loadConversationAccess(client, conversationId, actor);
         if (!access) throw new SecureDialogRouteError(404, "Samtale ikke funnet", "CONVERSATION_NOT_FOUND");
         if (access.status !== "open") throw new SecureDialogRouteError(409, "Samtalen er lukket", "CONVERSATION_CLOSED");
@@ -1170,7 +1214,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const messageId = uuidSchema.parse(req.params.messageId);
       const input = messageBodySchema.parse(req.body);
       const actor = await resolveSecureActor(req);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const draft = await loadOwnedDraft(client, messageId, actor);
         if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
         const { rows: [updated] } = await client.query(
@@ -1216,7 +1260,7 @@ export function registerSecureDialogRoutes(app: Express): void {
         try {
           scanResult = await scanSecureAttachmentForMalware(req.file.buffer);
         } catch (error) {
-          await withTransaction(async (client) => {
+          await withSecureActorRlsContext(actor, async (client) => {
             const draft = await loadOwnedDraft(client, req.params.messageId, actor);
             if (!draft) return;
             await appendAudit(client, {
@@ -1243,7 +1287,7 @@ export function registerSecureDialogRoutes(app: Express): void {
         if (scanResult.status === "infected") {
           storageKey = generateSecureDialogQuarantineKey(req.params.messageId, safeName);
           await uploadSecureDialogAttachment(storageKey, req.file.buffer, req.file.mimetype, checksum);
-          await withTransaction(async (client) => {
+          await withSecureActorRlsContext(actor, async (client) => {
             const draft = await loadOwnedDraft(client, req.params.messageId, actor);
             if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
             const { rows: [quarantine] } = await client.query(
@@ -1296,7 +1340,7 @@ export function registerSecureDialogRoutes(app: Express): void {
 
         storageKey = generateSecureDialogAttachmentKey(req.params.messageId, safeName);
         await uploadSecureDialogAttachment(storageKey, req.file.buffer, req.file.mimetype, checksum);
-        const result = await withTransaction(async (client) => {
+        const result = await withSecureActorRlsContext(actor, async (client) => {
           const draft = await loadOwnedDraft(client, req.params.messageId, actor);
           if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
           const { rows: [attachment] } = await client.query(
@@ -1360,7 +1404,7 @@ export function registerSecureDialogRoutes(app: Express): void {
     try {
       const messageId = uuidSchema.parse(req.params.messageId);
       const actor = await resolveSecureActor(req);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const draft = await loadOwnedDraft(client, messageId, actor);
         if (!draft) throw new SecureDialogRouteError(404, "Utkast ikke funnet", "DRAFT_NOT_FOUND");
         if (draft.access.status !== "open") {
@@ -1413,6 +1457,12 @@ export function registerSecureDialogRoutes(app: Express): void {
         });
         return sent;
       });
+      // A portal-party RLS context only exposes that party's own participant
+      // row. Complete the recipient fan-out in a narrowly named system
+      // transaction that re-verifies the sender and sent message.
+      await queueSecureNotifications(messageId, actor.userId).catch((error) => {
+        console.error("[secure-dialog] notification queue repair failed", error instanceof Error ? error.message : "unknown");
+      });
       await processSecureNotificationOutbox(messageId).catch((error) => {
         console.error("[secure-dialog] notification outbox processing failed", error);
       });
@@ -1430,7 +1480,7 @@ export function registerSecureDialogRoutes(app: Express): void {
         const conversationId = uuidSchema.parse(req.params.conversationId);
         const attachmentId = uuidSchema.parse(req.params.attachmentId);
         const actor = await resolveSecureActor(req);
-        const attachment = await withTransaction(async (client) => {
+        const attachment = await withSecureActorRlsContext(actor, async (client) => {
           const access = await loadConversationAccess(client, conversationId, actor);
           if (!access) throw new SecureDialogRouteError(404, "Vedlegg ikke funnet", "ATTACHMENT_NOT_FOUND");
           const { rows: [row] } = await client.query(
@@ -1452,7 +1502,7 @@ export function registerSecureDialogRoutes(app: Express): void {
         if (checksum !== attachment.checksum_sha256) {
           throw new Error("ATTACHMENT_CHECKSUM_MISMATCH");
         }
-        await withTransaction(async (client) => {
+        await withSecureActorRlsContext(actor, async (client) => {
           await appendAudit(client, {
             kommuneId: attachment.access.kommuneId,
             actorUserId: actor.userId,
@@ -1478,7 +1528,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const conversationId = uuidSchema.parse(req.params.conversationId);
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const { rows: [conversation] } = await client.query(
           `UPDATE tidum_secure_conversations
               SET status = 'closed', closed_by = $1, closed_at = NOW(),
@@ -1558,7 +1608,7 @@ export function registerSecureDialogRoutes(app: Express): void {
       const conversationId = uuidSchema.parse(req.params.conversationId);
       const actor = await resolveSecureActor(req);
       const kommuneId = requireStaff(actor);
-      const result = await withTransaction(async (client) => {
+      const result = await withSecureActorRlsContext(actor, async (client) => {
         const conversation = await client.query(
           `SELECT id FROM tidum_secure_conversations WHERE id = $1 AND kommune_id = $2`,
           [conversationId, kommuneId],

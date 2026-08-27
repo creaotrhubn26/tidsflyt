@@ -29,4 +29,14 @@ describe("database RLS runtime role configuration", () => {
       "INVALID_RLS_RUNTIME_ROLE",
     );
   });
+
+  it("rejects an invalid portal actor before setting database context", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("TIDUM_RLS_RUNTIME_ROLE", "pg_database_owner");
+    const { setLocalSecurePartyRlsContext } = await import("../database-rls-context");
+    const query = vi.fn();
+    await expect(setLocalSecurePartyRlsContext({ query } as any, "actor\nspoof"))
+      .rejects.toThrow("INVALID_RLS_ACTOR_USER_ID");
+    expect(query).not.toHaveBeenCalled();
+  });
 });

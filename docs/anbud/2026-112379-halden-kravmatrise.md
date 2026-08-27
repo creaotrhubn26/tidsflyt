@@ -223,10 +223,11 @@ og sesjonsbasert CSRF-vern, med eksplisitt transportdekning i klienten.
 Versjonert hemmelighetskryptering er nå portet og utvidet til PowerOffice
 ClientKey med migrasjon 081. Leverandørnøytral hvelv-injeksjon,
 fail-closed produksjonsoppstart og append-only rotasjonsbevis er implementert
-med migrasjon 082. Migrasjon 083 og transaksjonslokal runtime-kontekst gir
-`FORCE RLS` for bekymringsmeldinger, vedlegg og rå FIKS-inntak; to-kommunetest
-og tilgrensende regresjon består 49/49. Faktisk produksjonshvelv/-øvelse,
-TOTP/MFA, egen produksjonslogin og RLS for resten av systemmatrisen gjenstår.
+med migrasjon 082. Migrasjon 083 og 084 gir transaksjonslokal runtime-kontekst
+og `FORCE RLS` for bekymringsmeldingskjernen og hele sikker-dialoggrafen.
+To-kommunetest, to parter i samme kommune og tilgrensende regresjon består
+58/58. Faktisk produksjonshvelv/-øvelse, TOTP/MFA, egen produksjonslogin og
+RLS for resten av systemmatrisen gjenstår.
 - En kontrollert utviklingsøvelse fullførte med null rest på alle seks
   hemmelighetsflater og varig, hemmelighetsfritt `runId`. Dette verifiserer
   applikasjonsflyten, men erstatter ikke øvelse i valgt produksjonshvelv.
@@ -313,7 +314,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 11 | E | Egne rapporter | Avansert rapportbygger, malredigering, filtre/visninger og analyse finnes. Både den eldre rapportdesignerflyten og hovedflyten for saksrapporter, godkjenning, mål, aktiviteter, kommentarer, audit og PDF er nå tenant-/objektsikret i integrasjonsgrenen med migrasjon og DB-test. | Delvis – sterkere, fortsatt ikke barnevernsferdig | Porter øvrige QA-fikser; koble til kommunale barnevernsdata; autoritativ versjonering; store datamengder; demo og bred sikkerhetstest. |
 | 12 | E | Ad hoc, CSV/Excel og rapporterings-API | CSV/Excel og flere API-er finnes, primært for tids-/rapportdata. Fiksen gjør egenbruk til standard og leder-`all` eksplisitt tenantavgrenset, samt nøytraliserer regnearkformler og HTML. | Delvis – objektkontroll styrket | Barnevernsdatasett; sak/rolle/formålsfilter; masking; audit; tidsbegrenset eksport og komplett systemomfattende BOLA-test. |
 | 13 | E | Beskriv hvordan nøkkeltall hentes | Analysekomponenter og dashboards finnes for eksisterende domene. | Delvis – byggekloss | Definer barneverns-KPI-er, kilde/formel/eier/frekvens, datakvalitet, tilgang og demonstrer sporbar beregning. |
-| 14 | E | RBAC og juridisk avgrenset innsyn; minst tre roller | `main` har omfattende RBAC. PR #21 har kommune-tenant og to kommuneroller med DB-oppslag. Integrasjonsgrenen håndhever serveravledet tenant, tildeling/eierskap og egne redigerings-/godkjenningsrettigheter i sak–rapport–mål–aktivitet-grafen. Migrasjon 083 gir `FORCE RLS`, transaksjonslokal kommunekontekst og sammensatt vedleggsbinding for bekymringsmelding, vedlegg og rå FIKS-inntak. | Delvis – objektgrunnmur + RLS fase 1 | Legg administrator; kommunalt saksnivå «need-to-know», delegasjon/fravær, nødtilgang og skjermet adresse; egen produksjonslogin; utvid RLS og authz/BOLA-matrisen systemomfattende. |
+| 14 | E | RBAC og juridisk avgrenset innsyn; minst tre roller | `main` har omfattende RBAC. PR #21 har kommune-tenant og to kommuneroller med DB-oppslag. Integrasjonsgrenen håndhever serveravledet tenant, tildeling/eierskap og egne redigerings-/godkjenningsrettigheter i sak–rapport–mål–aktivitet-grafen. Migrasjon 083 og 084 gir `FORCE RLS` for bekymringsmeldingskjernen og hele sikker-dialoggrafen. Innbygger med BankID/Buypass er i tillegg objektavgrenset til egen aktive parts-/samtalekjede, også mot andre parter i samme kommune. | Delvis – objektgrunnmur + RLS fase 2 | Legg administrator; kommunalt saksnivå «need-to-know», delegasjon/fravær, nødtilgang og skjermet adresse; egen produksjonslogin; utvid RLS til arkiv, frister, brukerbinding og relevante vendorflater. |
 | 15 | Skal | Alle saksendringer og dokumentoppslag logges søkbart | Flere append-/auditlogger finnes; PR #21 journal er append-only og BOLA på company audit er fikset. Rapport-audit, kommentarer, journal og vedlegg er nå objektskopet i hovedflyten. | Delvis | Ett dekningskart for alle saksobjekter; logg alle lesinger/nedlastinger; søk/revisorrapport; integritet, retensjon og testbevis for full dekning. |
 | 16 | E | Innsynsbegjæring, utskrift, journalkopi og klagedokumentasjon | Brukeren kan laste ned egne persondata; admin-eksport, anonymisering/sletting, PDF-generering og PII-maskering finnes. Ingen saksrettet innsyns-/klageprosess. | Delvis – teknisk grunnlag | Workflow for mottak, partsstatus, unntak/sladding, godkjenning, frist, utskrift/journalkopi, utlevering og klage; sikkerhetsherd GDPR-/eksport-rutene. |
 | 17 | E | Enkelt komplett saksuttrekk til bruker/klient | GDPR-eksport samler flere brukerrelaterte tabeller; generiske CSV/Excel/PDF/JSON-eksporter og rapport-PDF finnes. Ingen komplett barnevernsmappe eller kontrollert partsutlevering. | Delvis – eksportgrunnlag | Saksmanifest med journal, dokumenter, vedlegg, vedtak, metadata og kontrollert utlevering med audit og verifisert tilgangskontroll. |
@@ -367,9 +368,10 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    Dev-bypass, tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og CSRF er
    ferdige lokalt. Versjonert hemmelighetskryptering, inkludert PowerOffice
    ClientKey, er også ferdig lokalt. Fail-closed hvelv-injeksjon og append-only
-   rotasjonsbevis er implementert. RLS fase 1 er implementert for kommunens
-   bekymringsmeldingskjerne; faktisk produksjonshvelv/-øvelse, TOTP/MFA, egen
-   produksjonslogin og full RLS-matrise gjenstår.
+   rotasjonsbevis er implementert. RLS fase 1 og 2 er implementert for
+   kommunens bekymringsmeldingskjerne og sikker dialog; faktisk
+   produksjonshvelv/-øvelse, TOTP/MFA, egen produksjonslogin og full
+   RLS-matrise gjenstår.
 3. **Delvis utført lokalt:** SQL-injection-fiks, CMS-auth/opplasting og
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156
