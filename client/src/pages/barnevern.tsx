@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import * as api from "@/lib/barnevern-api";
 import { cn } from "@/lib/utils";
 
@@ -45,6 +46,18 @@ const FASE_OVERGANGER: Record<string, string[]> = {
   tiltak: ["avsluttet"],
   avsluttet: [],
   henlagt: [],
+};
+
+const TILTAK_STATUSER: Record<string, string> = {
+  planlagt: "Planlagt", pagar: "Pågår", fullfort: "Fullført", avbrutt: "Avbrutt",
+};
+
+const PLAN_STATUSER: Record<string, string> = {
+  utkast: "Utkast", godkjent: "Godkjent", erstattet: "Erstattet", avsluttet: "Avsluttet",
+};
+
+const DOKUMENT_STATUSER: Record<string, string> = {
+  utkast: "Utkast", godkjent: "Godkjent", ekspedert: "Ekspedert",
 };
 
 const JOURNAL_KATEGORIER: Record<string, string> = {
@@ -329,6 +342,11 @@ function MeldingDetalj({ meldingId, onSakOpprettet }: { meldingId: string; onSak
             <UsersIcon className="h-3.5 w-3.5 mr-1.5" /> Søskenkopi
           </Button>
         </div>
+
+        <div className="pt-1 border-t">
+          <p className="text-xs font-medium text-muted-foreground mb-2 mt-2">Oppgaver på meldingen</p>
+          <OppgaveSeksjon entityType="melding" entityId={meldingId} />
+        </div>
       </CardContent>
 
       <Dialog open={henleggOpen} onOpenChange={setHenleggOpen}>
@@ -416,6 +434,315 @@ function MeldingDetalj({ meldingId, onSakOpprettet }: { meldingId: string; onSak
         </DialogContent>
       </Dialog>
     </Card>
+  );
+}
+
+// ── PLAN (krav 5) ────────────────────────────────────────────────────────────
+
+function PlanSeksjon({ sakId }: { sakId: string }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [formaal, setFormaal] = useState("");
+  const [evalueringsfrist, setEvalueringsfrist] = useState("");
+  const [tiltakBeskrivelse, setTiltakBeskrivelse] = useState("");
+  const [tiltakAnsvarlig, setTiltakAnsvarlig] = useState("");
+
+  const { data: planer = [] } = useQuery({
+    queryKey: ["barnevern-planer", sakId],
+    queryFn: () => api.listPlaner(sakId),
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["barnevern-planer", sakId] });
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const opprett = useMutation({
+    mutationFn: () => api.opprettPlan(sakId, {
+      formaal: formaal || undefined,
+      evalueringsfrist: evalueringsfrist ? new Date(evalueringsfrist).toISOString() : undefined,
+    }),
+    onSuccess: () => { invalidate(); setFormaal(""); setEvalueringsfrist(""); toast({ title: "Planutkast opprettet" }); },
+    onError: feil,
+  });
+  const godkjenn = useMutation({
+    mutationFn: (id: string) => api.godkjennPlan(id),
+    onSuccess: () => { invalidate(); toast({ title: "Plan godkjent" }); },
+    onError: feil,
+  });
+  const nyVersjon = useMutation({
+    mutationFn: (id: string) => api.nyPlanVersjon(id),
+    onSuccess: () => { invalidate(); toast({ title: "Nytt utkast opprettet fra godkjent versjon" }); },
+    onError: feil,
+  });
+  const nyttTiltak = useMutation({
+    mutationFn: (planId: string) => api.opprettPlanTiltak(planId, {
+      beskrivelse: tiltakBeskrivelse,
+      ansvarlig: tiltakAnsvarlig,
+    }),
+    onSuccess: () => { invalidate(); setTiltakBeskrivelse(""); setTiltakAnsvarlig(""); toast({ title: "Tiltak lagt til" }); },
+    onError: feil,
+  });
+  const tiltakStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => api.settTiltakStatus(id, status),
+    onSuccess: invalidate,
+    onError: feil,
+  });
+
+  const utkast = planer.find((p) => p.status === "utkast");
+  const gjeldende = planer.find((p) => p.status === "godkjent");
+
+  return (
+    <div className="space-y-3 text-sm">
+      {!utkast && (
+        <div className="border rounded-md p-3 space-y-2">
+          <p className="font-medium text-xs text-muted-foreground">Nytt planutkast (tiltaksplan)</p>
+          <Input placeholder="Formål med planen" value={formaal} onChange={(e) => setFormaal(e.target.value)} data-testid="plan-formaal-input" />
+          <div className="flex gap-2 items-center">
+            <Label className="text-xs whitespace-nowrap">Evalueringsfrist</Label>
+            <Input type="date" value={evalueringsfrist} onChange={(e) => setEvalueringsfrist(e.target.value)} className="w-44" />
+            <Button size="sm" onClick={() => opprett.mutate()} disabled={opprett.isPending} data-testid="plan-opprett-button">
+              <Plus className="h-3.5 w-3.5 mr-1.5" /> Opprett utkast
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {planer.map((plan) => (
+        <div key={plan.id} className="border rounded-md p-3 space-y-2" data-testid={`plan-${plan.id}`}>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="font-medium">Tiltaksplan v{plan.versjon}</span>
+            <div className="flex gap-1.5">
+              <Badge variant={plan.status === "godkjent" ? "default" : plan.status === "utkast" ? "secondary" : "outline"}>
+                {PLAN_STATUSER[plan.status] ?? plan.status}
+              </Badge>
+            </div>
+          </div>
+          {plan.formaal && <p className="text-xs text-muted-foreground">{plan.formaal}</p>}
+          {plan.evalueringsfrist && (
+            <p className={cn("text-xs", plan.status === "godkjent" && fristPassert(plan.evalueringsfrist) ? "text-destructive font-medium" : "text-muted-foreground")}>
+              Evaluering: {formatDato(plan.evalueringsfrist)}
+            </p>
+          )}
+
+          <ul className="space-y-1.5">
+            {plan.tiltak.map((t) => (
+              <li key={t.id} className="flex items-center justify-between gap-2 border-l-2 pl-2">
+                <span>{t.beskrivelse} <span className="text-xs text-muted-foreground">({t.ansvarlig})</span></span>
+                {plan.status !== "erstattet" ? (
+                  <Select value={t.status} onValueChange={(v) => tiltakStatus.mutate({ id: t.id, status: v })}>
+                    <SelectTrigger className="w-28 h-7 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(TILTAK_STATUSER).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                ) : (
+                  <Badge variant="outline" className="text-[10px]">{TILTAK_STATUSER[t.status] ?? t.status}</Badge>
+                )}
+              </li>
+            ))}
+          </ul>
+
+          {plan.status === "utkast" && (
+            <div className="space-y-2 pt-1">
+              <div className="flex gap-2">
+                <Input placeholder="Nytt tiltak" value={tiltakBeskrivelse} onChange={(e) => setTiltakBeskrivelse(e.target.value)} data-testid="tiltak-beskrivelse-input" />
+                <Input placeholder="Ansvarlig" className="w-40" value={tiltakAnsvarlig} onChange={(e) => setTiltakAnsvarlig(e.target.value)} data-testid="tiltak-ansvarlig-input" />
+                <Button size="sm" variant="outline" onClick={() => nyttTiltak.mutate(plan.id)}
+                  disabled={!tiltakBeskrivelse.trim() || !tiltakAnsvarlig.trim()} data-testid="tiltak-legg-til-button">
+                  Legg til
+                </Button>
+              </div>
+              <Button size="sm" onClick={() => godkjenn.mutate(plan.id)} disabled={godkjenn.isPending} data-testid="plan-godkjenn-button">
+                Godkjenn plan (barnevernsleder)
+              </Button>
+            </div>
+          )}
+          {plan.status === "godkjent" && plan.id === gjeldende?.id && !utkast && (
+            <Button size="sm" variant="outline" onClick={() => nyVersjon.mutate(plan.id)} data-testid="plan-ny-versjon-button">
+              Ny versjon
+            </Button>
+          )}
+        </div>
+      ))}
+      {planer.length === 0 && <p className="text-xs text-muted-foreground">Ingen plan ennå.</p>}
+    </div>
+  );
+}
+
+// ── DOKUMENTER (krav 6) ──────────────────────────────────────────────────────
+
+function DokumentSeksjon({ sakId }: { sakId: string }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [malId, setMalId] = useState("");
+  const [mottakerNavn, setMottakerNavn] = useState("");
+
+  const { data: maler = [] } = useQuery({
+    queryKey: ["barnevern-dokumentmaler"],
+    queryFn: () => api.listDokumentmaler(),
+  });
+  const { data: dokumenter = [] } = useQuery({
+    queryKey: ["barnevern-dokumenter", sakId],
+    queryFn: () => api.listDokumenter(sakId),
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["barnevern-dokumenter", sakId] });
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const opprett = useMutation({
+    mutationFn: () => api.opprettDokument(sakId, {
+      malId,
+      mottaker: mottakerNavn ? { navn: mottakerNavn } : undefined,
+    }),
+    onSuccess: () => { invalidate(); setMottakerNavn(""); toast({ title: "Dokumentutkast opprettet fra mal" }); },
+    onError: feil,
+  });
+  const godkjenn = useMutation({
+    mutationFn: (id: string) => api.godkjennDokument(id),
+    onSuccess: () => { invalidate(); toast({ title: "Dokument godkjent" }); },
+    onError: feil,
+  });
+  const ekspeder = useMutation({
+    mutationFn: ({ id, via }: { id: string; via: "sikker_dialog" | "manuell" }) => api.ekspederDokument(id, via),
+    onSuccess: () => {
+      invalidate();
+      queryClient.invalidateQueries({ queryKey: ["barnevern-sak-journal", sakId] });
+      toast({ title: "Dokument ekspedert og journalført" });
+    },
+    onError: feil,
+  });
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="border rounded-md p-3 space-y-2">
+        <p className="font-medium text-xs text-muted-foreground">Nytt dokument fra mal</p>
+        <div className="flex gap-2 flex-wrap">
+          <Select value={malId} onValueChange={setMalId}>
+            <SelectTrigger className="w-64" data-testid="dokument-mal-select"><SelectValue placeholder="Velg mal" /></SelectTrigger>
+            <SelectContent>
+              {maler.map((m) => (
+                <SelectItem key={m.malId} value={m.malId}>
+                  {m.tittel}{m.hjemmel ? ` (${m.hjemmel})` : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input placeholder="Mottaker" className="w-44" value={mottakerNavn} onChange={(e) => setMottakerNavn(e.target.value)} data-testid="dokument-mottaker-input" />
+          <Button size="sm" onClick={() => opprett.mutate()} disabled={!malId || opprett.isPending} data-testid="dokument-opprett-button">
+            <Plus className="h-3.5 w-3.5 mr-1.5" /> Opprett
+          </Button>
+        </div>
+      </div>
+
+      <ul className="space-y-2">
+        {dokumenter.map((d) => (
+          <li key={d.id} className="border rounded-md p-3 space-y-1.5" data-testid={`dokument-${d.id}`}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-medium">{d.tittel}</span>
+              <div className="flex gap-1.5">
+                <Badge variant="outline" className="text-[10px] capitalize">{d.dokumenttype}</Badge>
+                <Badge variant={d.status === "ekspedert" ? "default" : "secondary"} className="text-[10px]">
+                  {DOKUMENT_STATUSER[d.status] ?? d.status}
+                </Badge>
+              </div>
+            </div>
+            {d.hjemmel && <p className="text-xs text-muted-foreground">Hjemmel: {d.hjemmel}</p>}
+            {d.mottaker?.navn && <p className="text-xs text-muted-foreground">Mottaker: {d.mottaker.navn}</p>}
+            <details className="text-xs">
+              <summary className="cursor-pointer text-muted-foreground">Vis innhold</summary>
+              <p className="mt-1 whitespace-pre-wrap border rounded p-2 bg-muted/30">{d.innhold}</p>
+            </details>
+            <div className="flex gap-2">
+              {d.status === "utkast" && (
+                <Button size="sm" onClick={() => godkjenn.mutate(d.id)} data-testid={`dokument-godkjenn-${d.id}`}>
+                  Godkjenn{d.dokumenttype === "vedtak" ? " (barnevernsleder)" : ""}
+                </Button>
+              )}
+              {d.status === "godkjent" && (
+                <>
+                  <Button size="sm" onClick={() => ekspeder.mutate({ id: d.id, via: "sikker_dialog" })} data-testid={`dokument-ekspeder-${d.id}`}>
+                    Ekspeder via sikker dialog
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => ekspeder.mutate({ id: d.id, via: "manuell" })}>
+                    Ekspedert manuelt
+                  </Button>
+                </>
+              )}
+            </div>
+          </li>
+        ))}
+        {dokumenter.length === 0 && <li className="text-xs text-muted-foreground">Ingen dokumenter ennå.</li>}
+      </ul>
+    </div>
+  );
+}
+
+// ── OPPGAVER (krav 3) ────────────────────────────────────────────────────────
+
+function OppgaveSeksjon({ entityType, entityId }: { entityType: "melding" | "sak"; entityId: string }) {
+  const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [tittel, setTittel] = useState("");
+  const [frist, setFrist] = useState("");
+
+  const { data: oppgaver = [] } = useQuery({
+    queryKey: ["barnevern-oppgaver", entityType, entityId],
+    queryFn: () => api.listOppgaver(entityType, entityId),
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["barnevern-oppgaver", entityType, entityId] });
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const opprett = useMutation({
+    // ponytail: tildeles innlogget bruker; velger for kollega-tildeling
+    // legges til når kommune-brukerliste-endepunkt finnes.
+    mutationFn: () => api.opprettOppgave({
+      entityType,
+      entityId,
+      tittel,
+      tildeltUserId: (user as any)?.id,
+      frist: frist ? new Date(`${frist}T12:00:00`).toISOString() : undefined,
+    }),
+    onSuccess: () => { invalidate(); setTittel(""); setFrist(""); toast({ title: "Oppgave opprettet" }); },
+    onError: feil,
+  });
+  const fullfor = useMutation({
+    mutationFn: (id: string) => api.fullforOppgave(id),
+    onSuccess: () => { invalidate(); toast({ title: "Oppgave fullført" }); },
+    onError: feil,
+  });
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="flex gap-2">
+        <Input placeholder="Ny oppgave …" value={tittel} onChange={(e) => setTittel(e.target.value)} data-testid="oppgave-tittel-input" />
+        <Input type="date" className="w-40" value={frist} onChange={(e) => setFrist(e.target.value)} data-testid="oppgave-frist-input" />
+        <Button size="sm" onClick={() => opprett.mutate()} disabled={!tittel.trim() || opprett.isPending} data-testid="oppgave-opprett-button">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Opprett
+        </Button>
+      </div>
+      <ul className="space-y-1.5">
+        {oppgaver.map((o) => (
+          <li key={o.id} className="flex items-center justify-between gap-2 border rounded-md p-2" data-testid={`oppgave-${o.id}`}>
+            <div>
+              <span className={cn(o.status !== "apen" && "line-through text-muted-foreground")}>{o.tittel}</span>
+              {o.frist && (
+                <span className={cn("text-xs ml-2", o.status === "apen" && fristPassert(o.frist) ? "text-destructive font-medium" : "text-muted-foreground")}>
+                  Frist {formatDato(o.frist)}
+                </span>
+              )}
+            </div>
+            {o.status === "apen" ? (
+              <Button size="sm" variant="outline" className="h-7" onClick={() => fullfor.mutate(o.id)} data-testid={`oppgave-fullfor-${o.id}`}>
+                Fullfør
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[10px]">{o.status === "fullfort" ? "Fullført" : "Kansellert"}</Badge>
+            )}
+          </li>
+        ))}
+        {oppgaver.length === 0 && <li className="text-xs text-muted-foreground">Ingen oppgaver.</li>}
+      </ul>
+    </div>
   );
 }
 
@@ -518,8 +845,15 @@ function SakDetalj({ sakId }: { sakId: string }) {
           </details>
         )}
 
-        <div className="space-y-2">
-          <h3 className="font-medium flex items-center gap-1.5"><FileText className="h-4 w-4" /> Journal</h3>
+        <Tabs defaultValue="journal">
+          <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value="journal" data-testid="sak-tab-journal">Journal</TabsTrigger>
+            <TabsTrigger value="plan" data-testid="sak-tab-plan">Plan</TabsTrigger>
+            <TabsTrigger value="dokumenter" data-testid="sak-tab-dokumenter">Dokumenter</TabsTrigger>
+            <TabsTrigger value="oppgaver" data-testid="sak-tab-oppgaver">Oppgaver</TabsTrigger>
+          </TabsList>
+
+          <TabsContent value="journal" className="mt-3 space-y-2">
           <div className="flex gap-2">
             <Select value={journalKategori} onValueChange={setJournalKategori}>
               <SelectTrigger className="w-44" data-testid="journal-kategori-select"><SelectValue /></SelectTrigger>
@@ -563,7 +897,18 @@ function SakDetalj({ sakId }: { sakId: string }) {
             ))}
             {journal.length === 0 && <li className="text-xs text-muted-foreground">Ingen journaloppføringer ennå.</li>}
           </ul>
-        </div>
+          </TabsContent>
+
+          <TabsContent value="plan" className="mt-3">
+            <PlanSeksjon sakId={sakId} />
+          </TabsContent>
+          <TabsContent value="dokumenter" className="mt-3">
+            <DokumentSeksjon sakId={sakId} />
+          </TabsContent>
+          <TabsContent value="oppgaver" className="mt-3">
+            <OppgaveSeksjon entityType="sak" entityId={sakId} />
+          </TabsContent>
+        </Tabs>
       </CardContent>
 
       <Dialog open={faseOpen} onOpenChange={setFaseOpen}>

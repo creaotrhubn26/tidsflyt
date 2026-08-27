@@ -163,6 +163,142 @@ export function endreFase(id: string, tilFase: string, begrunnelse: string): Pro
   return requestJson(`/api/barnevern/saker/${id}/fase`, jsonInit("POST", { tilFase, begrunnelse }));
 }
 
+// ── OPPGAVER ─────────────────────────────────────────────────────────────────
+
+export type Oppgave = {
+  id: string;
+  entityType: "melding" | "sak";
+  entityId: string;
+  tittel: string;
+  beskrivelse: string | null;
+  tildeltUserId: string;
+  frist: string | null;
+  status: string;
+  fullfortDato: string | null;
+};
+
+export function listOppgaver(entityType: string, entityId: string): Promise<Oppgave[]> {
+  return requestJson(`/api/barnevern/oppgaver?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`);
+}
+
+export function opprettOppgave(input: {
+  entityType: "melding" | "sak";
+  entityId: string;
+  tittel: string;
+  beskrivelse?: string;
+  tildeltUserId: string;
+  frist?: string;
+}): Promise<Oppgave> {
+  return requestJson("/api/barnevern/oppgaver", jsonInit("POST", input));
+}
+
+export function fullforOppgave(id: string): Promise<Oppgave> {
+  return requestJson(`/api/barnevern/oppgaver/${id}/fullfor`, jsonInit("PATCH", {}));
+}
+
+// ── PLANER ───────────────────────────────────────────────────────────────────
+
+export type PlanTiltak = {
+  id: string;
+  beskrivelse: string;
+  ansvarlig: string;
+  frist: string | null;
+  status: string;
+  statusnotat: string | null;
+};
+
+export type Plan = {
+  id: string;
+  sakId: string;
+  plantype: string;
+  versjon: number;
+  status: string;
+  formaal: string | null;
+  deltakere: { navn: string; rolle: string }[];
+  evalueringsfrist: string | null;
+  godkjentDato: string | null;
+  tiltak: PlanTiltak[];
+};
+
+export function listPlaner(sakId: string): Promise<Plan[]> {
+  return requestJson(`/api/barnevern/saker/${sakId}/planer`);
+}
+
+export function opprettPlan(sakId: string, input: {
+  plantype?: string;
+  formaal?: string;
+  evalueringsfrist?: string;
+}): Promise<Plan> {
+  return requestJson(`/api/barnevern/saker/${sakId}/planer`, jsonInit("POST", input));
+}
+
+export function godkjennPlan(id: string): Promise<Plan> {
+  return requestJson(`/api/barnevern/planer/${id}/godkjenn`, jsonInit("POST", {}));
+}
+
+export function nyPlanVersjon(id: string): Promise<Plan> {
+  return requestJson(`/api/barnevern/planer/${id}/ny-versjon`, jsonInit("POST", {}));
+}
+
+export function opprettPlanTiltak(planId: string, input: {
+  beskrivelse: string;
+  ansvarlig: string;
+  frist?: string;
+}): Promise<PlanTiltak> {
+  return requestJson(`/api/barnevern/planer/${planId}/tiltak`, jsonInit("POST", input));
+}
+
+export function settTiltakStatus(tiltakId: string, status: string, statusnotat?: string): Promise<PlanTiltak> {
+  return requestJson(`/api/barnevern/plan-tiltak/${tiltakId}/status`, jsonInit("PATCH", { status, statusnotat }));
+}
+
+// ── DOKUMENTER ───────────────────────────────────────────────────────────────
+
+export type Dokumentmal = {
+  malId: string;
+  dokumenttype: "vedtak" | "brev";
+  tittel: string;
+  hjemmel: string | null;
+};
+
+export type Dokument = {
+  id: string;
+  sakId: string;
+  dokumenttype: string;
+  malId: string;
+  tittel: string;
+  hjemmel: string | null;
+  innhold: string;
+  mottaker: { navn: string } | null;
+  status: string;
+  ekspedertVia: string | null;
+  createdAt: string;
+};
+
+export function listDokumentmaler(): Promise<Dokumentmal[]> {
+  return requestJson("/api/barnevern/dokumentmaler");
+}
+
+export function listDokumenter(sakId: string): Promise<Dokument[]> {
+  return requestJson(`/api/barnevern/saker/${sakId}/dokumenter`);
+}
+
+export function opprettDokument(sakId: string, input: {
+  malId: string;
+  mottaker?: { navn: string };
+  planId?: string;
+}): Promise<Dokument> {
+  return requestJson(`/api/barnevern/saker/${sakId}/dokumenter`, jsonInit("POST", input));
+}
+
+export function godkjennDokument(id: string): Promise<Dokument> {
+  return requestJson(`/api/barnevern/dokumenter/${id}/godkjenn`, jsonInit("POST", {}));
+}
+
+export function ekspederDokument(id: string, via: "sikker_dialog" | "manuell"): Promise<Dokument> {
+  return requestJson(`/api/barnevern/dokumenter/${id}/ekspeder`, jsonInit("POST", { via }));
+}
+
 // ── JOURNAL ──────────────────────────────────────────────────────────────────
 
 export function listJournal(sakId: string): Promise<JournalEntry[]> {

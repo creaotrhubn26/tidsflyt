@@ -39,6 +39,9 @@ test.describe("Barnevern UI-flyt", () => {
     const meldinger: any[] = [];
     const saker: any[] = [];
     const journal: Record<string, any[]> = {};
+    const planer: any[] = [];
+    const dokumenter: any[] = [];
+    const oppgaver: any[] = [];
 
     await page.route(/\/api\/barnevern/, async (route) => {
       const url = new URL(route.request().url());
@@ -129,6 +132,106 @@ test.describe("Barnevern UI-flyt", () => {
         sak.fase = body.tilFase;
         return json(sak);
       }
+      // Oppgaver
+      if (path === "/api/barnevern/oppgaver") {
+        if (method === "GET") {
+          const et = url.searchParams.get("entityType");
+          const eid = url.searchParams.get("entityId");
+          return json(oppgaver.filter((o) => o.entityType === et && o.entityId === eid));
+        }
+        const body = route.request().postDataJSON();
+        const oppgave = { id: `o-${oppgaver.length + 1}`, status: "apen", fullfortDato: null, beskrivelse: null, ...body };
+        oppgaver.push(oppgave);
+        return json(oppgave, 201);
+      }
+      const fullforMatch = path.match(/^\/api\/barnevern\/oppgaver\/([^/]+)\/fullfor$/);
+      if (method === "PATCH" && fullforMatch) {
+        const oppgave = oppgaver.find((o) => o.id === fullforMatch[1]);
+        oppgave.status = "fullfort";
+        return json(oppgave);
+      }
+      // Planer
+      const planListeMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)\/planer$/);
+      if (planListeMatch) {
+        if (method === "GET") return json(planer.filter((p) => p.sakId === planListeMatch[1]));
+        const body = route.request().postDataJSON();
+        const plan = {
+          id: `p-${planer.length + 1}`, sakId: planListeMatch[1], plantype: "tiltaksplan",
+          versjon: planer.filter((p) => p.sakId === planListeMatch[1]).length + 1,
+          status: "utkast", formaal: body.formaal ?? null, deltakere: [],
+          evalueringsfrist: body.evalueringsfrist ?? null, godkjentDato: null, tiltak: [],
+        };
+        planer.push(plan);
+        return json(plan, 201);
+      }
+      const planGodkjennMatch = path.match(/^\/api\/barnevern\/planer\/([^/]+)\/godkjenn$/);
+      if (method === "POST" && planGodkjennMatch) {
+        const plan = planer.find((p) => p.id === planGodkjennMatch[1]);
+        plan.status = "godkjent";
+        plan.godkjentDato = new Date().toISOString();
+        return json(plan);
+      }
+      const planTiltakMatch = path.match(/^\/api\/barnevern\/planer\/([^/]+)\/tiltak$/);
+      if (method === "POST" && planTiltakMatch) {
+        const plan = planer.find((p) => p.id === planTiltakMatch[1]);
+        const body = route.request().postDataJSON();
+        const tiltak = { id: `t-${plan.tiltak.length + 1}`, status: "planlagt", frist: null, statusnotat: null, ...body };
+        plan.tiltak.push(tiltak);
+        return json(tiltak, 201);
+      }
+      const tiltakStatusMatch = path.match(/^\/api\/barnevern\/plan-tiltak\/([^/]+)\/status$/);
+      if (method === "PATCH" && tiltakStatusMatch) {
+        for (const plan of planer) {
+          const tiltak = plan.tiltak.find((t: any) => t.id === tiltakStatusMatch[1]);
+          if (tiltak) {
+            tiltak.status = route.request().postDataJSON().status;
+            return json(tiltak);
+          }
+        }
+        return json({ error: "Ikke funnet" }, 404);
+      }
+      // Dokumenter
+      if (method === "GET" && path === "/api/barnevern/dokumentmaler") {
+        return json([
+          { malId: "vedtak_hjelpetiltak", dokumenttype: "vedtak", tittel: "Vedtak om hjelpetiltak", hjemmel: "barnevernsloven § 3-1" },
+          { malId: "brev_innkalling_samtale", dokumenttype: "brev", tittel: "Innkalling til samtale", hjemmel: null },
+        ]);
+      }
+      const dokListeMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)\/dokumenter$/);
+      if (dokListeMatch) {
+        if (method === "GET") return json(dokumenter.filter((d) => d.sakId === dokListeMatch[1]));
+        const body = route.request().postDataJSON();
+        const erVedtak = body.malId.startsWith("vedtak");
+        const dokument = {
+          id: `d-${dokumenter.length + 1}`, sakId: dokListeMatch[1],
+          dokumenttype: erVedtak ? "vedtak" : "brev", malId: body.malId,
+          tittel: erVedtak ? "Vedtak om hjelpetiltak" : "Innkalling til samtale",
+          hjemmel: erVedtak ? "barnevernsloven § 3-1" : null,
+          innhold: `VEDTAK I BARNEVERNSSAK BVS-3001-1 — flettet innhold.`,
+          mottaker: body.mottaker ?? null, status: "utkast", ekspedertVia: null,
+          createdAt: new Date().toISOString(),
+        };
+        dokumenter.push(dokument);
+        return json(dokument, 201);
+      }
+      const dokGodkjennMatch = path.match(/^\/api\/barnevern\/dokumenter\/([^/]+)\/godkjenn$/);
+      if (method === "POST" && dokGodkjennMatch) {
+        const dokument = dokumenter.find((d) => d.id === dokGodkjennMatch[1]);
+        dokument.status = "godkjent";
+        return json(dokument);
+      }
+      const dokEkspederMatch = path.match(/^\/api\/barnevern\/dokumenter\/([^/]+)\/ekspeder$/);
+      if (method === "POST" && dokEkspederMatch) {
+        const dokument = dokumenter.find((d) => d.id === dokEkspederMatch[1]);
+        dokument.status = "ekspedert";
+        dokument.ekspedertVia = route.request().postDataJSON().via;
+        (journal[dokument.sakId] ??= []).push({
+          id: `j-dok-${dokument.id}`, kategori: "vedtak",
+          innhold: `${dokument.tittel} — ekspedert.`, correctsEntryId: null,
+          forfatterUserId: SAKSBEHANDLER.id, createdAt: new Date().toISOString(),
+        });
+        return json(dokument);
+      }
       const sakMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)$/);
       if (method === "GET" && sakMatch) {
         const sak = saker.find((s) => s.id === sakMatch[1]);
@@ -171,5 +274,34 @@ test.describe("Barnevern UI-flyt", () => {
     await page.getByTestId("fase-begrunnelse-input").fill("Undersøkelsen konkluderer med hjelpetiltak.");
     await page.getByTestId("fase-bekreft-button").click();
     await expect(page.getByTestId("sak-detalj").getByText("Tiltak", { exact: true })).toBeVisible();
+
+    // Plan: utkast med tiltak → godkjenn
+    await page.getByTestId("sak-tab-plan").click();
+    await page.getByTestId("plan-formaal-input").fill("Stabil skolegang.");
+    await page.getByTestId("plan-opprett-button").click();
+    await page.getByTestId("tiltak-beskrivelse-input").fill("Miljøterapeut i hjemmet");
+    await page.getByTestId("tiltak-ansvarlig-input").fill("Kari Saksbehandler");
+    await page.getByTestId("tiltak-legg-til-button").click();
+    await expect(page.getByText("Miljøterapeut i hjemmet")).toBeVisible();
+    await page.getByTestId("plan-godkjenn-button").click();
+    await expect(page.getByTestId("sak-detalj").getByText("Godkjent", { exact: true })).toBeVisible();
+
+    // Dokument: vedtak fra mal → godkjenn → ekspeder
+    await page.getByTestId("sak-tab-dokumenter").click();
+    await page.getByTestId("dokument-mal-select").click();
+    await page.getByRole("option", { name: /vedtak om hjelpetiltak/i }).click();
+    await page.getByTestId("dokument-mottaker-input").fill("Mor Testesen");
+    await page.getByTestId("dokument-opprett-button").click();
+    await page.getByTestId("dokument-godkjenn-d-1").click();
+    await page.getByTestId("dokument-ekspeder-d-1").click();
+    await expect(page.getByTestId("dokument-d-1").getByText("Ekspedert")).toBeVisible();
+
+    // Oppgave: opprett → fullfør
+    await page.getByTestId("sak-tab-oppgaver").click();
+    await page.getByTestId("oppgave-tittel-input").fill("Følg opp skolen");
+    await page.getByTestId("oppgave-opprett-button").click();
+    await expect(page.getByText("Følg opp skolen")).toBeVisible();
+    await page.getByTestId("oppgave-fullfor-o-1").click();
+    await expect(page.getByTestId("oppgave-o-1").getByText("Fullført")).toBeVisible();
   });
 });
