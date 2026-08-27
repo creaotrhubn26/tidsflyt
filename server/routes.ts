@@ -24,6 +24,7 @@ import { registerBarnevernDokumentRoutes } from "./routes/barnevern-dokument-rou
 import { registerBarnevernInnsynRoutes } from "./routes/barnevern-innsyn-routes";
 import { registerBarnevernForebyggendeRoutes } from "./routes/barnevern-forebyggende-routes";
 import { registerBarnevernRapporteringRoutes } from "./routes/barnevern-rapportering-routes";
+import { registerKommuneBrukerRoutes } from "./routes/kommune-bruker-routes";
 import {
   registerSecureDialogRoutes,
   setupSecureAttachmentQuarantineCleanup,
@@ -6837,6 +6838,7 @@ export async function registerRoutes(
   registerBarnevernInnsynRoutes(app);
   registerBarnevernForebyggendeRoutes(app);
   registerBarnevernRapporteringRoutes(app);
+  registerKommuneBrukerRoutes(app);
   registerSecureDialogRoutes(app);
   setupFiksIoReceiver(app);
   registerPricingRoutes(app);

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
-import { loggTilgang, requireKommuneActor } from "./barnevern-melding-routes";
+import { loggTilgang, needToKnowVilkar, requireKommuneActor } from "./barnevern-melding-routes";
 
 const PLANTYPER = new Set(["tiltaksplan", "omsorgsplan"]);
 const TILTAK_STATUSER = new Set(["planlagt", "pagar", "fullfort", "avbrutt"]);
@@ -65,10 +65,11 @@ export function registerBarnevernPlanRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [sak] } = await client.query(
-          `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-          [req.params.sakId, actor.kommuneId],
-        );
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+          const { rows: [sak] } = await client.query(
+            `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+            [req.params.sakId, actor.kommuneId, ...ntk.params],
+          );
         if (!sak) throw new Error("SAK_NOT_FOUND");
         const valgtType = plantype ?? "tiltaksplan";
         const { rows: [eksisterende] } = await client.query(
@@ -114,10 +115,11 @@ export function registerBarnevernPlanRoutes(app: Express): void {
 
     try {
       const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [sak] } = await client.query(
-          `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-          [req.params.sakId, actor.kommuneId],
-        );
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+          const { rows: [sak] } = await client.query(
+            `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+            [req.params.sakId, actor.kommuneId, ...ntk.params],
+          );
         if (!sak) return null;
         const { rows: planer } = await client.query(
           `SELECT * FROM tidum_barnevern_planer
