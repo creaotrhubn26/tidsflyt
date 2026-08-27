@@ -46,6 +46,7 @@ import { eq } from "drizzle-orm";
 import { selectReportTemplateUpdateFields } from "./lib/report-template-update";
 import { resolveCrawlerUrl } from "./lib/crawler-url-policy";
 import { z } from "zod";
+import { getSecretBoxRuntimeStatus } from "./lib/secret-box";
 
 const cmsEmailTestSchema = z.object({
   template_id: z.coerce.number().int().positive(),
@@ -883,11 +884,20 @@ export function registerSmartTimingRoutes(app: Express) {
 
   // Health check
   app.get("/api/health", async (_req, res) => {
+    const secrets = getSecretBoxRuntimeStatus();
+    if (process.env.NODE_ENV === "production" && !secrets.productionReady) {
+      return res.status(503).json({ status: 'error', database: 'unknown', secrets: 'error' });
+    }
     try {
       const result = await pool.query('SELECT NOW()');
-      res.json({ status: 'ok', timestamp: result.rows[0].now });
-    } catch (err: any) {
-      res.status(500).json({ status: 'error', error: err.message });
+      res.json({
+        status: 'ok',
+        database: 'ready',
+        secrets: secrets.configured ? 'ready' : 'not_configured',
+        timestamp: result.rows[0].now,
+      });
+    } catch {
+      res.status(503).json({ status: 'error', database: 'error', secrets: 'unknown' });
     }
   });
 

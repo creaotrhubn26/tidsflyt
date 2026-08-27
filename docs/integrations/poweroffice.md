@@ -41,6 +41,11 @@ TIDUM_SECRET_KEYRING={"2026-08":"<gammel minst 32 bytes>","2026-11":"<ny minst 3
 TIDUM_SECRET_ACTIVE_KEY_ID=2026-11
 ```
 
+Som alternativ til `TIDUM_SECRET_KEYRING` kan hvelvet montere samme JSON i en
+låst fil og sette `TIDUM_SECRET_KEYRING_FILE=/run/secrets/tidum-keyring.json`.
+De to kildene kan ikke brukes samtidig. Se
+`docs/runbooks/hemmelighetshvelv-og-nokkelrotasjonsovelse.md`.
+
 `TIDUM_SECRET_KEY` beholdes bare dersom eldre uversjonerte `enc:v1`-verdier må
 åpnes under overgang. Hvelvet må ha tilgangslogging, minste privilegium,
 versjonshistorikk og en dokumentert break-glass-prosedyre. Ingen faktisk
@@ -68,8 +73,9 @@ nøkkelverdi skal kopieres inn i rotasjonsbeviset.
 2. Sett `TIDUM_SECRET_ACTIVE_KEY_ID` til ny ID og deploy.
 3. Den globale timejobben konverterer opptil 200 rader per kjøring. Første
    bruk av en eldre rad konverterer den også atomisk før utgående API-kall.
-4. Systemadministrator kan starte en avgrenset batch med
-   `POST /api/admin/integrations/poweroffice/rotate-secrets` og body
+4. Systemadministrator kan starte en avgrenset PowerOffice-batch med
+   `POST /api/admin/integrations/poweroffice/rotate-secrets`, eller hele
+   plattformrotasjonen med `POST /api/admin/security/rotate-secrets`, og body
    `{ "confirm": "ROTATE", "limit": 100 }`.
 5. Gjenta til responsen viser `remaining: 0`. Kontroller auditsporet og kjør
    idempotent migrasjon 081 på nytt; formatconstrainten fullvalideres

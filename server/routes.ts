@@ -40,6 +40,7 @@ import { setupActivityLogCron } from "./routes/activity-log-cron";
 import { registerPayrollExportRoutes } from "./routes/payroll-export-routes";
 import { registerAvvikRoutes } from "./routes/avvik-routes";
 import { registerPowerOfficeRoutes } from "./routes/poweroffice-routes";
+import { registerSecretOperationsRoutes } from "./routes/secret-operations-routes";
 import { registerArchiveRoutes, setupArchiveCron } from "./routes/archive-routes";
 import { registerEmployeeImportRoutes } from "./routes/employee-import-routes";
 import { registerSeatOverrunRoutes, setupSeatOverrunCron } from "./routes/seat-overrun-cron";
@@ -6792,6 +6793,7 @@ export async function registerRoutes(
   registerPayrollExportRoutes(app);
   registerAvvikRoutes(app);
   registerPowerOfficeRoutes(app);
+  registerSecretOperationsRoutes(app);
   registerArchiveRoutes(app);
   registerEmployeeImportRoutes(app);
   registerSeatOverrunRoutes(app);

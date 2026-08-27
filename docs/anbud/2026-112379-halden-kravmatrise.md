@@ -221,8 +221,13 @@ Dev-bypass, separate tokenhemmeligheter og database-TLS er nå portet og
 regresjonstestet lokalt sammen med PR #21. Det samme gjelder Helmet/CSP/HSTS
 og sesjonsbasert CSRF-vern, med eksplisitt transportdekning i klienten.
 Versjonert hemmelighetskryptering er nå portet og utvidet til PowerOffice
-ClientKey med migrasjon 081. Produksjonshvelv/rotasjonsbevis, TOTP/MFA og en
-tilpasset RLS-migrasjon gjenstår.
+ClientKey med migrasjon 081. Leverandørnøytral hvelv-injeksjon,
+fail-closed produksjonsoppstart og append-only rotasjonsbevis er implementert
+med migrasjon 082. Faktisk produksjonshvelv/-øvelse, TOTP/MFA og en tilpasset
+RLS-migrasjon gjenstår.
+- En kontrollert utviklingsøvelse fullførte med null rest på alle seks
+  hemmelighetsflater og varig, hemmelighetsfritt `runId`. Dette verifiserer
+  applikasjonsflyten, men erstatter ikke øvelse i valgt produksjonshvelv.
 
 `origin/claude/bankid-eid-innlogging` inneholder en eldre, parallell Buypass-implementasjon. Den nyere direkte BankID-/Buypass-løsningen ligger allerede i `main` gjennom blant annet commitene `03130c7`, `be33be9` og `c0a99e0`; den separate grenen skal derfor ikke flettes ukritisk. Direkte eID er likevel ikke automatisk det samme som den uttrykkelig etterspurte ID-porten-integrasjonen for foresatte og andre eksterne.
 
@@ -311,7 +316,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 16 | E | Innsynsbegjæring, utskrift, journalkopi og klagedokumentasjon | Brukeren kan laste ned egne persondata; admin-eksport, anonymisering/sletting, PDF-generering og PII-maskering finnes. Ingen saksrettet innsyns-/klageprosess. | Delvis – teknisk grunnlag | Workflow for mottak, partsstatus, unntak/sladding, godkjenning, frist, utskrift/journalkopi, utlevering og klage; sikkerhetsherd GDPR-/eksport-rutene. |
 | 17 | E | Enkelt komplett saksuttrekk til bruker/klient | GDPR-eksport samler flere brukerrelaterte tabeller; generiske CSV/Excel/PDF/JSON-eksporter og rapport-PDF finnes. Ingen komplett barnevernsmappe eller kontrollert partsutlevering. | Delvis – eksportgrunnlag | Saksmanifest med journal, dokumenter, vedlegg, vedtak, metadata og kontrollert utlevering med audit og verifisert tilgangskontroll. |
 | 18 | E | Dokumentere og arkivere forebyggende arbeid | Generelle saker har type/status/start/slutt/tildeling; rapporter har mål, aktiviteter og maler; godkjente rapporter kan køes til Documaster. Ingen egen klassifikasjon eller arbeidsflyt for forebyggende arbeid. | Delvis – gjenbrukbar sak/rapport | Etabler forebyggende sak/prosjekt, aktivitet, samarbeidspart, aggregering, tilgang, dokumenter, arkivmetadata og faglig UI. |
-| 19 | E | TLS og kryptering i hvile | TLS-/providerkryptering, S3-lagring og backup-skript finnes delvis. Secret-box har nå versjonert nøkkelring, sikker dialog bruker tilfeldige datanøkler og timejobben pakker om datanøkler og øvrige secret-box-felter uten å endre sendt innhold. | Delvis – rotasjonsgrunnlag | Norsk arkitekturbevis; kryptert DB, objektlager, logger og backup; koble nøkkelringen til godkjent KMS/hvelv og produksjonsprøv rotasjon/rollback; ingen klartekstfallback; transport- og restore-test. |
+| 19 | E | TLS og kryptering i hvile | TLS-/providerkryptering, S3-lagring og backup-skript finnes delvis. Secret-box har versjonert nøkkelring og støtter hvelv-injisert miljø eller låst mounted-secret. Produksjon feiler lukket før oppstart uten gyldig nøkkelring; sikker dialog bruker tilfeldige datanøkler, og leverandørens samlede rotasjon har hemmelighetsfri inventory og append-only audit i migrasjon 082. | Delvis – produksjonsklar applikasjonsgrense | Velg norsk/avtalt KMS/hvelv og fremlegg arkitektur-/tilgangsbevis; produksjonsprøv rotasjon/rollback og nøkkelrestore; dokumenter kryptert DB, objektlager, logger og backup samt transport-/restore-test. |
 | 20 | Skal | Sentral identitet/SSO og MFA | Direkte BankID og Buypass ID er implementert for web/mobil. Sikker-dialoggrunnmuren forhåndsregistrerer en eID-only part uten e-postlogin og kobler BankID og Buypass til samme portalbruker; portalrollen er skilt fra ansatt-/leverandøradministrasjon. Entra for ansatte ligger i PR #21; TOTP ligger i G10-grenen. Ingen ID-porten. | Delvis – sterkere eID-grunnlag | Produksjonsbevis for BankID/Buypass; integrer Entra og MFA; avklar skriftlig om Halden krever ID-porten for eksterne; livssyklus/SCIM ved behov; test mot kundetenanter. |
 | 21 | E | ISO 27001 eller annen sikkerhetsvurdering | To målrettede BOLA-funn er gjennomgått. Ingen sertifisering eller bred, uavhengig vurderingsrapport funnet. | Mangler bevis | Etabler ISMS-gap, kontrollbevis og risikoregister; integrer G10; bestill uavhengig arkitektur-/kode-/penetrasjonstest og retest. |
 | 22 | Skal | Personvern, minimering, tilgang, anonymisering og DPIA-bistand | DPA, behandlingsprotokoll, PII-kontroller og GDPR-flyter finnes. Integrasjonsgrenen har tenantbundet admin-eksport, fersk global admin, no-store-utlevering, fail-closed sletteaudit og tilbakekalling av sesjon/mobil/eID. | Delvis – flere reelle kontroller | Barnevernsdataflyt/RoPA, behandlingsformål, skjermede data, sletting/arkiv, underdatabehandlere, DPIA-underlag, per-vendor retensjon og komplett utleveringspakke. Halden godkjenner DPIA og retensjonsvedtak. |
@@ -359,7 +364,8 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
 2. **Pågår:** integrer resterende G10-herding uten å miste BOLA-fiksene.
    Dev-bypass, tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og CSRF er
    ferdige lokalt. Versjonert hemmelighetskryptering, inkludert PowerOffice
-   ClientKey, er også ferdig lokalt; produksjonshvelv/rotasjonsbevis, TOTP/MFA
+   ClientKey, er også ferdig lokalt. Fail-closed hvelv-injeksjon og append-only
+   rotasjonsbevis er implementert; faktisk produksjonshvelv/-øvelse, TOTP/MFA
    og tilpasset RLS gjenstår.
 3. **Delvis utført lokalt:** SQL-injection-fiks, CMS-auth/opplasting og
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante

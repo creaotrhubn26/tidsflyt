@@ -777,6 +777,49 @@ ekstern idempotens, avstemming og leverandørkvitteringer gjenstår. Løsningen 
 derfor et verifisert lokalt sikkerhetsgrunnlag, ikke et produksjonsbevis for
 hele krav 27.
 
+## 19. Produksjonsgrense for hemmelighetshvelv og rotasjonsbevis
+
+Den generelle `secret-box`-modulen hadde fortsatt en utviklingsvennlig
+klartekstfallback som også kunne nås dersom produksjonen startet uten
+nøkkelring. Hvelvtilkoblingen var dessuten låst til miljøvariabel og den
+samlede rotasjonsjobben manglet et varig kjøringsbevis.
+
+Pakken etablerer nå en leverandørnøytral produksjonsgrense:
+
+- nøkkelringen kan komme fra én hvelv-injisert miljøverdi eller én absolutt,
+  låst mounted-secret-fil. Kildekonflikt, relativ/for stor/for åpen fil,
+  ugyldig JSON, legacy-only og manglende aktiv versjon avvises;
+- produksjonen validerer en eksplisitt, versjonert nøkkelring før migrasjoner,
+  ruter, cron og lyttesocket. Nye klartekstskrivinger og ordinær lesing av
+  legacy-klartekst feiler lukket; bare rotasjonsbanen har smal migreringstilgang;
+- `/api/health` viser bare grov database-/hemmelighetsstatus. Global, fersk
+  `super_admin` kan lese hemmelighetsfri inventory og starte en bekreftet,
+  avgrenset plattformbatch for sikker dialog, arkiv, FIKS og PowerOffice;
+- migrasjon 082 lagrer operatør, kilde, aktiv nøkkel-ID, aggregerte tellinger,
+  status og generisk feilkode i append-only audit. Ingen secret, konvolutt eller
+  chiffertekst lagres i kjøringsbeviset;
+- nøkkel-ID sammenlignes nå eksakt i hele rotasjonsjobben; `_` eller andre
+  tillatte tegn kan ikke tolkes som SQL-wildcards.
+
+**Verifikasjon:** Sju DB-uavhengige filer består **48/48**, inkludert
+produksjonsoppstart, filkilde/-rettigheter, kildekonflikt, legacyblokkering,
+eksplisitt ompakking, inventory, operatørrute, auditpayload og
+kontrollplankontrakt.
+Migrasjon 082 består idempotent og transaksjonelt **3/3** mot ekte PostgreSQL;
+immutability og manuell operatørconstraint er bekreftet uten etterlatte
+testfixturer. Tilgrensende sikker-dialog-/PowerOffice-regresjon består
+**26/26**. `npm run check` er grønn. Utviklingsdatabasen hadde **0**
+legacy-/klartekstrader i de seks berørte hemmelighetsfeltene før aktivering. En
+kontrollert leverandørøvelse med ikke-produksjonsnøkkel fullførte med alle
+resttall 0 og varig auditbevis `2d75f4ad-617d-4361-be19-0d38ba6f4949`.
+Typekontroll, designkontroll og produksjonsbygg er grønne.
+
+**Kjent avgrensning:** Koden er klar for hvelv-injeksjon, men faktisk
+produksjons-KMS/hvelv, norsk/avtalt region, plattform-RBAC, tilgangsreview,
+alarm, nøkkelbackup/restore og signert rotasjonsøvelse må etableres på valgt
+driftsplattform. Dette er leverandørens eksterne driftsbevis, ikke noe lokal
+kode eller Render-konfigurasjon alene kan oppfylle.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

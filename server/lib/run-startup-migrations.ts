@@ -67,6 +67,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "079_leave_tenant_security.sql",
   "080_gdpr_erasure_audit.sql",
   "081_poweroffice_client_key_encryption.sql",
+  "082_secret_rotation_run_audit.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -98,6 +99,8 @@ export async function runStartupMigrations(): Promise<void> {
       // without first being able to persist its documented controller intent.
       // 081 is fail-closed because new PowerOffice credentials must never be
       // accepted without the sealed-format database guard and rotation audit.
+      // 082 is fail-closed because a platform rotation must never be reported
+      // as successful without durable append-only run evidence.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
@@ -106,6 +109,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "079_leave_tenant_security.sql"
         || filename === "080_gdpr_erasure_audit.sql"
         || filename === "081_poweroffice_client_key_encryption.sql"
+        || filename === "082_secret_rotation_run_audit.sql"
       ) {
         throw err;
       }

@@ -72,7 +72,9 @@ export function rewrapSecureDialogContent(stored: string): string {
   requireSecureDialogEncryption();
   if (!stored.startsWith(PREFIX)) {
     // Énveis oppgradering fra legacy direktekryptering til datanøkkelkonvolutt.
-    return sealSecureDialogContent(openSecret(stored));
+    return sealSecureDialogContent(openSecret(stored, {
+      allowLegacyPlaintextForRotation: true,
+    }));
   }
   const parts = stored.split(":");
   if (parts.length !== 7) throw new Error("INVALID_SECURE_DIALOG_ENVELOPE");

@@ -54,13 +54,16 @@ export function sealPowerOfficeClientKey(clientKey: string): string {
   return sealed;
 }
 
-export function openPowerOfficeClientKey(stored: string): string {
+export function openPowerOfficeClientKey(
+  stored: string,
+  options: { allowLegacyPlaintextForRotation?: boolean } = {},
+): string {
   requireCredentialStorage();
   if (!stored || stored.length > 16_384) {
     throw new PowerOfficeCredentialError("UNREADABLE_CREDENTIAL");
   }
   try {
-    const clientKey = openSecret(stored);
+    const clientKey = openSecret(stored, options);
     if (!clientKey || clientKey.length > 4096) {
       throw new Error("invalid plaintext length");
     }
@@ -139,7 +142,9 @@ export async function openAndRotatePowerOfficeClientKey(integration: {
   vendorId: number;
   clientKey: string;
 }): Promise<string> {
-  const clientKey = openPowerOfficeClientKey(integration.clientKey);
+  const clientKey = openPowerOfficeClientKey(integration.clientKey, {
+    allowLegacyPlaintextForRotation: true,
+  });
   if (powerOfficeClientKeyNeedsRotation(integration.clientKey)) {
     const rotated = await persistRotation({
       integrationId: integration.id,
@@ -182,7 +187,9 @@ export async function rotatePowerOfficeClientKeys(
       let count = 0;
       for (const row of rows.rows) {
         const previousStored = String(row.client_key);
-        const clientKey = openPowerOfficeClientKey(previousStored);
+        const clientKey = openPowerOfficeClientKey(previousStored, {
+          allowLegacyPlaintextForRotation: true,
+        });
         const nextStored = sealPowerOfficeClientKey(clientKey);
         await client.query(
           `UPDATE tidum_vendor_integrations

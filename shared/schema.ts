@@ -288,6 +288,21 @@ export const integrationSecretRotationAudit = pgTable("tidum_integration_secret_
   index("tidum_integration_secret_rotation_integration_idx").on(table.integrationId, table.rotatedAt),
 ]);
 
+export const secretRotationRuns = pgTable("tidum_secret_rotation_runs", {
+  id:              uuid("id").defaultRandom().primaryKey(),
+  rotationSource:  varchar("rotation_source", { length: 32 }).notNull(),
+  initiatedBy:     varchar("initiated_by"),
+  activeKeyId:     varchar("active_key_id", { length: 64 }).notNull(),
+  status:          varchar("status", { length: 16 }).notNull(),
+  rotatedCounts:   jsonb("rotated_counts").notNull().default({}),
+  remainingCounts: jsonb("remaining_counts").notNull().default({}),
+  errorCode:       varchar("error_code", { length: 64 }),
+  completedAt:     timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_secret_rotation_runs_completed_idx").on(table.completedAt),
+  index("tidum_secret_rotation_runs_active_key_idx").on(table.activeKeyId, table.completedAt),
+]);
+
 // ── ARKIV (Noark 5 via ekstern arkivkjerne, migrasjon 052) ────────────────────
 // Godkjente rapporter (senere vedtak/dialog) arkiveres som journalposter i en
 // saksmappe per sak. Documaster er første provider. client_secret forsegles

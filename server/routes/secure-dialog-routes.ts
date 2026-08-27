@@ -31,6 +31,7 @@ import {
   processSecureDialogKeyRotation,
   processSecureDialogRetention,
 } from "../lib/secure-dialog-governance";
+import { runPlatformSecretRotation } from "../lib/platform-secret-rotation";
 
 type SecureActor = {
   userId: string;
@@ -491,7 +492,11 @@ export function setupSecureDialogGovernanceCron(): void {
   });
   cron.schedule("43 * * * *", async () => {
     try {
-      await processSecureDialogKeyRotation(200);
+      await runPlatformSecretRotation({
+        limit: 200,
+        source: "scheduled",
+        initiatedBy: null,
+      });
     } catch (error) {
       console.error("[secure-dialog] key rotation failed", error instanceof Error ? error.message : "unknown");
     }

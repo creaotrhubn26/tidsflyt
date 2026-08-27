@@ -118,6 +118,10 @@ Rotasjonsprosedyre:
 6. fjern gammel nøkkel først etter dokumentert nullrest og godkjent rollback-
    vindu.
 
+Den samlede, leverandørstyrte prosedyren, mounted-secret-kontrakten,
+superadmin-endepunktet og append-only kjøringsbeviset er beskrevet i
+`docs/runbooks/hemmelighetshvelv-og-nokkelrotasjonsovelse.md`.
+
 Hvis en gammel nøkkel fjernes for tidlig, feiler dekryptering lukket. Legg den
 tilbake i nøkkelringen og la rotasjonsjobben fullføre; ikke omskriv data
 manuelt.

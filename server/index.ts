@@ -5,6 +5,7 @@ import { serveStatic } from "./static";
 import { runStartupMigrations } from "./lib/run-startup-migrations";
 import { createServer } from "http";
 import { createSecurityHeadersMiddleware } from "./lib/security-headers";
+import { assertSecretBoxProductionReady } from "./lib/secret-box";
 
 const app = express();
 const httpServer = createServer(app);
@@ -71,6 +72,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Production must never boot into the development plaintext fallback. This
+  // runs before migrations, routes, cron jobs, and the listening socket.
+  assertSecretBoxProductionReady();
   await runStartupMigrations();
   await registerRoutes(httpServer, app);
 

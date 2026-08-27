@@ -37,6 +37,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const leaveTenantSecurity = STARTUP_MIGRATIONS.indexOf("079_leave_tenant_security.sql");
     const gdprErasureAudit = STARTUP_MIGRATIONS.indexOf("080_gdpr_erasure_audit.sql");
     const powerOfficeEncryption = STARTUP_MIGRATIONS.indexOf("081_poweroffice_client_key_encryption.sql");
+    const secretRotationAudit = STARTUP_MIGRATIONS.indexOf("082_secret_rotation_run_audit.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -53,9 +54,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(leaveTenantSecurity).toBeGreaterThan(cmsControlPlane);
     expect(gdprErasureAudit).toBeGreaterThan(leaveTenantSecurity);
     expect(powerOfficeEncryption).toBeGreaterThan(gdprErasureAudit);
+    expect(secretRotationAudit).toBeGreaterThan(powerOfficeEncryption);
   });
 
-  it("har fail-closed PowerOffice-forsegling som siste oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("081_poweroffice_client_key_encryption.sql");
+  it("har append-only rotasjonsaudit som siste oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("082_secret_rotation_run_audit.sql");
   });
 });

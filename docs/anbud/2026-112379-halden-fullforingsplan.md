@@ -88,7 +88,9 @@ Følgende regler gjelder uten unntak:
 - Documaster-adapter og Maskinporten-tokenklient finnes, men er ikke produksjonsverifisert.
 - Sikker dialog har leverandørklar arkivpakke, transaksjonell kommune-outbox,
   arkiv-før-sletting, juridisk sperring og versjonert datanøkkelrotasjon.
-  Kundens Documaster-oppsett, retensjonsvedtak og KMS er fortsatt eksterne
+  Applikasjonen har nå fail-closed oppstart, leverandørnøytral hvelv-injeksjon,
+  samlet rotasjonsinventory og append-only kjøringsbevis. Kundens
+  Documaster-oppsett, retensjonsvedtak og faktiske KMS er fortsatt eksterne
   akseptansepunkter. Elements-provider for Noark 5 tjenestegrensesnitt 1.1 er
   implementert fail-closed som priset opsjon O1, men er ikke kundetestet eller
   aktivert. En annen Elements-kontrakt krever transporttilpasning.
@@ -355,7 +357,9 @@ Tiltak:
 
 1. Velg norsk sky-/driftsplattform etter tjeneste-for-tjeneste-lokasjonskontroll.
 2. Terraform/Bicep eller tilsvarende for reproduserbar infrastruktur.
-3. Privat database-/lagringstilkobling, administrert nøkkelhvelv og rotasjon.
+3. Privat database-/lagringstilkobling og administrert norsk/avtalt
+   nøkkelhvelv. Applikasjonsgrensen og rotasjonsbeviset finnes; plattformen,
+   RBAC og produksjonsøvelsen må etableres.
 4. Punkt-i-tid-gjenoppretting og backupintervall som gir **RPO ≤ 2 timer**.
 5. DR-test som dokumenterer **RTO ≤ 24 timer** og kontrollert gjenoppretting.
 6. Overvåking av tilgjengelighet, p95/p99, kø, integrasjoner, sikkerhet og backup.
@@ -571,7 +575,7 @@ Akseptanse skal dekke normalbetaling, retur, duplikat, feil konto, utenlandsbeta
 | 16 | E | Delvis | Gjenbruk GDPR-eksport/PDF/PII; lever partsinnsyn, utskrift, journalkopi og klageflyt; E2E-test | 16.10 |
 | 17 | E | Delvis | Utvid eksisterende eksport til komplett, kontrollert saksuttrekk med utleveringslogg | 16.10 |
 | 18 | E | Delvis | Klassifiser og utvid generell sak/rapport/arkiv til forebyggende arbeid | 16.10 |
-| 19 | E | Delvis | TLS + kryptering i ro for DB, objekt, backup og logger; arkitekturbevis | 11.09 |
+| 19 | E | Delvis | Velg norsk/avtalt KMS og koble den implementerte hvelvgrensen; produksjonsprøv rotasjon/rollback; TLS + kryptering i ro for DB, objekt, backup og logger; arkitekturbevis | 11.09 |
 | 20 | Skal | Delvis | Produksjonsbevis for eksisterende BankID/Buypass; Entra for ansatte, Halden-eid ID-porten eller skriftlig akseptert eID-alternativ, MFA; OIDC-test | 01.10 |
 | 21 | E | Mangler bevis | ISMS/gap-vurdering og uavhengig sikkerhetsrapport | 06.11 |
 | 22 | Skal | Delvis | Personvernfunksjoner, dataflyt og komplett DPIA-underlag | 25.09 |

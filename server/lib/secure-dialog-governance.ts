@@ -209,7 +209,11 @@ export async function processSecureDialogRetention(limit = 20, kommuneId?: numbe
   return { processed, purged, failed };
 }
 
-export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: number): Promise<{
+export async function processSecureDialogKeyRotation(
+  limit = 100,
+  kommuneId?: number,
+  powerOfficeSource: "scheduled" | "manual" = "scheduled",
+): Promise<{
   conversations: number;
   messages: number;
   archiveConfigs: number;
@@ -225,12 +229,15 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
       `SELECT id, kommune_id, subject
          FROM tidum_secure_conversations
         WHERE subject IS NOT NULL
-          AND subject NOT LIKE $1
+          AND NOT (
+            subject ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+            AND split_part(subject, ':', 3) = $1
+          )
           AND ($3::integer IS NULL OR kommune_id = $3)
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT $2`,
-      [`sdc:v1:${activeKeyId}:%`, safeLimit, kommuneId ?? null],
+      [activeKeyId, safeLimit, kommuneId ?? null],
     );
     const rotatedConversationIds = new Set<string>();
     for (const row of conversations.rows) {
@@ -246,12 +253,15 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
     const messages = await client.query(
       `SELECT id, kommune_id, conversation_id, body_encrypted
          FROM tidum_secure_messages
-        WHERE body_encrypted NOT LIKE $1
+        WHERE NOT (
+            body_encrypted ~ '^sdc:v1:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+            AND split_part(body_encrypted, ':', 3) = $1
+          )
           AND ($3::integer IS NULL OR kommune_id = $3)
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
         LIMIT $2`,
-      [`sdc:v1:${activeKeyId}:%`, safeLimit, kommuneId ?? null],
+      [activeKeyId, safeLimit, kommuneId ?? null],
     );
     let rotatedMessages = 0;
     for (const row of messages.rows) {
@@ -281,7 +291,7 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
       updateSql: string,
     ): Promise<number> => {
       const rows = await client.query(selectSql, [
-        `enc:v2:${activeKeyId}:%`,
+        activeKeyId,
         safeLimit,
         kommuneId ?? null,
       ]);
@@ -297,7 +307,10 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
     const archiveConfigCount = await rotateGenericColumn(
       `SELECT id, client_secret AS secret_value
          FROM archive_configs
-        WHERE client_secret NOT LIKE $1
+        WHERE NOT (
+            client_secret ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+            AND split_part(client_secret, ':', 3) = $1
+          )
           AND ($3::integer IS NULL OR kommune_id = $3)
         ORDER BY created_at
         FOR UPDATE SKIP LOCKED
@@ -308,7 +321,10 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
       `SELECT id, fiks_private_key_encrypted AS secret_value
          FROM tidum_kommuner
         WHERE fiks_private_key_encrypted IS NOT NULL
-          AND fiks_private_key_encrypted NOT LIKE $1
+          AND NOT (
+            fiks_private_key_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+            AND split_part(fiks_private_key_encrypted, ':', 3) = $1
+          )
           AND ($3::integer IS NULL OR id = $3)
         ORDER BY id
         FOR UPDATE SKIP LOCKED
@@ -318,7 +334,10 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
     const rawIntakeCount = await rotateGenericColumn(
       `SELECT id, raw_payload_encrypted AS secret_value
          FROM tidum_fiks_raw_intake_log
-        WHERE raw_payload_encrypted NOT LIKE $1
+        WHERE NOT (
+            raw_payload_encrypted ~ '^enc:v2:[A-Za-z0-9._-]{1,64}:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+:[A-Za-z0-9_-]+$'
+            AND split_part(raw_payload_encrypted, ':', 3) = $1
+          )
           AND ($3::integer IS NULL OR kommune_id = $3)
         ORDER BY received_at
         FOR UPDATE SKIP LOCKED
@@ -337,7 +356,7 @@ export async function processSecureDialogKeyRotation(limit = 100, kommuneId?: nu
   // Kommuneavgrensede test-/vedlikeholdskjøringer skal ikke berøre
   // vendor-integrasjoner. Den ordinære globale timejobben roterer begge plan.
   const powerOffice = kommuneId == null
-    ? await rotatePowerOfficeClientKeys(safeLimit, "scheduled")
+    ? await rotatePowerOfficeClientKeys(safeLimit, powerOfficeSource)
     : { rotated: 0 };
   return { ...result, powerOfficeCredentials: powerOffice.rotated };
 }
