@@ -45,6 +45,37 @@ import {
 } from "@shared/brand";
 import { eq } from "drizzle-orm";
 import { selectReportTemplateUpdateFields } from "./lib/report-template-update";
+import { resolveCrawlerUrl } from "./lib/crawler-url-policy";
+import { z } from "zod";
+
+const cmsEmailTestSchema = z.object({
+  template_id: z.coerce.number().int().positive(),
+  recipient_email: z.string().trim().email().max(320).transform((value) => value.toLowerCase()),
+  variables: z.record(
+    z.string().regex(/^[A-Za-z0-9_]{1,64}$/),
+    z.string().max(4_000),
+  ).refine((value) => Object.keys(value).length <= 50, "For mange variabler").optional(),
+}).strict();
+
+function boundedCrawlerInteger(value: unknown, fallback: number, min: number, max: number, field: string): number {
+  const candidate = value === undefined || value === null ? fallback : Number(value);
+  if (!Number.isInteger(candidate) || candidate < min || candidate > max) {
+    throw new Error(`${field} må være et heltall mellom ${min} og ${max}`);
+  }
+  return candidate;
+}
+
+function crawlerStringArray(value: unknown, field: string, maxItems: number, maxLength: number): string[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value) || value.length > maxItems) {
+    throw new Error(`${field} må være en liste med maksimalt ${maxItems} elementer`);
+  }
+  const values = value.map((entry) => typeof entry === "string" ? entry.trim() : "");
+  if (values.some((entry) => !entry || entry.length > maxLength)) {
+    throw new Error(`${field} inneholder en ugyldig verdi`);
+  }
+  return values;
+}
 
 const uploadDir = path.join(process.cwd(), 'uploads');
 if (!fs.existsSync(uploadDir)) {
@@ -312,20 +343,72 @@ async function pairAdminUserWithUsersTable(params: {
 
 // JWT-branch roleId resolution. Two disjoint JWT issuers sign tokens with
 // different `id` spaces (see authenticateAdmin below):
-//  1. /api/admin/session-token signs `id: users.id` — direct lookup works.
+//  1. /api/admin/session-token signs `id: users.id` and `authSource: users`.
 //  2. /api/admin/login signs `id: tidum_admin_users.id` (a separate serial id
-//     space) and carries no email in the payload, so the direct users.id
-//     lookup matches zero rows for these tokens. Join through tidum_admin_users
+//     space) and `authSource: tidum_admin_users`. Join through tidum_admin_users
 //     -> users on email (the only field verified to be shared between the
 //     two tables — both declare it `unique`) to find the linked users row.
 //  3. If no linked users row exists at all (a pure tidum_admin_users-only
-//     account), fall back to resolving the system role by the JWT's own
-//     `role` string. NOT assumed to be super_admin — tidum_admin_users.role
-//     defaults to 'vendor_admin' in the schema, so this must look up
-//     whichever role name is actually on the token.
+//     account), resolve the CURRENT role from tidum_admin_users. Do not trust
+//     the role embedded in a potentially 24-hour-old JWT for control-plane
+//     authorization after the account has been changed or disabled.
 // Fails closed (undefined) on DB error, same as resolveSuperAdminRoleId —
 // hasPermission() then denies rather than this rejecting the whole request.
-async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Promise<string | undefined> {
+async function resolveJwtAdminRoleId(admin: {
+  id?: string;
+  role?: string;
+  email?: string;
+  authSource?: "users" | "tidum_admin_users";
+}): Promise<string | undefined> {
+  const rawAdminId = String(admin.id ?? "").trim();
+  const numericAdminId = /^\d+$/.test(rawAdminId) ? Number(rawAdminId) : Number.NaN;
+  const isPostgresIntegerId =
+    Number.isSafeInteger(numericAdminId) && numericAdminId > 0 && numericAdminId <= 2_147_483_647;
+
+  // New tokens state their id space explicitly. Legacy /api/admin/login
+  // tokens were numeric and omitted email, while session tokens carry email;
+  // retain that narrow heuristic only until those 24-hour tokens expire.
+  const shouldResolveAdminTable = admin.authSource === "tidum_admin_users"
+    || (admin.authSource === undefined && isPostgresIntegerId && !admin.email);
+
+  try {
+    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
+    // to lowercase when writing users.email, but tidum_admin_users.email keeps
+    // whatever case the caller supplied — an exact-case join would miss
+    // the pairing for any mixed-case admin email and fall through to the
+    // (correct but less precise) name-based fallback below. Found in
+    // fase 1.5's final review.
+    // tidum_admin_users.id is SERIAL/integer, while users.id and several JWT
+    // issuers legitimately use string ids. Never send an untrusted string to
+    // PostgreSQL's integer cast just to discover that it belongs to the other
+    // id space.
+    if (shouldResolveAdminTable && isPostgresIntegerId) {
+      const byAdminUsersEmail = await pool.query(
+        `SELECT a.role AS admin_role, u.id AS linked_user_id, u.role_id
+           FROM tidum_admin_users a
+           LEFT JOIN users u ON LOWER(u.email) = LOWER(a.email)
+          WHERE a.id = $1 AND a.is_active = true`,
+        [numericAdminId],
+      );
+      if (byAdminUsersEmail.rows.length > 0) {
+        const row = byAdminUsersEmail.rows[0];
+        // En koblet users-rad med eksplisitt NULL role_id betyr at tilgangen
+        // er fjernet. Ikke fall tilbake til tekstrollen og gjenopprett den.
+        if (row.linked_user_id != null) return row.role_id ?? undefined;
+        return row.admin_role
+          ? (await resolveSystemRoleIdByName(row.admin_role)) ?? undefined
+          : undefined;
+      }
+      // A numeric, email-less legacy token belongs to this id space. If its
+      // active admin row is gone, never fall through to a coincidentally
+      // matching users.id.
+      return undefined;
+    }
+  } catch (err) {
+    console.error('[authenticateAdmin] failed tidum_admin_users email-join roleId lookup', err);
+    if (shouldResolveAdminTable) return undefined;
+  }
+
   try {
     const byUsersId = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [admin.id]);
     if (byUsersId.rows.length > 0) {
@@ -339,36 +422,7 @@ async function resolveJwtAdminRoleId(admin: { id?: string; role?: string }): Pro
     console.error('[authenticateAdmin] failed users.id roleId lookup', err);
   }
 
-  const rawAdminId = String(admin.id ?? "").trim();
-  const numericAdminId = /^\d+$/.test(rawAdminId) ? Number(rawAdminId) : Number.NaN;
-  const isPostgresIntegerId =
-    Number.isSafeInteger(numericAdminId) && numericAdminId > 0 && numericAdminId <= 2_147_483_647;
-
-  try {
-    // Case-insensitive join: pairAdminUserWithUsersTable normalizes email
-    // to lowercase when writing users.email, but tidum_admin_users.email keeps
-    // whatever case the caller supplied — an exact-case join would miss
-    // the pairing for any mixed-case admin email and fall through to the
-    // (correct but less precise) name-based fallback below. Found in
-    // fase 1.5's final review.
-    // tidum_admin_users.id is SERIAL/integer, while users.id and several JWT
-    // issuers legitimately use string ids. Never send an untrusted string to
-    // PostgreSQL's integer cast just to discover that it belongs to the other
-    // id space.
-    if (isPostgresIntegerId) {
-      const byAdminUsersEmail = await pool.query(
-        `SELECT u.role_id FROM tidum_admin_users a JOIN users u ON LOWER(u.email) = LOWER(a.email) WHERE a.id = $1`,
-        [numericAdminId],
-      );
-      if (byAdminUsersEmail.rows.length > 0) {
-        return byAdminUsersEmail.rows[0].role_id ?? undefined;
-      }
-    }
-  } catch (err) {
-    console.error('[authenticateAdmin] failed tidum_admin_users email-join roleId lookup', err);
-  }
-
-  return admin.role ? (await resolveSystemRoleIdByName(admin.role)) ?? undefined : undefined;
+  return undefined;
 }
 
 // Skriver én rad per mutasjonsforsøk mot en authenticateAdmin-gated rute —
@@ -407,6 +461,27 @@ function attachActivityLogging(req: AuthRequest, res: Response): void {
   });
 }
 
+function isCmsControlPlaneRequest(req: AuthRequest): boolean {
+  const requestPath = req.path.replace(/\/+$/, "");
+  return requestPath === "/api/cms" || requestPath.startsWith("/api/cms/");
+}
+
+async function completeAdminAuthentication(
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction,
+): Promise<void> {
+  attachActivityLogging(req, res);
+  if (
+    isCmsControlPlaneRequest(req)
+    && !(await hasPermission(req.admin?.roleId, "cms.manage"))
+  ) {
+    res.status(403).json({ error: "Global CMS-tilgang kreves" });
+    return;
+  }
+  next();
+}
+
 export async function authenticateAdmin(req: AuthRequest, res: Response, next: NextFunction) {
   // Local super-admin injection is opt-in as well as non-production.
   if (isDevAuthBypassAllowed()) {
@@ -416,8 +491,7 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
       role: 'super_admin',
       roleId: (await resolveSuperAdminRoleId()) ?? undefined,
     };
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   // Try JWT Bearer token first
   const authHeader = req.headers.authorization;
@@ -434,17 +508,17 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
     // error resolving roleId must not be reported as "Invalid token" (401,
     // logging the admin out). resolveJwtAdminRoleId fails closed to
     // undefined on error, matching hasPermission's fail-closed behavior.
-    if (!req.admin.roleId) {
+    if (isCmsControlPlaneRequest(req) || !req.admin.roleId) {
       req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
     }
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   // Fall back to session-based auth (Google OAuth)
   if (req.isAuthenticated?.() && req.user) {
     const user = req.user as any;
     req.admin = {
       id: user.id,
+      authSource: 'users',
       email: user.email,
       role: user.role,
       roleId: user.roleId ?? undefined,
@@ -454,16 +528,10 @@ export async function authenticateAdmin(req: AuthRequest, res: Response, next: N
     // look it up the same way the JWT branch does rather than touching
     // custom-auth.ts. Fail closed on a DB error instead of hanging the
     // request, same as resolveSuperAdminRoleId above.
-    if (!req.admin.roleId) {
-      try {
-        const row = await pool.query(`SELECT role_id FROM users WHERE id = $1`, [user.id]);
-        req.admin.roleId = row.rows[0]?.role_id ?? undefined;
-      } catch (err) {
-        console.error('[authenticateAdmin] failed to resolve session user roleId', err);
-      }
+    if (isCmsControlPlaneRequest(req) || !req.admin.roleId) {
+      req.admin.roleId = await resolveJwtAdminRoleId(req.admin);
     }
-    attachActivityLogging(req, res);
-    return next();
+    return completeAdminAuthentication(req, res, next);
   }
   return res.status(401).json({ error: 'Authentication required' });
 }
@@ -1267,6 +1335,7 @@ export function registerSmartTimingRoutes(app: Express) {
       const token = jwt.sign(
         { 
           id: admin.id, 
+          authSource: 'tidum_admin_users',
           username: admin.username, 
           role: admin.role,
           vendorId: admin.vendor_id,
@@ -1320,6 +1389,7 @@ export function registerSmartTimingRoutes(app: Express) {
     const token = jwt.sign(
       {
         id: sessionUser.id,
+        authSource: 'users',
         username: sessionUser.email,
         email: sessionUser.email,
         role,
@@ -3669,7 +3739,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: SITE SETTINGS ==========
-  app.get("/api/cms/settings", async (_req, res) => {
+  app.get("/api/cms/settings", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM site_settings ORDER BY key');
       res.json(result.rows);
@@ -5295,7 +5365,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: MEDIA LIBRARY ==========
-  app.get("/api/cms/media", async (req, res) => {
+  app.get("/api/cms/media", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const { folder_id } = req.query;
       let query = 'SELECT * FROM cms_media';
@@ -5316,7 +5386,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/media/folders", async (_req, res) => {
+  app.get("/api/cms/media/folders", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_media_folders ORDER BY name');
       res.json(result.rows);
@@ -5480,7 +5550,7 @@ export function registerSmartTimingRoutes(app: Express) {
   });
 
   // ========== CMS: FORMS ==========
-  app.get("/api/cms/forms", async (_req, res) => {
+  app.get("/api/cms/forms", authenticateAdmin, async (_req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_forms ORDER BY created_at DESC');
       res.json(result.rows);
@@ -5489,7 +5559,7 @@ export function registerSmartTimingRoutes(app: Express) {
     }
   });
 
-  app.get("/api/cms/forms/:id", async (req, res) => {
+  app.get("/api/cms/forms/:id", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
       const result = await pool.query('SELECT * FROM cms_forms WHERE id = $1', [req.params.id]);
       res.json(result.rows[0] || null);
@@ -7054,7 +7124,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
   // Send test email
   app.post("/api/cms/email/test", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const { template_id, recipient_email, variables } = req.body;
+      const parsed = cmsEmailTestSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig testmelding" });
+      const { template_id, recipient_email, variables } = parsed.data;
       
       // Get template
       const templateResult = await pool.query('SELECT * FROM email_templates WHERE id = $1', [template_id]);
@@ -7075,9 +7147,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       let subject = template.subject;
       if (variables) {
         for (const [key, value] of Object.entries(variables)) {
-          const regex = new RegExp(`{{${key}}}`, 'g');
-          htmlContent = htmlContent.replace(regex, value as string);
-          subject = subject.replace(regex, value as string);
+          const placeholder = `{{${key}}}`;
+          htmlContent = htmlContent.split(placeholder).join(value);
+          subject = subject.split(placeholder).join(value);
         }
       }
 
@@ -7100,14 +7172,18 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       res.json({ success: true, message: 'Test email sent successfully' });
     } catch (err: any) {
       console.error('Email send error:', err);
-      res.status(500).json({ error: err.message });
+      res.status(500).json({ error: "Kunne ikke sende testmeldingen" });
     }
   });
 
   // Get email send history
   app.get("/api/cms/email/history", authenticateAdmin, async (req: AuthRequest, res) => {
     try {
-      const limit = parseInt(req.query.limit as string) || 50;
+      const requestedLimit = Number(req.query.limit ?? 50);
+      if (!Number.isInteger(requestedLimit) || requestedLimit < 1) {
+        return res.status(400).json({ error: "Ugyldig grense" });
+      }
+      const limit = Math.min(requestedLimit, 100);
       const result = await pool.query(
         `SELECT h.*, t.name as template_name FROM tidum_email_send_history h
          LEFT JOIN email_templates t ON h.template_id = t.id
@@ -7116,7 +7192,8 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       );
       res.json(result.rows);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      console.error("CMS email history failed:", err);
+      res.status(500).json({ error: "Kunne ikke hente e-posthistorikk" });
     }
   });
 
@@ -8767,8 +8844,64 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
 
       if (!target_url) return res.status(400).json({ error: "target_url is required" });
 
-      // Validate URL
-      try { new URL(target_url); } catch { return res.status(400).json({ error: "Invalid target_url" }); }
+      let safeTargetUrl: string;
+      let safeUrlList: string[] | undefined;
+      let safeMaxPages: number;
+      let safeMaxDepth: number;
+      let safeCrawlDelayMs: number;
+      let safeIncludePatterns: string[] | undefined;
+      let safeExcludePatterns: string[] | undefined;
+      try {
+        if (typeof target_url !== "string") throw new Error("target_url må være en URL");
+        safeTargetUrl = (await resolveCrawlerUrl(target_url)).url.href;
+        safeMaxPages = boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages");
+        safeMaxDepth = boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth");
+        safeCrawlDelayMs = boundedCrawlerInteger(crawl_delay_ms, 200, 0, 60_000, "crawl_delay_ms");
+        safeIncludePatterns = crawlerStringArray(include_patterns, "include_patterns", 25, 256);
+        safeExcludePatterns = crawlerStringArray(exclude_patterns, "exclude_patterns", 25, 256);
+        for (const pattern of [...(safeIncludePatterns || []), ...(safeExcludePatterns || [])]) {
+          new RegExp(pattern, "i");
+        }
+        const requestedUrls = crawlerStringArray(url_list, "url_list", 50, 2_048);
+        if (requestedUrls) {
+          safeUrlList = await Promise.all(requestedUrls.map(async (entry) => {
+            const absolute = new URL(entry, safeTargetUrl).href;
+            return (await resolveCrawlerUrl(absolute)).url.href;
+          }));
+        }
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+
+      if (typeof name === "string" && name.length > 200) return res.status(400).json({ error: "name er for langt" });
+      if (!["full", "links_only", "sitemap", "url_list"].includes(crawl_type)) {
+        return res.status(400).json({ error: "Ugyldig crawl_type" });
+      }
+      const crawlerFlags = [
+        respect_robots_txt, follow_external_links, follow_subdomains,
+        include_images, include_css, include_js, check_canonical,
+        check_hreflang, extract_structured_data, check_accessibility,
+      ];
+      if (crawlerFlags.some((flag) => typeof flag !== "boolean")) {
+        return res.status(400).json({ error: "Crawler-flagg må være boolean" });
+      }
+      if (custom_user_agent !== undefined && (
+        typeof custom_user_agent !== "string"
+        || custom_user_agent.length > 256
+        || /[\u0000-\u001f\u007f]/.test(custom_user_agent)
+      )) {
+        return res.status(400).json({ error: "Ugyldig custom_user_agent" });
+      }
+      if (typeof custom_robots_txt === "string" && custom_robots_txt.length > 100_000) {
+        return res.status(400).json({ error: "custom_robots_txt er for langt" });
+      }
+      if (custom_extraction !== undefined && (
+        !Array.isArray(custom_extraction)
+        || custom_extraction.length > 20
+        || JSON.stringify(custom_extraction).length > 64_000
+      )) {
+        return res.status(400).json({ error: "Ugyldig custom_extraction" });
+      }
 
       const result = await pool.query(
         `INSERT INTO tidum_crawler_jobs (
@@ -8782,13 +8915,13 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,'pending')
         RETURNING *`,
         [
-          name || `Crawl ${target_url}`, target_url, crawl_type,
-          max_pages, max_depth, crawl_delay_ms,
+          name || `Crawl ${safeTargetUrl}`, safeTargetUrl, crawl_type,
+          safeMaxPages, safeMaxDepth, safeCrawlDelayMs,
           respect_robots_txt, follow_external_links, follow_subdomains,
           include_images, include_css, include_js,
           check_canonical, check_hreflang, extract_structured_data, check_accessibility,
           custom_user_agent || null, custom_robots_txt || null,
-          url_list || null, include_patterns || null, exclude_patterns || null,
+          safeUrlList || null, safeIncludePatterns || null, safeExcludePatterns || null,
           custom_extraction ? JSON.stringify(custom_extraction) : null,
         ]
       );
@@ -8799,10 +8932,10 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { runCrawlJob } = await import("./crawler-engine");
       runCrawlJob({
         jobId: job.id,
-        targetUrl: target_url,
-        maxPages: max_pages,
-        maxDepth: max_depth,
-        crawlDelayMs: crawl_delay_ms,
+        targetUrl: safeTargetUrl,
+        maxPages: safeMaxPages,
+        maxDepth: safeMaxDepth,
+        crawlDelayMs: safeCrawlDelayMs,
         respectRobotsTxt: respect_robots_txt,
         followExternalLinks: follow_external_links,
         followSubdomains: follow_subdomains,
@@ -8815,9 +8948,9 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
         checkAccessibility: check_accessibility,
         customUserAgent: custom_user_agent,
         customRobotsTxt: custom_robots_txt,
-        urlList: url_list,
-        includePatterns: include_patterns,
-        excludePatterns: exclude_patterns,
+        urlList: safeUrlList,
+        includePatterns: safeIncludePatterns,
+        excludePatterns: safeExcludePatterns,
         customExtraction: custom_extraction,
       }).catch(err => console.error("[Crawler] Background job error:", err));
 
@@ -9092,10 +9225,32 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links } = req.body;
       if (!target_url) return res.status(400).json({ error: "target_url required" });
 
+      let safeTargetUrl: string;
+      let safeMaxPages: number;
+      let safeMaxDepth: number;
+      let safeCrawlDelayMs: number;
+      try {
+        if (typeof target_url !== "string") throw new Error("target_url må være en URL");
+        safeTargetUrl = (await resolveCrawlerUrl(target_url)).url.href;
+        safeMaxPages = boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages");
+        safeMaxDepth = boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth");
+        safeCrawlDelayMs = boundedCrawlerInteger(crawl_delay_ms, 200, 0, 60_000, "crawl_delay_ms");
+      } catch (error) {
+        return res.status(400).json({ error: (error as Error).message });
+      }
+      if (typeof name === "string" && name.length > 200) return res.status(400).json({ error: "name er for langt" });
+      if (typeof cron_expression === "string" && cron_expression.length > 100) return res.status(400).json({ error: "cron_expression er for langt" });
+      if (
+        (respect_robots_txt !== undefined && typeof respect_robots_txt !== "boolean")
+        || (follow_external_links !== undefined && typeof follow_external_links !== "boolean")
+      ) {
+        return res.status(400).json({ error: "Crawler-flagg må være boolean" });
+      }
+
       const result = await pool.query(
         `INSERT INTO tidum_crawler_schedules (name, target_url, cron_expression, max_pages, max_depth, crawl_delay_ms, respect_robots_txt, follow_external_links, is_active)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING *`,
-        [name || `Schedule ${target_url}`, target_url, cron_expression || "0 3 * * 1", max_pages || 500, max_depth || 10, crawl_delay_ms || 200, respect_robots_txt ?? true, follow_external_links ?? false]
+        [name || `Schedule ${safeTargetUrl}`, safeTargetUrl, cron_expression || "0 3 * * 1", safeMaxPages, safeMaxDepth, safeCrawlDelayMs, respect_robots_txt ?? true, follow_external_links ?? false]
       );
       res.status(201).json(result.rows[0]);
     } catch (err: any) {
@@ -9108,25 +9263,43 @@ Sitemap: ${sitemapBase}/sitemap.xml`;
       const { id } = req.params;
       const { is_active, cron_expression, max_pages, max_depth } = req.body;
 
+      const scheduleId = Number(id);
+      if (!Number.isInteger(scheduleId) || scheduleId <= 0) return res.status(400).json({ error: "Ugyldig schedule-id" });
+      if (is_active !== undefined && typeof is_active !== "boolean") return res.status(400).json({ error: "is_active må være boolean" });
+      if (cron_expression !== undefined && (typeof cron_expression !== "string" || cron_expression.length === 0 || cron_expression.length > 100)) {
+        return res.status(400).json({ error: "Ugyldig cron_expression" });
+      }
+
       const updates: string[] = [];
       const params: any[] = [];
       let idx = 1;
 
       if (is_active !== undefined) { updates.push(`is_active = $${idx++}`); params.push(is_active); }
-      if (cron_expression) { updates.push(`cron_expression = $${idx++}`); params.push(cron_expression); }
-      if (max_pages) { updates.push(`max_pages = $${idx++}`); params.push(max_pages); }
-      if (max_depth) { updates.push(`max_depth = $${idx++}`); params.push(max_depth); }
+      if (cron_expression !== undefined) { updates.push(`cron_expression = $${idx++}`); params.push(cron_expression); }
+      if (max_pages !== undefined) {
+        updates.push(`max_pages = $${idx++}`);
+        params.push(boundedCrawlerInteger(max_pages, 500, 1, 5_000, "max_pages"));
+      }
+      if (max_depth !== undefined) {
+        updates.push(`max_depth = $${idx++}`);
+        params.push(boundedCrawlerInteger(max_depth, 10, 0, 25, "max_depth"));
+      }
 
       if (updates.length === 0) return res.status(400).json({ error: "No updates provided" });
 
-      params.push(id);
+      params.push(scheduleId);
       const result = await pool.query(
         `UPDATE tidum_crawler_schedules SET ${updates.join(", ")}, updated_at = NOW() WHERE id = $${idx} RETURNING *`,
         params
       );
+      if (!result.rows[0]) return res.status(404).json({ error: "Schedule not found" });
       res.json(result.rows[0]);
     } catch (err: any) {
-      res.status(500).json({ error: err.message });
+      if (String(err?.message || "").includes("må være et heltall")) {
+        return res.status(400).json({ error: err.message });
+      }
+      console.error("Crawler schedule update failed:", err);
+      res.status(500).json({ error: "Kunne ikke oppdatere schedule" });
     }
   });
 

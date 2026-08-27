@@ -21,8 +21,27 @@ describe("PERMISSION_CATALOG matches migration seed", () => {
     }
   });
 
-  it("has exactly 8 entries across all migrations (update this test when you add one)", () => {
-    expect(PERMISSION_CATALOG.length).toBe(8);
+  it("has exactly 9 entries across all migrations (update this test when you add one)", () => {
+    expect(PERMISSION_CATALOG.length).toBe(9);
+  });
+});
+
+describe("global CMS permission", () => {
+  it("is seeded only to super_admin and stays idempotent", async () => {
+    const sql = readFileSync("migrations/078_cms_control_plane_security.sql", "utf8");
+    await pool.query(sql);
+    await pool.query(sql);
+
+    const { rows } = await pool.query(
+      `SELECT r.name
+         FROM tidum_role_permissions rp
+        JOIN tidum_roles r ON r.id = rp.role_id
+        JOIN tidum_permissions p ON p.id = rp.permission_id
+        WHERE p.key = 'cms.manage'
+          AND r.is_system_default = true
+        ORDER BY r.name`,
+    );
+    expect(rows.map((row) => row.name)).toEqual(["super_admin"]);
   });
 });
 

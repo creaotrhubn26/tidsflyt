@@ -33,6 +33,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const archiveTokenUrl = STARTUP_MIGRATIONS.indexOf("075_archive_token_url.sql");
     const elementsArchive = STARTUP_MIGRATIONS.indexOf("076_elements_archive_provider.sql");
     const caseReportSecurity = STARTUP_MIGRATIONS.indexOf("077_saker_rapport_tenant_security.sql");
+    const cmsControlPlane = STARTUP_MIGRATIONS.indexOf("078_cms_control_plane_security.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -45,9 +46,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(archiveTokenUrl).toBeGreaterThan(secureGovernance);
     expect(elementsArchive).toBeGreaterThan(archiveTokenUrl);
     expect(caseReportSecurity).toBeGreaterThan(elementsArchive);
+    expect(cmsControlPlane).toBeGreaterThan(caseReportSecurity);
   });
 
-  it("har saks-/rapportsikkerhetsmigreringen som siste oppstartsbarriere", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("077_saker_rapport_tenant_security.sql");
+  it("har CMS-kontrollplantillatelsen som siste oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("078_cms_control_plane_security.sql");
   });
 });

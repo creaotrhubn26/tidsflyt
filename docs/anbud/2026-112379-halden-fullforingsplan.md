@@ -47,7 +47,7 @@ Følgende regler gjelder uten unntak:
   kommentarer, rapportmaler/-ressurser, PDF og historikk. 18/18 målrettede
   tester er grønne; migrasjon 067/068 er varig anvendt og verifisert i
   utviklingsdatabasen, inkludert faktura-E2E med to tenants.
-- Neste BOLA/IDOR-pakke tenantskoper den ordinære e-postkomponisten: maler,
+- En BOLA/IDOR-pakke tenantskoper den ordinære e-postkomponisten: maler,
   utkast, historikk, rapportvalg og private vedleggs-ID-er. URL-henting er
   fjernet, planlagt sending claim-es atomisk, og 15/15 tester er grønne.
   Migrasjon 069 er varig anvendt i utviklingsdatabasen. Dette er fortsatt
@@ -62,6 +62,13 @@ Følgende regler gjelder uten unntak:
   designkontroll og produksjonsbygg er grønne. Fullsuitens sju parallelle
   DB-feil besto ved kontrollert sekvensiell omkjøring (47/47 og 29/29), men ny
   full DB-suite må fortsatt kjøres i isolert CI med kontrollert parallellitet.
+- Det globale leverandør-CMS-et har fått egen `cms.manage`-rettighet, fersk
+  DB-rolleoppløsning, beskyttelse av CMS-e-post/builder/media/analyse og en
+  SSRF-sikker crawler med DNS-pinning og redirectkontroll. Rasteropplasting
+  dekodes og re-enkodes; SVG og originalfil-fallback er fjernet. Lokal
+  typesjekk, build og 42 DB-uavhengige måltester er grønne. Migrasjon 078 er
+  anvendt idempotent i Neon-utviklingsdatabasen, grantet er kontrollert til
+  kun global system-`super_admin`, og 12/12 fokuserte DB-tester er grønne.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -117,11 +124,11 @@ Følgende regler gjelder uten unntak:
   operasjoner og leverer reell PDF. Migrasjon og faktura-E2E er verifisert;
   full klientøkonomi er fortsatt ikke levert.
 - Generisk eksport, eldre saksrapport-/rapportdesignerruter, den ordinære
-  e-postkomponisten og hovedflyten for saker, sakjournal, rapporter, mål og
-  aktiviteter er herdet i integrasjonsarbeidsflaten. CreatorHub/CMS-e-post,
-  andre filflater, søk, bakgrunnsjobber og CMS/admin har fortsatt åpne
-  objekt-/tenantkontroller og kan ikke brukes med ekte eksterne data før hele
-  endepunktsmatrisen er lukket.
+  e-postkomponisten, hovedflyten for saker/rapport og det globale
+  CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
+  integrasjonsarbeidsflaten. Andre filflater, søk, bakgrunnsjobber utenfor
+  crawleren og øvrige adminflater har fortsatt åpne kontroller og kan ikke
+  brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
 - Den tidligere offentlige påstanden om test mot ekte Documaster-instans er
   rettet i integrasjonsgrenen. Kundesandkasse er fortsatt et eksplisitt
   akseptansepunkt og skal ikke beskrives som gjennomført før bevis foreligger.
@@ -293,8 +300,9 @@ Tiltak:
    eldre saksrapporter/kommentarer, ordinær e-postkomponist og hovedflyten for
    saker, sakjournal, rapporter, mål og aktiviteter er herdet med
    to-tenant-tester. Migrasjon 067–069 og 077, faktura-E2E, e-posttesten og
-   parent-child-constraints er gjennomført. Fortsett med CreatorHub/CMS-e-post,
-   andre filflater, søk, logger, bakgrunnsjobber og administrasjon.
+   parent-child-constraints er gjennomført. Det globale CMS-kontrollplanet,
+   CMS-e-post, builder/media/analyse og crawler er også herdet. Fortsett med
+   andre filflater, søk, logger, øvrige bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er

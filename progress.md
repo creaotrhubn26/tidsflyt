@@ -203,7 +203,8 @@ administrativ byggekloss. Det gjør ikke SMTP til sikker ekstern
 barnevernsdialog. Sensitive opplysninger skal fortsatt bruke en godkjent kanal
 med partsmodell, tilgangs-/oppslagslogg, sikker dokumentdeling og avtalt
 lagrings-/retensjonsarkitektur. CreatorHub/CMS-rutene under `/api/cms/email/*`
-bruker en separat global modell og gjenstår i CMS/admin-pakken.
+bruker en separat global leverandørmodell; autorisasjon og inputherding for
+denne modellen er gjennomført i seksjon 14.
 
 ## 7. Sikker sending — ordinær e-post sperret for barnevernsinnhold
 
@@ -557,6 +558,51 @@ ingen reproducerbar produktregresjon i de sju feilene, men det hevdes fortsatt
 ikke at parallell fullsuite er grønn; isolert CI-database og kontrollert
 parallellitet gjenstår.
 
+## 14. Globalt CMS-kontrollplan, crawler og bildeopplasting
+
+CMS-et styrer Tidums globale leverandørflate og er ikke kundens tenantflate.
+Tidligere var flere leseruter bare innloggingsbeskyttet eller helt offentlige,
+mens crawleren kunne følge brukeroppgitte URL-er og redirects til lokale og
+private nett. Bildeopplastingen godtok SVG på samme origin og kunne publisere
+originale angriperbyte dersom bildebehandlingen feilet.
+
+Pakken innfører en eksplisitt global `cms.manage`-rettighet i migrasjon 078,
+initialt bare til systemrollen `super_admin`. Alle `authenticateAdmin`-gatede
+`/api/cms/*`-ruter kontrollerer gjeldende rolle fra databasen før tilgang;
+stale JWT-roller godtas ikke. Nye tokens merker hvilket ID-rom de kommer fra,
+og bakoverkompatibel oppløsning hindrer kollisjon mellom numeriske
+`tidum_admin_users.id` og tekstlige `users.id`.
+
+Følgende er i tillegg lukket:
+
+- builder-kladd, seksjonsmaler, versjonshistorikk, skjemainnsendinger,
+  sideanalyse, media, skjemaer, generelle CMS-innstillinger, e-postkontroll og
+  crawleradministrasjon krever global CMS-tilgang;
+- gjenoppretting av sideversjon krever at versjonen faktisk tilhører siden;
+  offentlige skjema- og analysekall valideres, størrelsesbegrenses og godtas
+  bare for samsvarende publisert side;
+- CMS-testmail validerer mottaker og variabler, historikk er begrenset, og rå
+  serverfeil returneres ikke;
+- crawleren tillater bare HTTP(S), avviser lokale vertsnavn, metadata-, private,
+  link-local, reserverte og blandede DNS-svar, låser godkjent DNS-adresse til
+  socketen og validerer hver redirect på nytt. Responsstørrelse, tid, dybde,
+  sidetall og URL-lister er avgrenset;
+- CMS-opplasting godtar bare PNG/JPEG/GIF/WebP, dekoder med pikselgrense og
+  publiserer utelukkende re-enkodet WebP. SVG og MIME-forfalskning avvises, og
+  delvise filer ryddes ved feil. Råfiler behandles utenfor offentlig katalog,
+  opplastinger ratebegrenses, og tenantrapportlogoer bruker en egen rute.
+  Klientene viser de samme formatgrensene.
+
+**Verifikasjon:** 42/42 DB-uavhengige sikkerhets-, crawler-, migrasjonsrekkefølge-,
+CSRF- og avhengighetstester består. `npm run check`, designkontroll og
+produksjonsbuild er grønne. Migrasjon 078 er registrert sist i
+startup-rekkefølgen, varig anvendt og kjørt idempotent mot
+Neon-utviklingsdatabasen. Databasen viser seedbeviset og nøyaktig én
+systemrollegrant for `cms.manage`: global `super_admin`. De fokuserte ekte
+PostgreSQL-testene består med **4/4** for migrasjon/permission-katalog og
+**8/8** for autentisering, ID-romskollisjon, fersk rolleoppløsning og
+`cms.manage`-autorisasjon.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
@@ -566,8 +612,9 @@ parallellitet gjenstår.
 - De brede BOLA/IDOR-pakkene er gjennomført for generisk eksport, faktura, den
   eldre saksrapport-/rapportdesignerflyten, den ordinære e-postkomponisten og
   hovedflyten for saker, journal, rapporter, mål og aktiviteter.
-  CreatorHub/CMS-e-post, andre filflater, søk, bakgrunnsjobber og
-  CMS/adminflater gjenstår i den systematiske endepunktsmatrisen. En full
+  Det globale CMS-kontrollplanet, CMS-e-post, builderdata, media, analyse og
+  crawler er nå herdet. Andre filflater, søk, bakgrunnsjobber utenfor crawleren
+  og øvrige adminflater gjenstår i den systematiske endepunktsmatrisen. En full
   uavhengig pentest og blokkert CI-kjøring med isolert database gjenstår også.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede
   korrekt username/password-håndtering; ingen handling er nødvendig for akkurat

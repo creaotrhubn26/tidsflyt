@@ -236,10 +236,11 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   dette med egne tabeller og DB-test, men er fortsatt en smal
   leverandørfakturaflyt, ikke en komplett klientøkonomimodul.
 - Generisk eksport, faktura, den eldre saksrapport-/rapportdesignerflyten, den
-  ordinære e-postkomponisten og hovedflyten for saker, sakjournal, rapporter,
-  mål og aktiviteter er herdet i integrasjonsgrenen. CreatorHub/CMS-e-post,
-  andre filflater, søk, bakgrunnsjobber og CMS/admin må fortsatt gjennom den
-  samlede BOLA/IDOR-matrisen før gjenbruk i kommunal løsning.
+  ordinære e-postkomponisten, hovedflyten for saker/rapport og det globale
+  CMS-kontrollplanet med e-post, builder, media, analyse og crawler er herdet i
+  integrasjonsgrenen. Andre filflater, søk, øvrige bakgrunnsjobber og
+  adminflater må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i
+  kommunal løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -253,7 +254,7 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
 | GDPR-selvbetjening | Eksport av egne data, anonymisering/sletting, adminfunksjoner og retensjonsjobb | Gjenbruk for 16, 17 og 22 | Saksrettet partsinnsyn, arkivunntak, BOLA-test og komplett utleveringspakke |
 | Lønn/PowerOffice | Fire CSV-formater; PowerOffice-token, mapping, test, godkjent timeliste og push | Gjenbruk for 27 og demo 31 | Ekte leverandørtest, idempotens/avstemming og Visma Enterprise Plus; dette er ikke klientøkonomi |
 | Fakturautkast | Tabeller, side, generering, linjer og HTML-utskrift | Prototype for 27/31 | Rett klient/API-kontrakt, tenant/eierskap, MVA/KID/EHF, ekte PDF og tester |
-| E-postmotor | Tenant-/eierskopede maler, variabler, private vedleggs-ID-er, utkast, atomisk planlagt sending og historikk | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, norsk/avtalt vedleggslagring og retensjon; separat CreatorHub/CMS-e-post må herdes |
+| E-postmotor | Tenant-/eierskopede maler, variabler, private vedleggs-ID-er, utkast, atomisk planlagt sending og historikk; global CMS-e-post krever `cms.manage` og har validert testutsending/historikkgrense. Migrasjon 078 er idempotent anvendt i utviklingsdatabasen og 12/12 fokuserte DB-tester er grønne. | Intern/administrativ byggekloss for 8 og 29 | Sikker kanal, Outlook/Graph, norsk/avtalt vedleggslagring og retensjon; isolert CI-regresjon og produksjonskonfigurasjon før åpning. |
 | Avvik | Registrering, alvorlighet/kategori, oppfølging, varsling og maskering | Gjenbruk for oppfølging og deler av 22/29 | Barnevernsfaglig hendelsesmodell, tilgang, vedleggsvern og arkivkobling |
 | BRREG | Søk/import av virksomheter og institusjoner | Nyttig masterdata for sak/økonomi | Skal ikke omtales som Folkeregisteret/FREG |
 | Drift | Healthcheck, Render-probe, klient-Sentry, backup/restore-skript og hendelses-e-post | Teknisk startpunkt for 25 | Produksjonskonfigurasjon, serverobservability, 24/7-vakt, RPO ≤ 2 t og testbevis |
@@ -339,8 +340,9 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    saksrapport-/rapportdesignerruter, ordinær e-postkomponist og hovedflyten
    for saker, sakjournal, rapporter, mål og aktiviteter er tenant-/eierskopet.
    Migrasjon 067–069 og 077, målrettede to-tenant-tester og DB-constraints er
-   gjennomført. Fortsett med CreatorHub/CMS-e-post, andre filflater, søk,
-   bakgrunnsjobber og øvrig CMS/admin.
+   gjennomført. Globalt CMS, CMS-e-post, builder/media/analyse og crawler er
+   også herdet. Fortsett med andre filflater, søk, øvrige bakgrunnsjobber og
+   adminflater.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
    har 0 funn; tidligere full lokal Vitest-baseline er grønn 443/443 mot
    utviklingsdatabase. Den siste sikkerhetspakkens målrettede tester er grønne,

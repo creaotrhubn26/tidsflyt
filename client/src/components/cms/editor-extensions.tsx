@@ -27,6 +27,24 @@ import {
   Eye, Image, ExternalLink, Sparkles, ArrowDown
 } from "lucide-react";
 
+async function cmsControlPlaneRequest<T = any>(url: string, init: RequestInit = {}): Promise<T> {
+  const token = sessionStorage.getItem('cms_admin_token');
+  const headers = new Headers(init.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+
+  const response = await fetch(url, {
+    ...init,
+    headers,
+    credentials: 'include',
+  });
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({ error: 'Forespørselen feilet' }));
+    throw new Error(body.error || 'Forespørselen feilet');
+  }
+  if (response.status === 204) return undefined as T;
+  return response.json();
+}
+
 // ═══════════════════════════════════════════
 // 1. SEO Metadata Editor
 // ═══════════════════════════════════════════
@@ -216,14 +234,23 @@ export function ImageUploader({ onUpload }: ImageUploaderProps) {
   const { toast } = useToast();
 
   const handleUpload = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      toast({ title: 'Ugyldig bildeformat', description: 'Bruk PNG, JPG, WebP eller GIF.', variant: 'destructive' });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast({ title: 'For stor fil', description: 'Maks 10 MB per fil.', variant: 'destructive' });
+      return;
+    }
     setUploading(true);
     setLastResult(null);
     try {
       const form = new FormData();
       form.append('image', file);
-      const res = await fetch('/api/cms/upload', { method: 'POST', body: form });
-      if (!res.ok) throw new Error('Opplasting feilet');
-      const data: UploadResult = await res.json();
+      const data = await cmsControlPlaneRequest<UploadResult>('/api/cms/upload', {
+        method: 'POST',
+        body: form,
+      });
       setRecentUploads(prev => [data, ...prev.slice(0, 9)]);
       setLastResult(data);
       onUpload(data.url);
@@ -287,7 +314,7 @@ export function ImageUploader({ onUpload }: ImageUploaderProps) {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/jpeg,image/png,image/gif,image/webp"
         className="hidden"
         aria-label="Last opp bilde"
         onChange={(e) => e.target.files?.[0] && handleUpload(e.target.files[0])}
@@ -512,18 +539,16 @@ export function SectionTemplatesPanel({ onLoadTemplate, currentSection }: Sectio
 
   const templatesQuery = useQuery({
     queryKey: ['/api/cms/section-templates'],
-    queryFn: () => fetch('/api/cms/section-templates').then(r => r.json()),
+    queryFn: () => cmsControlPlaneRequest('/api/cms/section-templates'),
   });
 
   const saveMutation = useMutation({
     mutationFn: async (data: { name: string; sectionData: any }) => {
-      const res = await fetch('/api/cms/section-templates', {
+      return cmsControlPlaneRequest('/api/cms/section-templates', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
       });
-      if (!res.ok) throw new Error('Lagring feilet');
-      return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/section-templates'] });
@@ -534,7 +559,7 @@ export function SectionTemplatesPanel({ onLoadTemplate, currentSection }: Sectio
 
   const deleteMutation = useMutation({
     mutationFn: async (id: number) => {
-      await fetch(`/api/cms/section-templates/${id}`, { method: 'DELETE' });
+      await cmsControlPlaneRequest(`/api/cms/section-templates/${id}`, { method: 'DELETE' });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/cms/section-templates'] });
@@ -662,18 +687,16 @@ export function VersionHistory({ pageId, onRestore }: VersionHistoryProps) {
 
   const versionsQuery = useQuery({
     queryKey: ['/api/cms/page-versions', pageId],
-    queryFn: () => fetch(`/api/cms/page-versions/${pageId}`).then(r => r.json()),
+    queryFn: () => cmsControlPlaneRequest(`/api/cms/page-versions/${pageId}`),
     enabled: !!pageId,
   });
 
   const restoreMutation = useMutation({
     mutationFn: async (versionId: number) => {
-      const res = await fetch(`/api/cms/page-versions/${pageId}/restore/${versionId}`, {
+      return cmsControlPlaneRequest(`/api/cms/page-versions/${pageId}/restore/${versionId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
-      if (!res.ok) throw new Error('Gjenoppretting feilet');
-      return res.json();
     },
     onSuccess: (page: any) => {
       onRestore(page.sections, page.title);
@@ -1022,7 +1045,7 @@ interface AnalyticsPanelProps {
 export function AnalyticsPanel({ pageId, pageSlug }: AnalyticsPanelProps) {
   const analyticsQuery = useQuery({
     queryKey: ['/api/cms/page-analytics', pageId],
-    queryFn: () => fetch(`/api/cms/page-analytics/${pageId}`).then(r => r.json()),
+    queryFn: () => cmsControlPlaneRequest(`/api/cms/page-analytics/${pageId}`),
     enabled: !!pageId,
     refetchInterval: 30000, // refresh every 30s
   });
@@ -1298,13 +1321,13 @@ interface FormSubmissionsViewerProps {
 export function FormSubmissionsViewer({ pageId }: FormSubmissionsViewerProps) {
   const submissionsQuery = useQuery({
     queryKey: ['/api/cms/form-submissions', pageId],
-    queryFn: () => fetch(`/api/cms/form-submissions?pageId=${pageId}`).then(r => r.json()),
+    queryFn: () => cmsControlPlaneRequest(`/api/cms/form-submissions?pageId=${pageId}`),
     enabled: !!pageId,
   });
 
   const updateStatus = useMutation({
     mutationFn: async ({ id, status }: { id: number; status: string }) => {
-      await fetch(`/api/cms/form-submissions/${id}/status`, {
+      await cmsControlPlaneRequest(`/api/cms/form-submissions/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),

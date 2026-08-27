@@ -6,7 +6,7 @@ import bcrypt from "bcrypt";
 import { storage } from "./storage";
 
 import { getUncachableGitHubClient } from "./github";
-import { registerSmartTimingRoutes } from "./smartTimingRoutes";
+import { authenticateAdmin, registerSmartTimingRoutes } from "./smartTimingRoutes";
 import { registerLeaveRoutes } from "./routes/leave-routes";
 import { registerInvoiceRoutes } from "./routes/invoice-routes";
 import { registerOvertimeRoutes } from "./routes/overtime-routes";
@@ -71,7 +71,7 @@ import { requireAuth as requireAnyAuth, requireAdminRole, ADMIN_ROLES } from "./
 import { canAccessVendorApiAdmin, isTopAdminRole, isKommuneRole, normalizeRole } from "@shared/roles";
 import { canManageUsersDynamic } from "./lib/permissions";
 import { DEFAULT_ONBOARDING_CONTENT, normalizeOnboardingContent, type OnboardingContentTemplate, type OnboardingRoleKey } from "@shared/onboarding-content";
-import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit } from "./rate-limit";
+import { apiRateLimit, publicWriteRateLimit, publicReadRateLimit, uploadRateLimit } from "./rate-limit";
 import { cache } from "./micro-cache";
 import { hasValidCreatorhubSyncSecret, syncTidumAccessRequestToCreatorhub } from "./lib/creatorhub-sync";
 import { TIDUM_SUPPORT_EMAIL } from "@shared/brand";
@@ -768,6 +768,30 @@ const timeTrackingPdfTemplatePatchSchema = z.object({
   || data.visibleColumns !== undefined
 ), {
   message: "At least one setting must be provided",
+});
+
+const cmsFormStatusSchema = z.enum(["new", "read", "replied", "archived"]);
+
+const cmsPublicFormSubmissionSchema = z.object({
+  pageId: z.coerce.number().int().positive(),
+  pageSlug: z.string().trim().min(1).max(160),
+  formName: z.string().trim().min(1).max(100).default("contact"),
+  data: z.record(z.string().max(4_000)),
+}).superRefine((value, ctx) => {
+  if (Object.keys(value.data).length > 50) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "For mange skjemafelt" });
+  }
+  if (Buffer.byteLength(JSON.stringify(value.data), "utf8") > 32 * 1024) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Skjemadata er for stor" });
+  }
+});
+
+const cmsPageAnalyticsSchema = z.object({
+  pageId: z.coerce.number().int().positive(),
+  pageSlug: z.string().trim().min(1).max(160),
+  duration: z.coerce.number().int().min(0).max(86_400).nullable().optional(),
+  referrer: z.string().trim().max(2_048).nullable().optional(),
+  device: z.enum(["desktop", "tablet", "mobile"]).default("desktop"),
 });
 
 const INTEGRATION_KEYS = ["fiken", "tripletex", "other"] as const;
@@ -6339,7 +6363,7 @@ export async function registerRoutes(
   // ═══════════════════════════════════════════
 
   // List all builder pages, including drafts and scheduled content (admin only).
-  app.get("/api/cms/builder-pages", requireAdminRole, async (_req, res) => {
+  app.get("/api/cms/builder-pages", authenticateAdmin, async (_req, res) => {
     try {
       const pages = await db.select().from(builderPages).orderBy(desc(builderPages.updatedAt));
       res.json(pages);
@@ -6367,7 +6391,7 @@ export async function registerRoutes(
   });
 
   // Get a single builder page by id, including non-public content (admin only).
-  app.get("/api/cms/builder-pages/:id", requireAdminRole, async (req, res) => {
+  app.get("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       if (!Number.isInteger(id)) {
@@ -6382,7 +6406,7 @@ export async function registerRoutes(
   });
 
   // Create a new builder page
-  app.post("/api/cms/builder-pages", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/builder-pages", authenticateAdmin, async (req, res) => {
     try {
       const data = insertBuilderPageSchema.parse(req.body);
       const [page] = await db.insert(builderPages).values(data).returning();
@@ -6394,7 +6418,7 @@ export async function registerRoutes(
   });
 
   // Update a builder page
-  app.put("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.put("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const { title, slug, description, sections: pageSections, themeKey, status,
@@ -6448,7 +6472,7 @@ export async function registerRoutes(
   });
 
   // Delete a builder page
-  app.delete("/api/cms/builder-pages/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.delete("/api/cms/builder-pages/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       const [page] = await db.delete(builderPages).where(eq(builderPages.id, id)).returning();
@@ -6463,7 +6487,7 @@ export async function registerRoutes(
   // Section Templates CRUD
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/section-templates", async (_req, res) => {
+  app.get("/api/cms/section-templates", authenticateAdmin, async (_req, res) => {
     try {
       const templates = await db.select().from(sectionTemplates).orderBy(desc(sectionTemplates.updatedAt));
       res.json(templates);
@@ -6472,7 +6496,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/cms/section-templates", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/section-templates", authenticateAdmin, async (req, res) => {
     try {
       const [template] = await db.insert(sectionTemplates).values({
         name: req.body.name,
@@ -6487,7 +6511,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/cms/section-templates/:id", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.delete("/api/cms/section-templates/:id", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
       await db.delete(sectionTemplates).where(eq(sectionTemplates.id, id));
@@ -6501,51 +6525,59 @@ export async function registerRoutes(
   // Page Versions (Revision History)
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/page-versions/:pageId", async (req, res) => {
+  app.get("/api/cms/page-versions/:pageId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
+      if (!Number.isInteger(pageId) || pageId <= 0) return res.status(400).json({ error: "Ugyldig side" });
       const versions = await db.select().from(pageVersions)
         .where(eq(pageVersions.pageId, pageId))
         .orderBy(desc(pageVersions.version));
       res.json(versions);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page version list failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente versjonshistorikk" });
     }
   });
 
   // Restore a specific version
-  app.post("/api/cms/page-versions/:pageId/restore/:versionId", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.post("/api/cms/page-versions/:pageId/restore/:versionId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
       const versionId = parseInt(req.params.versionId);
-      const [ver] = await db.select().from(pageVersions).where(eq(pageVersions.id, versionId));
+      if (!Number.isInteger(pageId) || pageId <= 0 || !Number.isInteger(versionId) || versionId <= 0) {
+        return res.status(400).json({ error: "Ugyldig side eller versjon" });
+      }
+      const [ver] = await db.select().from(pageVersions).where(and(
+        eq(pageVersions.id, versionId),
+        eq(pageVersions.pageId, pageId),
+      ));
       if (!ver) return res.status(404).json({ error: "Version not found" });
 
       // Save current as new version before restore
       const [currentPage] = await db.select().from(builderPages).where(eq(builderPages.id, pageId));
-      if (currentPage) {
-        await db.insert(pageVersions).values({
-          pageId,
-          version: (currentPage.version || 1),
-          title: currentPage.title,
-          sections: currentPage.sections,
-          themeKey: currentPage.themeKey,
-          customCss: currentPage.customCss,
-          changeNote: 'Pre-restore backup',
-        });
-      }
+      if (!currentPage) return res.status(404).json({ error: "Page not found" });
+      await db.insert(pageVersions).values({
+        pageId,
+        version: (currentPage.version || 1),
+        title: currentPage.title,
+        sections: currentPage.sections,
+        themeKey: currentPage.themeKey,
+        customCss: currentPage.customCss,
+        changeNote: 'Pre-restore backup',
+      });
 
       const [page] = await db.update(builderPages).set({
         title: ver.title,
         sections: ver.sections,
         themeKey: ver.themeKey,
         customCss: ver.customCss,
-        version: (currentPage?.version || 1) + 1,
+        version: (currentPage.version || 1) + 1,
         updatedAt: new Date(),
       }).where(eq(builderPages.id, pageId)).returning();
       res.json(page);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page version restore failed:", error);
+      res.status(500).json({ error: "Kunne ikke gjenopprette versjonen" });
     }
   });
 
@@ -6553,50 +6585,76 @@ export async function registerRoutes(
   // Form Submissions
   // ═══════════════════════════════════════════
 
-  app.get("/api/cms/form-submissions", async (req, res) => {
+  app.get("/api/cms/form-submissions", authenticateAdmin, async (req, res) => {
     try {
-      const { pageId, status: formStatus } = req.query;
-      let query = db.select().from(formSubmissions).orderBy(desc(formSubmissions.createdAt));
-      const results = await query;
-      const filtered = results.filter((s: any) => {
-        if (pageId && s.pageId !== parseInt(pageId as string)) return false;
-        if (formStatus && s.status !== formStatus) return false;
-        return true;
-      });
-      res.json(filtered);
+      const parsed = z.object({
+        pageId: z.coerce.number().int().positive().optional(),
+        status: cmsFormStatusSchema.optional(),
+      }).safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig filter" });
+
+      const conditions = [];
+      if (parsed.data.pageId != null) conditions.push(eq(formSubmissions.pageId, parsed.data.pageId));
+      if (parsed.data.status != null) conditions.push(eq(formSubmissions.status, parsed.data.status));
+      const query = db.select().from(formSubmissions);
+      const results = conditions.length > 0
+        ? await query.where(and(...conditions)).orderBy(desc(formSubmissions.createdAt))
+        : await query.orderBy(desc(formSubmissions.createdAt));
+      res.json(results);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS form submission list failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente skjemainnsendinger" });
     }
   });
 
   // Public form submission endpoint (no auth needed)
   app.post("/api/cms/form-submissions", publicWriteRateLimit, async (req, res) => {
     try {
-      const { pageId, pageSlug, formName, data } = req.body;
+      const parsed = cmsPublicFormSubmissionSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig skjemainnsending" });
+      const { pageId, pageSlug, formName, data } = parsed.data;
+
+      const [publishedPage] = await db
+        .select({ id: builderPages.id })
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.id, pageId),
+          eq(builderPages.slug, pageSlug),
+          eq(builderPages.status, "published"),
+        ))
+        .limit(1);
+      if (!publishedPage) return res.status(404).json({ error: "Publisert side ikke funnet" });
+
       const [submission] = await db.insert(formSubmissions).values({
-        pageId: pageId || null,
-        pageSlug: pageSlug || null,
-        formName: formName || 'contact',
-        data: data || {},
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
+        pageId,
+        pageSlug,
+        formName,
+        data,
+        ipAddress: String(req.ip || "").slice(0, 100),
+        userAgent: String(req.get("user-agent") || "").slice(0, 500),
       }).returning();
-      res.status(201).json(submission);
+      res.status(201).json({ id: submission.id, received: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("CMS form submission failed:", error);
+      res.status(500).json({ error: "Kunne ikke lagre skjemainnsending" });
     }
   });
 
-  app.put("/api/cms/form-submissions/:id/status", isAuthenticated, requireAdminRole, async (req, res) => {
+  app.put("/api/cms/form-submissions/:id/status", authenticateAdmin, async (req, res) => {
     try {
       const id = parseInt(req.params.id);
+      if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Ugyldig innsending" });
+      const status = cmsFormStatusSchema.safeParse(req.body?.status);
+      if (!status.success) return res.status(400).json({ error: "Ugyldig status" });
       const [sub] = await db.update(formSubmissions)
-        .set({ status: req.body.status })
+        .set({ status: status.data })
         .where(eq(formSubmissions.id, id))
         .returning();
+      if (!sub) return res.status(404).json({ error: "Innsending ikke funnet" });
       res.json(sub);
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS form status update failed:", error);
+      res.status(500).json({ error: "Kunne ikke oppdatere skjemainnsending" });
     }
   });
 
@@ -6607,25 +6665,40 @@ export async function registerRoutes(
   // Track a page view (public, no auth)
   app.post("/api/cms/page-analytics/track", publicWriteRateLimit, async (req, res) => {
     try {
-      const { pageId, pageSlug, duration, referrer, device } = req.body;
+      const parsed = cmsPageAnalyticsSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: "Ugyldig analysedata" });
+      const { pageId, pageSlug, duration, referrer, device } = parsed.data;
+      const [publishedPage] = await db
+        .select({ id: builderPages.id })
+        .from(builderPages)
+        .where(and(
+          eq(builderPages.id, pageId),
+          eq(builderPages.slug, pageSlug),
+          eq(builderPages.status, "published"),
+        ))
+        .limit(1);
+      if (!publishedPage) return res.status(404).json({ error: "Publisert side ikke funnet" });
+
       await db.insert(pageAnalytics).values({
-        pageId: pageId || 0,
+        pageId,
         pageSlug,
-        duration: duration || null,
+        duration: duration ?? null,
         referrer: referrer || null,
-        userAgent: req.get('user-agent'),
-        device: device || 'desktop',
+        userAgent: String(req.get("user-agent") || "").slice(0, 500),
+        device,
       });
       res.json({ success: true });
     } catch (error: any) {
-      res.status(400).json({ error: error.message });
+      console.error("CMS page analytics tracking failed:", error);
+      res.status(500).json({ error: "Kunne ikke lagre analysedata" });
     }
   });
 
   // Get analytics for a page
-  app.get("/api/cms/page-analytics/:pageId", async (req, res) => {
+  app.get("/api/cms/page-analytics/:pageId", authenticateAdmin, async (req, res) => {
     try {
       const pageId = parseInt(req.params.pageId);
+      if (!Number.isInteger(pageId) || pageId <= 0) return res.status(400).json({ error: "Ugyldig side" });
       const views = await db.select().from(pageAnalytics)
         .where(eq(pageAnalytics.pageId, pageId))
         .orderBy(desc(pageAnalytics.viewedAt));
@@ -6644,7 +6717,8 @@ export async function registerRoutes(
         recentViews: views.slice(0, 50),
       });
     } catch (error: any) {
-      res.status(500).json({ error: error.message });
+      console.error("CMS page analytics read failed:", error);
+      res.status(500).json({ error: "Kunne ikke hente analysedata" });
     }
   });
 
@@ -6653,16 +6727,23 @@ export async function registerRoutes(
   // ═══════════════════════════════════════════
 
   const cmsUploadDir = path.join(process.cwd(), 'uploads', 'cms');
+  const cmsProcessingDir = path.join(process.cwd(), 'private-uploads', 'cms-processing');
   if (!fs.existsSync(cmsUploadDir)) {
     fs.mkdirSync(cmsUploadDir, { recursive: true });
   }
+  if (!fs.existsSync(cmsProcessingDir)) {
+    fs.mkdirSync(cmsProcessingDir, { recursive: true });
+  }
 
   const cmsStorage = multer.diskStorage({
-    destination: (_req, _file, cb) => cb(null, cmsUploadDir),
-    filename: (_req, file, cb) => {
+    // Rå, ennå ikke dekodede byte må aldri ligge under den statisk serverte
+    // /uploads-mappen, heller ikke i det korte behandlingsvinduet.
+    destination: (_req, _file, cb) => cb(null, cmsProcessingDir),
+    filename: (_req, _file, cb) => {
       const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-      const ext = path.extname(file.originalname);
-      cb(null, 'cms-' + uniqueSuffix + ext);
+      // Mellomfilen får aldri brukerens filendelse. Bare den dekodede og
+      // re-enkodede WebP-filen publiseres under /uploads/cms.
+      cb(null, 'cms-' + uniqueSuffix + '.upload');
     }
   });
 
@@ -6670,43 +6751,43 @@ export async function registerRoutes(
     storage: cmsStorage,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
     fileFilter: (_req, file, cb) => {
-      const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml'];
+      // SVG er aktivt innhold på samme origin og kan gi lagret XSS. Raster-
+      // formatene dekodes og re-enkodes under; MIME alene er aldri nok.
+      const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
       if (allowed.includes(file.mimetype)) cb(null, true);
       else cb(new Error('Invalid file type'));
     }
   });
 
-  // Shared by the CMS, report-logo editor and authenticated email composer.
-  // Requiring an authenticated user closes public disk writes without
-  // breaking legitimate non-admin attachment/logo flows.
-  app.post("/api/cms/upload", requireAnyAuth, cmsUpload.single('image'), async (req: any, res) => {
+  const receiveCmsImage = (req: any, res: any, next: any) => {
+    cmsUpload.single('image')(req, res, (error: any) => {
+      if (error) return res.status(400).json({ error: 'Ugyldig bildefil' });
+      next();
+    });
+  };
+
+  const processCmsImage = async (req: any, res: any) => {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const originalPath = req.file.path;
     const originalSize = req.file.size;
-    const isSvg = req.file.mimetype === 'image/svg+xml';
-    const isGif = req.file.mimetype === 'image/gif';
-
-    // Skip optimization for SVG and animated GIF
-    if (isSvg || isGif) {
-      const fileUrl = `/uploads/cms/${req.file.filename}`;
-      return res.json({
-        url: fileUrl,
-        filename: req.file.filename,
-        size: originalSize,
-        originalSize,
-        optimized: false,
-        format: isSvg ? 'svg' : 'gif',
-      });
-    }
+    const optimizedFilename = req.file.filename.replace(/\.upload$/, '.webp');
+    const optimizedPath = path.join(cmsUploadDir, optimizedFilename);
+    const thumbFilename = 'thumb-' + optimizedFilename;
+    const thumbPath = path.join(cmsUploadDir, thumbFilename);
 
     try {
-      // Read image metadata
-      const metadata = await sharp(originalPath).metadata();
+      // Dekoding er innholdskontrollen: en fil som bare påstår å være et
+      // bilde blir avvist. Pikselgrensen begrenser dekompresjonsbomber.
+      const source = sharp(originalPath, { limitInputPixels: 25_000_000, failOn: 'error' });
+      const metadata = await source.metadata();
+      if (!metadata.format || !['jpeg', 'png', 'gif', 'webp'].includes(metadata.format)) {
+        throw new Error('Unsupported decoded image format');
+      }
       const maxDimension = 2048;
 
       // Build the sharp pipeline
-      let pipeline = sharp(originalPath).rotate(); // auto-rotate based on EXIF
+      let pipeline = sharp(originalPath, { limitInputPixels: 25_000_000, failOn: 'error' }).rotate();
 
       // Resize if larger than max dimension
       if ((metadata.width && metadata.width > maxDimension) || (metadata.height && metadata.height > maxDimension)) {
@@ -6717,25 +6798,18 @@ export async function registerRoutes(
       }
 
       // Convert to WebP with quality 80 for best size/quality balance
-      const optimizedFilename = req.file.filename.replace(/\.[^.]+$/, '.webp');
-      const optimizedPath = path.join(cmsUploadDir, optimizedFilename);
-
       const result = await pipeline
         .webp({ quality: 80, effort: 4 })
         .toFile(optimizedPath);
 
       // Also generate a thumbnail (400px wide) for the editor
-      const thumbFilename = 'thumb-' + optimizedFilename;
-      const thumbPath = path.join(cmsUploadDir, thumbFilename);
       await sharp(optimizedPath)
         .resize(400, null, { fit: 'inside', withoutEnlargement: true })
         .webp({ quality: 70 })
         .toFile(thumbPath);
 
       // Remove original file if different from optimized
-      if (originalPath !== optimizedPath) {
-        fs.unlink(originalPath, () => {});
-      }
+      await fs.promises.unlink(originalPath);
 
       const savings = Math.round((1 - result.size / originalSize) * 100);
 
@@ -6755,19 +6829,21 @@ export async function registerRoutes(
         savings,
       });
     } catch (err: any) {
-      console.error('Image optimization failed, serving original:', err.message);
-      // Fallback: serve original
-      const fileUrl = `/uploads/cms/${req.file.filename}`;
-      res.json({
-        url: fileUrl,
-        filename: req.file.filename,
-        size: originalSize,
-        originalSize,
-        optimized: false,
-        error: 'Optimization failed, original served',
-      });
+      console.error('CMS image validation/optimization failed:', err?.message ?? err);
+      await Promise.all([
+        fs.promises.unlink(originalPath).catch(() => undefined),
+        fs.promises.unlink(optimizedPath).catch(() => undefined),
+        fs.promises.unlink(thumbPath).catch(() => undefined),
+      ]);
+      res.status(400).json({ error: 'Ugyldig eller skadet bildefil' });
     }
-  });
+  };
+
+  // CMS-et er et globalt leverandørkontrollplan. Tenantbrukeres rapportlogoer
+  // bruker en egen autentisert rute, slik at de ikke får skrive gjennom CMS-
+  // navnerommet eller trenger den globale cms.manage-rettigheten.
+  app.post("/api/cms/upload", authenticateAdmin, uploadRateLimit, receiveCmsImage, processCmsImage);
+  app.post("/api/report-assets/upload", requireAnyAuth, uploadRateLimit, receiveCmsImage, processCmsImage);
 
   // Serve CMS uploads (1 hour browser cache)
   app.use('/uploads/cms', express.static(cmsUploadDir, { maxAge: '1h' }));

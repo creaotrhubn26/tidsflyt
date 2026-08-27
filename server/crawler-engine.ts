@@ -19,6 +19,7 @@ import { load as cheerioLoad } from "cheerio";
 import { createHash } from "crypto";
 import { pool } from "./db";
 import { URL } from "url";
+import { fetchCrawlerUrl } from "./lib/crawler-fetch";
 
 // ── Types ────────────────────────────────────────────────────────────
 interface CrawlConfig {
@@ -889,32 +890,23 @@ export async function runCrawlJob(config: CrawlConfig): Promise<void> {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 async function fetchWithTimeout(url: string, userAgent: string, timeout: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
-  try {
-    return await fetch(url, {
-      headers: { "User-Agent": userAgent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
-      signal: controller.signal,
-      redirect: "follow",
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  return fetchWithRedirectTracking(url, userAgent, [], timeout);
 }
 
 async function fetchWithRedirectTracking(url: string, userAgent: string, chain: string[], timeout: number): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeout);
   let currentUrl = url;
   let hops = 0;
   const maxHops = 10;
+  const deadline = Date.now() + timeout;
+  const visited = new Set<string>([url]);
 
-  try {
-    while (hops < maxHops) {
-      const res = await fetch(currentUrl, {
+  while (hops <= maxHops) {
+      const remainingMs = deadline - Date.now();
+      if (remainingMs <= 0) throw new Error("Crawler-forespørselen brukte for lang tid");
+
+      const res = await fetchCrawlerUrl(currentUrl, {
         headers: { "User-Agent": userAgent, "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8" },
-        signal: controller.signal,
-        redirect: "manual",
+        timeoutMs: remainingMs,
       });
 
       if (res.status >= 300 && res.status < 400) {
@@ -923,29 +915,22 @@ async function fetchWithRedirectTracking(url: string, userAgent: string, chain: 
         const nextUrl = normalizeUrl(location, currentUrl);
         if (!nextUrl) return res;
         chain.push(`${res.status}:${nextUrl}`);
-        
-        // Loop detection
-        if (chain.filter(c => c.includes(nextUrl)).length > 1) {
+
+        if (visited.has(nextUrl)) {
           chain.push("LOOP_DETECTED");
           return res;
         }
-        
+
+        visited.add(nextUrl);
         currentUrl = nextUrl;
         hops++;
       } else {
         return res;
       }
-    }
-    // Too many redirects
-    chain.push("TOO_MANY_REDIRECTS");
-    return await fetch(url, {
-      headers: { "User-Agent": userAgent },
-      signal: controller.signal,
-      redirect: "follow",
-    });
-  } finally {
-    clearTimeout(timer);
   }
+
+  chain.push("TOO_MANY_REDIRECTS");
+  throw new Error("For mange omdirigeringer");
 }
 
 async function saveResult(jobId: number, result: CrawlResult & { discoveredUrls?: any[] }): Promise<void> {

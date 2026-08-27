@@ -79,3 +79,11 @@ export const publicReadRateLimit = rateLimit({
   windowMs: 60 * 1000,
   maxRequests: 120,
 });
+
+// Authenticated image uploads still consume CPU and persistent disk. Keep a
+// separate, substantially tighter budget than ordinary API reads/writes.
+export const uploadRateLimit = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  maxRequests: 30,
+  message: "For mange bildeopplastinger. Prøv igjen senere.",
+});

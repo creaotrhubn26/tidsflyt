@@ -621,10 +621,10 @@ export function TimeTrackingPdfDesigner({
   const handleLogoFileSelected = async (file: File | null) => {
     if (!file || !canEdit) return;
 
-    if (!file.type.startsWith("image/")) {
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
       toast({
         title: "Ugyldig fil",
-        description: "Velg en bildefil (PNG, JPG, SVG, WebP eller GIF).",
+        description: "Velg en bildefil (PNG, JPG, WebP eller GIF).",
         variant: "destructive",
       });
       return;
@@ -635,7 +635,7 @@ export function TimeTrackingPdfDesigner({
 
     try {
       setIsUploadingLogo(true);
-      const response = await fetch("/api/cms/upload", {
+      const response = await fetch("/api/report-assets/upload", {
         method: "POST",
         body: formData,
         credentials: "include",
@@ -937,7 +937,7 @@ export function TimeTrackingPdfDesigner({
                 <input
                   ref={logoFileInputRef}
                   type="file"
-                  accept="image/*"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
                   className="hidden"
                   onChange={(event) => {
                     void handleLogoFileSelected(event.target.files?.[0] ?? null);

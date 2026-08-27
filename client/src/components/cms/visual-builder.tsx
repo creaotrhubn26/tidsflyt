@@ -41,12 +41,12 @@ function getAdminToken(): string | null {
 
 async function authenticatedApiRequest(url: string, options: { method?: string; body?: string } = {}) {
   const token = getAdminToken();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
   const response = await fetch(url, {
     method: options.method || 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
+    credentials: 'include',
     body: options.body,
   });
   if (!response.ok) {
@@ -2174,19 +2174,24 @@ function MediaLibraryPanel() {
 
   const { data: files = [], isLoading } = useQuery<MediaFile[]>({
     queryKey: ['/api/cms/media'],
+    queryFn: () => authenticatedApiRequest('/api/cms/media'),
   });
 
   const [isUploading, setIsUploading] = useState(false);
 
   const handleUploadFile = async (file: File) => {
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      toast({ title: 'Ugyldig bildeformat', description: 'Bruk PNG, JPG, WebP eller GIF.', variant: 'destructive' });
+      return;
+    }
     // Validate file size (10MB max)
     if (file.size > 10 * 1024 * 1024) {
       toast({ title: 'For stor fil', description: 'Maks 10 MB per fil.', variant: 'destructive' });
       return;
     }
 
-    // Validate dimensions for non-SVG images
-    if (file.type.startsWith('image/') && !file.type.includes('svg')) {
+    // Validate dimensions before upload; the server decodes again.
+    if (file.type.startsWith('image/')) {
       try {
         await new Promise<void>((resolve, reject) => {
           const img = document.createElement('img');
@@ -2281,7 +2286,7 @@ function MediaLibraryPanel() {
         type="file"
         ref={fileInputRef}
         onChange={handleFileChange}
-        accept="image/*"
+        accept="image/jpeg,image/png,image/gif,image/webp"
         className="hidden"
         aria-label="Last opp mediefil"
         data-testid="input-file-upload"

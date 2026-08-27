@@ -63,6 +63,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "075_archive_token_url.sql",
   "076_elements_archive_provider.sql",
   "077_saker_rapport_tenant_security.sql",
+  "078_cms_control_plane_security.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {

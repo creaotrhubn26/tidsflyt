@@ -162,7 +162,7 @@ function Router() {
         <Route path="/reports">{() => <AuthGuard><Redirect to="/rapporter/godkjenning" /></AuthGuard>}</Route>
         <Route path="/case-reports">{() => <AuthGuard><CaseReports /></AuthGuard>}</Route>
         <Route path="/cases">{() => <AuthGuard requiredRoles={["tiltaksleder", "vendor_admin", "miljoarbeider", "case_manager", "teamleder", "member", "user", "super_admin"]}><Cases /></AuthGuard>}</Route>
-        <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
+        <Route path="/illustration-mock">{() => <AuthGuard requiredRoles={["super_admin"]}><Redirect to="/cms?tool=illustration-mock" /></AuthGuard>}</Route>
         <Route path="/profile">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/settings">{() => <AuthGuard><Profile /></AuthGuard>}</Route>
         <Route path="/invites">{() => <AuthGuard requiredRoles={["tiltaksleder"]}><Users /></AuthGuard>}</Route>
@@ -199,8 +199,8 @@ function Router() {
         <Route path="/vendors">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><Vendors /></AuthGuard>}</Route>
         <Route path="/admin/roller">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminRoller /></AuthGuard>}</Route>
         <Route path="/admin/aktivitetslogg">{() => <AuthGuard requiredRoles={["super_admin"]}><AdminAktivitetslogg /></AuthGuard>}</Route>
-        <Route path="/cms">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMS /></AuthGuard>}</Route>
-        <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
+        <Route path="/cms">{() => <AuthGuard requiredRoles={["super_admin"]}><CMS /></AuthGuard>}</Route>
+        <Route path="/cms-legacy">{() => <AuthGuard requiredRoles={["super_admin"]}><CMSPageLegacy /></AuthGuard>}</Route>
         <Route path="/api-docs">{() => <AuthGuard requiredRoles={["tiltaksleder", "teamleder", "hovedadmin", "admin", "super_admin"]}><ApiDocs /></AuthGuard>}</Route>
         <Route path="/vendor/api">{() => <AuthGuard requiredRoles={["vendor_admin", "hovedadmin", "admin", "super_admin"]}><VendorApiAdmin /></AuthGuard>}</Route>
         <Route path="/admin/access-requests">{() => <AuthGuard requiredRoles={["hovedadmin", "admin", "super_admin"]}><AccessRequests /></AuthGuard>}</Route>
