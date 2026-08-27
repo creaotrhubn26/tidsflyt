@@ -761,6 +761,34 @@ export const barnevernDokumenter = pgTable("tidum_barnevern_dokumenter", {
 
 export type BarnevernDokument = typeof barnevernDokumenter.$inferSelect;
 
+// Innsynsbegjæringer på kommunal sak (migrasjon 094, krav 16).
+export const barnevernInnsynskrav = pgTable("tidum_barnevern_innsynskrav", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  partNavn: text("part_navn").notNull(),
+  partRelasjon: text("part_relasjon").notNull(),
+  mottattDato: timestamp("mottatt_dato", { withTimezone: true }).notNull().defaultNow(),
+  behandlingsfrist: timestamp("behandlingsfrist", { withTimezone: true }).notNull(),
+  status: text("status").notNull().default("mottatt"),
+  unntak: jsonb("unntak").notNull().default([]),
+  beslutningBegrunnelse: text("beslutning_begrunnelse"),
+  besluttetAv: varchar("besluttet_av").references(() => users.id),
+  besluttetDato: timestamp("besluttet_dato", { withTimezone: true }),
+  utlevertDato: timestamp("utlevert_dato", { withTimezone: true }),
+  utlevertVia: text("utlevert_via"),
+  klageMottattDato: timestamp("klage_mottatt_dato", { withTimezone: true }),
+  klageOversendtDato: timestamp("klage_oversendt_dato", { withTimezone: true }),
+  klageNotat: text("klage_notat"),
+  opprettetAv: varchar("opprettet_av").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_innsynskrav_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
+]);
+
+export type BarnevernInnsynskrav = typeof barnevernInnsynskrav.$inferSelect;
+
 // Append-only tilgangslogg for lesing/nedlasting (migrasjon 091, krav 15).
 export const barnevernTilgangslogg = pgTable("tidum_barnevern_tilgangslogg", {
   id: uuid("id").defaultRandom().primaryKey(),
