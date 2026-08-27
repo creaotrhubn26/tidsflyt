@@ -695,6 +695,44 @@ export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_histo
   index("tidum_barnevern_sak_fase_historikk_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
 ]);
 
+// Versjonert plan på kommunal barnevernssak (migrasjon 092, krav 5).
+// Ny versjon = ny rad; godkjent innhold endres aldri.
+export const barnevernPlaner = pgTable("tidum_barnevern_planer", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  plantype: text("plantype").notNull().default("tiltaksplan"),
+  versjon: integer("versjon").notNull().default(1),
+  status: text("status").notNull().default("utkast"),
+  formaal: text("formaal"),
+  deltakere: jsonb("deltakere").notNull().default([]),
+  evalueringsfrist: timestamp("evalueringsfrist", { withTimezone: true }),
+  godkjentAv: varchar("godkjent_av").references(() => users.id),
+  godkjentDato: timestamp("godkjent_dato", { withTimezone: true }),
+  opprettetAv: varchar("opprettet_av").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_planer_sak_idx").on(table.kommuneId, table.sakId, table.plantype, table.versjon),
+]);
+
+export type BarnevernPlan = typeof barnevernPlaner.$inferSelect;
+
+export const barnevernPlanTiltak = pgTable("tidum_barnevern_plan_tiltak", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  planId: uuid("plan_id").notNull().references(() => barnevernPlaner.id),
+  kommuneId: integer("kommune_id").notNull(),
+  beskrivelse: text("beskrivelse").notNull(),
+  ansvarlig: text("ansvarlig").notNull(),
+  frist: date("frist"),
+  status: text("status").notNull().default("planlagt"),
+  statusnotat: text("statusnotat"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_plan_tiltak_plan_idx").on(table.kommuneId, table.planId),
+]);
+
 // Append-only tilgangslogg for lesing/nedlasting (migrasjon 091, krav 15).
 export const barnevernTilgangslogg = pgTable("tidum_barnevern_tilgangslogg", {
   id: uuid("id").defaultRandom().primaryKey(),

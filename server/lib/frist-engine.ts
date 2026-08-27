@@ -32,6 +32,8 @@ export const FRIST_TYPE_CONFIG: Record<string, {
   undersokelse: { escalationOffsetDays: [-14, -7, 0, 3], lederEskaleringFraOffset: 0 },
   // Oppgavefrister på barnevernsobjekter (migrasjon 090).
   oppgave: { escalationOffsetDays: [-3, -1, 0, 1, 3], lederEskaleringFraOffset: 1 },
+  // Evalueringsfrist på godkjent plan (migrasjon 092).
+  evaluering: { escalationOffsetDays: [-14, -7, 0, 3], lederEskaleringFraOffset: 0 },
 };
 
 function requireFristTenant(input: { kommuneId?: number; vendorId?: number }): FristTenant {
