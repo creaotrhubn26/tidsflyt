@@ -368,10 +368,11 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    Dev-bypass, tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og CSRF er
    ferdige lokalt. Versjonert hemmelighetskryptering, inkludert PowerOffice
    ClientKey, er også ferdig lokalt. Fail-closed hvelv-injeksjon og append-only
-   rotasjonsbevis er implementert. RLS fase 1 og 2 er implementert for
-   kommunens bekymringsmeldingskjerne og sikker dialog; faktisk
+   rotasjonsbevis er implementert. RLS fase 1–3A er implementert for
+   kommunens bekymringsmeldingskjerne, sikker dialog og det doble
+   kommune-/vendorarkivdomenet; faktisk
    produksjonshvelv/-øvelse, TOTP/MFA, egen produksjonslogin og full
-   RLS-matrise gjenstår.
+   RLS-matrise, inkludert frister og trygg brukerbinding, gjenstår.
 3. **Delvis utført lokalt:** SQL-injection-fiks, CMS-auth/opplasting og
    systemmalindekser/seeding er portet som migrasjon 065. Resterende relevante
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156

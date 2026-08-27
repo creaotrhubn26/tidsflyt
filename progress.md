@@ -883,6 +883,37 @@ bruker-/kommunetilknytning og deretter relevante vendorflater. Produksjon må
 fortsatt ha separat applikasjonslogin, dedikert `NOLOGIN NOBYPASSRLS`-rolle,
 separat migrasjonsidentitet, last-/pooltest og uavhengig penetrasjonstest.
 
+## 22. PostgreSQL RLS fase 3A — arkiv som dobbelt tenantdomene
+
+Migrasjon 085 håndhever nå `ENABLE` + `FORCE ROW LEVEL SECURITY` på
+`archive_configs`, `archive_case_links` og `archive_entries`. Policyen krever
+entydig kommune- eller vendorbinding og avviser manglende kontekst,
+kryss-tenant lesing/oppdatering og forsøk på å skrive en annen eiers ID.
+
+Arkivruter og køskriving bruker transaksjonslokal kontekst avledet fra fersk
+`users.kommune_id` eller `users.vendor_id`. Cronen bruker en fast, navngitt
+systemoperasjon bare til å finne forfalte rader; hver rad behandles deretter i
+sin egen tenantkontekst. Manuell retry beholder requestens tenant hele veien.
+Rapport- og journalarkivering verifiserer i tillegg at domenesaken faktisk har
+samme vendor som outbox-raden før providerkall eller arkivkobling opprettes.
+Alle kontekstsettere nullstiller nå også `tidum.vendor_id`, slik at en pooled
+forbindelse ikke kan arve vendoromfang fra en tidligere transaksjon.
+
+**Verifikasjon:** Migrasjon 085 er kjørt idempotent mot Neon. Tre fokuserte
+filer består **15/15**, og den samlede berørte pakken består **9 testfiler og
+48/48 tester**. Den dekker to kommuner, to vendors, alle tre arkivtabeller,
+manglende kontekst, kontekstreset, kryssoppdatering, eierforfalskning,
+sikker-dialogarkiv, vendorjournal, frister og nøkkelrotasjon. `npm run check`,
+designkontroll, produksjonsbygg og `git diff --check` er grønne. Se
+`docs/runbooks/postgresql-rls-kommunedata.md`.
+
+**Bevisst fasegrense:** `tidum_frister` tillater fortsatt historiske/test-rader
+uten tenant og trenger datarydding samt en eksplisitt jobbmodell før `FORCE
+RLS`. Den delte `users`-tabellen inneholder global-, vendor-, kommune- og
+portalidentiteter. Generell RLS der nå kunne ha brutt ordinær innlogging,
+BankID/Buypass og eID-provisionering. Fase 3B skal først etablere og teste
+bindingene; dette er ikke markert som ferdig.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor

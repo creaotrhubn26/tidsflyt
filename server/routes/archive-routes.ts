@@ -32,6 +32,7 @@ import {
   processDueArchiveEntries,
   queueRapportArchiving,
   retryArchiveEntry,
+  withArchiveTenantDb,
   type ArchiveTenant,
 } from "../lib/archive/archive-service";
 
@@ -82,15 +83,17 @@ function hasRole(actor: ArchiveActor | null, roles: string[]): boolean {
 }
 
 async function hasActiveArchiveEntries(tenant: ArchiveTenant): Promise<boolean> {
-  const [activeEntry] = await db
-    .select({ id: archiveEntries.id })
-    .from(archiveEntries)
-    .where(and(
-      tenantCondition(tenant),
-      inArray(archiveEntries.status, ["pending", "processing"]),
-    ))
-    .limit(1);
-  return activeEntry != null;
+  return withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [activeEntry] = await scopedDb
+      .select({ id: archiveEntries.id })
+      .from(archiveEntries)
+      .where(and(
+        tenantCondition(tenant),
+        inArray(archiveEntries.status, ["pending", "processing"]),
+      ))
+      .limit(1);
+    return activeEntry != null;
+  });
 }
 
 function publicView(row: typeof archiveConfigs.$inferSelect) {
@@ -243,7 +246,7 @@ export function registerArchiveRoutes(app: Express) {
         updatedAt: new Date(),
       };
 
-      const row = await db.transaction(async (tx) => {
+      const row = await withArchiveTenantDb(tenant, async (tx) => {
         if (targetChanged) {
           await tx.delete(archiveCaseLinks).where(caseLinkTenantCondition(tenant));
         }
@@ -290,11 +293,14 @@ export function registerArchiveRoutes(app: Express) {
       if (tilgangsrestriksjon !== undefined) set.tilgangsrestriksjon = String(tilgangsrestriksjon);
       if (Object.keys(set).length === 1) return res.status(400).json({ error: "Ingen felter å oppdatere" });
 
-      const [row] = await db
-        .update(archiveConfigs)
-        .set(set)
-        .where(configTenantCondition(tenant))
-        .returning();
+      const row = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [updated] = await scopedDb
+          .update(archiveConfigs)
+          .set(set)
+          .where(configTenantCondition(tenant))
+          .returning();
+        return updated;
+      });
       if (!row) return res.status(404).json({ error: "Ingen arkivkobling å oppdatere" });
       res.json(publicView(row));
     } catch (error) {
@@ -326,18 +332,21 @@ export function registerArchiveRoutes(app: Express) {
           contractProfile: cfg.contractProfile,
           externalIdMetadataKey: cfg.externalIdMetadataKey,
         }).verify();
-        const [row] = await db
-          .update(archiveConfigs)
-          .set({ lastVerifiedAt: new Date(), lastError: null, status: "active", updatedAt: new Date() })
-          .where(configTenantCondition(tenant))
-          .returning();
+        const row = await withArchiveTenantDb(tenant, async (scopedDb) => {
+          const [updated] = await scopedDb
+            .update(archiveConfigs)
+            .set({ lastVerifiedAt: new Date(), lastError: null, status: "active", updatedAt: new Date() })
+            .where(configTenantCondition(tenant))
+            .returning();
+          return updated;
+        });
         res.json(publicView(row));
       } catch (verifyErr: any) {
         const message = String(verifyErr?.message ?? verifyErr);
-        await db
+        await withArchiveTenantDb(tenant, (scopedDb) => scopedDb
           .update(archiveConfigs)
           .set({ lastError: message.slice(0, 2000), updatedAt: new Date() })
-          .where(configTenantCondition(tenant));
+          .where(configTenantCondition(tenant)));
         res.status(422).json({ error: `Tilkoblingstest feilet: ${message}` });
       }
     } catch (error) {
@@ -357,7 +366,7 @@ export function registerArchiveRoutes(app: Express) {
           error: "Arkivet kan ikke kobles fra mens arkiveringer venter eller behandles",
         });
       }
-      await db.transaction(async (tx) => {
+      await withArchiveTenantDb(tenant, async (tx) => {
         await tx.delete(archiveCaseLinks).where(caseLinkTenantCondition(tenant));
         await tx.delete(archiveConfigs).where(configTenantCondition(tenant));
       });
@@ -383,12 +392,12 @@ export function registerArchiveRoutes(app: Express) {
         ? and(tenantCondition(tenant), eq(archiveEntries.status, status))
         : tenantCondition(tenant);
 
-      const rows = await db
+      const rows = await withArchiveTenantDb(tenant, (scopedDb) => scopedDb
         .select()
         .from(archiveEntries)
         .where(conditions)
         .orderBy(desc(archiveEntries.createdAt))
-        .limit(200);
+        .limit(200));
       res.json(rows);
     } catch (error) {
       archiveRouteError(res, "entries", error);

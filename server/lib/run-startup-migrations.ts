@@ -70,6 +70,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "082_secret_rotation_run_audit.sql",
   "083_barnevern_municipality_rls.sql",
   "084_secure_dialog_municipality_rls.sql",
+  "085_archive_dual_tenant_rls.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -106,7 +107,9 @@ export async function runStartupMigrations(): Promise<void> {
       // fail-closed because request code now depends on FORCE RLS and its
       // transaction-local municipality context for database-level isolation.
       // 084 extends the same fail-closed boundary to secure dialog, including
-      // eID-party object access and internal queue/governance operations.
+      // eID-party object access and internal queue/governance operations. 085
+      // protects archive credentials, case links and receipts for both vendor
+      // and municipality tenants.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
       if (
@@ -118,6 +121,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "082_secret_rotation_run_audit.sql"
         || filename === "083_barnevern_municipality_rls.sql"
         || filename === "084_secure_dialog_municipality_rls.sql"
+        || filename === "085_archive_dual_tenant_rls.sql"
       ) {
         throw err;
       }

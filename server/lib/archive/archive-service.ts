@@ -14,7 +14,7 @@
 
 import { createHash, randomUUID } from "crypto";
 import { and, asc, eq, inArray, lte, sql } from "drizzle-orm";
-import { drizzle } from "drizzle-orm/node-postgres";
+import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { db } from "../../db";
 import * as schema from "@shared/schema";
 import {
@@ -54,34 +54,48 @@ import {
 } from "./noark";
 import { buildSecureDialogArchivePackage } from "./secure-dialog-package";
 import { validateArchiveBaseUrl, validateArchiveEndpointUrl } from "./archive-url-policy";
-import { withKommuneRlsContext } from "../database-rls-context";
+import {
+  withDualTenantRlsContext,
+  withKommuneRlsContext,
+  withSystemRlsContext,
+  type DualTenantRlsContext,
+} from "../database-rls-context";
 
 const MAX_ATTEMPTS = 8;
 
-export async function getArchiveConfig(vendorId: number): Promise<ArchiveConfig | null> {
-  const [row] = await db
-    .select()
-    .from(archiveConfigs)
-    .where(eq(archiveConfigs.vendorId, vendorId))
-    .limit(1);
-  return row ?? null;
+export type ArchiveTenant = DualTenantRlsContext;
+type ArchiveDatabase = NodePgDatabase<typeof schema>;
+
+export function withArchiveTenantDb<T>(
+  tenant: ArchiveTenant,
+  callback: (scopedDb: ArchiveDatabase) => Promise<T>,
+): Promise<T> {
+  return withDualTenantRlsContext(tenant, (client) => callback(drizzle(client, { schema })));
 }
 
-export async function getMunicipalityArchiveConfig(kommuneId: number): Promise<ArchiveConfig | null> {
-  const [row] = await db
-    .select()
-    .from(archiveConfigs)
-    .where(eq(archiveConfigs.kommuneId, kommuneId))
-    .limit(1);
-  return row ?? null;
+function withArchiveSystemDb<T>(
+  operation: string,
+  callback: (scopedDb: ArchiveDatabase) => Promise<T>,
+): Promise<T> {
+  return withSystemRlsContext(operation, (client) => callback(drizzle(client, { schema })));
 }
-
-export type ArchiveTenant = { vendorId: number; kommuneId?: never } | { kommuneId: number; vendorId?: never };
 
 export async function getArchiveConfigForTenant(tenant: ArchiveTenant): Promise<ArchiveConfig | null> {
-  return tenant.kommuneId != null
-    ? getMunicipalityArchiveConfig(tenant.kommuneId)
-    : getArchiveConfig(tenant.vendorId);
+  return withArchiveTenantDb(tenant, async (scopedDb) => {
+    const condition = tenant.kommuneId != null
+      ? eq(archiveConfigs.kommuneId, tenant.kommuneId)
+      : eq(archiveConfigs.vendorId, tenant.vendorId);
+    const [row] = await scopedDb.select().from(archiveConfigs).where(condition).limit(1);
+    return row ?? null;
+  });
+}
+
+export function getArchiveConfig(vendorId: number): Promise<ArchiveConfig | null> {
+  return getArchiveConfigForTenant({ vendorId });
+}
+
+export function getMunicipalityArchiveConfig(kommuneId: number): Promise<ArchiveConfig | null> {
+  return getArchiveConfigForTenant({ kommuneId });
 }
 
 function providerFor(cfg: ArchiveConfig): ArchiveProvider {
@@ -129,36 +143,40 @@ export async function queueRapportArchiving(
   if (!cfg || cfg.status !== "active") return { queued: false, reason: "Arkivintegrasjon ikke konfigurert" };
   if (trigger === "approved" && !cfg.autoArchive) return { queued: false, reason: "Automatisk arkivering er avslått" };
 
-  const [entry] = await db
-    .insert(archiveEntries)
-    .values({
-      vendorId: sak.vendorId,
-      entityType: "rapport",
-      entityId: rapportId,
-      sakId: sak.id,
-      status: "pending",
-      triggerKind: trigger,
-      nextAttemptAt: new Date(),
-      createdBy: createdBy ?? null,
-    })
-    .onConflictDoUpdate({
-      target: [archiveEntries.entityType, archiveEntries.entityId],
-      set: {
-        // Allerede arkivert forblir arkivert; alt annet re-aktiveres.
-        status: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.status} ELSE 'pending' END`,
+  const tenant: ArchiveTenant = { vendorId: sak.vendorId };
+  const entry = await withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [queued] = await scopedDb
+      .insert(archiveEntries)
+      .values({
+        vendorId: sak.vendorId,
+        entityType: "rapport",
+        entityId: rapportId,
+        sakId: sak.id,
+        status: "pending",
         triggerKind: trigger,
-        attempts: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.attempts} ELSE 0 END`,
         nextAttemptAt: new Date(),
-        error: null,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+        createdBy: createdBy ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [archiveEntries.entityType, archiveEntries.entityId],
+        set: {
+          // Allerede arkivert forblir arkivert; alt annet re-aktiveres.
+          status: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.status} ELSE 'pending' END`,
+          triggerKind: trigger,
+          attempts: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.attempts} ELSE 0 END`,
+          nextAttemptAt: new Date(),
+          error: null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return queued;
+  });
 
   if (entry.status === "archived") return { queued: false, reason: "Allerede arkivert", entryId: entry.id };
 
   // Umiddelbart forsøk uten å blokkere kalleren.
-  processArchiveEntry(entry.id).catch((err) =>
+  processArchiveEntry(entry.id, tenant).catch((err) =>
     console.error(`[arkiv] umiddelbar prosessering feilet for ${entry.id}:`, err?.message ?? err),
   );
 
@@ -182,69 +200,95 @@ export async function queueJournalEntryArchiving(
   const cfg = await getArchiveConfig(sak.vendorId);
   if (!cfg || cfg.status !== "active") return { queued: false, reason: "Arkivintegrasjon ikke konfigurert" };
 
-  const [archiveEntry] = await db
-    .insert(archiveEntries)
-    .values({
-      vendorId: sak.vendorId,
-      entityType: "journal",
-      entityId: journalEntryId,
-      sakId: sak.id,
-      status: "pending",
-      triggerKind: "manual",
-      nextAttemptAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [archiveEntries.entityType, archiveEntries.entityId],
-      set: {
-        status: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.status} ELSE 'pending' END`,
-        attempts: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.attempts} ELSE 0 END`,
+  const tenant: ArchiveTenant = { vendorId: sak.vendorId };
+  const archiveEntry = await withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [queued] = await scopedDb
+      .insert(archiveEntries)
+      .values({
+        vendorId: sak.vendorId,
+        entityType: "journal",
+        entityId: journalEntryId,
+        sakId: sak.id,
+        status: "pending",
+        triggerKind: "manual",
         nextAttemptAt: new Date(),
-        error: null,
-        updatedAt: new Date(),
-      },
-    })
-    .returning();
+      })
+      .onConflictDoUpdate({
+        target: [archiveEntries.entityType, archiveEntries.entityId],
+        set: {
+          status: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.status} ELSE 'pending' END`,
+          attempts: sql`CASE WHEN ${archiveEntries.status} IN ('archived', 'processing') THEN ${archiveEntries.attempts} ELSE 0 END`,
+          nextAttemptAt: new Date(),
+          error: null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return queued;
+  });
 
   if (archiveEntry.status === "archived") return { queued: false, reason: "Allerede arkivert", entryId: archiveEntry.id };
 
-  processArchiveEntry(archiveEntry.id).catch((err) =>
+  processArchiveEntry(archiveEntry.id, tenant).catch((err) =>
     console.error(`[arkiv] umiddelbar prosessering feilet for ${archiveEntry.id}:`, err?.message ?? err),
   );
 
   return { queued: true, entryId: archiveEntry.id };
 }
 
+function tenantForArchiveEntry(entry: Pick<ArchiveEntry, "vendorId" | "kommuneId">): ArchiveTenant {
+  if (entry.kommuneId != null && entry.vendorId == null) return { kommuneId: entry.kommuneId };
+  if (entry.vendorId != null && entry.kommuneId == null) return { vendorId: entry.vendorId };
+  throw new Error("Arkivraden mangler entydig tenantbinding");
+}
+
+async function loadArchiveEntry(
+  entryId: string,
+  expectedTenant?: ArchiveTenant,
+): Promise<ArchiveEntry | null> {
+  const load = async (scopedDb: ArchiveDatabase) => {
+    const [row] = await scopedDb.select().from(archiveEntries).where(eq(archiveEntries.id, entryId)).limit(1);
+    return row ?? null;
+  };
+  return expectedTenant
+    ? withArchiveTenantDb(expectedTenant, load)
+    : withArchiveSystemDb("archive_entry_lookup", load);
+}
+
 /** Prosesser én outbox-rad. Trygg å kalle flere ganger. */
-export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry> {
-  const [known] = await db.select().from(archiveEntries).where(eq(archiveEntries.id, entryId)).limit(1);
+export async function processArchiveEntry(
+  entryId: string,
+  expectedTenant?: ArchiveTenant,
+): Promise<ArchiveEntry> {
+  const known = await loadArchiveEntry(entryId, expectedTenant);
   if (!known) throw new Error(`archive_entry ${entryId} finnes ikke`);
   if (known.status === "archived" || known.status === "processing") return known;
+  const tenant = tenantForArchiveEntry(known);
 
   // Atomisk claim hindrer parallelle appinstanser i å laste opp samme pakke.
   // Provideren har i tillegg eksternId-idempotens ved tvetydig nettverksutfall.
   const processingToken = randomUUID();
-  const [entry] = await db
-    .update(archiveEntries)
-    .set({
-      status: "processing",
-      processingStartedAt: new Date(),
-      processingToken,
-      updatedAt: new Date(),
-    })
-    .where(and(eq(archiveEntries.id, entryId), eq(archiveEntries.status, "pending")))
-    .returning();
+  const entry = await withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [claimed] = await scopedDb
+      .update(archiveEntries)
+      .set({
+        status: "processing",
+        processingStartedAt: new Date(),
+        processingToken,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(archiveEntries.id, entryId), eq(archiveEntries.status, "pending")))
+      .returning();
+    return claimed;
+  });
   if (!entry) {
-    const [current] = await db.select().from(archiveEntries).where(eq(archiveEntries.id, entryId)).limit(1);
+    const current = await loadArchiveEntry(entryId, tenant);
     if (!current) throw new Error(`archive_entry ${entryId} finnes ikke`);
     return current;
   }
 
   try {
-    const cfg = entry.kommuneId != null
-      ? await getMunicipalityArchiveConfig(entry.kommuneId)
-      : entry.vendorId != null
-        ? await getArchiveConfig(entry.vendorId)
-        : null;
+    const cfg = await getArchiveConfigForTenant(tenant);
     if (!cfg || cfg.status !== "active") throw new Error("Arkivintegrasjon er ikke aktiv");
     const provider = providerFor(cfg);
     const defaults = skjermingDefaults(cfg);
@@ -255,19 +299,35 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       if (!rapport.sakId) throw new Error("Rapporten er ikke knyttet til en sak");
       const [sak] = await db.select().from(saker).where(eq(saker.id, rapport.sakId)).limit(1);
       if (!sak) throw new Error("Saken finnes ikke lenger");
+      if (entry.vendorId == null || sak.vendorId !== entry.vendorId) {
+        throw new Error("Rapportens sak tilhører ikke arkivradens tenant");
+      }
 
-      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
+      let link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [found] = await scopedDb
+          .select()
+          .from(archiveCaseLinks)
+          .where(and(
+            eq(archiveCaseLinks.sakId, sak.id),
+            eq(archiveCaseLinks.vendorId, entry.vendorId!),
+          ))
+          .limit(1);
+        return found;
+      });
 
       if (!link) {
         const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
-        [link] = await db
-          .insert(archiveCaseLinks)
-          .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
-          .onConflictDoUpdate({
-            target: archiveCaseLinks.sakId,
-            set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
-          })
-          .returning();
+        link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+          const [saved] = await scopedDb
+            .insert(archiveCaseLinks)
+            .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
+            .onConflictDoUpdate({
+              target: archiveCaseLinks.sakId,
+              set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+            })
+            .returning();
+          return saved;
+        });
       }
 
       const [aktiviteter, maal] = await Promise.all([
@@ -285,29 +345,32 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       const spec = buildRapportJournalpost(rapport, sak, pdf, defaults, { journalenhet: cfg.journalenhet ?? undefined });
       const jp = await provider.createJournalpost(link.eksternMappeId, spec);
 
-      const [done] = await db
-        .update(archiveEntries)
-        .set({
-          status: "archived",
-          eksternMappeId: link.eksternMappeId,
-          eksternJournalpostId: jp.id,
-          journalpostIdent: jp.journalpostIdent,
-          payloadHash: createHash("sha256").update(pdf).digest("hex"),
-          skjerming: spec.skjerming as any,
-          error: null,
-          archivedAt: new Date(),
-          processingStartedAt: null,
-          processingToken: null,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(archiveEntries.id, entry.id),
-          eq(archiveEntries.status, "processing"),
-          eq(archiveEntries.processingToken, processingToken),
-        ))
-        .returning();
+      const done = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [updated] = await scopedDb
+          .update(archiveEntries)
+          .set({
+            status: "archived",
+            eksternMappeId: link.eksternMappeId,
+            eksternJournalpostId: jp.id,
+            journalpostIdent: jp.journalpostIdent,
+            payloadHash: createHash("sha256").update(pdf).digest("hex"),
+            skjerming: spec.skjerming as any,
+            error: null,
+            archivedAt: new Date(),
+            processingStartedAt: null,
+            processingToken: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(archiveEntries.id, entry.id),
+            eq(archiveEntries.status, "processing"),
+            eq(archiveEntries.processingToken, processingToken),
+          ))
+          .returning();
+        return updated;
+      });
 
-      if (!done) return (await db.select().from(archiveEntries).where(eq(archiveEntries.id, entry.id)).limit(1))[0];
+      if (!done) return (await loadArchiveEntry(entry.id, tenant))!;
 
       await db
         .insert(rapportAuditLog)
@@ -331,19 +394,35 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       if (!journalEntry) throw new Error("Journaloppføringen finnes ikke lenger");
       const [sak] = await db.select().from(saker).where(eq(saker.id, journalEntry.sakId)).limit(1);
       if (!sak) throw new Error("Saken finnes ikke lenger");
+      if (entry.vendorId == null || sak.vendorId !== entry.vendorId) {
+        throw new Error("Journalnotatets sak tilhører ikke arkivradens tenant");
+      }
 
-      let [link] = await db.select().from(archiveCaseLinks).where(eq(archiveCaseLinks.sakId, sak.id)).limit(1);
+      let link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [found] = await scopedDb
+          .select()
+          .from(archiveCaseLinks)
+          .where(and(
+            eq(archiveCaseLinks.sakId, sak.id),
+            eq(archiveCaseLinks.vendorId, entry.vendorId!),
+          ))
+          .limit(1);
+        return found;
+      });
 
       if (!link) {
         const mappe = await provider.ensureSaksmappe(buildSaksmappeSpec(sak, defaults, cfg.arkivdelId ?? undefined));
-        [link] = await db
-          .insert(archiveCaseLinks)
-          .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
-          .onConflictDoUpdate({
-            target: archiveCaseLinks.sakId,
-            set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
-          })
-          .returning();
+        link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+          const [saved] = await scopedDb
+            .insert(archiveCaseLinks)
+            .values({ vendorId: sak.vendorId, sakId: sak.id, eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent })
+            .onConflictDoUpdate({
+              target: archiveCaseLinks.sakId,
+              set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+            })
+            .returning();
+          return saved;
+        });
       }
 
       const attachmentRows = await db
@@ -361,29 +440,32 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       const spec = buildJournalJournalpost(journalEntry, sak, attachments, defaults, { journalenhet: cfg.journalenhet ?? undefined });
       const jp = await provider.createJournalpost(link.eksternMappeId, spec);
 
-      const [done] = await db
-        .update(archiveEntries)
-        .set({
-          status: "archived",
-          eksternMappeId: link.eksternMappeId,
-          eksternJournalpostId: jp.id,
-          journalpostIdent: jp.journalpostIdent,
-          payloadHash: createHash("sha256").update(journalEntry.content).digest("hex"),
-          skjerming: spec.skjerming as any,
-          error: null,
-          archivedAt: new Date(),
-          processingStartedAt: null,
-          processingToken: null,
-          updatedAt: new Date(),
-        })
-        .where(and(
-          eq(archiveEntries.id, entry.id),
-          eq(archiveEntries.status, "processing"),
-          eq(archiveEntries.processingToken, processingToken),
-        ))
-        .returning();
+      const done = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [updated] = await scopedDb
+          .update(archiveEntries)
+          .set({
+            status: "archived",
+            eksternMappeId: link.eksternMappeId,
+            eksternJournalpostId: jp.id,
+            journalpostIdent: jp.journalpostIdent,
+            payloadHash: createHash("sha256").update(journalEntry.content).digest("hex"),
+            skjerming: spec.skjerming as any,
+            error: null,
+            archivedAt: new Date(),
+            processingStartedAt: null,
+            processingToken: null,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(archiveEntries.id, entry.id),
+            eq(archiveEntries.status, "processing"),
+            eq(archiveEntries.processingToken, processingToken),
+          ))
+          .returning();
+        return updated;
+      });
 
-      if (!done) return (await db.select().from(archiveEntries).where(eq(archiveEntries.id, entry.id)).limit(1))[0];
+      if (!done) return (await loadArchiveEntry(entry.id, tenant))!;
 
       console.log(`📁 Arkiverte journalnotat ${journalEntry.id} → journalpost ${jp.id}`);
       return done;
@@ -451,30 +533,39 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
       }
       if (!melding) throw new Error("Bekymringsmeldingen finnes ikke lenger");
 
-      let [link] = await db
-        .select()
-        .from(archiveCaseLinks)
-        .where(eq(archiveCaseLinks.barnevernMeldingId, melding.id))
-        .limit(1);
+      let link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+        const [found] = await scopedDb
+          .select()
+          .from(archiveCaseLinks)
+          .where(and(
+            eq(archiveCaseLinks.barnevernMeldingId, melding.id),
+            eq(archiveCaseLinks.kommuneId, entry.kommuneId!),
+          ))
+          .limit(1);
+        return found;
+      });
       if (!link) {
         const mappe = await provider.ensureSaksmappe(
           buildBarnevernMeldingMappeSpec(melding, defaults, cfg.arkivdelId ?? undefined),
         );
-        [link] = await db
-          .insert(archiveCaseLinks)
-          .values({
-            vendorId: null,
-            kommuneId: entry.kommuneId,
-            sakId: null,
-            barnevernMeldingId: melding.id,
-            eksternMappeId: mappe.id,
-            mappeIdent: mappe.mappeIdent,
-          })
-          .onConflictDoUpdate({
-            target: archiveCaseLinks.barnevernMeldingId,
-            set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
-          })
-          .returning();
+        link = await withArchiveTenantDb(tenant, async (scopedDb) => {
+          const [saved] = await scopedDb
+            .insert(archiveCaseLinks)
+            .values({
+              vendorId: null,
+              kommuneId: entry.kommuneId,
+              sakId: null,
+              barnevernMeldingId: melding.id,
+              eksternMappeId: mappe.id,
+              mappeIdent: mappe.mappeIdent,
+            })
+            .onConflictDoUpdate({
+              target: archiveCaseLinks.barnevernMeldingId,
+              set: { eksternMappeId: mappe.id, mappeIdent: mappe.mappeIdent },
+            })
+            .returning();
+          return saved;
+        });
       }
 
       const packagedAttachments = await Promise.all(attachmentRows.map(async ({ attachment }) => {
@@ -566,7 +657,7 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
         });
         return updated;
       });
-      if (!done) return (await db.select().from(archiveEntries).where(eq(archiveEntries.id, entry.id)).limit(1))[0];
+      if (!done) return (await loadArchiveEntry(entry.id, tenant))!;
       console.log(`📁 Arkiverte sikker dialog ${conversation.id} → journalpost ${jp.id}`);
       return done;
     }
@@ -575,25 +666,28 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
   } catch (err: any) {
     const attempts = entry.attempts + 1;
     const terminal = attempts >= MAX_ATTEMPTS;
-    const [failed] = await db
-      .update(archiveEntries)
-      .set({
-        status: terminal ? "failed" : "pending",
-        attempts,
-        nextAttemptAt: new Date(Date.now() + nextAttemptDelayMs(attempts)),
-        error: String(err?.message ?? err).slice(0, 2000),
-        processingStartedAt: null,
-        processingToken: null,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(archiveEntries.id, entry.id),
-        eq(archiveEntries.status, "processing"),
-        eq(archiveEntries.processingToken, processingToken),
-      ))
-      .returning();
+    const failed = await withArchiveTenantDb(tenant, async (scopedDb) => {
+      const [updated] = await scopedDb
+        .update(archiveEntries)
+        .set({
+          status: terminal ? "failed" : "pending",
+          attempts,
+          nextAttemptAt: new Date(Date.now() + nextAttemptDelayMs(attempts)),
+          error: String(err?.message ?? err).slice(0, 2000),
+          processingStartedAt: null,
+          processingToken: null,
+          updatedAt: new Date(),
+        })
+        .where(and(
+          eq(archiveEntries.id, entry.id),
+          eq(archiveEntries.status, "processing"),
+          eq(archiveEntries.processingToken, processingToken),
+        ))
+        .returning();
+      return updated;
+    });
     if (!failed) {
-      return (await db.select().from(archiveEntries).where(eq(archiveEntries.id, entry.id)).limit(1))[0];
+      return (await loadArchiveEntry(entry.id, tenant))!;
     }
     if (terminal && entry.entityType === "secure_dialog" && entry.kommuneId != null) {
       await withKommuneRlsContext(entry.kommuneId, async (client) => {
@@ -618,30 +712,33 @@ export async function processArchiveEntry(entryId: string): Promise<ArchiveEntry
 
 /** Prosesser forfalte pending-rader. Kalles fra cron. */
 export async function processDueArchiveEntries(limit = 10): Promise<{ processed: number; archived: number }> {
-  await db
-    .update(archiveEntries)
-    .set({
-      status: "pending",
-      processingStartedAt: null,
-      processingToken: null,
-      nextAttemptAt: new Date(),
-      error: "stale_claim",
-      updatedAt: new Date(),
-    })
-    .where(and(
-      eq(archiveEntries.status, "processing"),
-      lte(archiveEntries.processingStartedAt, new Date(Date.now() - 15 * 60 * 1000)),
-    ));
-  const due = await db
-    .select()
-    .from(archiveEntries)
-    .where(and(eq(archiveEntries.status, "pending"), lte(archiveEntries.nextAttemptAt, new Date())))
-    .orderBy(asc(archiveEntries.nextAttemptAt))
-    .limit(limit);
+  const safeLimit = Math.max(1, Math.min(Math.trunc(limit), 100));
+  const due = await withArchiveSystemDb("archive_due_scan", async (scopedDb) => {
+    await scopedDb
+      .update(archiveEntries)
+      .set({
+        status: "pending",
+        processingStartedAt: null,
+        processingToken: null,
+        nextAttemptAt: new Date(),
+        error: "stale_claim",
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(archiveEntries.status, "processing"),
+        lte(archiveEntries.processingStartedAt, new Date(Date.now() - 15 * 60 * 1000)),
+      ));
+    return scopedDb
+      .select()
+      .from(archiveEntries)
+      .where(and(eq(archiveEntries.status, "pending"), lte(archiveEntries.nextAttemptAt, new Date())))
+      .orderBy(asc(archiveEntries.nextAttemptAt))
+      .limit(safeLimit);
+  });
 
   let archived = 0;
   for (const entry of due) {
-    const result = await processArchiveEntry(entry.id);
+    const result = await processArchiveEntry(entry.id, tenantForArchiveEntry(entry));
     if (result.status === "archived") archived++;
   }
   return { processed: due.length, archived };
@@ -652,26 +749,29 @@ export async function retryArchiveEntry(entryId: string, tenant: ArchiveTenant):
   const tenantCondition = tenant.kommuneId != null
     ? eq(archiveEntries.kommuneId, tenant.kommuneId)
     : eq(archiveEntries.vendorId, tenant.vendorId);
-  const [entry] = await db
-    .update(archiveEntries)
-    .set({
-      status: "pending",
-      attempts: 0,
-      nextAttemptAt: new Date(),
-      processingStartedAt: null,
-      processingToken: null,
-      error: null,
-      triggerKind: "retry",
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(archiveEntries.id, entryId),
-        tenantCondition,
-        inArray(archiveEntries.status, ["pending", "failed"]),
-      ),
-    )
-    .returning();
+  const entry = await withArchiveTenantDb(tenant, async (scopedDb) => {
+    const [updated] = await scopedDb
+      .update(archiveEntries)
+      .set({
+        status: "pending",
+        attempts: 0,
+        nextAttemptAt: new Date(),
+        processingStartedAt: null,
+        processingToken: null,
+        error: null,
+        triggerKind: "retry",
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(archiveEntries.id, entryId),
+          tenantCondition,
+          inArray(archiveEntries.status, ["pending", "failed"]),
+        ),
+      )
+      .returning();
+    return updated;
+  });
   if (!entry) return null;
-  return processArchiveEntry(entry.id);
+  return processArchiveEntry(entry.id, tenant);
 }

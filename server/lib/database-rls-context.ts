@@ -2,6 +2,9 @@ import type { PoolClient } from "pg";
 import { pool } from "../db";
 
 type QueryClient = Pick<PoolClient, "query">;
+export type DualTenantRlsContext =
+  | { vendorId: number; kommuneId?: never }
+  | { kommuneId: number; vendorId?: never };
 const requestedRuntimeRole = process.env.TIDUM_RLS_RUNTIME_ROLE?.trim() || "";
 if (process.env.NODE_ENV === "production" && (!requestedRuntimeRole || requestedRuntimeRole === "pg_database_owner")) {
   throw new Error("DEDICATED_RLS_RUNTIME_ROLE_REQUIRED");
@@ -24,6 +27,13 @@ function requireKommuneId(kommuneId: number): number {
   return kommuneId;
 }
 
+function requireVendorId(vendorId: number): number {
+  if (!Number.isInteger(vendorId) || vendorId <= 0) {
+    throw new Error("INVALID_RLS_VENDOR_ID");
+  }
+  return vendorId;
+}
+
 /**
  * Sets a transaction-local municipality context. This must only be called
  * after BEGIN; PostgreSQL resets the values automatically on COMMIT/ROLLBACK.
@@ -37,9 +47,31 @@ export async function setLocalKommuneRlsContext(
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'kommune', true),
             set_config('tidum.kommune_id', $1, true),
+            set_config('tidum.vendor_id', '', true),
             set_config('tidum.rls_system_operation', '', true),
             set_config('tidum.rls_actor_user_id', '', true)`,
     [String(scopedKommuneId)],
+  );
+}
+
+/**
+ * Sets a transaction-local vendor context for dual-tenant resources such as
+ * the archive outbox. Municipality-only tables remain fail-closed because
+ * their policies do not accept the vendor mode.
+ */
+export async function setLocalVendorRlsContext(
+  client: QueryClient,
+  vendorId: number,
+): Promise<void> {
+  const scopedVendorId = requireVendorId(vendorId);
+  await assumeRlsRuntimeRole(client);
+  await client.query(
+    `SELECT set_config('tidum.rls_mode', 'vendor', true),
+            set_config('tidum.kommune_id', '', true),
+            set_config('tidum.vendor_id', $1, true),
+            set_config('tidum.rls_system_operation', '', true),
+            set_config('tidum.rls_actor_user_id', '', true)`,
+    [String(scopedVendorId)],
   );
 }
 
@@ -60,6 +92,7 @@ export async function setLocalSecurePartyRlsContext(
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'secure_party', true),
             set_config('tidum.kommune_id', '', true),
+            set_config('tidum.vendor_id', '', true),
             set_config('tidum.rls_system_operation', '', true),
             set_config('tidum.rls_actor_user_id', $1, true)`,
     [normalizedActorUserId],
@@ -82,6 +115,7 @@ export async function setLocalSystemRlsContext(
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'system', true),
             set_config('tidum.kommune_id', '', true),
+            set_config('tidum.vendor_id', '', true),
             set_config('tidum.rls_system_operation', $1, true),
             set_config('tidum.rls_actor_user_id', '', true)`,
     [normalizedOperation],
@@ -98,6 +132,7 @@ export async function setLocalDeniedRlsContext(client: QueryClient): Promise<voi
   await client.query(
     `SELECT set_config('tidum.rls_mode', 'deny', true),
             set_config('tidum.kommune_id', '', true),
+            set_config('tidum.vendor_id', '', true),
             set_config('tidum.rls_system_operation', '', true),
             set_config('tidum.rls_actor_user_id', '', true)`,
   );
@@ -130,6 +165,25 @@ export function withKommuneRlsContext<T>(
     (client) => setLocalKommuneRlsContext(client, kommuneId),
     callback,
   );
+}
+
+export function withVendorRlsContext<T>(
+  vendorId: number,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return withRlsTransaction(
+    (client) => setLocalVendorRlsContext(client, vendorId),
+    callback,
+  );
+}
+
+export function withDualTenantRlsContext<T>(
+  tenant: DualTenantRlsContext,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return tenant.kommuneId != null
+    ? withKommuneRlsContext(tenant.kommuneId, callback)
+    : withVendorRlsContext(tenant.vendorId, callback);
 }
 
 export function withSecurePartyRlsContext<T>(

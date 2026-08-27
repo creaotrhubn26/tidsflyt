@@ -39,4 +39,14 @@ describe("database RLS runtime role configuration", () => {
       .rejects.toThrow("INVALID_RLS_ACTOR_USER_ID");
     expect(query).not.toHaveBeenCalled();
   });
+
+  it("rejects an invalid vendor before setting database context", async () => {
+    vi.stubEnv("NODE_ENV", "test");
+    vi.stubEnv("TIDUM_RLS_RUNTIME_ROLE", "pg_database_owner");
+    const { setLocalVendorRlsContext } = await import("../database-rls-context");
+    const query = vi.fn();
+    await expect(setLocalVendorRlsContext({ query } as any, 0))
+      .rejects.toThrow("INVALID_RLS_VENDOR_ID");
+    expect(query).not.toHaveBeenCalled();
+  });
 });
