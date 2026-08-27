@@ -761,6 +761,38 @@ export const barnevernDokumenter = pgTable("tidum_barnevern_dokumenter", {
 
 export type BarnevernDokument = typeof barnevernDokumenter.$inferSelect;
 
+// Forebyggende arbeid (migrasjon 095, krav 18). Ikke barn-bundet.
+export const barnevernForebyggende = pgTable("tidum_barnevern_forebyggende", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  tittel: text("tittel").notNull(),
+  beskrivelse: text("beskrivelse"),
+  kategori: text("kategori").notNull(),
+  samarbeidsparter: jsonb("samarbeidsparter").notNull().default([]),
+  ansvarligUserId: varchar("ansvarlig_user_id").notNull().references(() => users.id),
+  startDato: date("start_dato"),
+  sluttDato: date("slutt_dato"),
+  status: text("status").notNull().default("planlagt"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_forebyggende_kommune_idx").on(table.kommuneId, table.status, table.kategori),
+]);
+
+export const barnevernForebyggendeAktiviteter = pgTable("tidum_barnevern_forebyggende_aktiviteter", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  forebyggendeId: uuid("forebyggende_id").notNull().references(() => barnevernForebyggende.id),
+  kommuneId: integer("kommune_id").notNull(),
+  dato: date("dato").notNull(),
+  beskrivelse: text("beskrivelse").notNull(),
+  antallDeltakere: integer("antall_deltakere"),
+  notat: text("notat"),
+  registrertAv: varchar("registrert_av").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_forebyggende_aktiviteter_idx").on(table.kommuneId, table.forebyggendeId, table.dato),
+]);
+
 // Innsynsbegjæringer på kommunal sak (migrasjon 094, krav 16).
 export const barnevernInnsynskrav = pgTable("tidum_barnevern_innsynskrav", {
   id: uuid("id").defaultRandom().primaryKey(),

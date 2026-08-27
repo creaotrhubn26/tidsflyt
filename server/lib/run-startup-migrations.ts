@@ -80,6 +80,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "092_barnevern_planer.sql",
   "093_barnevern_dokumenter.sql",
   "094_barnevern_innsynskrav.sql",
+  "095_barnevern_forebyggende.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -144,6 +145,7 @@ export async function runStartupMigrations(): Promise<void> {
         || filename === "092_barnevern_planer.sql"
         || filename === "093_barnevern_dokumenter.sql"
         || filename === "094_barnevern_innsynskrav.sql"
+        || filename === "095_barnevern_forebyggende.sql"
       ) {
         throw err;
       }
