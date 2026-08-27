@@ -1,6 +1,10 @@
 import type { Express, Request, Response } from "express";
+import multer from "multer";
+import path from "path";
+import fs from "fs";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { cancelFrist } from "../lib/frist-engine";
+import { requireAuth } from "../middleware/auth";
 import { requireKommuneActor } from "./barnevern-melding-routes";
 
 // Faseflyt for den kommunale barnevernssaken. En sak starter alltid i
@@ -18,6 +22,48 @@ const TILLATTE_OVERGANGER: Record<string, string[]> = {
 const KREVER_LEDER = new Set(["henlagt", "avsluttet"]);
 
 const AVSLUTTENDE_FASER = new Set(["avsluttet", "henlagt"]);
+
+// Journalkategorier — kodefast kodeliste; utvides ved behov.
+const JOURNAL_KATEGORIER = new Set([
+  "notat", "telefonsamtale", "mote", "hjemmebesok", "samtale_med_barnet", "vedtak", "annet",
+]);
+
+// Samme private diskrot og filtyperegler som barnevernsvedlegg for meldinger
+// (se barnevern-melding-routes.ts). ponytail: lokal disk nå, norsk/EU
+// objektlager når krav 23-plattformen er valgt.
+const JOURNAL_UPLOAD_DIR = path.join(process.cwd(), "private-uploads", "barnevern-sak-journal");
+if (!fs.existsSync(JOURNAL_UPLOAD_DIR)) fs.mkdirSync(JOURNAL_UPLOAD_DIR, { recursive: true });
+
+const ALLOWED_VEDLEGG_MIME = new Set([
+  "application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp",
+]);
+
+const journalUpload = multer({
+  storage: multer.diskStorage({
+    destination: JOURNAL_UPLOAD_DIR,
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (!ALLOWED_VEDLEGG_MIME.has(file.mimetype)) {
+      return cb(new Error("Ikke tillatt filtype."));
+    }
+    cb(null, true);
+  },
+});
+
+async function loadSakScoped(id: string, kommuneId: number) {
+  return withKommuneRlsContext(kommuneId, async (client) => {
+    const { rows } = await client.query(
+      `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
+      [id, kommuneId],
+    );
+    return rows[0] ?? null;
+  });
+}
 
 function toApiShape(row: any) {
   return {
@@ -210,4 +256,168 @@ export function registerBarnevernSakRoutes(app: Express): void {
       res.status(500).json({ error: "Kunne ikke gjennomføre faseovergangen." });
     }
   });
+
+  // ── JOURNAL (krav 4) — append-only, rettelser via correctsEntryId ────────
+
+  app.post("/api/barnevern/saker/:id/journal", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const { kategori, innhold, correctsEntryId } = req.body;
+    if (!kategori || !JOURNAL_KATEGORIER.has(kategori)) {
+      return res.status(400).json({ error: "Ugyldig kategori." });
+    }
+    if (!innhold || typeof innhold !== "string" || innhold.trim().length === 0) {
+      return res.status(400).json({ error: "innhold er påkrevd." });
+    }
+
+    try {
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [sak] } = await client.query(
+          `SELECT id, fase FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!sak) throw new Error("SAK_NOT_FOUND");
+        if (correctsEntryId) {
+          const { rows: [original] } = await client.query(
+            `SELECT id FROM tidum_barnevern_sak_journal
+              WHERE id = $1 AND sak_id = $2 AND kommune_id = $3`,
+            [correctsEntryId, req.params.id, actor.kommuneId],
+          );
+          if (!original) throw new Error("CORRECTS_INVALID");
+        }
+        const { rows: [entry] } = await client.query(
+          `INSERT INTO tidum_barnevern_sak_journal
+             (sak_id, kommune_id, kategori, innhold, corrects_entry_id, forfatter_user_id)
+           VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+          [req.params.id, actor.kommuneId, kategori, innhold, correctsEntryId ?? null, actor.userId],
+        );
+        return entry;
+      });
+      res.status(201).json({
+        id: row.id,
+        sakId: row.sak_id,
+        kategori: row.kategori,
+        innhold: row.innhold,
+        correctsEntryId: row.corrects_entry_id,
+        forfatterUserId: row.forfatter_user_id,
+        createdAt: row.created_at,
+      });
+    } catch (err) {
+      if (err instanceof Error && err.message === "SAK_NOT_FOUND") {
+        return res.status(404).json({ error: "Sak ikke funnet." });
+      }
+      if (err instanceof Error && err.message === "CORRECTS_INVALID") {
+        return res.status(400).json({ error: "correctsEntryId peker ikke på en oppføring på denne saken." });
+      }
+      console.error("[barnevern-sak] journalføring feilet", err);
+      res.status(500).json({ error: "Kunne ikke opprette journaloppføringen." });
+    }
+  });
+
+  app.get("/api/barnevern/saker/:id/journal", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    const sak = await loadSakScoped(req.params.id, actor.kommuneId);
+    if (!sak) return res.status(404).json({ error: "Sak ikke funnet." });
+
+    const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+      const { rows } = await client.query(
+        `SELECT * FROM tidum_barnevern_sak_journal
+          WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at ASC`,
+        [req.params.id, actor.kommuneId],
+      );
+      return rows;
+    });
+    res.json(rows.map((r: any) => ({
+      id: r.id,
+      kategori: r.kategori,
+      innhold: r.innhold,
+      correctsEntryId: r.corrects_entry_id,
+      forfatterUserId: r.forfatter_user_id,
+      createdAt: r.created_at,
+    })));
+  });
+
+  app.post(
+    "/api/barnevern/saker/:id/journal/:entryId/vedlegg",
+    requireAuth, // FØR multer: uautentiserte skal ikke kunne skrive 20 MB til disk
+    journalUpload.single("file"),
+    async (req: Request, res: Response) => {
+      const actor = await requireKommuneActor(req);
+      if (!actor) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        return res.status(403).json({ error: "Ikke tilgang." });
+      }
+      if (!req.file) return res.status(400).json({ error: "Ingen fil sendt." });
+
+      try {
+        const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+          const { rows: [entry] } = await client.query(
+            `SELECT id FROM tidum_barnevern_sak_journal
+              WHERE id = $1 AND sak_id = $2 AND kommune_id = $3`,
+            [req.params.entryId, req.params.id, actor.kommuneId],
+          );
+          if (!entry) throw new Error("ENTRY_NOT_FOUND");
+          const { rows: [created] } = await client.query(
+            `INSERT INTO tidum_barnevern_sak_journal_vedlegg
+               (journal_entry_id, kommune_id, filename, original_name, mime_type, size_bytes, uploaded_by)
+             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+            [
+              req.params.entryId, actor.kommuneId, req.file!.filename, req.file!.originalname,
+              req.file!.mimetype, req.file!.size, actor.userId,
+            ],
+          );
+          return created;
+        });
+        res.status(201).json({
+          id: row.id,
+          filename: row.filename,
+          originalName: row.original_name,
+          mimeType: row.mime_type,
+          sizeBytes: row.size_bytes,
+          uploadedAt: row.uploaded_at,
+        });
+      } catch (err) {
+        if (req.file) fs.unlink(req.file.path, () => {});
+        if (err instanceof Error && err.message === "ENTRY_NOT_FOUND") {
+          return res.status(404).json({ error: "Journaloppføring ikke funnet." });
+        }
+        console.error("[barnevern-sak] journalvedlegg feilet", err);
+        res.status(500).json({ error: "Kunne ikke lagre vedlegget." });
+      }
+    },
+  );
+
+  app.get(
+    "/api/barnevern/saker/:id/journal/:entryId/vedlegg/:vedleggId",
+    async (req: Request, res: Response) => {
+      const actor = await requireKommuneActor(req);
+      if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+      const vedlegg = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [entry] } = await client.query(
+          `SELECT id FROM tidum_barnevern_sak_journal
+            WHERE id = $1 AND sak_id = $2 AND kommune_id = $3`,
+          [req.params.entryId, req.params.id, actor.kommuneId],
+        );
+        if (!entry) return null;
+        const { rows: [row] } = await client.query(
+          `SELECT * FROM tidum_barnevern_sak_journal_vedlegg
+            WHERE id = $1 AND journal_entry_id = $2 AND kommune_id = $3`,
+          [req.params.vedleggId, req.params.entryId, actor.kommuneId],
+        );
+        return row ?? null;
+      });
+      if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });
+
+      const filePath = path.join(JOURNAL_UPLOAD_DIR, vedlegg.filename);
+      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Fil ikke funnet på disk." });
+
+      res.setHeader("Content-Type", vedlegg.mime_type);
+      res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
+      fs.createReadStream(filePath).pipe(res);
+    },
+  );
 }

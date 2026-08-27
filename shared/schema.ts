@@ -695,6 +695,35 @@ export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_histo
   index("tidum_barnevern_sak_fase_historikk_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
 ]);
 
+// Uforanderlig journal på kommunal barnevernssak (migrasjon 089).
+// Rettelser = ny rad med correctsEntryId; aldri UPDATE/DELETE.
+export const barnevernSakJournal = pgTable("tidum_barnevern_sak_journal", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  kommuneId: integer("kommune_id").notNull(),
+  kategori: text("kategori").notNull(),
+  innhold: text("innhold").notNull(),
+  correctsEntryId: uuid("corrects_entry_id"),
+  forfatterUserId: varchar("forfatter_user_id").notNull().references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_sak_journal_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
+]);
+
+export const barnevernSakJournalVedlegg = pgTable("tidum_barnevern_sak_journal_vedlegg", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  journalEntryId: uuid("journal_entry_id").notNull().references(() => barnevernSakJournal.id),
+  kommuneId: integer("kommune_id").notNull(),
+  filename: text("filename").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  uploadedBy: varchar("uploaded_by").notNull().references(() => users.id),
+  uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_sak_journal_vedlegg_entry_idx").on(table.kommuneId, table.journalEntryId),
+]);
+
 // ── SIKKER DIALOG / INNBYGGERPORTAL (migrasjon 071) ────────────────────────
 // E-post er kun varslingsadresse. Tilgang går via portalUserId, verifisert
 // BankID/Buypass-identitet, aktiv sakstilgang og eksplisitt samtaledeltakelse.
