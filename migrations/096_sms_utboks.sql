@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS tidum_sms_utboks (
   mottaker_telefon    TEXT NOT NULL,
   melding             TEXT NOT NULL,
   formaal             TEXT NOT NULL,
-  status              TEXT NOT NULL DEFAULT 'koet' CHECK (status IN ('koet', 'sendt', 'feilet', 'blokkert')),
+  -- 'sender' er in-flight-markøren som gjør claimet eksklusivt mellom
+  -- parallelle prosesser; stale 'sender'-rader gjenopprettes til 'koet'.
+  status              TEXT NOT NULL DEFAULT 'koet' CHECK (status IN ('koet', 'sender', 'sendt', 'feilet', 'blokkert')),
   reservasjon_status  TEXT NOT NULL DEFAULT 'ikke_sjekket' CHECK (reservasjon_status IN ('ikke_sjekket', 'tillatt', 'reservert')),
   forsok              INTEGER NOT NULL DEFAULT 0,
   neste_forsok        TIMESTAMPTZ NOT NULL DEFAULT NOW(),

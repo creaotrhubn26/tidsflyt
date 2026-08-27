@@ -84,6 +84,17 @@ export const STARTUP_MIGRATIONS: string[] = [
   "096_sms_utboks.sql",
 ];
 
+// Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i
+// catch-blokken for hvorfor hver enkelt står her.
+const LEGACY_FAIL_CLOSED = new Set([
+  "057_tidum_table_rename.sql",
+  "077_saker_rapport_tenant_security.sql",
+  "079_leave_tenant_security.sql",
+  "080_gdpr_erasure_audit.sql",
+  "081_poweroffice_client_key_encryption.sql",
+  "082_secret_rotation_run_audit.sql",
+]);
+
 export async function runStartupMigrations(): Promise<void> {
   // Migrations live at <repo-root>/migrations/ in both dev (tsx from repo
   // root) and prod (node dist/index.cjs from repo root). Don't use
@@ -127,28 +138,11 @@ export async function runStartupMigrations(): Promise<void> {
       // that the sak routes depend on.
       // Other migration failures remain non-fatal and are surfaced on first
       // query against the affected table.
-      if (
-        filename === "057_tidum_table_rename.sql"
-        || filename === "077_saker_rapport_tenant_security.sql"
-        || filename === "079_leave_tenant_security.sql"
-        || filename === "080_gdpr_erasure_audit.sql"
-        || filename === "081_poweroffice_client_key_encryption.sql"
-        || filename === "082_secret_rotation_run_audit.sql"
-        || filename === "083_barnevern_municipality_rls.sql"
-        || filename === "084_secure_dialog_municipality_rls.sql"
-        || filename === "085_archive_dual_tenant_rls.sql"
-        || filename === "086_deadline_tenant_rls.sql"
-        || filename === "087_barnevern_sak.sql"
-        || filename === "088_barnevern_melding_komplett.sql"
-        || filename === "089_barnevern_sak_journal.sql"
-        || filename === "090_barnevern_oppgaver.sql"
-        || filename === "091_barnevern_tilgangslogg.sql"
-        || filename === "092_barnevern_planer.sql"
-        || filename === "093_barnevern_dokumenter.sql"
-        || filename === "094_barnevern_innsynskrav.sql"
-        || filename === "095_barnevern_forebyggende.sql"
-        || filename === "096_sms_utboks.sql"
-      ) {
+      // Fail-closed er STANDARD for alle migrasjoner fra og med 083 (alt
+      // etter RLS-grunnmuren bærer sikkerhets-/tenantinvariantene appkoden
+      // avhenger av), pluss de navngitte eldre. En ny migrasjon blir dermed
+      // fail-closed automatisk — ingen håndvedlikeholdt kjede å glemme.
+      if (LEGACY_FAIL_CLOSED.has(filename) || parseInt(filename, 10) >= 83) {
         throw err;
       }
       continue;

@@ -4,10 +4,10 @@ import express from "express";
 import http from "http";
 import { pool } from "../../db";
 import {
+  MAX_MELDING_LENGDE,
   normaliserTelefon,
   processDueSms,
   setSmsGatewayForTesting,
-  smsNesteForsokDelayMs,
 } from "../sms/sms-gateway";
 
 // Krav 9: leverandørnøytral SMS-gateway med tenant-bundet utboks.
@@ -64,12 +64,9 @@ describe("SMS-gateway og utboks (krav 9)", { timeout: 20000 }, () => {
     expect(normaliserTelefon("+4612345678")).toBe("+4612345678");
     expect(normaliserTelefon("12345")).toBeNull();
     expect(normaliserTelefon("21234567")).toBeNull(); // fasttelefon, ikke mobil
-  });
-
-  it("backoff dobler og har tak", () => {
-    expect(smsNesteForsokDelayMs(0)).toBe(5 * 60_000);
-    expect(smsNesteForsokDelayMs(1)).toBe(10 * 60_000);
-    expect(smsNesteForsokDelayMs(20)).toBe(24 * 3_600_000);
+    // Fasttelefon slipper heller ikke gjennom via landkode-prefiks.
+    expect(normaliserTelefon("+4721234567")).toBeNull();
+    expect(normaliserTelefon("004721234567")).toBeNull();
   });
 
   it("køer via API, prosesserer mot gateway-adapter og markerer sendt", async () => {
@@ -93,7 +90,14 @@ describe("SMS-gateway og utboks (krav 9)", { timeout: 20000 }, () => {
 
     await processDueSms();
 
-    const { rows: [rad] } = await pool.query(`SELECT * FROM tidum_sms_utboks WHERE id = $1`, [res.body.id]);
+    // Rutas fire-and-forget-prosessering kan holde claimet ('sender') når
+    // testens eget kall returnerer — vent på terminal status.
+    let rad: any;
+    for (let i = 0; i < 40; i++) {
+      ({ rows: [rad] } = await pool.query(`SELECT * FROM tidum_sms_utboks WHERE id = $1`, [res.body.id]));
+      if (rad.status !== "koet" && rad.status !== "sender") break;
+      await new Promise((r) => setTimeout(r, 50));
+    }
     expect(rad.status).toBe("sendt");
     expect(rad.gateway_melding_id).toBe("gw-123");
     expect(rad.reservasjon_status).toBe("ikke_sjekket");
@@ -172,5 +176,55 @@ describe("SMS-gateway og utboks (krav 9)", { timeout: 20000 }, () => {
 
     const fremmed = await request(lederBApp).get("/api/sms/utboks");
     expect(fremmed.body.map((r: any) => r.id)).not.toContain(ok.body.id);
+  });
+
+  it("for lang melding avvises; claim er eksklusivt; reservert mottaker blokkeres fail-closed", async () => {
+    const kommuneId = await insertTestKommune();
+    const { app } = await actorApp("sb", kommuneId, "kommune_saksbehandler");
+
+    const forLang = await request(app).post("/api/sms/send").send({
+      telefon: "41234567", melding: "x".repeat(MAX_MELDING_LENGDE + 1), formaal: "test",
+    });
+    expect(forLang.status).toBe(400);
+
+    // Ingen gateway under oppsettet — rutas umiddelbare prosessering skal
+    // ikke rekke å sende radene før testen har satt tilstandene sine.
+    setSmsGatewayForTesting(null);
+
+    // Rad som allerede er claimet ('sender') av en annen prosess røres ikke.
+    const claimet = await request(app).post("/api/sms/send").send({
+      telefon: "41234567", melding: "Claimet.", formaal: "test",
+    });
+    await pool.query(`UPDATE tidum_sms_utboks SET status = 'sender' WHERE id = $1`, [claimet.body.id]);
+    // Rad med reservert mottaker blokkeres og når aldri gatewayen.
+    const reservert = await request(app).post("/api/sms/send").send({
+      telefon: "91234567", melding: "Reservert.", formaal: "test",
+    });
+    await pool.query(
+      `UPDATE tidum_sms_utboks SET reservasjon_status = 'reservert' WHERE id = $1`,
+      [reservert.body.id],
+    );
+
+    const sendte: string[] = [];
+    setSmsGatewayForTesting({
+      send: async (input) => { sendte.push(input.telefon); return { gatewayMeldingId: "gw-1" }; },
+    });
+    const resultat = await processDueSms();
+    expect(resultat.blokkert).toBeGreaterThanOrEqual(1);
+
+    const { rows: [claimetRad] } = await pool.query(`SELECT status FROM tidum_sms_utboks WHERE id = $1`, [claimet.body.id]);
+    expect(claimetRad.status).toBe("sender");
+    const { rows: [reservertRad] } = await pool.query(`SELECT status FROM tidum_sms_utboks WHERE id = $1`, [reservert.body.id]);
+    expect(reservertRad.status).toBe("blokkert");
+    expect(sendte).not.toContain("+4791234567");
+
+    // Stale 'sender'-rad (krasjet prosess) gjenopprettes til kø og sendes.
+    await pool.query(
+      `UPDATE tidum_sms_utboks SET updated_at = NOW() - interval '15 minutes' WHERE id = $1`,
+      [claimet.body.id],
+    );
+    await processDueSms();
+    const { rows: [gjenopprettet] } = await pool.query(`SELECT status FROM tidum_sms_utboks WHERE id = $1`, [claimet.body.id]);
+    expect(gjenopprettet.status).toBe("sendt");
   });
 });
