@@ -48,17 +48,23 @@ describe("Barnevern meldingsmottak: datamodell", () => {
   });
 
   it("tidum_frister håndhever unik (entity_type, entity_id, frist_type)", async () => {
-    const { rows: [row] } = await pool.query(
-      `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, frist_type, due_at)
-       VALUES ('test_entity', 'abc-123', NULL, 'avklaring', NOW() + interval '7 days')
-       RETURNING id`,
-    );
+    testKommuneId = await insertTestKommune();
+    const row = await withKommuneRlsContext(testKommuneId, async (client) => {
+      const { rows: [created] } = await client.query(
+        `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, frist_type, due_at)
+         VALUES ('test_entity', 'abc-123', $1, 'avklaring', NOW() + interval '7 days')
+         RETURNING id`,
+        [testKommuneId],
+      );
+      return created;
+    });
     cleanupIds.push({ table: "tidum_frister", id: row.id });
     await expect(
-      pool.query(
+      withKommuneRlsContext(testKommuneId, (client) => client.query(
         `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, frist_type, due_at)
-         VALUES ('test_entity', 'abc-123', NULL, 'avklaring', NOW())`,
-      ),
+         VALUES ('test_entity', 'abc-123', $1, 'avklaring', NOW())`,
+        [testKommuneId],
+      )),
     ).rejects.toThrow();
   });
 

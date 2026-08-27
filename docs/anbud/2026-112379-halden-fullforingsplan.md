@@ -112,10 +112,13 @@ Følgende regler gjelder uten unntak:
 - To G10-pakker er integrert lokalt med PR #21: eksplisitt dev-bypass,
   separate påkrevde tokenhemmeligheter, database-TLS, Helmet/CSP/HSTS og
   sesjonsbasert CSRF-vern med klientdekning for fetch, offline-kø, XHR og
-  unload-sporing. Hemmelighetskryptering og RLS fase 1–3A for
-  bekymringsmeldingskjernen, hele sikker-dialoggrafen og det doble
-  kommune-/vendorarkivdomenet er implementert. TOTP/MFA, egen
-  produksjonslogin, frist-/brukerbinding og full RLS-matrise gjenstår.
+  unload-sporing. Hemmelighetskryptering og RLS fase 1–3B for
+  bekymringsmeldingskjernen, hele sikker-dialoggrafen, det doble
+  kommune-/vendorarkivdomenet og frister med samme-tenant-mottaker er
+  implementert. Det delte `users`-registeret er bevisst ikke lagt bak generell
+  RLS for å bevare BankID/Buypass og øvrig innlogging. TOTP/MFA, egen
+  produksjonslogin og full RLS-matrise for øvrige saksobjekter/vendorflater
+  gjenstår.
 - Avhengighetspakken er lukket lokalt: 29 audit-funn er redusert til 0 etter
   direkte/transitive oppgraderinger, Node 24-baseline og ren `npm ci`.
   `npm audit --audit-level=moderate` er gjort blokkerende i lokal CI-endring;
@@ -315,12 +318,13 @@ Tiltak:
    legacy-editor, verifiser Nodemailer/Sharp/ExcelJS/Quill/Puppeteer, løft Node
    og Docker til Node 24 og gjør dependency audit blokkerende. Full audit: 0.
 6. Innfør TOTP/MFA for administrative roller og Entra MFA-krav via kundens policy.
-7. **Delvis utført lokalt:** migrasjon 083–085 gir `FORCE RLS` og
+7. **Delvis utført lokalt:** migrasjon 083–086 gir `FORCE RLS` og
    transaksjonslokal kommune-/partskontekst for bekymringsmeldingskjernen og
    alle tolv sikker-dialogtabeller, samt kommune-/vendorkontekst for
-   arkivkonfigurasjon, sakskoblinger og outbox/kvittering. Utvid neste fase til
-   frister, trygg brukerbinding og relevante vendorflater; etabler separat
-   produksjonslogin/migrasjonsidentitet og verifiser alle request-paths.
+   arkivkonfigurasjon, sakskoblinger, outbox/kvittering og frister. Frister må
+   ha én tenant, og mottaker bindes til samme tenant uten generell `users`-RLS.
+   Utvid neste fase til øvrige saksobjekter og relevante vendorflater; etabler
+   separat produksjonslogin/migrasjonsidentitet og verifiser alle request-paths.
 8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura,
    eldre saksrapporter/kommentarer, ordinær e-postkomponist og hovedflyten for
    saker, sakjournal, rapporter, mål og aktiviteter er herdet med

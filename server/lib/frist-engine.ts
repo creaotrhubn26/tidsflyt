@@ -1,58 +1,116 @@
-import { pool } from "../db";
 import type { PoolClient } from "pg";
 import { createNotification } from "../routes/notification-routes";
+import {
+  withDualTenantRlsContext,
+  withSystemRlsContext,
+  type DualTenantRlsContext,
+} from "./database-rls-context";
 
 type QueryClient = Pick<PoolClient, "query">;
+type FristTenant = DualTenantRlsContext;
+type FristRow = {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  kommune_id: number | null;
+  vendor_id: number | null;
+  frist_type: string;
+  due_at: Date | string;
+  varslet_offsets: number[];
+  notify_user_id: string | null;
+};
 
 export const FRIST_TYPE_CONFIG: Record<string, { escalationOffsetDays: number[] }> = {
   avklaring: { escalationOffsetDays: [-2, 0, 1, 3] },
 };
 
+function requireFristTenant(input: { kommuneId?: number; vendorId?: number }): FristTenant {
+  const kommuneId = input.kommuneId;
+  const vendorId = input.vendorId;
+  const hasKommune = Number.isInteger(kommuneId) && kommuneId! > 0;
+  const hasVendor = Number.isInteger(vendorId) && vendorId! > 0;
+  if (hasKommune === hasVendor) throw new Error("INVALID_FRIST_TENANT");
+  return hasKommune ? { kommuneId: kommuneId! } : { vendorId: vendorId! };
+}
+
+function tenantForFristRow(row: Pick<FristRow, "kommune_id" | "vendor_id">): FristTenant {
+  return requireFristTenant({
+    kommuneId: row.kommune_id ?? undefined,
+    vendorId: row.vendor_id ?? undefined,
+  });
+}
+
+async function withFristTenantClient<T>(
+  tenant: FristTenant,
+  client: QueryClient | undefined,
+  callback: (scopedClient: QueryClient) => Promise<T>,
+): Promise<T> {
+  return client
+    ? callback(client)
+    : withDualTenantRlsContext(tenant, callback);
+}
+
 export async function registerFrist(params: {
   entityType: string;
   entityId: string;
   kommuneId?: number;
-  vendorId?: string; // vendors.id er varchar/UUID i live DB (avvik fra shared/schema.ts:474 sin serial()-erklæring — se Task 1-ruling i ledger), IKKE number
+  vendorId?: number;
   fristType: string;
   dueAt: Date;
   notifyUserId?: string;
-}, client: QueryClient = pool): Promise<void> {
-  await client.query(
-    `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, vendor_id, frist_type, due_at, notify_user_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (entity_type, entity_id, frist_type)
-     DO UPDATE SET due_at = EXCLUDED.due_at, notify_user_id = EXCLUDED.notify_user_id,
-       status = 'aktiv', varslet_offsets = '{}', updated_at = NOW()`,
-    [
-      params.entityType,
-      params.entityId,
-      params.kommuneId ?? null,
-      params.vendorId ?? null,
-      params.fristType,
-      params.dueAt,
-      params.notifyUserId ?? null,
-    ],
-  );
+}, client?: QueryClient): Promise<void> {
+  const tenant = requireFristTenant(params);
+  await withFristTenantClient(tenant, client, async (scopedClient) => {
+    const result = await scopedClient.query(
+      `INSERT INTO tidum_frister (entity_type, entity_id, kommune_id, vendor_id, frist_type, due_at, notify_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (entity_type, entity_id, frist_type)
+       DO UPDATE SET due_at = EXCLUDED.due_at, notify_user_id = EXCLUDED.notify_user_id,
+         status = 'aktiv', varslet_offsets = '{}', updated_at = NOW()
+       WHERE tidum_frister.kommune_id IS NOT DISTINCT FROM EXCLUDED.kommune_id
+         AND tidum_frister.vendor_id IS NOT DISTINCT FROM EXCLUDED.vendor_id
+       RETURNING id`,
+      [
+        params.entityType,
+        params.entityId,
+        tenant.kommuneId ?? null,
+        tenant.vendorId ?? null,
+        params.fristType,
+        params.dueAt,
+        params.notifyUserId ?? null,
+      ],
+    );
+    if (result.rowCount !== 1) throw new Error("FRIST_TENANT_CONFLICT");
+  });
 }
 
 export async function cancelFrist(
   entityType: string,
   entityId: string,
   fristType: string,
-  client: QueryClient = pool,
+  tenantInput: FristTenant,
+  client?: QueryClient,
 ): Promise<void> {
-  await client.query(
+  const tenant = requireFristTenant(tenantInput);
+  await withFristTenantClient(tenant, client, (scopedClient) => scopedClient.query(
     `UPDATE tidum_frister SET status = 'kansellert', updated_at = NOW()
-     WHERE entity_type = $1 AND entity_id = $2 AND frist_type = $3 AND status = 'aktiv'`,
-    [entityType, entityId, fristType],
-  );
+     WHERE entity_type = $1 AND entity_id = $2 AND frist_type = $3 AND status = 'aktiv'
+       AND kommune_id IS NOT DISTINCT FROM $4::integer
+       AND vendor_id IS NOT DISTINCT FROM $5::integer`,
+    [entityType, entityId, fristType, tenant.kommuneId ?? null, tenant.vendorId ?? null],
+  ).then(() => undefined));
 }
 
 export async function runFristEscalations(now: Date = new Date()): Promise<{ notified: number; expired: number }> {
-  const { rows } = await pool.query(
-    `SELECT id, entity_type, entity_id, frist_type, due_at, varslet_offsets, notify_user_id
-     FROM tidum_frister WHERE status = 'aktiv'`,
-  );
+  const rows = await withSystemRlsContext("frist_escalation_scan", async (client) => {
+    const result = await client.query<FristRow>(
+      `SELECT id, entity_type, entity_id, kommune_id, vendor_id, frist_type,
+              due_at, varslet_offsets, notify_user_id
+         FROM tidum_frister
+        WHERE status = 'aktiv'`,
+    );
+    return result.rows;
+  });
 
   let notified = 0;
   let expired = 0;
@@ -77,12 +135,13 @@ export async function runFristEscalations(now: Date = new Date()): Promise<{ not
       // samme rad før noen skriver tilbake. Den betingede WHERE gjør claimet
       // atomisk mot databasen — kun kjøringen som faktisk oppdaterer raden
       // fortsetter til å varsle. `&&` sjekker array-overlapp.
-      const claimResult = await pool.query(
+      const tenant = tenantForFristRow(row);
+      const claimResult = await withDualTenantRlsContext(tenant, (client) => client.query(
         `UPDATE tidum_frister SET varslet_offsets = varslet_offsets || $1::integer[], updated_at = NOW()
          WHERE id = $2 AND NOT (varslet_offsets && $1::integer[])
          RETURNING id`,
         [dueOffsets, row.id],
-      );
+      ));
       if (claimResult.rows.length === 0) continue; // en annen samtidig kjøring claimet allerede disse offsetene
 
       for (const offset of dueOffsets) {

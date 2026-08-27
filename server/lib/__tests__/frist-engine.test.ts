@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from "vitest";
 import { pool } from "../../db";
 import { registerFrist, cancelFrist, runFristEscalations } from "../frist-engine";
@@ -8,13 +9,26 @@ describe("frist-engine", () => {
   // tidum_frister.notify_user_id has a real FK to users.id (unlike
   // tidum_dashboard_tasks.assigned_by_user_id, which has none) — these two
   // fixture users must exist for the FK to accept them.
-  const testUserIds = ["test-user-1", "test-user-2"];
+  const nonce = randomUUID();
+  const testUserIds = [`frist-user-1-${nonce}`, `frist-user-2-${nonce}`];
+  let kommuneId = 0;
 
   beforeAll(async () => {
+    const { rows: [kommune] } = await pool.query(
+      `INSERT INTO tidum_kommuner (navn, org_nummer, kommunenummer)
+       VALUES ($1, $2, $3) RETURNING id`,
+      [
+        `Fristmotor testkommune ${nonce}`,
+        String(700_000_000 + Math.floor(Math.random() * 90_000_000)),
+        String(100_000 + Math.floor(Math.random() * 800_000)),
+      ],
+    );
+    kommuneId = Number(kommune.id);
     for (const id of testUserIds) {
       await pool.query(
-        `INSERT INTO users (id, username, password) VALUES ($1, $2, 'unused') ON CONFLICT (id) DO NOTHING`,
-        [id, id],
+        `INSERT INTO users (id, username, password, kommune_id, role)
+         VALUES ($1, $2, 'unused', $3, 'kommune_saksbehandler')`,
+        [id, id, kommuneId],
       );
     }
   });
@@ -23,6 +37,7 @@ describe("frist-engine", () => {
     for (const id of testUserIds) {
       await pool.query(`DELETE FROM users WHERE id = $1`, [id]);
     }
+    await pool.query(`DELETE FROM tidum_kommuner WHERE id = $1`, [kommuneId]);
   });
 
   afterEach(async () => {
@@ -38,7 +53,7 @@ describe("frist-engine", () => {
     await registerFrist({
       entityType: "test_entity",
       entityId,
-      kommuneId: undefined,
+      kommuneId,
       fristType: "avklaring",
       dueAt: new Date(Date.now() + 7 * 86400000),
     });
@@ -52,8 +67,8 @@ describe("frist-engine", () => {
   it("cancelFrist setter status til kansellert", async () => {
     const entityId = `test-${Date.now()}`;
     cleanupEntityIds.push(entityId);
-    await registerFrist({ entityType: "test_entity", entityId, fristType: "avklaring", dueAt: new Date() });
-    await cancelFrist("test_entity", entityId, "avklaring");
+    await registerFrist({ entityType: "test_entity", entityId, kommuneId, fristType: "avklaring", dueAt: new Date() });
+    await cancelFrist("test_entity", entityId, "avklaring", { kommuneId });
     const { rows } = await pool.query(
       `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
       [entityId],
@@ -69,15 +84,16 @@ describe("frist-engine", () => {
     await registerFrist({
       entityType: "test_entity",
       entityId,
+      kommuneId,
       fristType: "avklaring",
       dueAt,
-      notifyUserId: "test-user-1",
+      notifyUserId: testUserIds[0],
     });
 
     const first = await runFristEscalations(dueAt);
     expect(first.notified).toBeGreaterThanOrEqual(1);
     expect(createSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "test-user-1", type: "frist_eskalering" }),
+      expect.objectContaining({ userId: testUserIds[0], type: "frist_eskalering" }),
     );
 
     const callCountAfterFirst = createSpy.mock.calls.length;
@@ -90,7 +106,7 @@ describe("frist-engine", () => {
     cleanupEntityIds.push(entityId);
     vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
     const overdue = new Date(Date.now() - 10 * 86400000);
-    await registerFrist({ entityType: "test_entity", entityId, fristType: "avklaring", dueAt: overdue });
+    await registerFrist({ entityType: "test_entity", entityId, kommuneId, fristType: "avklaring", dueAt: overdue });
     await runFristEscalations();
     const { rows } = await pool.query(
       `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
@@ -107,9 +123,10 @@ describe("frist-engine", () => {
     await registerFrist({
       entityType: "test_entity",
       entityId,
+      kommuneId,
       fristType: "avklaring",
       dueAt,
-      notifyUserId: "test-user-2",
+      notifyUserId: testUserIds[1],
     });
 
     const result = await runFristEscalations();
@@ -131,9 +148,10 @@ describe("frist-engine", () => {
     await registerFrist({
       entityType: "test_entity",
       entityId,
+      kommuneId,
       fristType: "avklaring",
       dueAt,
-      notifyUserId: "test-user-1",
+      notifyUserId: testUserIds[0],
     });
 
     await Promise.all([runFristEscalations(), runFristEscalations()]);

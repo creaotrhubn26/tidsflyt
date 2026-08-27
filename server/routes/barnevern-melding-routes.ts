@@ -263,7 +263,13 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
         );
         if (!updated) throw new Error("MELDING_NOT_FOUND");
-        await cancelFrist("barnevern_melding", req.params.id, "avklaring", client);
+        await cancelFrist(
+          "barnevern_melding",
+          req.params.id,
+          "avklaring",
+          { kommuneId: actor.kommuneId },
+          client,
+        );
         return updated;
       });
       res.json(toApiShape(row));
@@ -289,7 +295,13 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           [actor.userId, req.params.id, actor.kommuneId],
         );
         if (!updated) throw new Error("MELDING_NOT_FOUND");
-        await cancelFrist("barnevern_melding", req.params.id, "avklaring", client);
+        await cancelFrist(
+          "barnevern_melding",
+          req.params.id,
+          "avklaring",
+          { kommuneId: actor.kommuneId },
+          client,
+        );
         return updated;
       });
       res.json(toApiShape(row));

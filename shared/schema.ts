@@ -843,6 +843,12 @@ export const frister = pgTable("tidum_frister", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   index("tidum_frister_active_idx").on(table.status, table.dueAt),
+  index("tidum_frister_kommune_active_idx")
+    .on(table.kommuneId, table.status, table.dueAt)
+    .where(sql`${table.kommuneId} IS NOT NULL`),
+  index("tidum_frister_vendor_active_idx")
+    .on(table.vendorId, table.status, table.dueAt)
+    .where(sql`${table.vendorId} IS NOT NULL`),
   uniqueIndex("tidum_frister_entity_type_key").on(table.entityType, table.entityId, table.fristType),
 ]);
 

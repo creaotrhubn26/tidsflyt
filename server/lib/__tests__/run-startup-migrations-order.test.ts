@@ -41,6 +41,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const barnevernRls = STARTUP_MIGRATIONS.indexOf("083_barnevern_municipality_rls.sql");
     const secureDialogRls = STARTUP_MIGRATIONS.indexOf("084_secure_dialog_municipality_rls.sql");
     const archiveRls = STARTUP_MIGRATIONS.indexOf("085_archive_dual_tenant_rls.sql");
+    const deadlineRls = STARTUP_MIGRATIONS.indexOf("086_deadline_tenant_rls.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -61,9 +62,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(barnevernRls).toBeGreaterThan(secretRotationAudit);
     expect(secureDialogRls).toBeGreaterThan(barnevernRls);
     expect(archiveRls).toBeGreaterThan(secureDialogRls);
+    expect(deadlineRls).toBeGreaterThan(archiveRls);
   });
 
-  it("har arkiv-RLS som siste, fail-closed oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("085_archive_dual_tenant_rls.sql");
+  it("har frist-RLS som siste, fail-closed oppstartsmigrasjon", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("086_deadline_tenant_rls.sql");
   });
 });

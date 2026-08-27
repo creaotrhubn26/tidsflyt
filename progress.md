@@ -878,8 +878,9 @@ kryssoppdatering, forfalsket parts-ID, nøytral 404, vedlegg, karantene,
 varsling, retensjon, arkiv og nøkkelrotasjon. Typekontroll, designkontroll og
 produksjonsbygg er grønne. Se `docs/runbooks/postgresql-rls-kommunedata.md`.
 
-**Gjenstående:** Fase 3 må dekke arkivtabellene som eget tenantdomene, frister,
-bruker-/kommunetilknytning og deretter relevante vendorflater. Produksjon må
+**Etterfølgende status:** Arkivtabellene er dekket av fase 3A, og frister samt
+trygg bruker-/tenantbinding er dekket av fase 3B. Relevante vendorflater og
+øvrige saksobjekter gjenstår. Produksjon må
 fortsatt ha separat applikasjonslogin, dedikert `NOLOGIN NOBYPASSRLS`-rolle,
 separat migrasjonsidentitet, last-/pooltest og uavhengig penetrasjonstest.
 
@@ -907,12 +908,46 @@ sikker-dialogarkiv, vendorjournal, frister og nøkkelrotasjon. `npm run check`,
 designkontroll, produksjonsbygg og `git diff --check` er grønne. Se
 `docs/runbooks/postgresql-rls-kommunedata.md`.
 
-**Bevisst fasegrense:** `tidum_frister` tillater fortsatt historiske/test-rader
-uten tenant og trenger datarydding samt en eksplisitt jobbmodell før `FORCE
-RLS`. Den delte `users`-tabellen inneholder global-, vendor-, kommune- og
-portalidentiteter. Generell RLS der nå kunne ha brutt ordinær innlogging,
-BankID/Buypass og eID-provisionering. Fase 3B skal først etablere og teste
-bindingene; dette er ikke markert som ferdig.
+**Etterfølgende status:** Fase 3B er nå gjennomført. `tidum_frister` krever én
+tenant, kjører med `FORCE RLS` og binder varslingsmottaker til samme tenant.
+Den delte `users`-tabellen er fortsatt bevisst uten generell RLS for å bevare
+global innlogging, BankID/Buypass og eID-provisionering; fase 3B håndhever i
+stedet entydig tenanttype og sammensatt fristmottakerbinding.
+
+## 23. PostgreSQL RLS fase 3B — frister og trygg mottakerbinding
+
+Migrasjon 086 håndhever nå `ENABLE` + `FORCE ROW LEVEL SECURITY` på
+`tidum_frister`. En frist må tilhøre nøyaktig én kommune eller én vendor. En
+valgfri `notify_user_id` må, gjennom sammensatte fremmednøkler, peke til en
+bruker i samme tenant. `users` avviser samtidig den tvetydige formen der både
+`kommune_id` og `vendor_id` er satt.
+
+Fristmotoren krever eksplisitt tenant ved opprettelse og kansellering. Den
+globale cronjobben bruker en fast systemoperasjon bare for å finne aktive
+frister; hver rad claimes deretter i fristens egen kommune- eller
+vendorkontekst. Eksisterende transaksjonsklient kan videreføres slik at
+opprettelse av bekymringsmelding og tilhørende frist fortsatt er atomisk.
+Konfliktoppdatering kan ikke overta en frist som tilhører en annen tenant.
+
+**Trygg identitetsgrense:** `users` er felles register for globale brukere,
+vendorbrukere, kommuneansatte og eID-only portalidentiteter. Tabellen er derfor
+ikke lagt bak generell RLS i denne fasen. BankID-/Buypass-innlogging og
+provisionering er uendret; databasen håndhever bare de tenantformene som er
+uforenlige og fristens direkte mottakerbinding.
+
+**Verifikasjon:** Migrasjon 086 er kjørt idempotent mot Neon. Den samlede
+berørte pakken består **10 testfiler og 61/61 tester** og dekker to kommuner,
+to vendors, manglende kontekst, kryss-tenant lesing/oppdatering, frister uten
+eller med to eiere, mottaker fra feil tenant, tvetydig brukertilhørighet,
+systemscan, fristmotor, sikker dialog, arkiv og oppstartsmigrasjonsrekkefølge.
+`npm run check`, designkontroll, produksjonsbygg og `git diff --check` er
+grønne. Bygget har bare de kjente Browserslist-, Tailwind- og
+chunkstørrelsesvarslene.
+
+**Gjenstående:** Fase 3B sikrer den eksisterende fristmotoren, men leverer ikke
+kravmatrisens komplette oppgave-/fristfunksjon på alle barnevernsobjekter.
+Full systemmatrise, kommunalt «need-to-know», relevante vendorflater, egen
+produksjonslogin, MFA, last-/pooltest og uavhengig penetrasjonstest gjenstår.
 
 ## Kjent rest utenfor denne avgrensede fiksen
 
