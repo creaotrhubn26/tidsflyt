@@ -20,10 +20,18 @@ type FristRow = {
   notify_user_id: string | null;
 };
 
-export const FRIST_TYPE_CONFIG: Record<string, { escalationOffsetDays: number[] }> = {
-  avklaring: { escalationOffsetDays: [-2, 0, 1, 3] },
+// Eskaleringsmatrise: escalationOffsetDays styrer når eieren varsles
+// (dager relativt til forfall); lederEskaleringFraOffset er terskelen der
+// kommunens barnevernsleder i tillegg varsles (oversittelse).
+export const FRIST_TYPE_CONFIG: Record<string, {
+  escalationOffsetDays: number[];
+  lederEskaleringFraOffset?: number;
+}> = {
+  avklaring: { escalationOffsetDays: [-2, 0, 1, 3], lederEskaleringFraOffset: 1 },
   // Undersøkelsesfrist (bvl. § 2-2, tre måneder) på den kommunale saken.
-  undersokelse: { escalationOffsetDays: [-14, -7, 0, 3] },
+  undersokelse: { escalationOffsetDays: [-14, -7, 0, 3], lederEskaleringFraOffset: 0 },
+  // Oppgavefrister på barnevernsobjekter (migrasjon 090).
+  oppgave: { escalationOffsetDays: [-3, -1, 0, 1, 3], lederEskaleringFraOffset: 1 },
 };
 
 function requireFristTenant(input: { kommuneId?: number; vendorId?: number }): FristTenant {
@@ -155,6 +163,30 @@ export async function runFristEscalations(now: Date = new Date()): Promise<{ not
           metadata: { entityType: row.entity_type, entityId: row.entity_id, fristType: row.frist_type, offset },
         });
         notified += 1;
+
+        // Eskaleringsmatrise: oversittelse forbi terskelen varsler i tillegg
+        // kommunens barnevernsleder (aldri dobbelt til samme person).
+        if (
+          config.lederEskaleringFraOffset != null
+          && offset >= config.lederEskaleringFraOffset
+          && row.kommune_id != null
+        ) {
+          const lederResult = await withDualTenantRlsContext(tenant, (client) => client.query(
+            `SELECT id FROM users WHERE kommune_id = $1 AND role = 'barnevernsleder' ORDER BY id LIMIT 1`,
+            [row.kommune_id],
+          ));
+          const lederId: string | undefined = lederResult.rows[0]?.id;
+          if (lederId && lederId !== row.notify_user_id) {
+            await createNotification({
+              userId: lederId,
+              type: "frist_eskalering_leder",
+              title: `Eskalert: oversittet frist (${row.frist_type})`,
+              message: `Frist for ${row.entity_type} ${row.entity_id} er oversittet (${offset} dager). Eier er varslet.`,
+              metadata: { entityType: row.entity_type, entityId: row.entity_id, fristType: row.frist_type, offset, eskalertFra: row.notify_user_id },
+            });
+            notified += 1;
+          }
+        }
       }
 
       if (daysDiff > 0) expired += 1;

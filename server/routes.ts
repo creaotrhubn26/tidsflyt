@@ -18,6 +18,7 @@ import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/
 import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
 import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
 import { registerBarnevernSakRoutes } from "./routes/barnevern-sak-routes";
+import { registerBarnevernOppgaveRoutes } from "./routes/barnevern-oppgave-routes";
 import {
   registerSecureDialogRoutes,
   setupSecureAttachmentQuarantineCleanup,
@@ -6825,6 +6826,7 @@ export async function registerRoutes(
   registerFristEscalationRoutes(app);
   registerBarnevernMeldingRoutes(app);
   registerBarnevernSakRoutes(app);
+  registerBarnevernOppgaveRoutes(app);
   registerSecureDialogRoutes(app);
   setupFiksIoReceiver(app);
   registerPricingRoutes(app);

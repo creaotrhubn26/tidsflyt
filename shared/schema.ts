@@ -695,6 +695,30 @@ export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_histo
   index("tidum_barnevern_sak_fase_historikk_sak_idx").on(table.kommuneId, table.sakId, table.createdAt),
 ]);
 
+// Oppgaver på barnevernsobjekter (migrasjon 090). Varsling/eskalering
+// går via fristmotoren (entity_type 'barnevern_oppgave').
+export const barnevernOppgaver = pgTable("tidum_barnevern_oppgaver", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
+  entityType: text("entity_type").notNull(),
+  entityId: uuid("entity_id").notNull(),
+  tittel: text("tittel").notNull(),
+  beskrivelse: text("beskrivelse"),
+  tildeltUserId: varchar("tildelt_user_id").notNull().references(() => users.id),
+  opprettetAv: varchar("opprettet_av").notNull().references(() => users.id),
+  frist: timestamp("frist", { withTimezone: true }),
+  status: text("status").notNull().default("apen"),
+  fullfortDato: timestamp("fullfort_dato", { withTimezone: true }),
+  fullfortAv: varchar("fullfort_av").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_barnevern_oppgaver_entity_idx").on(table.kommuneId, table.entityType, table.entityId),
+  index("tidum_barnevern_oppgaver_tildelt_idx").on(table.kommuneId, table.tildeltUserId, table.status),
+]);
+
+export type BarnevernOppgave = typeof barnevernOppgaver.$inferSelect;
+
 // Uforanderlig journal på kommunal barnevernssak (migrasjon 089).
 // Rettelser = ny rad med correctsEntryId; aldri UPDATE/DELETE.
 export const barnevernSakJournal = pgTable("tidum_barnevern_sak_journal", {
