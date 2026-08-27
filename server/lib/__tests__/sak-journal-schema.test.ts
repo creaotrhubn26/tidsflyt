@@ -16,9 +16,9 @@ describe("sakJournal schema", () => {
     }
   });
 
-  async function insertTestSak(): Promise<{ id: string; vendorId: number; tiltakslederId: number }> {
+  async function insertTestSak(): Promise<{ id: string; vendorId: number; tiltakslederId: string }> {
     const vendorId = 1;
-    const tiltakslederId = 1;
+    const tiltakslederId = "journal-schema-leader";
     const { rows: [row] } = await pool.query(
       `INSERT INTO tidum_saker (saksnummer, tittel, vendor_id, tiltaksleder_id)
        VALUES ($1, 'Test-sak for journal', $2, $3) RETURNING id`,
@@ -70,7 +70,7 @@ describe("sakJournal schema", () => {
 
   it("content over 10000 tegn avvises av valideringsskjemaet", () => {
     expect(() =>
-      insertSakJournalSchema.parse({ sakId: "x", userId: 1, content: "a".repeat(10001) }),
+      insertSakJournalSchema.parse({ sakId: "x", userId: "journal-schema-leader", content: "a".repeat(10001) }),
     ).toThrow();
   });
 });

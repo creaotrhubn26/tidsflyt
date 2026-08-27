@@ -139,11 +139,13 @@ export default function CasesPage() {
     queryKey: ["/api/saker"],
   });
   const { data: companyTeam = [] } = useQuery<any[]>({
-    queryKey: ["/api/company/users"],
+    // Saks-API-et lagrer den kanoniske users.id (UUID/varchar), ikke den
+    // numeriske medlemsraden fra tidum_company_users.
+    queryKey: ["/api/email/team-members"],
   });
   const tildelMutation = useMutation({
     mutationFn: (data: { sakId: string; userIds: string[] }) =>
-      apiRequest("POST", `/api/saker/${data.sakId}/tildel`, { userIds: data.userIds.map(Number) }),
+      apiRequest("POST", `/api/saker/${data.sakId}/tildel`, { userIds: data.userIds }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/saker"] });
       toast({ title: "Tildeling oppdatert" });

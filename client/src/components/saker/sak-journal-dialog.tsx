@@ -18,7 +18,7 @@ import { Loader2, Paperclip, CornerDownRight } from "lucide-react";
 interface JournalEntry {
   id: string;
   sakId: string;
-  userId: number;
+  userId: string;
   content: string;
   correctsEntryId: string | null;
   createdAt: string;
@@ -69,8 +69,8 @@ function orderWithCorrectionsAdjacent(entries: JournalEntry[]): JournalEntry[] {
   return ordered;
 }
 
-function authorName(userId: number, companyTeam: CompanyUser[]): string {
-  const u = companyTeam.find((t) => Number(t.id) === userId);
+function authorName(userId: string, companyTeam: CompanyUser[]): string {
+  const u = companyTeam.find((t) => String(t.id) === userId);
   if (!u) return `Bruker #${userId}`;
   return [u.firstName, u.lastName].filter(Boolean).join(" ") || u.email || `Bruker #${userId}`;
 }

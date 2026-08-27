@@ -32,6 +32,7 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     const secureGovernance = STARTUP_MIGRATIONS.indexOf("074_secure_dialog_archive_retention_keys.sql");
     const archiveTokenUrl = STARTUP_MIGRATIONS.indexOf("075_archive_token_url.sql");
     const elementsArchive = STARTUP_MIGRATIONS.indexOf("076_elements_archive_provider.sql");
+    const caseReportSecurity = STARTUP_MIGRATIONS.indexOf("077_saker_rapport_tenant_security.sql");
 
     expect(invoice).toBeGreaterThan(-1);
     expect(caseReport).toBeGreaterThan(invoice);
@@ -43,5 +44,10 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(secureGovernance).toBeGreaterThan(secureAttachment);
     expect(archiveTokenUrl).toBeGreaterThan(secureGovernance);
     expect(elementsArchive).toBeGreaterThan(archiveTokenUrl);
+    expect(caseReportSecurity).toBeGreaterThan(elementsArchive);
+  });
+
+  it("har saks-/rapportsikkerhetsmigreringen som siste oppstartsbarriere", () => {
+    expect(STARTUP_MIGRATIONS.at(-1)).toBe("077_saker_rapport_tenant_security.sql");
   });
 });

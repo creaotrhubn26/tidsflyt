@@ -32,7 +32,7 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     }
   });
 
-  async function insertTestSak(overrides: { tiltakslederId: number; tildelteUserId?: number[] }): Promise<string> {
+  async function insertTestSak(overrides: { tiltakslederId: string; tildelteUserId?: string[] }): Promise<string> {
     const { rows: [row] } = await pool.query(
       `INSERT INTO tidum_saker (saksnummer, tittel, vendor_id, tiltaksleder_id, tildelte_user_id)
        VALUES ($1, 'Test-sak journal-ruter', 1, $2, $3::jsonb) RETURNING id`,
@@ -42,7 +42,7 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     return row.id;
   }
 
-  async function appWithUser(user: { id: number; role: string; vendorId?: number }) {
+  async function appWithUser(user: { id: string; role: string; vendorId?: number }) {
     const { registerRoutes } = await import("../../routes");
     const app = express();
     app.use(express.json());
@@ -56,13 +56,13 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   }
 
   it("tildelt bruker kan opprette og liste journalnotat på en sak", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 42, role: "user" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
 
     const createRes = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Første notat." });
     expect(createRes.status).toBe(201);
     expect(createRes.body.content).toBe("Første notat.");
-    expect(createRes.body.userId).toBe(42);
+    expect(createRes.body.userId).toBe("worker-42");
     expect(createRes.body.sakId).toBe(sakId);
     cleanupJournalIds.push(createRes.body.id);
 
@@ -72,17 +72,17 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     expect(listRes.body[0].id).toBe(createRes.body.id);
   });
 
-  it("bruker som IKKE er tildelt saken og ikke er tiltaksleder får 403", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 7, role: "user" });
+  it("bruker som IKKE er tildelt saken og ikke er tiltaksleder får 404", async () => {
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-7", role: "user", vendorId: 1 });
 
     const res = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Skal feile." });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("tiltaksleder på saken kan skrive journal selv om ikke eksplisitt tildelt", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 555 });
-    const app = await appWithUser({ id: 555, role: "vendor_admin" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-555" });
+    const app = await appWithUser({ id: "leader-555", role: "vendor_admin", vendorId: 1 });
 
     const res = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Fra tiltaksleder." });
     expect(res.status).toBe(201);
@@ -90,8 +90,8 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   });
 
   it("super_admin kan skrive journal på hvilken som helst sak", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999 });
-    const app = await appWithUser({ id: 1, role: "super_admin" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999" });
+    const app = await appWithUser({ id: "super-1", role: "super_admin" });
 
     const res = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Fra super_admin." });
     expect(res.status).toBe(201);
@@ -99,8 +99,8 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   });
 
   it("en korreksjon kan opprettes med correctsEntryId, originalen forblir uendret", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 42, role: "user" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
 
     const original = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Feil tekst." });
     cleanupJournalIds.push(original.body.id);
@@ -118,14 +118,14 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   });
 
   it("correctsEntryId som peker på en oppføring på en ANNEN sak gir 400", async () => {
-    const sakA = await insertTestSak({ tiltakslederId: 111, tildelteUserId: [10] });
-    const sakB = await insertTestSak({ tiltakslederId: 222, tildelteUserId: [20] });
+    const sakA = await insertTestSak({ tiltakslederId: "leader-111", tildelteUserId: ["worker-10"] });
+    const sakB = await insertTestSak({ tiltakslederId: "leader-222", tildelteUserId: ["worker-20"] });
 
-    const appB = await appWithUser({ id: 20, role: "user" });
+    const appB = await appWithUser({ id: "worker-20", role: "user", vendorId: 1 });
     const entryB = await request(appB).post(`/api/saker/${sakB}/journal`).send({ content: "Hører til sak B." });
     cleanupJournalIds.push(entryB.body.id);
 
-    const appA = await appWithUser({ id: 10, role: "user" });
+    const appA = await appWithUser({ id: "worker-10", role: "user", vendorId: 1 });
     const res = await request(appA)
       .post(`/api/saker/${sakA}/journal`)
       .send({ content: "Forsøker å korrigere sak B sin oppføring.", correctsEntryId: entryB.body.id });
@@ -133,8 +133,8 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   }, 15000);
 
   it("kan laste opp og laste ned et vedlegg til en journaloppføring", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 42, role: "user" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
 
     const entry = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Med vedlegg." });
     cleanupJournalIds.push(entry.body.id);
@@ -153,10 +153,10 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   });
 
   it("kan ikke laste ned et vedlegg via en sak det ikke tilhører (tvers-sak-lekkasje)", async () => {
-    const sakA = await insertTestSak({ tiltakslederId: 111, tildelteUserId: [10] });
-    const sakB = await insertTestSak({ tiltakslederId: 222, tildelteUserId: [20] });
+    const sakA = await insertTestSak({ tiltakslederId: "leader-111", tildelteUserId: ["worker-10"] });
+    const sakB = await insertTestSak({ tiltakslederId: "leader-222", tildelteUserId: ["worker-20"] });
 
-    const appB = await appWithUser({ id: 20, role: "user" });
+    const appB = await appWithUser({ id: "worker-20", role: "user", vendorId: 1 });
     const entryB = await request(appB).post(`/api/saker/${sakB}/journal`).send({ content: "Hører til sak B." });
     cleanupJournalIds.push(entryB.body.id);
     const uploadB = await request(appB)
@@ -164,7 +164,7 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
       .attach("file", Buffer.from("fake-pdf-bytes"), { filename: "dok.pdf", contentType: "application/pdf" });
     expect(uploadB.status).toBe(201);
 
-    const appA = await appWithUser({ id: 10, role: "user" });
+    const appA = await appWithUser({ id: "worker-10", role: "user", vendorId: 1 });
     const leak = await request(appA).get(
       `/api/saker/${sakA}/journal/${entryB.body.id}/attachments/${uploadB.body.id}`,
     );
@@ -172,8 +172,8 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
   }, 15000);
 
   it("kan liste alle vedlegg på en journaloppføring", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 42, role: "user" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
 
     const entry = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Med to vedlegg." });
     cleanupJournalIds.push(entry.body.id);
@@ -196,20 +196,20 @@ describe("sak-journalføring: POST/GET journal + vedlegg", () => {
     expect(list.body[0]).toHaveProperty("mimeType");
   });
 
-  it("bruker uten tilgang til saken får 403 på vedleggs-liste-endepunktet", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const owner = await appWithUser({ id: 42, role: "user" });
+  it("bruker uten tilgang til saken får 404 på vedleggs-liste-endepunktet", async () => {
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const owner = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
     const entry = await request(owner).post(`/api/saker/${sakId}/journal`).send({ content: "Beskyttet." });
     cleanupJournalIds.push(entry.body.id);
 
-    const outsider = await appWithUser({ id: 7, role: "user" });
+    const outsider = await appWithUser({ id: "worker-7", role: "user", vendorId: 1 });
     const res = await request(outsider).get(`/api/saker/${sakId}/journal/${entry.body.id}/attachments`);
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
   it("ingen PATCH- eller DELETE-rute finnes for en journaloppføring", async () => {
-    const sakId = await insertTestSak({ tiltakslederId: 999, tildelteUserId: [42] });
-    const app = await appWithUser({ id: 42, role: "user" });
+    const sakId = await insertTestSak({ tiltakslederId: "leader-999", tildelteUserId: ["worker-42"] });
+    const app = await appWithUser({ id: "worker-42", role: "user", vendorId: 1 });
     const entry = await request(app).post(`/api/saker/${sakId}/journal`).send({ content: "Uforanderlig." });
     cleanupJournalIds.push(entry.body.id);
 

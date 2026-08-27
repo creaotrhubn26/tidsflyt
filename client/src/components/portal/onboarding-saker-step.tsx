@@ -29,7 +29,7 @@ interface Sak {
   klientRef?: string | null;
   oppdragsgiver?: string | null;
   institutionId?: string | null;
-  tildelteUserId?: number[];
+  tildelteUserId?: string[];
 }
 
 export function OnboardingSakerStep() {
@@ -81,7 +81,7 @@ export function OnboardingSakerStep() {
       // 2. Assign users (if any)
       if (selectedAssignees.length > 0 && sak?.id) {
         await apiRequest("POST", `/api/saker/${sak.id}/tildel`, {
-          userIds: selectedAssignees.map(id => Number(id) || id),
+          userIds: selectedAssignees,
         });
       }
       return sak;

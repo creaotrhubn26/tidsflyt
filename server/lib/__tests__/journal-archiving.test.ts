@@ -44,12 +44,12 @@ describe("queueJournalEntryArchiving", () => {
 
     const { rows: [sakRow] } = await pool.query(
       `INSERT INTO tidum_saker (saksnummer, tittel, vendor_id, tiltaksleder_id)
-       VALUES ($1, 'Arkiv-test-sak', $2, 1) RETURNING id`,
+       VALUES ($1, 'Arkiv-test-sak', $2, 'archive-test-leader') RETURNING id`,
       [`TEST-ARCH-${Date.now()}`, vendorId],
     );
     cleanupSakIds.push(sakRow.id);
 
-    const [entry] = await db.insert(sakJournal).values({ sakId: sakRow.id, userId: 1, content: "Arkiveres." }).returning();
+    const [entry] = await db.insert(sakJournal).values({ sakId: sakRow.id, userId: "archive-test-leader", content: "Arkiveres." }).returning();
     cleanupJournalIds.push(entry.id);
 
     const { queueJournalEntryArchiving } = await import("../archive/archive-service");
@@ -68,12 +68,12 @@ describe("queueJournalEntryArchiving", () => {
     const vendorId = 800001 + Math.floor(Math.random() * 1000); // ingen archive_configs-rad for denne
     const { rows: [sakRow] } = await pool.query(
       `INSERT INTO tidum_saker (saksnummer, tittel, vendor_id, tiltaksleder_id)
-       VALUES ($1, 'Uten arkiv-config', $2, 1) RETURNING id`,
+       VALUES ($1, 'Uten arkiv-config', $2, 'archive-test-leader') RETURNING id`,
       [`TEST-NOARCH-${Date.now()}`, vendorId],
     );
     cleanupSakIds.push(sakRow.id);
 
-    const [entry] = await db.insert(sakJournal).values({ sakId: sakRow.id, userId: 1, content: "Ikke arkivert." }).returning();
+    const [entry] = await db.insert(sakJournal).values({ sakId: sakRow.id, userId: "archive-test-leader", content: "Ikke arkivert." }).returning();
     cleanupJournalIds.push(entry.id);
 
     const { queueJournalEntryArchiving } = await import("../archive/archive-service");

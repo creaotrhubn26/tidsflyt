@@ -47,7 +47,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         })
         .from(rapporter)
         .where(and(
-          eq(rapporter.tiltakslederId, Number(userId) as any),
+          eq(rapporter.tiltakslederId, userId),
           eq(rapporter.status, 'til_godkjenning'),
         ))
         .orderBy(rapporter.innsendt);
@@ -63,7 +63,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         })
         .from(rapporter)
         .where(and(
-          eq(rapporter.tiltakslederId, Number(userId) as any),
+          eq(rapporter.tiltakslederId, userId),
           eq(rapporter.status, 'returnert'),
         ))
         .limit(20);
@@ -73,7 +73,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         .select()
         .from(saker)
         .where(and(
-          eq(saker.tiltakslederId, Number(userId) as any),
+          eq(saker.tiltakslederId, userId),
           eq(saker.status, 'aktiv'),
         ));
 
@@ -120,7 +120,7 @@ export function registerTiltakslederDashboardRoutes(app: Express) {
         })
         .from(rapporter)
         .where(and(
-          inArray(rapporter.userId, [...assignedUserIds].map(id => Number(id))),
+          inArray(rapporter.userId, [...assignedUserIds]),
           between(rapporter.periodeFrom, monthStart, monthEnd),
         ))
         .groupBy(rapporter.userId);

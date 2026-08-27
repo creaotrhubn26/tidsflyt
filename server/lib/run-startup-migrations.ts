@@ -62,6 +62,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "074_secure_dialog_archive_retention_keys.sql",
   "075_archive_token_url.sql",
   "076_elements_archive_provider.sql",
+  "077_saker_rapport_tenant_security.sql",
 ];
 
 export async function runStartupMigrations(): Promise<void> {
@@ -78,16 +79,21 @@ export async function runStartupMigrations(): Promise<void> {
     } catch (err: any) {
       console.error(`[migration] FAILED ${filename}:`, err?.message || err);
 
-      // 057 is uniquely load-bearing (see the ordering comment above): every
+      // 057 is load-bearing (see the ordering comment above): every
       // migration after it targets tidum_-prefixed names on the assumption
       // that 057 already renamed the data-holding tables. If 057 fails and
       // we let startup continue anyway, 036-056 recreate the exact empty
       // shadow-table incident this whole initiative had to clean up once
       // already. Abort startup instead of limping on with a half-migrated
-      // schema. Every other migration's failure is non-fatal — log and
-      // continue, schema mismatches show up on first query against the
-      // affected table.
-      if (filename === "057_tidum_table_rename.sql") {
+      // schema. 077 is also fail-closed: the application code stores current
+      // UUID/varchar user IDs in the case/report domain, so continuing with
+      // legacy integer columns would break authorization and assignment.
+      // Other migration failures remain non-fatal and are surfaced on first
+      // query against the affected table.
+      if (
+        filename === "057_tidum_table_rename.sql"
+        || filename === "077_saker_rapport_tenant_security.sql"
+      ) {
         throw err;
       }
       continue;

@@ -442,7 +442,7 @@ export const testerFeedback = pgTable("tidum_tester_feedback", {
 // Form drafts per user (replaces localStorage drafts in use-draft.ts)
 export const userDrafts = pgTable("tidum_user_drafts", {
   id:         uuid("id").defaultRandom().primaryKey(),
-  userId:     integer("user_id").notNull(),
+  userId:     text("user_id").notNull(),
   storageKey: text("storage_key").notNull(),
   payload:    jsonb("payload").notNull(),
   editingId:  integer("editing_id"),
@@ -453,7 +453,7 @@ export const userDrafts = pgTable("tidum_user_drafts", {
 // Activity templates: saved favorites per user
 export const aktivitetMaler = pgTable("tidum_aktivitet_maler", {
   id:          uuid("id").defaultRandom().primaryKey(),
-  userId:      integer("user_id").notNull(),
+  userId:      text("user_id").notNull(),
   navn:        text("navn").notNull(),
   type:        text("type").default("aktivitet"),
   beskrivelse: text("beskrivelse").notNull(),
@@ -2343,7 +2343,7 @@ export const saker = pgTable("tidum_saker", {
   institutionId:   uuid("institution_id").references(() => vendorInstitutions.id, { onDelete: "set null" }),
   tiltakstype:     text("tiltakstype"),
   vendorId:        integer("vendor_id").notNull(),
-  tiltakslederId:  integer("tiltaksleder_id").notNull(),
+  tiltakslederId:  text("tiltaksleder_id").notNull(),
   tildelteUserId:  jsonb("tildelte_user_id").default([]),
   status:          sakerStatusEnum("status").default("aktiv"),
   startDato:       date("start_dato"),
@@ -2377,8 +2377,8 @@ export type SakLocation = typeof sakLocations.$inferSelect;
 export const rapporter = pgTable("tidum_rapporter", {
   id:              uuid("id").defaultRandom().primaryKey(),
   sakId:           uuid("sak_id").references(() => saker.id),
-  userId:              integer("user_id").notNull(),
-  tiltakslederId:      integer("tiltaksleder_id"),
+  userId:              text("user_id").notNull(),
+  tiltakslederId:      text("tiltaksleder_id"),
   templateId:          uuid("template_id"),
   rapportTemplateId:   uuid("rapport_template_id").references(() => rapportTemplates.id, { onDelete: "set null" }),
   status:              rapportStatusEnum("status").default("utkast"),
@@ -2399,7 +2399,7 @@ export const rapporter = pgTable("tidum_rapporter", {
   signaturer:      jsonb("signaturer").default([]),
   reviewKommentar: text("review_kommentar"),
   reviewedAt:      timestamp("reviewed_at"),
-  reviewedBy:      integer("reviewed_by"),
+  reviewedBy:      text("reviewed_by"),
   // Miljøarbeider bekreftet å ha lest tilbakemeldingen på returnert rapport
   feedbackAcknowledgedAt:   timestamp("feedback_acknowledged_at"),
   feedbackAcknowledgedText: text("feedback_acknowledged_text"),
@@ -2415,7 +2415,7 @@ export const rapporter = pgTable("tidum_rapporter", {
 export const sakJournal = pgTable("tidum_sak_journal", {
   id:               uuid("id").defaultRandom().primaryKey(),
   sakId:            uuid("sak_id").notNull(),
-  userId:           integer("user_id").notNull(),
+  userId:           text("user_id").notNull(),
   content:          text("content").notNull(),
   correctsEntryId:  uuid("corrects_entry_id"),
   createdAt:        timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -2428,7 +2428,7 @@ export const sakJournalAttachments = pgTable("tidum_sak_journal_attachments", {
   originalName:    text("original_name").notNull(),
   mimeType:        text("mime_type").notNull(),
   sizeBytes:       integer("size_bytes").notNull(),
-  uploadedBy:      integer("uploaded_by").notNull(),
+  uploadedBy:      text("uploaded_by").notNull(),
   uploadedAt:      timestamp("uploaded_at", { withTimezone: true }).defaultNow(),
 });
 
@@ -2553,7 +2553,7 @@ export const vendorAvvikProtokoller = pgTable("tidum_vendor_avvik_protokoller", 
 export const rapportAuditLog = pgTable("tidum_rapport_audit_log", {
   id:          uuid("id").defaultRandom().primaryKey(),
   rapportId:   uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
-  userId:      integer("user_id"),
+  userId:      text("user_id"),
   userName:    text("user_name"),
   userRole:    text("user_role"),
   eventType:   text("event_type").notNull(),
@@ -2567,7 +2567,7 @@ export const rapportAuditLog = pgTable("tidum_rapport_audit_log", {
 export const rapportKommentarer = pgTable("tidum_rapport_kommentarer", {
   id:         uuid("id").defaultRandom().primaryKey(),
   rapportId:  uuid("rapport_id").notNull().references(() => rapporter.id, { onDelete: "cascade" }),
-  fromUserId: integer("from_user_id").notNull(),
+  fromUserId: text("from_user_id").notNull(),
   seksjon:    text("seksjon"),
   tekst:      text("tekst").notNull(),
   lestAv:     jsonb("lest_av").default([]),
@@ -2643,7 +2643,7 @@ export const insertSakSchema = createInsertSchema(saker, {
   tittel:        z.string().min(1).max(200),
   klientRef:     z.string().max(100).optional(),
   oppdragsgiver: z.string().max(200).optional(),
-  tildelteUserId: z.array(z.number()).optional(),
+  tildelteUserId: z.array(z.string().min(1)).max(100).optional(),
 });
 
 export const insertRapportSchema = createInsertSchema(rapporter, {

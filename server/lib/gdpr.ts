@@ -434,16 +434,12 @@ export async function exportUserData(userId: string): Promise<DataExportBundle> 
     [userId],
   );
 
-  // rapporter.userId is integer in schema — try both string and integer form
-  const userIdNum = Number(userId);
   const rapporter = await get(
-    Number.isFinite(userIdNum)
-      ? `SELECT id, sak_id, status, klient_ref, periode_from::text AS periode_from,
-                periode_to::text AS periode_to, total_minutter, antall_dager,
-                innsendt, godkjent, created_at, updated_at
-         FROM tidum_rapporter WHERE user_id = $1 ORDER BY created_at DESC`
-      : `SELECT 1 WHERE FALSE`,
-    Number.isFinite(userIdNum) ? [userIdNum] : [],
+    `SELECT id, sak_id, status, klient_ref, periode_from::text AS periode_from,
+            periode_to::text AS periode_to, total_minutter, antall_dager,
+            innsendt, godkjent, created_at, updated_at
+     FROM tidum_rapporter WHERE user_id = $1 ORDER BY created_at DESC`,
+    [userId],
   );
 
   return {

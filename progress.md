@@ -1,7 +1,7 @@
 # BOLA-sikkerhetsfikser — fremdriftsstatus
 
 Branch: `codex/halden-krav-integrasjon` (første samlecommit `7562c5d`)
-Sist oppdatert: 2026-08-26
+Sist oppdatert: 2026-08-27
 
 ## Oppsummering
 
@@ -13,6 +13,9 @@ rapportkommentar, rapportmal, rapportressurs og PDF-/historikkflyt. Migrasjon
 067, 068 og 069 er varig brukt og verifisert på utviklingsdatabasen. Den
 ordinære e-postkomponisten er nå også tenantskopet. Sensitive
 barnevernsopplysninger er sperret fra ordinær e-post og manuelle e-postomveier.
+Hovedflyten for saker, sakjournal, rapporter, rapportmål og aktiviteter er nå
+også herdet for tenant- og objektisolasjon, UUID-bruken er samstemt fra klient
+til database, og migrasjon 077 er anvendt og constraint-verifisert.
 Backendgrunnmuren og første operative brukerflyt for «Sikker sending» er nå
 implementert og måltestet for både kommuneansatt og innbygger. Arkiv,
 formell tilgjengelighetsverifikasjon, faktisk ClamAV-produksjonsprøving og
@@ -503,6 +506,57 @@ tester i 75/75 testfiler**, inkludert databaseintegrasjon mot utviklingsbasen.
 Arkivkortet består med **4/4 Playwright-tester** på desktop og mobil. `tsc` og
 produksjonsbuild er grønne.
 
+## 13. Saker, rapporter, mål og aktiviteter — BOLA- og UUID-herding
+
+Den aktive hovedflyten i `server/sakerRapportRoutes.ts` hadde flere
+objektautorisasjonshull: enkelte saksmutasjoner slo bare opp objekt-ID,
+rapporttilgang hadde rollefallthrough og bruker-/tenantfelter kunne påvirkes
+fra klienten. Mål og aktiviteter validerte ikke alltid rapportforelderen, og en
+aktivitet kunne kobles til et mål i en annen rapport. Journal, kommentarer,
+audit, PDF og malbruk hadde dessuten ujevn foreldrescoping.
+
+Pakken innfører én serveravledet aktør- og tenantmodell og bruker samme
+tilgangsregler gjennom hele objektgrafen:
+
+- sakslesing og -mutasjoner krever riktig tenant og enten lederansvar eller
+  uttrykkelig tildeling; tildelte brukere og institusjon valideres i tenant;
+- rapporter opprettes bare på en sak aktøren kan bruke, med serveravledet eier
+  og godkjenner; redigering, innsending, godkjenning og retur har separate,
+  eksplisitte rettigheter;
+- mål og aktiviteter krever autorisert foreldrerapport, og barnruter scopes på
+  både barn-ID og URL-forelder;
+- kommentarer, audit, PDF, journal og vedlegg gjenbruker samme objektsjekk, og
+  fremmede objekter svarer nøytralt med 404;
+- klienten bruker kanoniske `users.id` fra det tenantskopede teamendepunktet i
+  stedet for medlemskapsrader fra en annen tabell.
+
+Migrasjon `077_saker_rapport_tenant_security.sql` samstemmer de berørte
+bruker-ID-kolonnene med de faktiske UUID-/tekst-ID-ene, normaliserer eksisterende
+JSON-arrayer, legger til søkeindekser og validerte DB-regler. En sammensatt
+fremmednøkkel håndhever at en aktivitet bare kan vise til et mål i samme
+rapport. Startup stanser fail-closed dersom denne sikkerhetsmigrasjonen feiler.
+
+**Verifikasjon:** Migrasjon 077 er rollback-validert, varig anvendt, kjørt
+idempotent og kontrollert med tekstkolonner og validerte constraints i
+Neon-utviklingsdatabasen. Den nye to-tenant-suiten består **6/6**; kombinert
+med migrasjonsrekkefølgen **11/11**. Nærliggende saker/journal består
+**16/16**, journalskjema/-arkivering **5/5**, og eksisterende tenantskoping av
+rapportflyten **7/7**. `npm run check`, designkontroll og produksjonsbuild er
+grønne.
+
+Første fullkjøring besto 75 av 76 testfiler med 546 beståtte og 6 hoppede
+tester; eneste feil var at den nye suitens `beforeAll` traff standardgrensen på
+10 sekunder under samlet databaselast. Hook-grensen ble justert til 60 sekunder,
+og suiten besto deretter isolert 6/6. En ny fullkjøring med nettverkstilgang ga
+545/552 beståtte tester i 69/76 filer: seks urelaterte tester traff eksisterende
+5–10-sekundersgrenser under parallell DB-belastning, og én migrasjonsinvariant
+observerte en foreldreløs journaltestfixture. De seks filene besto deretter
+sekvensielt **47/47**; fixturen ble identifisert med eksakte ID-er, fjernet med
+to rader i én transaksjon, og migrasjonsfilen besto **29/29**. Det finnes dermed
+ingen reproducerbar produktregresjon i de sju feilene, men det hevdes fortsatt
+ikke at parallell fullsuite er grønn; isolert CI-database og kontrollert
+parallellitet gjenstår.
+
 ## Kjent rest utenfor denne avgrensede fiksen
 
 - De tre tidligere følge-buggene (feil vendors-skjema, vendor utenfor
@@ -510,10 +564,11 @@ produksjonsbuild er grønne.
 - De åtte eksisterende radene i `tidum_company_users` var til stede før dette
   testløpet og ble ikke slettet uten uttrykkelig beslutning om datarydding.
 - De brede BOLA/IDOR-pakkene er gjennomført for generisk eksport, faktura, den
-  eldre saksrapport-/rapportdesignerflyten og den ordinære e-postkomponisten.
-  Øvrige saker, rapportmål og aktiviteter, CreatorHub/CMS-e-post, andre filer,
-  søk, bakgrunnsjobber og CMS/adminflater gjenstår i den systematiske
-  endepunktsmatrisen.
+  eldre saksrapport-/rapportdesignerflyten, den ordinære e-postkomponisten og
+  hovedflyten for saker, journal, rapporter, mål og aktiviteter.
+  CreatorHub/CMS-e-post, andre filflater, søk, bakgrunnsjobber og
+  CMS/adminflater gjenstår i den systematiske endepunktsmatrisen. En full
+  uavhengig pentest og blokkert CI-kjøring med isolert database gjenstår også.
 - `syncApprovedPortalUser`s tvilling i `smartTimingRoutes.ts` har allerede
   korrekt username/password-håndtering; ingen handling er nødvendig for akkurat
   dette punktet.

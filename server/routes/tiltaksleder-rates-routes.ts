@@ -27,11 +27,10 @@ function userRole(req: Request): string {
   const role = String(currentUser(req)?.role || '').toLowerCase().replace(/[\s-]/g, '_');
   return role;
 }
-function userId(req: Request): number | null {
+function userId(req: Request): string | null {
   const u = currentUser(req);
-  const id = u?.id;
-  const n = Number(id);
-  return Number.isFinite(n) ? n : null;
+  const id = String(u?.id ?? '').trim();
+  return id || null;
 }
 function vendorId(req: Request): number | null {
   const u = currentUser(req);
@@ -83,8 +82,8 @@ async function assertSakAccess(
   if (isSuperOrVendorAdmin(req)) return { ok: true };
 
   const tildelte = Array.isArray(sak.tildelte_user_id) ? sak.tildelte_user_id : [];
-  const tildelteIds = tildelte.map((x: any) => Number(x)).filter((n: number) => Number.isFinite(n));
-  const isTiltaksleder = callerUserId != null && Number(sak.tiltaksleder_id) === callerUserId;
+  const tildelteIds = tildelte.map((x: any) => String(x));
+  const isTiltaksleder = callerUserId != null && String(sak.tiltaksleder_id) === callerUserId;
   const isAssigned = callerUserId != null && tildelteIds.includes(callerUserId);
   if (isTiltaksleder || isAssigned) return { ok: true };
   return { ok: false, status: 403, error: 'Ikke tilgang til saken' };
@@ -147,8 +146,8 @@ export function registerTiltakslederRatesRoutes(app: Express) {
       // har full tilgang innen vendor.
       if (!isSuperOrVendorAdmin(req)) {
         const tildelte: any[] = Array.isArray(row.tildelte_user_id) ? row.tildelte_user_id : [];
-        const tildelteIds = tildelte.map((x) => Number(x)).filter((n) => Number.isFinite(n));
-        const isTiltaksleder = callerUserId != null && Number(row.tiltaksleder_id) === callerUserId;
+        const tildelteIds = tildelte.map((x) => String(x));
+        const isTiltaksleder = callerUserId != null && String(row.tiltaksleder_id) === callerUserId;
         const isAssigned = callerUserId != null && tildelteIds.includes(callerUserId);
         if (!isTiltaksleder && !isAssigned) {
           return res.status(403).json({ error: 'Du er ikke tiltaksleder eller tildelt på denne saken' });

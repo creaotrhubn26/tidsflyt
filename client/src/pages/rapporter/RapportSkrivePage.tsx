@@ -2198,7 +2198,7 @@ export default function RapportSkrivePage() {
 interface AuditEvent {
   id: string;
   rapportId: string;
-  userId: number | null;
+  userId: string | null;
   userName: string | null;
   userRole: string | null;
   eventType: string;

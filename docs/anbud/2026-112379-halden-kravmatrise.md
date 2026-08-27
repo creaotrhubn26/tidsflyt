@@ -1,6 +1,6 @@
 # Halden 2026-112379 – verifisert kravmatrise og gjenbruksoversikt
 
-**Statusdato:** 26.08.2026 – revidert etter bred kode-, branch- og databasekontroll
+**Statusdato:** 27.08.2026 – revidert etter bred kode-, branch- og databasekontroll
 
 **Leverandør:** Creatorhub AS / Tidum
 
@@ -32,13 +32,14 @@ Kontrollen er gjort mot:
 | Dokumentasjon | Plan, påstand eller mal; teller ikke som funksjon eller driftsbevis. |
 | Mangler | Ingen relevant produksjonsklar implementasjon funnet. |
 
-### Lokal integrasjonsstatus 26.08.2026
+### Lokal integrasjonsstatus 27.08.2026
 
 Det finnes nå en verifisert integrasjonsgren,
 `codex/halden-krav-integrasjon`, med samlecommit `7562c5d`. Grenen er pushet,
-men deployer ikke produksjon; `main` er urørt. Etter denne commiten er en
-nye BOLA/IDOR-pakker ferdigstilt for eksport, faktura, saksrapporter,
-rapportdesigner og ordinær e-postkomponering:
+men deployer ikke produksjon; `main` er urørt. Etter denne commiten er nye
+BOLA/IDOR-pakker ferdigstilt for eksport, faktura, saksrapporter,
+rapportdesigner, ordinær e-postkomponering og hovedflyten for saker,
+sakjournal, rapporter, mål og aktiviteter:
 
 - PR #21 er portet inn, inkludert migrasjon 059–064. Lokal migrasjon 065
   stabiliserer rapportmaler, og migrasjon 066 etablerer en separat Tidum-eid
@@ -79,6 +80,22 @@ rapportdesigner og ordinær e-postkomponering:
   grønne og alle testfiksurer/-filer ble ryddet. Dette endrer ikke at SMTP ikke
   er en sikker kanal for sensitive barnevernsopplysninger.
   Hele Vitest-suiten besto deretter med 475/475 tester i 68/68 testfiler.
+- Hovedflyten i `server/sakerRapportRoutes.ts` har nå én serveravledet
+  tenant-/objektmodell for saker, tildeling, journal, rapporter, godkjenning,
+  mål, aktiviteter, kommentarer, audit og PDF. Klient og API bruker kanoniske
+  UUID-/tekstbaserte bruker-ID-er. Migrasjon 077 er anvendt idempotent og
+  validerer både tildelingsformat og at aktiviteter bare peker på mål i samme
+  rapport. Nye to-tenant-tester består 6/6; sammen med migrasjonsrekkefølgen
+  11/11, saker/journal 16/16, journalskjema/-arkivering 5/5 og eksisterende
+  rapportscoping 7/7. Type-, design- og produksjonsbygg er grønne. Første
+  fullkjøring besto 75/76 filer og 546 tester; eneste feil var den nye suitens
+  10-sekunders setup-timeout, som deretter ble økt og besto isolert 6/6. En ny
+  fullkjøring besto 545/552, men seks urelaterte tester traff korte timeouts
+  under parallell DB-belastning og én invariant observerte en foreldreløs
+  testfixture. De seks filene besto sekvensielt 47/47, fixturen ble verifisert
+  og fjernet, og invariantsuiten besto 29/29. Ingen av de sju feilene er
+  reproducerbar isolert, men ny komplett CI-kjøring med isolert testdatabase og
+  kontrollert parallellitet gjenstår.
 
 Dette endrer ikke statusen til den offisielle `main`-grenen før grenen er
 reviewet, merget og CI-verifisert. Den grønne DB-kjøringen er et
@@ -157,6 +174,10 @@ PR #21 tilfører:
 - etterfølgende e-postpakke for tenant-/eierskopede maler, utkast, historikk,
   rapportvalg og private vedlegg, uten server-side URL-henting. Migrasjon 069
   og 15/15 målrettede tester er gjennomført i utviklingsdatabasen.
+- etterfølgende BOLA-/UUID-pakke for hovedflyten for saker, sakjournal,
+  rapporter, mål og aktiviteter. Migrasjon 077, validerte parent-child-regler
+  og målrettede to-tenant-/regresjonstester er gjennomført i
+  utviklingsdatabasen.
 
 Viktige begrensninger i PR #21:
 
@@ -214,11 +235,11 @@ Hemmelighetskryptering, TOTP/MFA og en tilpasset RLS-migrasjon gjenstår.
   HTML som PDF og mangler eierskaps-/tenantfilter. Integrasjonsgrenen retter
   dette med egne tabeller og DB-test, men er fortsatt en smal
   leverandørfakturaflyt, ikke en komplett klientøkonomimodul.
-- Generisk eksport, faktura, den eldre saksrapport-/rapportdesignerflyten og
-  den ordinære e-postkomponisten er herdet i integrasjonsgrenen. Øvrige saker,
-  mål, aktiviteter, CreatorHub/CMS-e-post, andre filer, søk, bakgrunnsjobber og
-  CMS/admin må fortsatt gjennom den samlede BOLA/IDOR-matrisen før gjenbruk i
-  kommunal løsning.
+- Generisk eksport, faktura, den eldre saksrapport-/rapportdesignerflyten, den
+  ordinære e-postkomponisten og hovedflyten for saker, sakjournal, rapporter,
+  mål og aktiviteter er herdet i integrasjonsgrenen. CreatorHub/CMS-e-post,
+  andre filflater, søk, bakgrunnsjobber og CMS/admin må fortsatt gjennom den
+  samlede BOLA/IDOR-matrisen før gjenbruk i kommunal løsning.
 - eksisterende DPA oppgir blant annet Render i USA og globale/USA-baserte underdatabehandlere; dette samsvarer ikke med Haldens norske standardkrav.
 - `BACKUP_RESTORE.md` oppgir RPO 24 timer for sentrale scenarier, mens konkurransebilaget krever maksimalt to timers datatap.
 - Backup-/restore-skript og sikkerhetsdokumentasjon finnes, men det er ikke funnet produksjonsbevis for planlagt kjøring, kryptert objektkopi, alarm eller gjennomført restore-test. Dokumentene har dessuten motstridende retensjonsperioder.
@@ -247,18 +268,18 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 | 1 | Skal | Elektronisk/manuelt meldingsmottak, ufødt, tillegg, søskenkopi og redigering | PR #21 har manuelt API, mottakstid/kilde/kontakt, tenant-scope, vedlegg og avklaringsfrist. Maskinporten og kryptert rålogg finnes. | Delvis – PR | Bygg UI; prioritet; ufødt; tillegg; søskenkopi; kontrollert redigering med historikk; ekte FIKS IO-mottak, schema, kvittering og E2E-bevis. |
 | 2 | Skal | Tilpassbar faseflyt fra mottak til avslutning | Eksisterende rapporter har statusflyt. PR #21 kan markere melding «sendt til undersøkelse». | Mangler fagflyt | Egen barnevernssak, faser, overgangsregler, vedtak/godkjenning, konfigurasjon, historikk og full prosesstest. |
 | 3 | Skal | Oppgave med eier, frist, varsel og eskalering | `main` har oppgaver/varsler. PR #21 legger til tildeling, frist, UI og eskaleringscron; fristmotor brukes for meldinger. | Delvis – sterk PR-byggekloss | Knytt til alle relevante barnevernsobjekter; rolle-/tenanttest; eskaleringsmatrise; driftsalarm og E2E-test. |
-| 4 | Skal | Strukturert journal, fritekst, tid/forfatter og dokumenter | PR #21 har append-only journal, tid/forfatter, korreksjon, vedlegg og Documaster-kø på eksisterende saker. Journalvedlegg bruker S3 i EU; meldingsvedlegg bruker lokal disk. | Delvis – PR | Knytt til kommunal barnevernssak; metadata/kategorier; norsk objektlager med dokumentert kryptering/nøkler; tilgangs- og oppslaglogging; sandkassebevis mot arkiv. |
-| 5 | Skal | Tiltak-/planmodul med ansvar, dato, status og rapportering | `main` har § 6-3-tiltaksplan og evalueringsmal, saksperioder/status, rapportperioder, mål med status/fremdrift, aktivitetslogg, godkjenning og rapportering. Systemmal-seeding har en kjent feil på frisk database. | Delvis – betydelig gjenbruk | Fiks migrasjon/seeding og BOLA; løft malinnhold til eget versjonert planobjekt med plandeltakere/ansvar, evalueringsfrister, vedtaks-/samtykkekobling og faglig godkjenning. |
+| 4 | Skal | Strukturert journal, fritekst, tid/forfatter og dokumenter | PR #21 har append-only journal, tid/forfatter, korreksjon, vedlegg og Documaster-kø på eksisterende saker. Integrasjonsgrenen krever nå riktig tenant og sakstildeling for journal og vedlegg, med to-tenant-test. Journalvedlegg bruker S3 i EU; meldingsvedlegg bruker lokal disk. | Delvis – sikkerhetsgrunnmur styrket | Knytt til kommunal barnevernssak; metadata/kategorier; norsk objektlager med dokumentert kryptering/nøkler; komplett tilgangs- og oppslaglogging; sandkassebevis mot arkiv. |
+| 5 | Skal | Tiltak-/planmodul med ansvar, dato, status og rapportering | `main` har § 6-3-tiltaksplan og evalueringsmal, saksperioder/status, rapportperioder, mål med status/fremdrift, aktivitetslogg, godkjenning og rapportering. Integrasjonsgrenen har tenant-/objektsikret dagens sak–rapport–mål–aktivitet-graf, inkludert DB-regel mot mål i feil rapport. Systemmal-seeding har en kjent feil på frisk database. | Delvis – betydelig, sikrere gjenbruk | Fiks migrasjon/seeding; løft malinnhold til eget versjonert planobjekt med plandeltakere/ansvar, evalueringsfrister, vedtaks-/samtykkekobling og faglig godkjenning. |
 | 6 | Skal | Malstyrte standardbrev/vedtak med forhåndsutfylling | Ni rapport-/planmaler, dynamiske felt, godkjenningsflyt, signaturfelt og PDF finnes i kildekoden. Frisk-database-seeding og enkelte malruter har åpne feil/sikkerhetsfunn. | Delvis – main | Fiks seeding og SQL-injection; skill brev/vedtak fra rapport; hjemmel/kodeverk; versjonerte maler; saksdatafletting; godkjenning, ekspedering og arkivering. |
 | 7 | E | Elektronisk signering eller godkjent integrasjon | PDF-signaturfelt og eID-autentisering er ikke juridisk e-signering. Egen designspec sier signering er utenfor eID-scope. | Mangler | Velg signaturleverandør, avtal databehandling, implementer signeringsoppdrag/webhook/bevispakke og arkiver signert dokument. |
 | 8 | Skal | Interne varsler og sikker melding med eksterne | Ordinær SMTP er sperret for sensitivt innhold. Migrasjon 071–074, API-et og de responsive ansatt-/innbyggerflatene gir kommune-/saksbundet part, eID-only portalidentitet, kryptert toveis dialog, private vedlegg, lesekvittering, tilbakekalling, append-only audit og nøytralt e-postvarsel. Vedlegg har fail-closed ClamAV-gate og karantene. Lukking køer dialogen transaksjonelt til arkiv; manifest, transkript, kontrollsummer, arkivkvittering, eksplisitt retensjon, juridisk sperring og datanøkkelrotasjon er implementert og integrasjonstestet mot kontrollert Noark-transport. Første scope er bekymringsmelding. | Delvis – operativ førsteflyt | Formell WCAG-test; deploy/produksjonsprøv privat ClamAV; verifiser Documaster/Elements, kodelister, retensjonsvedtak og KMS-rotasjon i faktisk kundearkitektur; fullmakt/samtykke; utvid til full sak; produksjonsprøv eID og koble SvarUt/SvarInn der Halden krever det. |
 | 9 | E | Kundens egen, leverandørnøytrale SMS-gateway | Tekst og telefonfelt finnes, men ingen SMS-gatewayimplementasjon ble funnet. | Mangler | Definer adaptergrensesnitt; konfigurer Halden-gateway; kø, levering/feil, reservasjon og personvernbevis. |
 | 10 | Skal | Standardrapporter til ledelse, Bufdir/Statsforvalter og SSB; planlegging | Generiske rapporter og dashboards finnes. Ingen identifisert myndighetsrapportpakke eller planlagt innrapportering. | Mangler barnevernsrapportering | Datakatalog, autoritative skjema/kodeverk, standardrapporter, scheduler, validering, kvittering og avstemming. |
-| 11 | E | Egne rapporter | Avansert rapportbygger, malredigering, filtre/visninger og analyse finnes. BOLA-pakken tenantskoper saksrapporter, kommentarer, maler, ressurser, PDF og historikk med anvendt migrasjon og DB-test, men gjelder den eldre rapportflyten. | Delvis – sterkere, fortsatt ikke barnevernsferdig | Porter øvrige QA-fikser; koble til kommunale barnevernsdata; felt-/rolle-/saksscope; lagrede versjoner; store datamengder; demo og sikkerhetstest. |
+| 11 | E | Egne rapporter | Avansert rapportbygger, malredigering, filtre/visninger og analyse finnes. Både den eldre rapportdesignerflyten og hovedflyten for saksrapporter, godkjenning, mål, aktiviteter, kommentarer, audit og PDF er nå tenant-/objektsikret i integrasjonsgrenen med migrasjon og DB-test. | Delvis – sterkere, fortsatt ikke barnevernsferdig | Porter øvrige QA-fikser; koble til kommunale barnevernsdata; autoritativ versjonering; store datamengder; demo og bred sikkerhetstest. |
 | 12 | E | Ad hoc, CSV/Excel og rapporterings-API | CSV/Excel og flere API-er finnes, primært for tids-/rapportdata. Fiksen gjør egenbruk til standard og leder-`all` eksplisitt tenantavgrenset, samt nøytraliserer regnearkformler og HTML. | Delvis – objektkontroll styrket | Barnevernsdatasett; sak/rolle/formålsfilter; masking; audit; tidsbegrenset eksport og komplett systemomfattende BOLA-test. |
 | 13 | E | Beskriv hvordan nøkkeltall hentes | Analysekomponenter og dashboards finnes for eksisterende domene. | Delvis – byggekloss | Definer barneverns-KPI-er, kilde/formel/eier/frekvens, datakvalitet, tilgang og demonstrer sporbar beregning. |
-| 14 | E | RBAC og juridisk avgrenset innsyn; minst tre roller | `main` har omfattende RBAC. PR #21 har kommune-tenant og to kommuneroller med DB-oppslag. G10-grenen har RLS. | Delvis – flere grener | Integrer grenene; legg administrator; saksnivå «need-to-know», delegasjon/fravær, nødtilgang, skjermet adresse og komplett authz/BOLA-matrise. |
-| 15 | Skal | Alle saksendringer og dokumentoppslag logges søkbart | Flere append-/auditlogger finnes; PR #21 journal er append-only og BOLA på company audit er fikset. | Delvis | Ett dekningskart for alle saksobjekter; logg alle lesinger/nedlastinger; søk/revisorrapport; integritet, retensjon, tenant-scope og testbevis. |
+| 14 | E | RBAC og juridisk avgrenset innsyn; minst tre roller | `main` har omfattende RBAC. PR #21 har kommune-tenant og to kommuneroller med DB-oppslag. Integrasjonsgrenen håndhever serveravledet tenant, tildeling/eierskap og egne redigerings-/godkjenningsrettigheter i sak–rapport–mål–aktivitet-grafen. G10-grenen har RLS. | Delvis – objektgrunnmur styrket | Integrer resterende grener; legg administrator; kommunalt saksnivå «need-to-know», delegasjon/fravær, nødtilgang, skjermet adresse og komplett systemomfattende authz/BOLA-matrise. |
+| 15 | Skal | Alle saksendringer og dokumentoppslag logges søkbart | Flere append-/auditlogger finnes; PR #21 journal er append-only og BOLA på company audit er fikset. Rapport-audit, kommentarer, journal og vedlegg er nå objektskopet i hovedflyten. | Delvis | Ett dekningskart for alle saksobjekter; logg alle lesinger/nedlastinger; søk/revisorrapport; integritet, retensjon og testbevis for full dekning. |
 | 16 | E | Innsynsbegjæring, utskrift, journalkopi og klagedokumentasjon | Brukeren kan laste ned egne persondata; admin-eksport, anonymisering/sletting, PDF-generering og PII-maskering finnes. Ingen saksrettet innsyns-/klageprosess. | Delvis – teknisk grunnlag | Workflow for mottak, partsstatus, unntak/sladding, godkjenning, frist, utskrift/journalkopi, utlevering og klage; sikkerhetsherd GDPR-/eksport-rutene. |
 | 17 | E | Enkelt komplett saksuttrekk til bruker/klient | GDPR-eksport samler flere brukerrelaterte tabeller; generiske CSV/Excel/PDF/JSON-eksporter og rapport-PDF finnes. Ingen komplett barnevernsmappe eller kontrollert partsutlevering. | Delvis – eksportgrunnlag | Saksmanifest med journal, dokumenter, vedlegg, vedtak, metadata og kontrollert utlevering med audit og verifisert tilgangskontroll. |
 | 18 | E | Dokumentere og arkivere forebyggende arbeid | Generelle saker har type/status/start/slutt/tildeling; rapporter har mål, aktiviteter og maler; godkjente rapporter kan køes til Documaster. Ingen egen klassifikasjon eller arbeidsflyt for forebyggende arbeid. | Delvis – gjenbrukbar sak/rapport | Etabler forebyggende sak/prosjekt, aktivitet, samarbeidspart, aggregering, tilgang, dokumenter, arkivmetadata og faglig UI. |
@@ -280,7 +301,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 
 ### 5.1 Kan bygges videre fra sterk eksisterende kjerne
 
-Krav 3–6, 11–19, 22, 24, deler av 27 og deler av 29 har relevant gjenbruk. Særlig tiltaksplan-/evalueringsmalene, mål/aktivitetslogg, GDPR-eksport, lønnseksport og PowerOffice ble undervurdert i første gjennomgang. Tilbudet bør beskrive konkret videreføring av disse komponentene, samtidig som kjent seeding, BOLA og integrasjonsverifisering oppgis.
+Krav 3–6, 11–19, 22, 24, deler av 27 og deler av 29 har relevant gjenbruk. Særlig tiltaksplan-/evalueringsmalene, mål/aktivitetslogg, GDPR-eksport, lønnseksport og PowerOffice ble undervurdert i første gjennomgang. Tilbudet bør beskrive konkret videreføring av disse komponentene, samtidig som kjent seeding, resterende systemomfattende BOLA-matrise og integrasjonsverifisering oppgis.
 
 ### 5.2 Krever ny barnevernsfaglig funksjonalitet
 
@@ -315,14 +336,17 @@ Krav 19, 21, 23 og 25 krever norsk målplattform, sikkerhetsprogram, ekstern vur
    QA-fikser og manglende tabeller må vurderes selektivt; ikke merge den 156
    commits gamle grenen samlet.
 4. **Utført i denne avgrensningen:** generisk eksport, faktura, eldre
-   saksrapport-/rapportdesignerruter og ordinær e-postkomponist er
-   tenant-/eierskopet. Migrasjon 067–069, 18/18 rapport-/fakturatester og 15/15
-   e-posttester er gjennomført; fortsett med saker, rapportmål/-aktiviteter,
-   CreatorHub/CMS-e-post, andre filer, søk og øvrig CMS/admin.
+   saksrapport-/rapportdesignerruter, ordinær e-postkomponist og hovedflyten
+   for saker, sakjournal, rapporter, mål og aktiviteter er tenant-/eierskopet.
+   Migrasjon 067–069 og 077, målrettede to-tenant-tester og DB-constraints er
+   gjennomført. Fortsett med CreatorHub/CMS-e-post, andre filflater, søk,
+   bakgrunnsjobber og øvrig CMS/admin.
 5. **Delvis utført lokalt:** dependency audit er blokkerende på moderat nivå og
-   har 0 funn; full lokal Vitest-suite er grønn 443/443 mot utviklingsdatabase.
-   Gjør deretter enhets-, DB-integrasjons-, BOLA- og E2E-tester generelt
-   blokkerende i CI med isolert testdatabase.
+   har 0 funn; tidligere full lokal Vitest-baseline er grønn 443/443 mot
+   utviklingsdatabase. Den siste sikkerhetspakkens målrettede tester er grønne,
+   mens ny fullkjøring må gjentas etter ekstern Neon DNS-feil. Gjør enhets-,
+   DB-integrasjons-, BOLA- og E2E-tester generelt blokkerende i CI med isolert
+   testdatabase.
 6. **Utført lokalt:** de tre reelle oppfølgingspunktene i `progress.md` er
    rettet (riktig vendors-skjema, samme transaksjon og tilfeldig passord);
    `syncApprovedPortalUsers` er dokumentert som «ingen handling». Migrasjon 066

@@ -8,7 +8,7 @@
 
 **Kontraktsmilepæler:** tjenesten tilgjengelig 01.10.2026, migrering ferdig før 01.11.2026, produksjonsstart 15.11.2026
 
-**Planstatus:** Revidert styrende versjon etter bred kode- og branchkontroll, 26.08.2026
+**Planstatus:** Revidert styrende versjon etter bred kode- og branchkontroll, 27.08.2026
 
 ## 1. Formål og styringsprinsipper
 
@@ -54,6 +54,14 @@ Følgende regler gjelder uten unntak:
   ordinær SMTP, ikke en godkjent kanal for sensitiv barnevernsdialog.
   Hele Vitest-suiten er etter denne pakken grønn med 475/475 tester i 68/68
   testfiler.
+- Hovedflyten for saker, sakjournal, rapporter, godkjenning, mål, aktiviteter,
+  kommentarer, audit og PDF er deretter tenantskopet som én objektgraf.
+  Klient/API/database bruker kanoniske UUID-/tekstbaserte bruker-ID-er, og
+  migrasjon 077 håndhever blant annet at aktiviteter ikke kan peke på mål i en
+  annen rapport. Nye to-tenant-tester, tilgrensende regresjonstester, typecheck,
+  designkontroll og produksjonsbygg er grønne. Fullsuitens sju parallelle
+  DB-feil besto ved kontrollert sekvensiell omkjøring (47/47 og 29/29), men ny
+  full DB-suite må fortsatt kjøres i isolert CI med kontrollert parallellitet.
 - Generisk oppgavetildeling, frister, varsling og eskalering er påbegynt.
 - Uforanderlig sakjournal med vedlegg og arkiveringskø er påbegynt.
 - Kommune-tenant, kommune-roller og Entra ID-grunnmur er påbegynt.
@@ -108,12 +116,12 @@ Følgende regler gjelder uten unntak:
   klient/API, skiller data fra CreatorHub-tabellen, tenantskoper alle
   operasjoner og leverer reell PDF. Migrasjon og faktura-E2E er verifisert;
   full klientøkonomi er fortsatt ikke levert.
-- Generisk eksport og eldre saksrapport-/rapportdesignerruter er herdet i
-  integrasjonsarbeidsflaten.
-  Den ordinære e-postkomponisten er også herdet. Øvrige saker,
-  rapportmål/-aktiviteter, CreatorHub/CMS-e-post, andre filer, søk,
-  bakgrunnsjobber og CMS/admin har fortsatt åpne objekt-/tenantkontroller og kan
-  ikke brukes med ekte eksterne data før hele endepunktsmatrisen er lukket.
+- Generisk eksport, eldre saksrapport-/rapportdesignerruter, den ordinære
+  e-postkomponisten og hovedflyten for saker, sakjournal, rapporter, mål og
+  aktiviteter er herdet i integrasjonsarbeidsflaten. CreatorHub/CMS-e-post,
+  andre filflater, søk, bakgrunnsjobber og CMS/admin har fortsatt åpne
+  objekt-/tenantkontroller og kan ikke brukes med ekte eksterne data før hele
+  endepunktsmatrisen er lukket.
 - Den tidligere offentlige påstanden om test mot ekte Documaster-instans er
   rettet i integrasjonsgrenen. Kundesandkasse er fortsatt et eksplisitt
   akseptansepunkt og skal ikke beskrives som gjennomført før bevis foreligger.
@@ -282,11 +290,11 @@ Tiltak:
 6. Innfør TOTP/MFA for administrative roller og Entra MFA-krav via kundens policy.
 7. Gjennomfør RLS/tenant-isolering i database og applikasjon; alle request-paths må få tenant-kontekst.
 8. **Utført i denne avgrensningen:** rapportmaler, generisk eksport, faktura,
-   eldre saksrapporter/kommentarer og ordinær e-postkomponist er herdet med
-   to-tenant-tester. Migrasjon 067–069, faktura-E2E og e-posttesten er
-   gjennomført; fortsett med saker, rapportmål/-aktiviteter,
-   CreatorHub/CMS-e-post, andre filer, søk, logger, bakgrunnsjobber og
-   administrasjon.
+   eldre saksrapporter/kommentarer, ordinær e-postkomponist og hovedflyten for
+   saker, sakjournal, rapporter, mål og aktiviteter er herdet med
+   to-tenant-tester. Migrasjon 067–069 og 077, faktura-E2E, e-posttesten og
+   parent-child-constraints er gjennomført. Fortsett med CreatorHub/CMS-e-post,
+   andre filflater, søk, logger, bakgrunnsjobber og administrasjon.
 9. Gjør alle fler-tabell-identitets- og invitasjonsoperasjoner atomiske og bruk kryptografisk tilfeldige hemmeligheter.
 10. Fullfør blokkert CI for generell Vitest, DB-integrasjonstest, E2E,
     authz-matrise, secret scan og SAST; typecheck, build og dependency audit er
@@ -344,7 +352,7 @@ Tiltak:
 
 **Krav:** 1–6, 16–18, 29.
 
-Gjenbruksstrategi: behold den eksisterende saksmodellen, § 6-3-tiltaksplanen, evalueringsmalen, rapportmål, aktivitetslogg, godkjenningsflyt, PDF og arkiv-outbox som kildekomponenter. Før faglig utvidelse må systemmal-seeding og objekt-/tenantautorisasjon rettes. Planen skal deretter bli et eget autoritativt, versjonert domeneobjekt; den skal ikke fortsatt bare være rapportinnhold.
+Gjenbruksstrategi: behold den eksisterende saksmodellen, § 6-3-tiltaksplanen, evalueringsmalen, rapportmål, aktivitetslogg, godkjenningsflyt, PDF og arkiv-outbox som kildekomponenter. Objekt-/tenantautorisasjonen for dagens sak–rapport–mål–aktivitet-graf er herdet i integrasjonsgrenen; systemmal-seeding må fortsatt stabiliseres. Planen skal deretter bli et eget autoritativt, versjonert domeneobjekt; den skal ikke fortsatt bare være rapportinnhold.
 
 Leveranser:
 

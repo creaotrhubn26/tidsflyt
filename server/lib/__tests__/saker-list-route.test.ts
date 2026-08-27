@@ -19,7 +19,7 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
     }
   });
 
-  async function insertTestSak(overrides: { vendorId: number; tiltakslederId: number; tildelteUserId?: number[] }): Promise<string> {
+  async function insertTestSak(overrides: { vendorId: number; tiltakslederId: string; tildelteUserId?: string[] }): Promise<string> {
     const { rows: [row] } = await pool.query(
       `INSERT INTO tidum_saker (saksnummer, tittel, vendor_id, tiltaksleder_id, tildelte_user_id)
        VALUES ($1, 'Test-sak liste-tilgang', $2, $3, $4::jsonb) RETURNING id`,
@@ -29,7 +29,7 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
     return row.id;
   }
 
-  async function appWithUser(user: { id: number; role: string; vendorId?: number }) {
+  async function appWithUser(user: { id: string; role: string; vendorId?: number }) {
     const { registerRoutes } = await import("../../routes");
     const app = express();
     app.use(express.json());
@@ -45,8 +45,8 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
   it("teamleder (uten spesiell eierrolle) ser IKKE andre vendorers saker — kun egne tildelte", async () => {
     const foreignVendorId = 700001 + Math.floor(Math.random() * 1000);
     const ownVendorId = 700002 + Math.floor(Math.random() * 1000);
-    const foreignSakId = await insertTestSak({ vendorId: foreignVendorId, tiltakslederId: 1 });
-    const app = await appWithUser({ id: 55, role: "teamleder", vendorId: ownVendorId });
+    const foreignSakId = await insertTestSak({ vendorId: foreignVendorId, tiltakslederId: "leader-1" });
+    const app = await appWithUser({ id: "team-55", role: "teamleder", vendorId: ownVendorId });
 
     const res = await request(app).get("/api/saker");
     expect(res.status).toBe(200);
@@ -55,8 +55,8 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
 
   it("teamleder ser saker de faktisk er tildelt, i egen vendor", async () => {
     const vendorId = 700003 + Math.floor(Math.random() * 1000);
-    const sakId = await insertTestSak({ vendorId, tiltakslederId: 1, tildelteUserId: [55] });
-    const app = await appWithUser({ id: 55, role: "teamleder", vendorId });
+    const sakId = await insertTestSak({ vendorId, tiltakslederId: "leader-1", tildelteUserId: ["team-55"] });
+    const app = await appWithUser({ id: "team-55", role: "teamleder", vendorId });
 
     const res = await request(app).get("/api/saker");
     expect(res.status).toBe(200);
@@ -65,8 +65,8 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
 
   it("tiltaksleder (rollen) ser saker der de er satt som tiltaksleder_id", async () => {
     const vendorId = 700004 + Math.floor(Math.random() * 1000);
-    const sakId = await insertTestSak({ vendorId, tiltakslederId: 77 });
-    const app = await appWithUser({ id: 77, role: "tiltaksleder", vendorId });
+    const sakId = await insertTestSak({ vendorId, tiltakslederId: "leader-77" });
+    const app = await appWithUser({ id: "leader-77", role: "tiltaksleder", vendorId });
 
     const res = await request(app).get("/api/saker");
     expect(res.status).toBe(200);
@@ -75,8 +75,8 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
 
   it("super_admin ser fortsatt alle saker på tvers av vendorer", async () => {
     const vendorId = 700005 + Math.floor(Math.random() * 1000);
-    const sakId = await insertTestSak({ vendorId, tiltakslederId: 1 });
-    const app = await appWithUser({ id: 1, role: "super_admin" });
+    const sakId = await insertTestSak({ vendorId, tiltakslederId: "leader-1" });
+    const app = await appWithUser({ id: "super-1", role: "super_admin" });
 
     const res = await request(app).get("/api/saker");
     expect(res.status).toBe(200);
@@ -85,8 +85,8 @@ describe("GET /api/saker: rollebasert tilgang, ikke fall-gjennom til alt", () =>
 
   it("ukjent/uhåndtert rolle får tom liste, ikke alle saker (fail-closed)", async () => {
     const vendorId = 700006 + Math.floor(Math.random() * 1000);
-    await insertTestSak({ vendorId, tiltakslederId: 1 });
-    const app = await appWithUser({ id: 999, role: "helt_ukjent_rolle", vendorId });
+    await insertTestSak({ vendorId, tiltakslederId: "leader-1" });
+    const app = await appWithUser({ id: "unknown-999", role: "helt_ukjent_rolle", vendorId });
 
     const res = await request(app).get("/api/saker");
     expect(res.status).toBe(200);
