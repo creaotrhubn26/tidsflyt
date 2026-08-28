@@ -82,6 +82,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "094_barnevern_innsynskrav.sql",
   "095_barnevern_forebyggende.sql",
   "096_sms_utboks.sql",
+  "097_barnevernsregister_innsendinger.sql",
 ];
 
 // Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i

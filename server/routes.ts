@@ -17,6 +17,7 @@ import { registerRapportReminderRoutes, setupRapportReminderCron } from "./route
 import { registerTaskEscalationRoutes, setupTaskEscalationCron } from "./routes/task-escalation-cron";
 import { registerFristEscalationRoutes, setupFristEscalationCron } from "./routes/frist-escalation-cron";
 import { registerSmsRoutes, setupSmsOutboxCron } from "./routes/sms-routes";
+import { registerBarnevernsregisterRoutes, setupBarnevernsregisterCron } from "./routes/barnevernsregister-routes";
 import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
 import { registerBarnevernSakRoutes } from "./routes/barnevern-sak-routes";
 import { registerBarnevernOppgaveRoutes } from "./routes/barnevern-oppgave-routes";
@@ -6821,6 +6822,7 @@ export async function registerRoutes(
     setupSecureAttachmentQuarantineCleanup();
     setupSecureDialogGovernanceCron();
     setupSmsOutboxCron();
+    setupBarnevernsregisterCron();
   }
   // Seed system rapport templates once per real server boot, never per test app.
   if (shouldRunStartupJobs) {
@@ -6840,6 +6842,7 @@ export async function registerRoutes(
   registerBarnevernForebyggendeRoutes(app);
   registerBarnevernRapporteringRoutes(app);
   registerSmsRoutes(app);
+  registerBarnevernsregisterRoutes(app);
   registerSecureDialogRoutes(app);
   setupFiksIoReceiver(app);
   registerPricingRoutes(app);
