@@ -66,6 +66,10 @@ export function registerIntegrasjonStatusRoutes(app: Express): void {
       sjekk("SMS_GATEWAY_TO_FIELD", { valgfri: true, merknad: "Default: to" }),
       sjekk("SMS_GATEWAY_MESSAGE_FIELD", { valgfri: true, merknad: "Default: message" }),
     ];
+    const vedleggslager = [
+      sjekk("BARNEVERN_S3_BUCKET", { merknad: "S3-bøtte i norsk/EU-region for barnevernsvedlegg" }),
+      sjekk("BARNEVERN_S3_REGION", { valgfri: true, merknad: "Default: eu-central-1" }),
+    ];
     const grunnmur = [
       { navn: "TIDUM_SECRET_KEY(RING)", satt: isSecretBoxConfigured(), merknad: "Kreves for all forsegling og FIKS-mottak" },
     ];
@@ -92,6 +96,11 @@ export function registerIntegrasjonStatusRoutes(app: Express): void {
         vars: sms,
         ...oppsummer(sms),
         merknad: "Uten oppsett blir SMS stående trygt i kø.",
+      },
+      vedleggslager: {
+        vars: vedleggslager,
+        ...oppsummer(vedleggslager),
+        merknad: "Uten bøtte lagres vedlegg på flyktig lokal disk (kun dev/test).",
       },
     });
   });

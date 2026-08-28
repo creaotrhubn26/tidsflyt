@@ -252,7 +252,7 @@ Viktige begrensninger i PR #21:
 - bekymringsmeldingen mangler blant annet prioritet, ufødt barn, tilleggsopplysninger, søskenkopi og generell redigering/endringshistorikk;
 - «send til undersøkelse» endrer status, men oppretter ikke en reell undersøkelsessak eller videre faseflyt;
 - barnevernsjournalen er koblet til eksisterende vendor-/tiltakssak, ikke til en ferdig kommunal barnevernssak;
-- journalvedlegg bruker S3-objektlagring i `eu-central-1`, men uten eksplisitt KMS/SSE-konfigurasjon i koden og uten Norge-krav. Vedlegg til bekymringsmeldinger lagres derimot på lokal disk under `private-uploads/barnevern-meldinger`;
+- ~~journalvedlegg bruker S3-objektlagring i `eu-central-1`, men uten eksplisitt KMS/SSE-konfigurasjon i koden og uten Norge-krav. Vedlegg til bekymringsmeldinger lagres derimot på lokal disk under `private-uploads/barnevern-meldinger`~~ **Løst:** alle barnevernsvedlegg (melding + sakjournal) går nå gjennom felles modul `server/lib/barnevern-attachment-storage.ts` — S3 med `ServerSideEncryption: AES256` når `BARNEVERN_S3_BUCKET` er satt (region via `BARNEVERN_S3_REGION`, default `eu-central-1`), lokal disk kun som dev/test-fallback med høylytt produksjonsvarsel. Arkivkøen leser fra samme lager;
 - PR-en er ikke produksjonssatt. Koden er portet og kontrollert lokalt, men
   `render.yaml` deployer fortsatt bare den offisielle `main`-grenen.
 

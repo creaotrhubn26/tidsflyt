@@ -171,7 +171,7 @@ export default function Blog() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <Link href="/">
-              <Button variant="ghost" size="sm" className="gap-2">
+              <Button variant="ghost" size="sm" className="gap-2" aria-label="Hjem">
                 <ArrowLeft className="h-4 w-4" />
                 <span className="hidden sm:inline">Hjem</span>
               </Button>
@@ -187,6 +187,7 @@ export default function Blog() {
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-primary transition-colors"
             title="RSS Feed"
+            aria-label="RSS Feed"
           >
             <Rss className="h-4 w-4" />
             <span className="hidden sm:inline">RSS</span>
