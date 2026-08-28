@@ -1,36 +1,33 @@
 import type { Express, Request, Response } from "express";
 import multer from "multer";
 import path from "path";
-import fs from "fs";
 import type { PoolClient } from "pg";
 import { pool } from "../db";
 import { isKommuneFagRolle, normalizeRole } from "../../shared/roles";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
+import { hentVedlegg, lagreVedlegg } from "../lib/barnevern-attachment-storage";
 
 const MELDER_KATEGORIER = new Set([
   "skole", "barnehage", "helsepersonell", "lege", "politi", "nav", "familie_nabo", "anonym", "annet",
 ]);
 
-// IKKE under uploads/ — den roten monteres som statisk, UAUTENTISERT katalog i
-// server/smartTimingRoutes.ts ("/uploads"). Barnevernsvedlegg inneholder PII og
-// skal kun ut via den kommune-scopede GET .../vedlegg/:vedleggId-ruten under.
-const BARNEVERN_UPLOAD_DIR = path.join(process.cwd(), "private-uploads", "barnevern-meldinger");
-if (!fs.existsSync(BARNEVERN_UPLOAD_DIR)) fs.mkdirSync(BARNEVERN_UPLOAD_DIR, { recursive: true });
-
+// Vedlegg går via barnevern-attachment-storage (S3/EU-bøtte i drift,
+// privat disk i dev) — ALDRI under uploads/, som monteres statisk og
+// uautentisert i server/smartTimingRoutes.ts. Multer holder filen i
+// minne (20 MB-cap) til den er autorisert og lagret.
 const ALLOWED_VEDLEGG_MIME = new Set([
   "application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp",
 ]);
 
+export function nyttVedleggFilnavn(originalname: string): string {
+  const ext = path.extname(originalname);
+  return `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`;
+}
+
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: BARNEVERN_UPLOAD_DIR,
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_VEDLEGG_MIME.has(file.mimetype)) {
@@ -703,30 +700,26 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
   app.post(
     "/api/barnevern/meldinger/:id/vedlegg",
-    requireAuth, // FØR multer: uautentiserte skal ikke kunne skrive 20 MB til disk
+    requireAuth, // FØR multer: uautentiserte skal ikke kunne fylle minne med 20 MB
     upload.single("file"),
     async (req: Request, res: Response) => {
       const actor = await requireKommuneActor(req);
-      if (!actor) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        return res.status(403).json({ error: "Ikke tilgang." });
-      }
+      if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
       const melding = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
-      if (!melding) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        return res.status(404).json({ error: "Melding ikke funnet." });
-      }
+      if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
       if (!req.file) return res.status(400).json({ error: "Ingen fil sendt." });
 
       try {
+        const filename = nyttVedleggFilnavn(req.file.originalname);
+        await lagreVedlegg("barnevern-meldinger", filename, req.file.buffer, req.file.mimetype);
         const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
           const { rows: [created] } = await client.query(
           `INSERT INTO tidum_barnevern_melding_vedlegg
              (melding_id, kommune_id, filename, original_name, mime_type, size_bytes, uploaded_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
           [
-            req.params.id, actor.kommuneId, req.file!.filename, req.file!.originalname,
+            req.params.id, actor.kommuneId, filename, req.file!.originalname,
             req.file!.mimetype, req.file!.size, actor.userId,
           ],
           );
@@ -741,7 +734,6 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
           uploadedAt: row.uploaded_at,
         });
       } catch (err) {
-        fs.unlink(req.file.path, () => {});
         console.error("[barnevern] vedleggsopplasting feilet", err);
         res.status(500).json({ error: "Kunne ikke lagre vedlegget." });
       }
@@ -774,12 +766,14 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       });
       if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });
 
-      const filePath = path.join(BARNEVERN_UPLOAD_DIR, vedlegg.filename);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Fil ikke funnet på disk." });
-
-      res.setHeader("Content-Type", vedlegg.mime_type);
-      res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
-      fs.createReadStream(filePath).pipe(res);
+      try {
+        const innhold = await hentVedlegg("barnevern-meldinger", vedlegg.filename);
+        res.setHeader("Content-Type", vedlegg.mime_type);
+        res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
+        res.send(innhold);
+      } catch {
+        res.status(404).json({ error: "Fil ikke funnet i vedleggslageret." });
+      }
     },
   );
 }

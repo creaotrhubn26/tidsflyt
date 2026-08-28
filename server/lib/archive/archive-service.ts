@@ -43,8 +43,7 @@ import { openSecureDialogContent } from "../secure-dialog-content";
 import { downloadSecureDialogAttachment } from "../secure-dialog-storage";
 import { openSecret } from "../secret-box";
 import { createArchiveProvider, type ArchiveProvider } from "./archive-provider";
-import { promises as fsPromises } from "fs";
-import { join as joinPath } from "path";
+import { hentVedlegg as hentBarnevernVedlegg } from "../barnevern-attachment-storage";
 import {
   buildBarnevernJournalJournalpost,
   buildBarnevernMeldingMappeSpec,
@@ -569,12 +568,11 @@ export async function processArchiveEntry(
         throw new Error("Journaloppføringens sak tilhører ikke arkivradens melding");
       }
 
-      const uploadDir = joinPath(process.cwd(), "private-uploads", "barnevern-sak-journal");
       const attachments = await Promise.all(
         snapshot.vedlegg.map(async (a: any) => ({
           originalName: a.original_name,
           mimeType: a.mime_type,
-          content: await fsPromises.readFile(joinPath(uploadDir, a.filename)),
+          content: await hentBarnevernVedlegg("barnevern-sak-journal", a.filename),
         })),
       );
 

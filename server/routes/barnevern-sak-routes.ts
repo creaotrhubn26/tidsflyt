@@ -1,12 +1,11 @@
 import type { Express, Request, Response } from "express";
 import multer from "multer";
-import path from "path";
-import fs from "fs";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
 import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
-import { loggTilgang, needToKnowVilkar, requireKommuneActor, type KommuneActor } from "./barnevern-melding-routes";
+import { loggTilgang, needToKnowVilkar, nyttVedleggFilnavn, requireKommuneActor, type KommuneActor } from "./barnevern-melding-routes";
+import { hentVedlegg, lagreVedlegg } from "../lib/barnevern-attachment-storage";
 
 // Faseflyt for den kommunale barnevernssaken. En sak starter alltid i
 // undersøkelse (opprettet fra «send til undersøkelse» på en melding).
@@ -29,24 +28,14 @@ const JOURNAL_KATEGORIER = new Set([
   "notat", "telefonsamtale", "mote", "hjemmebesok", "samtale_med_barnet", "vedtak", "annet",
 ]);
 
-// Samme private diskrot og filtyperegler som barnevernsvedlegg for meldinger
-// (se barnevern-melding-routes.ts). ponytail: lokal disk nå, norsk/EU
-// objektlager når krav 23-plattformen er valgt.
-const JOURNAL_UPLOAD_DIR = path.join(process.cwd(), "private-uploads", "barnevern-sak-journal");
-if (!fs.existsSync(JOURNAL_UPLOAD_DIR)) fs.mkdirSync(JOURNAL_UPLOAD_DIR, { recursive: true });
-
+// Journalvedlegg går via barnevern-attachment-storage (S3/EU-bøtte i
+// drift, privat disk i dev) — samme filtyperegler som meldingsvedlegg.
 const ALLOWED_VEDLEGG_MIME = new Set([
   "application/pdf", "image/jpeg", "image/png", "image/heic", "image/heif", "image/webp",
 ]);
 
 const journalUpload = multer({
-  storage: multer.diskStorage({
-    destination: JOURNAL_UPLOAD_DIR,
-    filename: (_req, file, cb) => {
-      const ext = path.extname(file.originalname);
-      cb(null, `${Date.now()}-${Math.round(Math.random() * 1e9)}${ext}`);
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (!ALLOWED_VEDLEGG_MIME.has(file.mimetype)) {
@@ -547,17 +536,15 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
   app.post(
     "/api/barnevern/saker/:id/journal/:entryId/vedlegg",
-    requireAuth, // FØR multer: uautentiserte skal ikke kunne skrive 20 MB til disk
+    requireAuth, // FØR multer: uautentiserte skal ikke kunne fylle minne med 20 MB
     journalUpload.single("file"),
     async (req: Request, res: Response) => {
       const actor = await requireKommuneActor(req);
-      if (!actor) {
-        if (req.file) fs.unlink(req.file.path, () => {});
-        return res.status(403).json({ error: "Ikke tilgang." });
-      }
+      if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
       if (!req.file) return res.status(400).json({ error: "Ingen fil sendt." });
 
       try {
+        const filename = nyttVedleggFilnavn(req.file.originalname);
         const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
           const { rows: [entry] } = await client.query(
             `SELECT id FROM tidum_barnevern_sak_journal
@@ -565,12 +552,13 @@ export function registerBarnevernSakRoutes(app: Express): void {
             [req.params.entryId, req.params.id, actor.kommuneId],
           );
           if (!entry) throw new Error("ENTRY_NOT_FOUND");
+          await lagreVedlegg("barnevern-sak-journal", filename, req.file!.buffer, req.file!.mimetype);
           const { rows: [created] } = await client.query(
             `INSERT INTO tidum_barnevern_sak_journal_vedlegg
                (journal_entry_id, kommune_id, filename, original_name, mime_type, size_bytes, uploaded_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
             [
-              req.params.entryId, actor.kommuneId, req.file!.filename, req.file!.originalname,
+              req.params.entryId, actor.kommuneId, filename, req.file!.originalname,
               req.file!.mimetype, req.file!.size, actor.userId,
             ],
           );
@@ -585,7 +573,6 @@ export function registerBarnevernSakRoutes(app: Express): void {
           uploadedAt: row.uploaded_at,
         });
       } catch (err) {
-        if (req.file) fs.unlink(req.file.path, () => {});
         if (err instanceof Error && err.message === "ENTRY_NOT_FOUND") {
           return res.status(404).json({ error: "Journaloppføring ikke funnet." });
         }
@@ -624,12 +611,14 @@ export function registerBarnevernSakRoutes(app: Express): void {
       });
       if (!vedlegg) return res.status(404).json({ error: "Vedlegg ikke funnet." });
 
-      const filePath = path.join(JOURNAL_UPLOAD_DIR, vedlegg.filename);
-      if (!fs.existsSync(filePath)) return res.status(404).json({ error: "Fil ikke funnet på disk." });
-
-      res.setHeader("Content-Type", vedlegg.mime_type);
-      res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
-      fs.createReadStream(filePath).pipe(res);
+      try {
+        const innhold = await hentVedlegg("barnevern-sak-journal", vedlegg.filename);
+        res.setHeader("Content-Type", vedlegg.mime_type);
+        res.setHeader("Content-Disposition", `attachment; filename="${vedlegg.original_name}"`);
+        res.send(innhold);
+      } catch {
+        res.status(404).json({ error: "Fil ikke funnet i vedleggslageret." });
+      }
     },
   );
 }

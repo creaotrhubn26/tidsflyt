@@ -378,8 +378,12 @@ test.describe("Barnevern UI-flyt", () => {
     await page.getByTestId("tiltak-ansvarlig-input").fill("Kari Saksbehandler");
     await page.getByTestId("tiltak-legg-til-button").click();
     await expect(page.getByText("Miljøterapeut i hjemmet")).toBeVisible();
-    await page.getByTestId("plan-godkjenn-button").click();
-    await expect(page.getByTestId("sak-detalj").getByText("Godkjent", { exact: true })).toBeVisible();
+    // På mobil ligger toast-viewporten øverst og kan dekke knappen mens
+    // «Tiltak lagt til»-toasten vises (~5 s) — retry til klikket når frem.
+    await expect(async () => {
+      await page.getByTestId("plan-godkjenn-button").click({ timeout: 2000 });
+      await expect(page.getByTestId("sak-detalj").getByText("Godkjent", { exact: true })).toBeVisible({ timeout: 2000 });
+    }).toPass({ timeout: 15000 });
 
     // Dokument: vedtak fra mal → godkjenn → ekspeder
     await page.getByTestId("sak-tab-dokumenter").click();
