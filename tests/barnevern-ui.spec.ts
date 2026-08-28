@@ -300,6 +300,20 @@ test.describe("Barnevern UI-flyt", () => {
         if (method === "PATCH") tiltak.status = route.request().postDataJSON().status ?? tiltak.status;
         return json(tiltak);
       }
+      // Nøkkeltall
+      if (path === "/api/barnevern/kpi") {
+        return json({
+          generert: new Date().toISOString(),
+          kpier: [
+            { id: "meldinger_30d", navn: "Nye meldinger siste 30 dager", beskrivelse: "Antall meldinger.",
+              kilde: "tidum_barnevern_meldinger", formel: "SELECT COUNT(*) ...", eier: "Barnevernsleder",
+              frekvens: "Løpende", enhet: "antall", verdi: 4 },
+            { id: "avklart_innen_frist_90d", navn: "Andel avklart innen frist", beskrivelse: "Prosent.",
+              kilde: "tidum_barnevern_meldinger", formel: "SELECT ...", eier: "Barnevernsleder",
+              frekvens: "Løpende", enhet: "prosent", verdi: 100 },
+          ],
+        });
+      }
       // Innrapportering
       if (path === "/api/barnevern/innrapportering") return json(innsendinger);
       if (path === "/api/barnevern/innrapportering/kjor") {
@@ -417,5 +431,12 @@ test.describe("Barnevern UI-flyt", () => {
     await expect(page.getByTestId("innsending-bvr-1")).toBeVisible();
     await expect(page.getByTestId("innsending-bvr-1").getByText("Sendt")).toBeVisible();
     await expect(page.getByText(/BVR-2026-042/)).toBeVisible();
+
+    // Nøkkeltall: verdier + kilde/formel synlig (krav 13-dokumentasjonen)
+    await page.getByTestId("tab-nokkeltall").click();
+    await expect(page.getByTestId("kpi-meldinger_30d")).toBeVisible();
+    await expect(page.getByTestId("kpi-avklart_innen_frist_90d").getByText("100 %")).toBeVisible();
+    await page.getByTestId("kpi-meldinger_30d").click();
+    await expect(page.getByTestId("kpi-meldinger_30d").getByText(/Kilde:/)).toBeVisible();
   });
 });

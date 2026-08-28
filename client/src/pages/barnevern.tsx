@@ -1118,6 +1118,53 @@ function InnrapporteringFane() {
   );
 }
 
+// ── NØKKELTALL (krav 13) ─────────────────────────────────────────────────────
+
+function NokkeltallFane() {
+  const { data, error } = useQuery({
+    queryKey: ["barnevern-kpi"],
+    queryFn: () => api.listKpi(),
+    retry: false,
+  });
+
+  if (error) {
+    return <p className="text-sm text-muted-foreground p-4">Nøkkeltallene er forbeholdt barnevernsleder.</p>;
+  }
+  if (!data) return <p className="text-sm text-muted-foreground p-4">Laster …</p>;
+
+  const formater = (kpi: api.Kpi) => {
+    if (kpi.verdi == null) return "—";
+    if (kpi.enhet === "prosent") return `${kpi.verdi} %`;
+    if (kpi.enhet === "dager") return `${kpi.verdi} d`;
+    return String(kpi.verdi);
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Beregnet direkte fra saksdataene {formatDato(data.generert)}. Klikk et kort for kilde og formel —
+        det er dokumentasjonen på hvordan tallet hentes.
+      </p>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {data.kpier.map((kpi) => (
+          <details key={kpi.id} className="border rounded-md p-3" data-testid={`kpi-${kpi.id}`}>
+            <summary className="cursor-pointer list-none">
+              <span className="block text-2xl font-semibold">{formater(kpi)}</span>
+              <span className="block text-sm mt-0.5">{kpi.navn}</span>
+            </summary>
+            <div className="mt-2 pt-2 border-t text-xs text-muted-foreground space-y-1">
+              <p>{kpi.beskrivelse}</p>
+              <p><span className="font-medium">Kilde:</span> {kpi.kilde}</p>
+              <p><span className="font-medium">Eier:</span> {kpi.eier} · <span className="font-medium">Frekvens:</span> {kpi.frekvens}</p>
+              <p className="font-mono text-[10px] break-all">{kpi.formel}</p>
+            </div>
+          </details>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ── SAKSDETALJ MED JOURNAL ───────────────────────────────────────────────────
 
 function SakDetalj({ sakId }: { sakId: string }) {
@@ -1346,6 +1393,7 @@ export default function BarnevernPage() {
           </TabsTrigger>
           <TabsTrigger value="forebyggende" data-testid="tab-forebyggende">Forebyggende</TabsTrigger>
           <TabsTrigger value="innrapportering" data-testid="tab-innrapportering">Innrapportering</TabsTrigger>
+          <TabsTrigger value="nokkeltall" data-testid="tab-nokkeltall">Nøkkeltall</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meldinger" className="mt-4">
@@ -1424,6 +1472,9 @@ export default function BarnevernPage() {
         </TabsContent>
         <TabsContent value="innrapportering" className="mt-4">
           <InnrapporteringFane />
+        </TabsContent>
+        <TabsContent value="nokkeltall" className="mt-4">
+          <NokkeltallFane />
         </TabsContent>
       </Tabs>
 
