@@ -12,8 +12,11 @@
 
 // ── Design tokens (JS-accessible) ──────────────────────────────────────
 export const TIDUM_TOKENS = {
-  colorPrimary: '#1F6B73',
-  colorPrimaryHover: '#18585F',
+  // NB: .tidum-btn-primary har en inset-hvit box-shadow (15 %) som lysner
+  // opplevd bakgrunn — axe måler den blandede fargen. #1A5A61 gir blandet
+  // #3c7379 = 5.31:1 mot hvit tekst (WCAG AA ≥ 4.5); #1F6B73 ga 4.41.
+  colorPrimary: '#1A5A61',
+  colorPrimaryHover: '#144D54',
   colorSecondary: '#4E9A6F',
   colorBgMain: '#FAFAF8',
   colorBgSection: '#F1F1ED',
