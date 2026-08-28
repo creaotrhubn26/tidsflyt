@@ -31,7 +31,6 @@ describe("Barnevern saksuttrekk (krav 17)", { timeout: 20000 }, () => {
              (SELECT id::text FROM tidum_barnevern_planer WHERE sak_id = $1)`,
           [id],
         );
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);
       }
       for (const id of meldingIds) {

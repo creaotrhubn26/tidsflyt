@@ -626,7 +626,7 @@ export type BarnevernMelding = typeof barnevernMeldinger.$inferSelect;
 // Append-only revisjonslogg for kontrollert redigering (migrasjon 088).
 export const barnevernMeldingRevisjoner = pgTable("tidum_barnevern_melding_revisjoner", {
   id: uuid("id").defaultRandom().primaryKey(),
-  meldingId: uuid("melding_id").notNull().references(() => barnevernMeldinger.id),
+  meldingId: uuid("melding_id").notNull().references(() => barnevernMeldinger.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   begrunnelse: text("begrunnelse").notNull(),
   feltEndringer: jsonb("felt_endringer").notNull(),
@@ -684,7 +684,7 @@ export type BarnevernSak = typeof barnevernSaker.$inferSelect;
 // Append-only historikk over fasebeslutninger.
 export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_historikk", {
   id: uuid("id").defaultRandom().primaryKey(),
-  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   fraFase: text("fra_fase"),
   tilFase: text("til_fase").notNull(),
@@ -700,7 +700,7 @@ export const barnevernSakFaseHistorikk = pgTable("tidum_barnevern_sak_fase_histo
 export const barnevernPlaner = pgTable("tidum_barnevern_planer", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull(),
-  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id, { onDelete: "cascade" }),
   plantype: text("plantype").notNull().default("tiltaksplan"),
   versjon: integer("versjon").notNull().default(1),
   status: text("status").notNull().default("utkast"),
@@ -720,7 +720,7 @@ export type BarnevernPlan = typeof barnevernPlaner.$inferSelect;
 
 export const barnevernPlanTiltak = pgTable("tidum_barnevern_plan_tiltak", {
   id: uuid("id").defaultRandom().primaryKey(),
-  planId: uuid("plan_id").notNull().references(() => barnevernPlaner.id),
+  planId: uuid("plan_id").notNull().references(() => barnevernPlaner.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   beskrivelse: text("beskrivelse").notNull(),
   ansvarlig: text("ansvarlig").notNull(),
@@ -738,7 +738,7 @@ export const barnevernPlanTiltak = pgTable("tidum_barnevern_plan_tiltak", {
 export const barnevernDokumenter = pgTable("tidum_barnevern_dokumenter", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull(),
-  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id, { onDelete: "cascade" }),
   dokumenttype: text("dokumenttype").notNull(),
   malId: text("mal_id").notNull(),
   tittel: text("tittel").notNull(),
@@ -825,7 +825,7 @@ export const barnevernForebyggende = pgTable("tidum_barnevern_forebyggende", {
 
 export const barnevernForebyggendeAktiviteter = pgTable("tidum_barnevern_forebyggende_aktiviteter", {
   id: uuid("id").defaultRandom().primaryKey(),
-  forebyggendeId: uuid("forebyggende_id").notNull().references(() => barnevernForebyggende.id),
+  forebyggendeId: uuid("forebyggende_id").notNull().references(() => barnevernForebyggende.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   dato: date("dato").notNull(),
   beskrivelse: text("beskrivelse").notNull(),
@@ -841,7 +841,7 @@ export const barnevernForebyggendeAktiviteter = pgTable("tidum_barnevern_forebyg
 export const barnevernInnsynskrav = pgTable("tidum_barnevern_innsynskrav", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull(),
-  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id, { onDelete: "cascade" }),
   partNavn: text("part_navn").notNull(),
   partRelasjon: text("part_relasjon").notNull(),
   mottattDato: timestamp("mottatt_dato", { withTimezone: true }).notNull().defaultNow(),
@@ -909,7 +909,7 @@ export type BarnevernOppgave = typeof barnevernOppgaver.$inferSelect;
 // Rettelser = ny rad med correctsEntryId; aldri UPDATE/DELETE.
 export const barnevernSakJournal = pgTable("tidum_barnevern_sak_journal", {
   id: uuid("id").defaultRandom().primaryKey(),
-  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id),
+  sakId: uuid("sak_id").notNull().references(() => barnevernSaker.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   kategori: text("kategori").notNull(),
   innhold: text("innhold").notNull(),
@@ -922,7 +922,7 @@ export const barnevernSakJournal = pgTable("tidum_barnevern_sak_journal", {
 
 export const barnevernSakJournalVedlegg = pgTable("tidum_barnevern_sak_journal_vedlegg", {
   id: uuid("id").defaultRandom().primaryKey(),
-  journalEntryId: uuid("journal_entry_id").notNull().references(() => barnevernSakJournal.id),
+  journalEntryId: uuid("journal_entry_id").notNull().references(() => barnevernSakJournal.id, { onDelete: "cascade" }),
   kommuneId: integer("kommune_id").notNull(),
   filename: text("filename").notNull(),
   originalName: text("original_name").notNull(),

@@ -26,7 +26,6 @@ describe("Barnevern planer (krav 5)", { timeout: 20000 }, () => {
       }
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         // Planer og tiltak har CASCADE fra saken.
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);
       }

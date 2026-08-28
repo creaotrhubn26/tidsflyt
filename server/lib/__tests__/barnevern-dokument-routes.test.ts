@@ -20,7 +20,6 @@ describe("Barnevern dokumenter (krav 6)", { timeout: 20000 }, () => {
     await withSystemRlsContext("barnevern_dokument_test_cleanup", async (client) => {
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         await client.query(
           `DELETE FROM archive_entries WHERE entity_id IN
              (SELECT id::text FROM tidum_barnevern_sak_journal WHERE sak_id = $1)`,

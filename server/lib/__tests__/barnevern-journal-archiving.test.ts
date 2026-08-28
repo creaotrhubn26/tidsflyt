@@ -23,7 +23,6 @@ describe("queueBarnevernJournalArchiving", { timeout: 20000 }, () => {
     const meldingIds = cleanupMeldingIds.splice(0);
     await withSystemRlsContext("barnevern_arkiv_test_cleanup", async (client) => {
       for (const id of sakIds) {
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);
       }
       for (const id of meldingIds) {

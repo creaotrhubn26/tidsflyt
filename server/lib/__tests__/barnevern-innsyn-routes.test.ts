@@ -26,7 +26,6 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
              (SELECT id::text FROM tidum_barnevern_innsynskrav WHERE sak_id = $1)`,
           [id],
         );
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         // Innsynskrav og journal CASCADEr fra saken.
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);
       }

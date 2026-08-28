@@ -20,7 +20,6 @@ describe("Barnevern sak-journal (krav 4)", { timeout: 20000 }, () => {
     await withSystemRlsContext("barnevern_journal_test_cleanup", async (client) => {
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         // Journal og vedlegg er append-only (ingen DELETE-grant);
         // ON DELETE CASCADE fra saken rydder dem.
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);

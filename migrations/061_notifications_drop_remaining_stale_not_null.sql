@@ -10,4 +10,14 @@
 -- type and title are also legacy-schema NOT NULL columns, but
 -- createNotification() does write both (opts.type, opts.title), so they are
 -- not orphaned and are left untouched here.
-ALTER TABLE notifications ALTER COLUMN message DROP NOT NULL;
+-- Frisk-DB-guard: legacy-kolonnen finnes ikke på en database bygget fra
+-- dagens skjema.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'notifications' AND column_name = 'message'
+  ) THEN
+    ALTER TABLE notifications ALTER COLUMN message DROP NOT NULL;
+  END IF;
+END $$;
