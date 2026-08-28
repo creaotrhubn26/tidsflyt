@@ -11,12 +11,21 @@ export const TIDUM_ROLES = [
   "user",
   "barnevernsleder",
   "kommune_saksbehandler",
+  "kommune_admin",
   "innbygger",
 ] as const;
 
 export type TidumRole = (typeof TIDUM_ROLES)[number];
 
-const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler"]);
+const KOMMUNE_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler", "kommune_admin"]);
+
+/** Fagroller med saksinnsyn. kommune_admin administrerer brukere og oppsett
+ * men skal ALDRI ha tilgang til saksdata (admin ≠ fag — need-to-know). */
+const KOMMUNE_FAG_ROLES = new Set<TidumRole>(["barnevernsleder", "kommune_saksbehandler"]);
+
+export function isKommuneFagRolle(role: string | null | undefined): boolean {
+  return KOMMUNE_FAG_ROLES.has(normalizeRole(role));
+}
 const PORTAL_ROLES = new Set<TidumRole>(["innbygger"]);
 
 /** Kommune-roller skal ALDRI telle som gyldig aktør i vendor-side-administrasjon,
@@ -48,6 +57,7 @@ export const ROLE_LABELS: Record<string, string> = {
   user: "Bruker",
   barnevernsleder: "Barnevernsleder",
   kommune_saksbehandler: "Saksbehandler",
+  kommune_admin: "Kommuneadministrator",
   innbygger: "Innbygger",
 };
 
@@ -67,6 +77,7 @@ const ROLE_ALIASES: Record<string, TidumRole> = {
   user: "user",
   barnevernsleder: "barnevernsleder",
   kommune_saksbehandler: "kommune_saksbehandler",
+  kommune_admin: "kommune_admin",
   innbygger: "innbygger",
 };
 
@@ -89,6 +100,7 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
     "user",
     "barnevernsleder",
     "kommune_saksbehandler",
+    "kommune_admin",
   ],
   hovedadmin: ["vendor_admin", "tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
   vendor_admin: ["tiltaksleder", "teamleder", "case_manager", "miljoarbeider", "member", "user"],
@@ -101,6 +113,8 @@ const MANAGEABLE_BY_ROLE: Record<TidumRole, TidumRole[]> = {
   user: [],
   barnevernsleder: ["kommune_saksbehandler"],
   kommune_saksbehandler: [],
+  // Administrerer kommunens fagbrukere — har selv ikke saksinnsyn.
+  kommune_admin: ["barnevernsleder", "kommune_saksbehandler"],
   innbygger: [],
 };
 

@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
-import { loggTilgang, requireKommuneActor } from "./barnevern-melding-routes";
+import { loggTilgang, needToKnowVilkar, requireKommuneActor } from "./barnevern-melding-routes";
 
 /**
  * Kodefaste standardmaler (krav 6). Malinnholdet flettes og snapshotes inn
@@ -113,12 +113,13 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "s.tildelt_saksbehandler_id", 3);
         const { rows: [sak] } = await client.query(
           `SELECT s.*, k.navn AS kommune_navn
              FROM tidum_barnevern_saker s
              JOIN tidum_kommuner k ON k.id = s.kommune_id
-            WHERE s.id = $1 AND s.kommune_id = $2`,
-          [req.params.sakId, actor.kommuneId],
+            WHERE s.id = $1 AND s.kommune_id = $2${ntk.clause}`,
+          [req.params.sakId, actor.kommuneId, ...ntk.params],
         );
         if (!sak) throw new Error("SAK_NOT_FOUND");
         if (planId) {
@@ -170,9 +171,10 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
 
     try {
       const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
         const { rows: [sak] } = await client.query(
-          `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-          [req.params.sakId, actor.kommuneId],
+          `SELECT id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+          [req.params.sakId, actor.kommuneId, ...ntk.params],
         );
         if (!sak) return null;
         const { rows } = await client.query(

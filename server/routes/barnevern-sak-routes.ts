@@ -6,7 +6,7 @@ import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
 import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
-import { loggTilgang, requireKommuneActor } from "./barnevern-melding-routes";
+import { loggTilgang, needToKnowVilkar, requireKommuneActor, type KommuneActor } from "./barnevern-melding-routes";
 
 // Faseflyt for den kommunale barnevernssaken. En sak starter alltid i
 // undersøkelse (opprettet fra «send til undersøkelse» på en melding).
@@ -56,11 +56,14 @@ const journalUpload = multer({
   },
 });
 
-async function loadSakScoped(id: string, kommuneId: number) {
+async function loadSakScoped(id: string, kommuneId: number, actor?: KommuneActor) {
   return withKommuneRlsContext(kommuneId, async (client) => {
+    const ntk = actor
+      ? needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3)
+      : { clause: "", params: [] as string[] };
     const { rows } = await client.query(
-      `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-      [id, kommuneId],
+      `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+      [id, kommuneId, ...ntk.params],
     );
     return rows[0] ?? null;
   });
@@ -94,14 +97,16 @@ export function registerBarnevernSakRoutes(app: Express): void {
         return res.status(400).json({ error: "Ugyldig fase." });
       }
       const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntkMedFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+        const ntkUtenFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 2);
         const result = fase
           ? await client.query(
-              `SELECT * FROM tidum_barnevern_saker WHERE kommune_id = $1 AND fase = $2 ORDER BY created_at DESC`,
-              [actor.kommuneId, fase],
+              `SELECT * FROM tidum_barnevern_saker WHERE kommune_id = $1 AND fase = $2${ntkMedFase.clause} ORDER BY created_at DESC`,
+              [actor.kommuneId, fase, ...ntkMedFase.params],
             )
           : await client.query(
-              `SELECT * FROM tidum_barnevern_saker WHERE kommune_id = $1 ORDER BY created_at DESC`,
-              [actor.kommuneId],
+              `SELECT * FROM tidum_barnevern_saker WHERE kommune_id = $1${ntkUtenFase.clause} ORDER BY created_at DESC`,
+              [actor.kommuneId, ...ntkUtenFase.params],
             );
         return result.rows;
       });
@@ -118,9 +123,10 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
         const { rows: [sak] } = await client.query(
-          `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-          [req.params.id, actor.kommuneId],
+          `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+          [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!sak) return null;
         const { rows: historikk } = await client.query(
@@ -213,9 +219,10 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
         const { rows: [sak] } = await client.query(
-          `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
-          [req.params.id, actor.kommuneId],
+          `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause} FOR UPDATE`,
+          [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!sak) throw new Error("SAK_NOT_FOUND");
         if (!TILLATTE_OVERGANGER[sak.fase].includes(tilFase)) {
@@ -461,9 +468,10 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
         const { rows: [sak] } = await client.query(
-          `SELECT id, fase FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
-          [req.params.id, actor.kommuneId],
+          `SELECT id, fase FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+          [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!sak) throw new Error("SAK_NOT_FOUND");
         if (correctsEntryId) {
@@ -511,7 +519,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const sak = await loadSakScoped(req.params.id, actor.kommuneId);
+    const sak = await loadSakScoped(req.params.id, actor.kommuneId, actor);
     if (!sak) return res.status(404).json({ error: "Sak ikke funnet." });
 
     const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {

@@ -4,7 +4,7 @@ import path from "path";
 import fs from "fs";
 import type { PoolClient } from "pg";
 import { pool } from "../db";
-import { isKommuneRole, normalizeRole } from "../../shared/roles";
+import { isKommuneFagRolle, normalizeRole } from "../../shared/roles";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
 import { requireAuth } from "../middleware/auth";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
@@ -61,7 +61,9 @@ export async function requireKommuneActor(req: Request): Promise<KommuneActor | 
   );
   if (!row) return null;
   const role = normalizeRole(row.role);
-  if (!isKommuneRole(role) || row.kommune_id == null) return null;
+  // Kun FAGROLLER: kommune_admin administrerer brukere/oppsett og har
+  // bevisst ingen tilgang til saksdata (krav 14, need-to-know).
+  if (!isKommuneFagRolle(role) || row.kommune_id == null) return null;
   return { userId: user.id, role, kommuneId: row.kommune_id };
 }
 
@@ -98,11 +100,32 @@ export async function loggTilgang(
   );
 }
 
-async function loadMeldingScoped(id: string, kommuneId: number) {
+/**
+ * Krav 14, need-to-know på saksnivå: barnevernsleder ser alt i kommunen;
+ * saksbehandler ser kun objekter tildelt seg selv eller utildelte (mottak
+ * må kunne plukkes). Returnerer et AND-fragment + params, med
+ * parameternummerering fra `nesteParam`.
+ */
+export function needToKnowVilkar(
+  actor: KommuneActor,
+  kolonne: string,
+  nesteParam: number,
+): { clause: string; params: string[] } {
+  if (actor.role !== "kommune_saksbehandler") return { clause: "", params: [] };
+  return {
+    clause: ` AND (${kolonne} = $${nesteParam} OR ${kolonne} IS NULL)`,
+    params: [actor.userId],
+  };
+}
+
+async function loadMeldingScoped(id: string, kommuneId: number, actor?: KommuneActor) {
   return withKommuneRlsContext(kommuneId, async (client) => {
+    const ntk = actor
+      ? needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3)
+      : { clause: "", params: [] as string[] };
     const { rows } = await client.query(
-      `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-      [id, kommuneId],
+      `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+      [id, kommuneId, ...ntk.params],
     );
     return rows[0] ?? null;
   });
@@ -258,7 +281,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const forelder = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    const forelder = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
     if (!forelder) return res.status(404).json({ error: "Melding ikke funnet." });
 
     const body = {
@@ -296,7 +319,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const kilde = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    const kilde = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
     if (!kilde) return res.status(404).json({ error: "Melding ikke funnet." });
 
     const body = {
@@ -337,14 +360,16 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     try {
       const status = typeof req.query.status === "string" ? req.query.status : null;
       const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntkMedStatus = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+        const ntkUtenStatus = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 2);
         const result = status
           ? await client.query(
-              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 AND status = $2 ORDER BY created_at DESC`,
-              [actor.kommuneId, status],
+              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 AND status = $2${ntkMedStatus.clause} ORDER BY created_at DESC`,
+              [actor.kommuneId, status, ...ntkMedStatus.params],
             )
           : await client.query(
-              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1 ORDER BY created_at DESC`,
-              [actor.kommuneId],
+              `SELECT * FROM tidum_barnevern_meldinger WHERE kommune_id = $1${ntkUtenStatus.clause} ORDER BY created_at DESC`,
+              [actor.kommuneId, ...ntkUtenStatus.params],
             );
         return result.rows;
       });
@@ -360,9 +385,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+      const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
       const { rows: [melding] } = await client.query(
-        `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
-        [req.params.id, actor.kommuneId],
+        `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+        [req.params.id, actor.kommuneId, ...ntk.params],
       );
       if (!melding) return null;
       await loggTilgang(client, {
@@ -409,9 +435,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [existing] } = await client.query(
-          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
-          [req.params.id, actor.kommuneId],
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+          const { rows: [existing] } = await client.query(
+            `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2${ntk.clause} FOR UPDATE`,
+            [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!existing) throw new Error("MELDING_NOT_FOUND");
         if (existing.status === "henlagt" || existing.status === "sendt_til_undersokelse") {
@@ -479,7 +506,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-    const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+    const melding = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
     if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
 
     const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
@@ -514,9 +541,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
     if (!tildeltSaksbehandlerId) return res.status(400).json({ error: "tildeltSaksbehandlerId er påkrevd." });
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [existing] } = await client.query(
-          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
-          [req.params.id, actor.kommuneId],
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+          const { rows: [existing] } = await client.query(
+            `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2${ntk.clause} FOR UPDATE`,
+            [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!existing) throw new Error("MELDING_NOT_FOUND");
         const assignee = await client.query(
@@ -565,13 +593,14 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
         // Allerede avklart melding kan ikke henlegges — «sendt til
         // undersøkelse» har opprettet en sak som da ville blitt foreldreløs.
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 5);
         const { rows: [updated] } = await client.query(
           `UPDATE tidum_barnevern_meldinger
            SET status = 'henlagt', henleggelse_begrunnelse = $1, avklart_dato = NOW(), avklart_av_user_id = $2, updated_at = NOW()
            WHERE id = $3 AND kommune_id = $4
-             AND status NOT IN ('henlagt', 'sendt_til_undersokelse')
+             AND status NOT IN ('henlagt', 'sendt_til_undersokelse')${ntk.clause}
            RETURNING *`,
-          [begrunnelse, actor.userId, req.params.id, actor.kommuneId],
+          [begrunnelse, actor.userId, req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!updated) throw new Error("MELDING_NOT_FOUND");
         await cancelFrist(
@@ -599,9 +628,10 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
 
     try {
       const result = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const { rows: [existing] } = await client.query(
-          `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2 FOR UPDATE`,
-          [req.params.id, actor.kommuneId],
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+          const { rows: [existing] } = await client.query(
+            `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2${ntk.clause} FOR UPDATE`,
+            [req.params.id, actor.kommuneId, ...ntk.params],
         );
         if (!existing) throw new Error("MELDING_NOT_FOUND");
         if (existing.status === "sendt_til_undersokelse" || existing.status === "henlagt") {
@@ -682,7 +712,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
         return res.status(403).json({ error: "Ikke tilgang." });
       }
 
-      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
       if (!melding) {
         if (req.file) fs.unlink(req.file.path, () => {});
         return res.status(404).json({ error: "Melding ikke funnet." });
@@ -724,7 +754,7 @@ export function registerBarnevernMeldingRoutes(app: Express): void {
       const actor = await requireKommuneActor(req);
       if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
-      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId);
+      const melding = await loadMeldingScoped(req.params.id, actor.kommuneId, actor);
       if (!melding) return res.status(404).json({ error: "Melding ikke funnet." });
 
       const vedlegg = await withKommuneRlsContext(actor.kommuneId, async (client) => {

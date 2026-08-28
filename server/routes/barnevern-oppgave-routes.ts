@@ -1,7 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
-import { requireKommuneActor } from "./barnevern-melding-routes";
+import { needToKnowVilkar, requireKommuneActor } from "./barnevern-melding-routes";
 
 const ENTITY_TABELLER: Record<string, string> = {
   melding: "tidum_barnevern_meldinger",
@@ -49,9 +49,10 @@ export function registerBarnevernOppgaveRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
         const entity = await client.query(
-          `SELECT id FROM ${ENTITY_TABELLER[entityType]} WHERE id = $1 AND kommune_id = $2`,
-          [entityId, actor.kommuneId],
+          `SELECT id FROM ${ENTITY_TABELLER[entityType]} WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
+          [entityId, actor.kommuneId, ...ntk.params],
         );
         if (!entity.rowCount) throw new Error("ENTITY_NOT_FOUND");
         const assignee = await client.query(
