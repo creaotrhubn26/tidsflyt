@@ -746,6 +746,378 @@ function OppgaveSeksjon({ entityType, entityId }: { entityType: "melding" | "sak
   );
 }
 
+// ── INNSYN (krav 16) ─────────────────────────────────────────────────────────
+
+const INNSYN_STATUSER: Record<string, string> = {
+  mottatt: "Mottatt", innvilget: "Innvilget", delvis_innvilget: "Delvis innvilget",
+  avslatt: "Avslått", utlevert: "Utlevert", klage_mottatt: "Klage mottatt",
+  oversendt_klageinstans: "Oversendt statsforvalteren",
+};
+
+function InnsynSeksjon({ sakId }: { sakId: string }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [partNavn, setPartNavn] = useState("");
+  const [partRelasjon, setPartRelasjon] = useState("forelder");
+  const [beslutningFor, setBeslutningFor] = useState<string | null>(null);
+  const [utfall, setUtfall] = useState("innvilget");
+  const [begrunnelse, setBegrunnelse] = useState("");
+  const [unntakHjemmel, setUnntakHjemmel] = useState("");
+  const [unntakBeskrivelse, setUnntakBeskrivelse] = useState("");
+
+  const { data: krav = [] } = useQuery({
+    queryKey: ["barnevern-innsyn", sakId],
+    queryFn: () => api.listInnsynskrav(sakId),
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["barnevern-innsyn", sakId] });
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const opprett = useMutation({
+    mutationFn: () => api.opprettInnsynskrav(sakId, { partNavn, partRelasjon }),
+    onSuccess: () => { invalidate(); setPartNavn(""); toast({ title: "Innsynsbegjæring registrert (5 dagers frist)" }); },
+    onError: feil,
+  });
+  const beslutt = useMutation({
+    mutationFn: (id: string) => api.besluttInnsyn(id, {
+      utfall,
+      begrunnelse: begrunnelse || undefined,
+      unntak: utfall === "delvis_innvilget" && unntakHjemmel
+        ? [{ hjemmel: unntakHjemmel, beskrivelse: unntakBeskrivelse }]
+        : undefined,
+    }),
+    onSuccess: () => {
+      invalidate(); setBeslutningFor(null); setBegrunnelse(""); setUnntakHjemmel(""); setUnntakBeskrivelse("");
+      queryClient.invalidateQueries({ queryKey: ["barnevern-sak-journal", sakId] });
+      toast({ title: "Beslutning journalført" });
+    },
+    onError: feil,
+  });
+  const utlever = useMutation({
+    mutationFn: ({ id, via }: { id: string; via: string }) => api.utleverInnsyn(id, via),
+    onSuccess: () => { invalidate(); toast({ title: "Utlevering auditlogget" }); },
+    onError: feil,
+  });
+  const klage = useMutation({
+    mutationFn: (id: string) => api.registrerInnsynKlage(id),
+    onSuccess: () => { invalidate(); toast({ title: "Klage registrert" }); },
+    onError: feil,
+  });
+  const oversend = useMutation({
+    mutationFn: (id: string) => api.oversendInnsynKlage(id),
+    onSuccess: () => { invalidate(); toast({ title: "Klage oversendt statsforvalteren" }); },
+    onError: feil,
+  });
+
+  return (
+    <div className="space-y-3 text-sm">
+      <div className="flex gap-2 flex-wrap">
+        <Input placeholder="Partens navn" className="w-48" value={partNavn} onChange={(e) => setPartNavn(e.target.value)} data-testid="innsyn-part-input" />
+        <Select value={partRelasjon} onValueChange={setPartRelasjon}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {["forelder", "barn", "verge", "fullmektig", "annet"].map((r) => (
+              <SelectItem key={r} value={r} className="capitalize">{r}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={() => opprett.mutate()} disabled={!partNavn.trim() || opprett.isPending} data-testid="innsyn-opprett-button">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Registrer begjæring
+        </Button>
+      </div>
+
+      <ul className="space-y-2">
+        {krav.map((k) => (
+          <li key={k.id} className="border rounded-md p-2.5 space-y-1.5" data-testid={`innsyn-${k.id}`}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-medium">{k.partNavn} <span className="text-xs text-muted-foreground capitalize">({k.partRelasjon})</span></span>
+              <Badge variant={k.status === "avslatt" ? "destructive" : "secondary"} className="text-[10px]">
+                {INNSYN_STATUSER[k.status] ?? k.status}
+              </Badge>
+            </div>
+            <p className={cn("text-xs", k.status === "mottatt" && fristPassert(k.behandlingsfrist) ? "text-destructive font-medium" : "text-muted-foreground")}>
+              Behandlingsfrist: {formatDato(k.behandlingsfrist)}
+            </p>
+            {k.beslutningBegrunnelse && <p className="text-xs text-muted-foreground">Begrunnelse: {k.beslutningBegrunnelse}</p>}
+            {k.unntak?.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                Unntatt: {k.unntak.map((u) => `${u.beskrivelse} (${u.hjemmel})`).join("; ")}
+              </p>
+            )}
+
+            <div className="flex gap-2 flex-wrap">
+              {k.status === "mottatt" && (
+                <Button size="sm" variant="outline" onClick={() => setBeslutningFor(beslutningFor === k.id ? null : k.id)} data-testid={`innsyn-beslutt-${k.id}`}>
+                  Beslutt (barnevernsleder)
+                </Button>
+              )}
+              {(k.status === "innvilget" || k.status === "delvis_innvilget") && (
+                <Button size="sm" onClick={() => utlever.mutate({ id: k.id, via: "sikker_dialog" })} data-testid={`innsyn-utlever-${k.id}`}>
+                  Utlever via sikker dialog
+                </Button>
+              )}
+              {["avslatt", "delvis_innvilget", "utlevert"].includes(k.status) && (
+                <Button size="sm" variant="ghost" onClick={() => klage.mutate(k.id)}>Registrer klage</Button>
+              )}
+              {k.status === "klage_mottatt" && (
+                <Button size="sm" variant="outline" onClick={() => oversend.mutate(k.id)}>
+                  Oversend statsforvalteren (leder)
+                </Button>
+              )}
+            </div>
+
+            {beslutningFor === k.id && (
+              <div className="border-t pt-2 space-y-2">
+                <Select value={utfall} onValueChange={setUtfall}>
+                  <SelectTrigger className="w-52" data-testid="innsyn-utfall-select"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="innvilget">Innvilget</SelectItem>
+                    <SelectItem value="delvis_innvilget">Delvis innvilget (unntak)</SelectItem>
+                    <SelectItem value="avslatt">Avslått</SelectItem>
+                  </SelectContent>
+                </Select>
+                {utfall === "delvis_innvilget" && (
+                  <div className="flex gap-2">
+                    <Input placeholder="Hjemmel (f.eks. fvl. § 19 b)" value={unntakHjemmel} onChange={(e) => setUnntakHjemmel(e.target.value)} data-testid="innsyn-hjemmel-input" />
+                    <Input placeholder="Hva unntas" value={unntakBeskrivelse} onChange={(e) => setUnntakBeskrivelse(e.target.value)} />
+                  </div>
+                )}
+                {utfall !== "innvilget" && (
+                  <Textarea rows={2} placeholder="Begrunnelse (påkrevd)" value={begrunnelse} onChange={(e) => setBegrunnelse(e.target.value)} data-testid="innsyn-begrunnelse-input" />
+                )}
+                <Button size="sm" onClick={() => beslutt.mutate(k.id)} disabled={beslutt.isPending} data-testid="innsyn-bekreft-button">
+                  Fatt beslutning
+                </Button>
+              </div>
+            )}
+          </li>
+        ))}
+        {krav.length === 0 && <li className="text-xs text-muted-foreground">Ingen innsynsbegjæringer.</li>}
+      </ul>
+    </div>
+  );
+}
+
+// ── FOREBYGGENDE (krav 18) ───────────────────────────────────────────────────
+
+const FOREBYGGENDE_KATEGORIER: Record<string, string> = {
+  program: "Program", prosjekt: "Prosjekt", samarbeid: "Samarbeid", kampanje: "Kampanje", annet: "Annet",
+};
+const FOREBYGGENDE_STATUSER: Record<string, string> = {
+  planlagt: "Planlagt", pagar: "Pågår", avsluttet: "Avsluttet",
+};
+
+function ForebyggendeFane() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [tittel, setTittel] = useState("");
+  const [kategori, setKategori] = useState("program");
+  const [valgtId, setValgtId] = useState<string | null>(null);
+  const [aktivitetBeskrivelse, setAktivitetBeskrivelse] = useState("");
+  const [aktivitetDato, setAktivitetDato] = useState("");
+  const [aktivitetDeltakere, setAktivitetDeltakere] = useState("");
+
+  const { data: tiltak = [] } = useQuery({
+    queryKey: ["barnevern-forebyggende"],
+    queryFn: () => api.listForebyggende(),
+  });
+  const { data: valgt } = useQuery({
+    queryKey: ["barnevern-forebyggende", valgtId],
+    queryFn: () => api.getForebyggende(valgtId!),
+    enabled: !!valgtId,
+  });
+  const { data: statistikk } = useQuery({
+    queryKey: ["barnevern-forebyggende-statistikk"],
+    queryFn: () => api.getForebyggendeStatistikk(),
+  });
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["barnevern-forebyggende"] });
+    queryClient.invalidateQueries({ queryKey: ["barnevern-forebyggende-statistikk"] });
+    if (valgtId) queryClient.invalidateQueries({ queryKey: ["barnevern-forebyggende", valgtId] });
+  };
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const opprett = useMutation({
+    mutationFn: () => api.opprettForebyggende({ tittel, kategori }),
+    onSuccess: (t) => { invalidate(); setTittel(""); setValgtId(t.id); toast({ title: "Tiltak opprettet" }); },
+    onError: feil,
+  });
+  const settStatus = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) => api.settForebyggendeStatus(id, status),
+    onSuccess: invalidate,
+    onError: feil,
+  });
+  const nyAktivitet = useMutation({
+    mutationFn: () => api.registrerForebyggendeAktivitet(valgtId!, {
+      dato: aktivitetDato,
+      beskrivelse: aktivitetBeskrivelse,
+      antallDeltakere: aktivitetDeltakere ? Number(aktivitetDeltakere) : undefined,
+    }),
+    onSuccess: () => { invalidate(); setAktivitetBeskrivelse(""); setAktivitetDeltakere(""); toast({ title: "Aktivitet registrert" }); },
+    onError: feil,
+  });
+
+  const aaretsAktivitet = statistikk?.aktivitetPerAar?.[0];
+
+  return (
+    <div className="space-y-4">
+      {aaretsAktivitet && (
+        <p className="text-sm text-muted-foreground" data-testid="forebyggende-statistikk">
+          {aaretsAktivitet.aar}: {aaretsAktivitet.antall_aktiviteter} aktiviteter, {aaretsAktivitet.antall_deltakere} deltakere.
+        </p>
+      )}
+      <div className="flex gap-2 flex-wrap">
+        <Input placeholder="Nytt forebyggende tiltak …" className="w-64" value={tittel} onChange={(e) => setTittel(e.target.value)} data-testid="forebyggende-tittel-input" />
+        <Select value={kategori} onValueChange={setKategori}>
+          <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {Object.entries(FOREBYGGENDE_KATEGORIER).map(([k, v]) => (
+              <SelectItem key={k} value={k}>{v}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+        <Button size="sm" onClick={() => opprett.mutate()} disabled={!tittel.trim() || opprett.isPending} data-testid="forebyggende-opprett-button">
+          <Plus className="h-3.5 w-3.5 mr-1.5" /> Opprett
+        </Button>
+      </div>
+
+      <div className="grid md:grid-cols-[minmax(260px,340px)_1fr] gap-4">
+        <div className="space-y-2">
+          {tiltak.map((t) => (
+            <button key={t.id} type="button" onClick={() => setValgtId(t.id)}
+              className={cn("w-full text-left border rounded-md p-2.5 hover:bg-muted/50 transition-colors",
+                valgtId === t.id && "border-primary bg-muted/40")}
+              data-testid={`forebyggende-rad-${t.id}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-sm">{t.tittel}</span>
+                <Badge variant="outline" className="text-[10px]">{FOREBYGGENDE_STATUSER[t.status] ?? t.status}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5">{FOREBYGGENDE_KATEGORIER[t.kategori] ?? t.kategori}</p>
+            </button>
+          ))}
+          {tiltak.length === 0 && <p className="text-sm text-muted-foreground">Ingen tiltak registrert.</p>}
+        </div>
+        <div>
+          {valgt ? (
+            <Card data-testid="forebyggende-detalj">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <CardTitle className="text-base">{valgt.tittel}</CardTitle>
+                  <Select value={valgt.status} onValueChange={(v) => settStatus.mutate({ id: valgt.id, status: v })}>
+                    <SelectTrigger className="w-32 h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(FOREBYGGENDE_STATUSER).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-3 text-sm">
+                {valgt.samarbeidsparter?.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Samarbeidsparter: {valgt.samarbeidsparter.map((p) => p.navn).join(", ")}
+                  </p>
+                )}
+                <div className="flex gap-2 flex-wrap">
+                  <Input type="date" className="w-40" value={aktivitetDato} onChange={(e) => setAktivitetDato(e.target.value)} data-testid="aktivitet-dato-input" />
+                  <Input placeholder="Aktivitet" className="flex-1 min-w-40" value={aktivitetBeskrivelse} onChange={(e) => setAktivitetBeskrivelse(e.target.value)} data-testid="aktivitet-beskrivelse-input" />
+                  <Input placeholder="Deltakere" inputMode="numeric" className="w-24" value={aktivitetDeltakere} onChange={(e) => setAktivitetDeltakere(e.target.value.replace(/\D/g, ""))} data-testid="aktivitet-deltakere-input" />
+                  <Button size="sm" onClick={() => nyAktivitet.mutate()}
+                    disabled={!aktivitetDato || !aktivitetBeskrivelse.trim() || nyAktivitet.isPending}
+                    data-testid="aktivitet-registrer-button">
+                    Registrer
+                  </Button>
+                </div>
+                <ul className="space-y-1.5">
+                  {(valgt.aktiviteter ?? []).map((a) => (
+                    <li key={a.id} className="border-l-2 pl-2 text-xs">
+                      <span className="text-muted-foreground">{a.dato}:</span> {a.beskrivelse}
+                      {a.antallDeltakere != null && <span className="text-muted-foreground"> ({a.antallDeltakere} deltakere)</span>}
+                    </li>
+                  ))}
+                  {(valgt.aktiviteter ?? []).length === 0 && (
+                    <li className="text-xs text-muted-foreground">Ingen aktiviteter ennå.</li>
+                  )}
+                </ul>
+              </CardContent>
+            </Card>
+          ) : (
+            <p className="text-sm text-muted-foreground p-4">Velg et tiltak fra listen.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── INNRAPPORTERING (krav 10 — Barnevernsregisteret) ─────────────────────────
+
+const BVR_STATUSER: Record<string, string> = {
+  koet: "I kø", sender: "Sender", sendt: "Sendt", feilet: "Feilet", avvist: "Avvist (validering)",
+};
+
+function InnrapporteringFane() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: innsendinger = [], error } = useQuery({
+    queryKey: ["barnevern-innrapportering"],
+    queryFn: () => api.listInnrapportering(),
+    retry: false,
+  });
+  const kjor = useMutation({
+    mutationFn: () => api.kjorInnrapportering(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["barnevern-innrapportering"] });
+      toast({ title: "Innrapportering køet", description: "Gårsdagens datasett er kvalitetssikret og lagt i kø." });
+    },
+    onError: (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
+  });
+
+  if (error) {
+    return <p className="text-sm text-muted-foreground p-4">Innrapporteringsloggen er forbeholdt barnevernsleder.</p>;
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-sm text-muted-foreground">
+          Daglig automatisk innsending til Barnevernsregisteret (Bufdir) via KS FIKS Protokoll.
+          Kjøres 06:00; datasett kvalitetssikres før sending.
+        </p>
+        <Button size="sm" onClick={() => kjor.mutate()} disabled={kjor.isPending} data-testid="innrapportering-kjor-button">
+          Kjør nå
+        </Button>
+      </div>
+      <ul className="space-y-2">
+        {innsendinger.map((i) => (
+          <li key={i.id} className="border rounded-md p-2.5 text-sm" data-testid={`innsending-${i.id}`}>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <span className="font-medium">{String(i.rapportdato).slice(0, 10)}</span>
+              <Badge variant={i.status === "sendt" ? "default" : i.status === "avvist" || i.status === "feilet" ? "destructive" : "secondary"} className="text-[10px]">
+                {BVR_STATUSER[i.status] ?? i.status}
+              </Badge>
+            </div>
+            {i.kvittering && (
+              <p className="text-xs text-muted-foreground mt-1">
+                Kvittering: {JSON.stringify(i.kvittering).slice(0, 120)}
+              </p>
+            )}
+            {i.valideringsfeil && i.valideringsfeil.length > 0 && (
+              <ul className="text-xs text-destructive mt-1 list-disc pl-4">
+                {i.valideringsfeil.map((f, idx) => <li key={idx}>{f}</li>)}
+              </ul>
+            )}
+            {i.feil && <p className="text-xs text-destructive mt-1">{i.feil} (forsøk {i.forsok})</p>}
+            <p className="text-[10px] text-muted-foreground mt-1 font-mono">sha256: {i.innholdsHash.slice(0, 16)}…</p>
+          </li>
+        ))}
+        {innsendinger.length === 0 && <li className="text-sm text-muted-foreground">Ingen innsendinger ennå.</li>}
+      </ul>
+    </div>
+  );
+}
+
 // ── SAKSDETALJ MED JOURNAL ───────────────────────────────────────────────────
 
 function SakDetalj({ sakId }: { sakId: string }) {
@@ -851,6 +1223,7 @@ function SakDetalj({ sakId }: { sakId: string }) {
             <TabsTrigger value="plan" data-testid="sak-tab-plan">Plan</TabsTrigger>
             <TabsTrigger value="dokumenter" data-testid="sak-tab-dokumenter">Dokumenter</TabsTrigger>
             <TabsTrigger value="oppgaver" data-testid="sak-tab-oppgaver">Oppgaver</TabsTrigger>
+            <TabsTrigger value="innsyn" data-testid="sak-tab-innsyn">Innsyn</TabsTrigger>
           </TabsList>
 
           <TabsContent value="journal" className="mt-3 space-y-2">
@@ -907,6 +1280,9 @@ function SakDetalj({ sakId }: { sakId: string }) {
           </TabsContent>
           <TabsContent value="oppgaver" className="mt-3">
             <OppgaveSeksjon entityType="sak" entityId={sakId} />
+          </TabsContent>
+          <TabsContent value="innsyn" className="mt-3">
+            <InnsynSeksjon sakId={sakId} />
           </TabsContent>
         </Tabs>
       </CardContent>
@@ -968,6 +1344,8 @@ export default function BarnevernPage() {
           <TabsTrigger value="saker" data-testid="tab-saker">
             <FolderOpen className="h-4 w-4 mr-1.5" /> Saker ({saker.length})
           </TabsTrigger>
+          <TabsTrigger value="forebyggende" data-testid="tab-forebyggende">Forebyggende</TabsTrigger>
+          <TabsTrigger value="innrapportering" data-testid="tab-innrapportering">Innrapportering</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meldinger" className="mt-4">
@@ -1040,6 +1418,12 @@ export default function BarnevernPage() {
                 : <p className="text-sm text-muted-foreground p-4">Velg en sak fra listen.</p>}
             </div>
           </div>
+        </TabsContent>
+        <TabsContent value="forebyggende" className="mt-4">
+          <ForebyggendeFane />
+        </TabsContent>
+        <TabsContent value="innrapportering" className="mt-4">
+          <InnrapporteringFane />
         </TabsContent>
       </Tabs>
 

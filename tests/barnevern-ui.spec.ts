@@ -42,6 +42,9 @@ test.describe("Barnevern UI-flyt", () => {
     const planer: any[] = [];
     const dokumenter: any[] = [];
     const oppgaver: any[] = [];
+    const innsynskrav: any[] = [];
+    const forebyggende: any[] = [];
+    const innsendinger: any[] = [];
 
     await page.route(/\/api\/barnevern/, async (route) => {
       const url = new URL(route.request().url());
@@ -232,6 +235,84 @@ test.describe("Barnevern UI-flyt", () => {
         });
         return json(dokument);
       }
+      // Innsyn
+      const innsynListeMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)\/innsynskrav$/);
+      if (innsynListeMatch) {
+        if (method === "GET") return json(innsynskrav.filter((k) => k.sakId === innsynListeMatch[1]));
+        const body = route.request().postDataJSON();
+        const krav = {
+          id: `ik-${innsynskrav.length + 1}`, sakId: innsynListeMatch[1],
+          partNavn: body.partNavn, partRelasjon: body.partRelasjon,
+          mottattDato: new Date().toISOString(),
+          behandlingsfrist: new Date(Date.now() + 5 * 86400000).toISOString(),
+          status: "mottatt", unntak: [], beslutningBegrunnelse: null,
+          utlevertDato: null, utlevertVia: null, klageMottattDato: null,
+        };
+        innsynskrav.push(krav);
+        return json(krav, 201);
+      }
+      const innsynBeslutning = path.match(/^\/api\/barnevern\/innsynskrav\/([^/]+)\/beslutning$/);
+      if (method === "POST" && innsynBeslutning) {
+        const krav = innsynskrav.find((k) => k.id === innsynBeslutning[1]);
+        const body = route.request().postDataJSON();
+        krav.status = body.utfall;
+        krav.beslutningBegrunnelse = body.begrunnelse ?? null;
+        krav.unntak = body.unntak ?? [];
+        return json(krav);
+      }
+      const innsynUtlever = path.match(/^\/api\/barnevern\/innsynskrav\/([^/]+)\/utlever$/);
+      if (method === "POST" && innsynUtlever) {
+        const krav = innsynskrav.find((k) => k.id === innsynUtlever[1]);
+        krav.status = "utlevert";
+        krav.utlevertVia = route.request().postDataJSON().via;
+        return json(krav);
+      }
+      // Forebyggende
+      if (path === "/api/barnevern/forebyggende/statistikk") {
+        return json({
+          perKategori: [],
+          aktivitetPerAar: [{ aar: 2026, antall_aktiviteter: forebyggende.reduce((n, t) => n + t.aktiviteter.length, 0), antall_deltakere: 27 }],
+        });
+      }
+      if (path === "/api/barnevern/forebyggende") {
+        if (method === "GET") return json(forebyggende);
+        const body = route.request().postDataJSON();
+        const tiltak = {
+          id: `f-${forebyggende.length + 1}`, tittel: body.tittel, beskrivelse: null,
+          kategori: body.kategori, samarbeidsparter: [], startDato: null, sluttDato: null,
+          status: "planlagt", aktiviteter: [] as any[],
+        };
+        forebyggende.push(tiltak);
+        return json(tiltak, 201);
+      }
+      const forebyggendeAktivitet = path.match(/^\/api\/barnevern\/forebyggende\/([^/]+)\/aktiviteter$/);
+      if (method === "POST" && forebyggendeAktivitet) {
+        const tiltak = forebyggende.find((t) => t.id === forebyggendeAktivitet[1]);
+        const body = route.request().postDataJSON();
+        const aktivitet = { id: `fa-${tiltak.aktiviteter.length + 1}`, dato: body.dato, beskrivelse: body.beskrivelse, antallDeltakere: body.antallDeltakere ?? null, notat: null };
+        tiltak.aktiviteter.push(aktivitet);
+        return json(aktivitet, 201);
+      }
+      const forebyggendeDetalj = path.match(/^\/api\/barnevern\/forebyggende\/([^/]+)$/);
+      if (forebyggendeDetalj) {
+        const tiltak = forebyggende.find((t) => t.id === forebyggendeDetalj[1]);
+        if (!tiltak) return json({ error: "Ikke funnet" }, 404);
+        if (method === "PATCH") tiltak.status = route.request().postDataJSON().status ?? tiltak.status;
+        return json(tiltak);
+      }
+      // Innrapportering
+      if (path === "/api/barnevern/innrapportering") return json(innsendinger);
+      if (path === "/api/barnevern/innrapportering/kjor") {
+        const innsending = {
+          id: `bvr-${innsendinger.length + 1}`,
+          rapportdato: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+          status: "sendt", innholdsHash: "a".repeat(64), valideringsfeil: null,
+          forsok: 1, kvittering: { mottaksId: "BVR-2026-042" }, feil: null,
+          sendtDato: new Date().toISOString(),
+        };
+        innsendinger.push(innsending);
+        return json({ id: innsending.id, status: "koet" }, 202);
+      }
       const sakMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)$/);
       if (method === "GET" && sakMatch) {
         const sak = saker.find((s) => s.id === sakMatch[1]);
@@ -303,5 +384,38 @@ test.describe("Barnevern UI-flyt", () => {
     await expect(page.getByText("Følg opp skolen")).toBeVisible();
     await page.getByTestId("oppgave-fullfor-o-1").click();
     await expect(page.getByTestId("oppgave-o-1").getByText("Fullført")).toBeVisible();
+
+    // Innsyn: begjæring → delvis innvilgelse med unntak → utlevering
+    await page.getByTestId("sak-tab-innsyn").click();
+    await page.getByTestId("innsyn-part-input").fill("Mor Testesen");
+    await page.getByTestId("innsyn-opprett-button").click();
+    await expect(page.getByTestId("innsyn-ik-1")).toBeVisible();
+    await page.getByTestId("innsyn-beslutt-ik-1").click();
+    await page.getByTestId("innsyn-utfall-select").click();
+    await page.getByRole("option", { name: /delvis innvilget/i }).click();
+    await page.getByTestId("innsyn-hjemmel-input").fill("fvl. § 19 b");
+    await page.getByTestId("innsyn-begrunnelse-input").fill("Melders identitet skjermes.");
+    await page.getByTestId("innsyn-bekreft-button").click();
+    await expect(page.getByTestId("innsyn-utlever-ik-1")).toBeVisible();
+    await page.getByTestId("innsyn-utlever-ik-1").click();
+    await expect(page.getByTestId("innsyn-ik-1").getByText("Utlevert")).toBeVisible();
+
+    // Forebyggende: opprett tiltak → registrer aktivitet
+    await page.getByTestId("tab-forebyggende").click();
+    await page.getByTestId("forebyggende-tittel-input").fill("Foreldreveiledningskurs");
+    await page.getByTestId("forebyggende-opprett-button").click();
+    await expect(page.getByTestId("forebyggende-detalj")).toBeVisible();
+    await page.getByTestId("aktivitet-dato-input").fill("2026-09-10");
+    await page.getByTestId("aktivitet-beskrivelse-input").fill("Første kurskveld");
+    await page.getByTestId("aktivitet-deltakere-input").fill("12");
+    await page.getByTestId("aktivitet-registrer-button").click();
+    await expect(page.getByText("Første kurskveld")).toBeVisible();
+
+    // Innrapportering: kjør nå → innsending med kvittering vises
+    await page.getByTestId("tab-innrapportering").click();
+    await page.getByTestId("innrapportering-kjor-button").click();
+    await expect(page.getByTestId("innsending-bvr-1")).toBeVisible();
+    await expect(page.getByTestId("innsending-bvr-1").getByText("Sendt")).toBeVisible();
+    await expect(page.getByText(/BVR-2026-042/)).toBeVisible();
   });
 });

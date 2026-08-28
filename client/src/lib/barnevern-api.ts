@@ -299,6 +299,136 @@ export function ekspederDokument(id: string, via: "sikker_dialog" | "manuell"): 
   return requestJson(`/api/barnevern/dokumenter/${id}/ekspeder`, jsonInit("POST", { via }));
 }
 
+// ── INNSYN ───────────────────────────────────────────────────────────────────
+
+export type Innsynskrav = {
+  id: string;
+  sakId: string;
+  partNavn: string;
+  partRelasjon: string;
+  mottattDato: string;
+  behandlingsfrist: string;
+  status: string;
+  unntak: { hjemmel: string; beskrivelse: string }[];
+  beslutningBegrunnelse: string | null;
+  utlevertDato: string | null;
+  utlevertVia: string | null;
+  klageMottattDato: string | null;
+};
+
+export function listInnsynskrav(sakId: string): Promise<Innsynskrav[]> {
+  return requestJson(`/api/barnevern/saker/${sakId}/innsynskrav`);
+}
+
+export function opprettInnsynskrav(sakId: string, input: { partNavn: string; partRelasjon: string }): Promise<Innsynskrav> {
+  return requestJson(`/api/barnevern/saker/${sakId}/innsynskrav`, jsonInit("POST", input));
+}
+
+export function besluttInnsyn(id: string, input: {
+  utfall: string;
+  begrunnelse?: string;
+  unntak?: { hjemmel: string; beskrivelse: string }[];
+}): Promise<Innsynskrav> {
+  return requestJson(`/api/barnevern/innsynskrav/${id}/beslutning`, jsonInit("POST", input));
+}
+
+export function utleverInnsyn(id: string, via: string): Promise<Innsynskrav> {
+  return requestJson(`/api/barnevern/innsynskrav/${id}/utlever`, jsonInit("POST", { via }));
+}
+
+export function registrerInnsynKlage(id: string, notat?: string): Promise<Innsynskrav> {
+  return requestJson(`/api/barnevern/innsynskrav/${id}/klage`, jsonInit("POST", { notat }));
+}
+
+export function oversendInnsynKlage(id: string): Promise<Innsynskrav> {
+  return requestJson(`/api/barnevern/innsynskrav/${id}/oversend-klage`, jsonInit("POST", {}));
+}
+
+// ── FOREBYGGENDE ─────────────────────────────────────────────────────────────
+
+export type ForebyggendeAktivitet = {
+  id: string;
+  dato: string;
+  beskrivelse: string;
+  antallDeltakere: number | null;
+  notat: string | null;
+};
+
+export type ForebyggendeTiltak = {
+  id: string;
+  tittel: string;
+  beskrivelse: string | null;
+  kategori: string;
+  samarbeidsparter: { navn: string; type?: string }[];
+  startDato: string | null;
+  sluttDato: string | null;
+  status: string;
+  aktiviteter?: ForebyggendeAktivitet[];
+};
+
+export function listForebyggende(): Promise<ForebyggendeTiltak[]> {
+  return requestJson("/api/barnevern/forebyggende");
+}
+
+export function getForebyggende(id: string): Promise<ForebyggendeTiltak> {
+  return requestJson(`/api/barnevern/forebyggende/${id}`);
+}
+
+export function opprettForebyggende(input: {
+  tittel: string;
+  beskrivelse?: string;
+  kategori: string;
+  samarbeidsparter?: { navn: string; type?: string }[];
+  startDato?: string;
+}): Promise<ForebyggendeTiltak> {
+  return requestJson("/api/barnevern/forebyggende", jsonInit("POST", input));
+}
+
+export function settForebyggendeStatus(id: string, status: string): Promise<ForebyggendeTiltak> {
+  return requestJson(`/api/barnevern/forebyggende/${id}`, jsonInit("PATCH", { status }));
+}
+
+export function registrerForebyggendeAktivitet(id: string, input: {
+  dato: string;
+  beskrivelse: string;
+  antallDeltakere?: number;
+}): Promise<ForebyggendeAktivitet> {
+  return requestJson(`/api/barnevern/forebyggende/${id}/aktiviteter`, jsonInit("POST", input));
+}
+
+export function getForebyggendeStatistikk(): Promise<{
+  perKategori: { kategori: string; status: string; antall: number }[];
+  aktivitetPerAar: { aar: number; antall_aktiviteter: number; antall_deltakere: number }[];
+}> {
+  return requestJson("/api/barnevern/forebyggende/statistikk");
+}
+
+// ── INNRAPPORTERING (Barnevernsregisteret) ───────────────────────────────────
+
+export type BvrInnsending = {
+  id: string;
+  rapportdato: string;
+  status: string;
+  innholdsHash: string;
+  valideringsfeil: string[] | null;
+  forsok: number;
+  kvittering: Record<string, unknown> | null;
+  feil: string | null;
+  sendtDato: string | null;
+};
+
+export function listInnrapportering(): Promise<BvrInnsending[]> {
+  return requestJson("/api/barnevern/innrapportering");
+}
+
+export function kjorInnrapportering(rapportdato?: string): Promise<{ id: string; status: string }> {
+  return requestJson("/api/barnevern/innrapportering/kjor", jsonInit("POST", rapportdato ? { rapportdato } : {}));
+}
+
+export function getHalvaarsrapport(aar: number, halvaar: 1 | 2): Promise<any> {
+  return requestJson(`/api/barnevern/rapportering/halvaar?aar=${aar}&halvaar=${halvaar}`);
+}
+
 // ── JOURNAL ──────────────────────────────────────────────────────────────────
 
 export function listJournal(sakId: string): Promise<JournalEntry[]> {
