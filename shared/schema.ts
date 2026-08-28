@@ -785,6 +785,26 @@ export const smsUtboks = pgTable("tidum_sms_utboks", {
 
 export type SmsUtboksRad = typeof smsUtboks.$inferSelect;
 
+// Daglig innrapportering til Barnevernsregisteret (migrasjon 097, krav 10/28).
+export const barnevernsregisterInnsendinger = pgTable("tidum_barnevernsregister_innsendinger", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  rapportdato: date("rapportdato").notNull(),
+  datasett: jsonb("datasett").notNull(),
+  innholdsHash: text("innholds_hash").notNull(),
+  status: text("status").notNull().default("koet"),
+  valideringsfeil: jsonb("valideringsfeil"),
+  forsok: integer("forsok").notNull().default(0),
+  nesteForsok: timestamp("neste_forsok", { withTimezone: true }).notNull().defaultNow(),
+  kvittering: jsonb("kvittering"),
+  feil: text("feil"),
+  sendtDato: timestamp("sendt_dato", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("tidum_bvr_innsendinger_status_idx").on(table.status, table.nesteForsok),
+]);
+
 // Forebyggende arbeid (migrasjon 095, krav 18). Ikke barn-bundet.
 export const barnevernForebyggende = pgTable("tidum_barnevern_forebyggende", {
   id: uuid("id").defaultRandom().primaryKey(),
