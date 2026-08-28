@@ -85,6 +85,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "097_barnevernsregister_innsendinger.sql",
   "098_fiks_intake_metadata.sql",
   "099_push_parity.sql",
+  "100_drift_alarmer.sql",
 ];
 
 // Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i
