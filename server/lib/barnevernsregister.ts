@@ -16,6 +16,9 @@
 import { createHash } from "crypto";
 import { withKommuneRlsContext, withSystemRlsContext } from "./database-rls-context";
 import { nextAttemptDelayMs } from "./archive/noark";
+// Ingen runtime-sykel: bvr-fiks-transport importerer kun typen herfra
+// (import type — slettes ved kompilering).
+import { getFiksProtokollTransport } from "./bvr-fiks-transport";
 
 const MAX_FORSOK = 8;
 const STALE_SENDER_MINUTTER = 10;
@@ -33,6 +36,10 @@ export function setBvrTransportForTesting(transport: BvrTransport | null): void 
 
 export function getBvrTransport(): BvrTransport | null {
   if (testTransport) return testTransport;
+  // Autoritativ transport er KS FIKS Protokoll (Bufdirs modell); den
+  // generiske REST-adapteren består som fallback for sandkasse/test.
+  const fiks = getFiksProtokollTransport();
+  if (fiks) return fiks;
   const url = process.env.BVR_API_URL;
   const token = process.env.BVR_API_TOKEN;
   if (!url || !token) return null;
