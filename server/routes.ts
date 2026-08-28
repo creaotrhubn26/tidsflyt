@@ -20,6 +20,7 @@ import { registerSmsRoutes, setupSmsOutboxCron } from "./routes/sms-routes";
 import { registerBarnevernsregisterRoutes, setupBarnevernsregisterCron } from "./routes/barnevernsregister-routes";
 import { setupDriftAlarmCron } from "./lib/drift-alarm";
 import { registerIntegrasjonStatusRoutes } from "./routes/integrasjon-status-routes";
+import { registerTotpRoutes } from "./routes/totp-routes";
 import { registerBarnevernKpiRoutes } from "./routes/barnevern-kpi-routes";
 import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
 import { registerBarnevernSakRoutes } from "./routes/barnevern-sak-routes";
@@ -6852,6 +6853,7 @@ export async function registerRoutes(
   registerSmsRoutes(app);
   registerBarnevernsregisterRoutes(app);
   registerIntegrasjonStatusRoutes(app);
+  registerTotpRoutes(app);
   registerBarnevernKpiRoutes(app);
   registerSecureDialogRoutes(app);
   setupFiksIoReceiver(app);

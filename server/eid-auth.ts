@@ -9,7 +9,7 @@ import { canAccessVendorApiAdmin } from "@shared/roles";
 import { hashSsn } from "./lib/eid-hash";
 import type { AuthUser } from "./lib/auth-types";
 import { getAppBaseUrl } from "./lib/app-base-url";
-import { hasSessionAuth } from "./custom-auth";
+import { hasSessionAuth, redirectAfterLogin } from "./custom-auth";
 import { issueMobileTokens } from "./lib/mobile-auth";
 import { authRateLimit } from "./rate-limit";
 
@@ -399,7 +399,7 @@ function createEidCallbackHandler(provider: string, ssnClaimKey: string): Reques
 
       req.logIn(resolvedUser, (loginError) => {
         if (loginError) return next(loginError);
-        return res.redirect(eidPostLoginPath(resolvedUser.role));
+        redirectAfterLogin(req, res, resolvedUser, eidPostLoginPath(resolvedUser.role)).catch(next);
       });
     } catch (err) {
       if ((err as { code?: string })?.code === "23505") {

@@ -14,7 +14,9 @@ import { authRateLimit } from "./rate-limit";
 import { emailService } from "./lib/email-service";
 import type { AuthUser } from "./lib/auth-types";
 import { requiresEidLogin, hasLinkedEid } from "./eid-auth";
-import { isDevAuthBypassAllowed } from "./middleware/auth";
+import { isDevAuthBypassAllowed, isTotpStepUpPending } from "./middleware/auth";
+import { hasTotpEnrolled } from "./lib/totp";
+import { canAccessVendorApiAdmin } from "@shared/roles";
 import {
   generateCsrfToken,
   requireCsrfSecret,
@@ -83,6 +85,43 @@ function sanitizeReturnTo(value: unknown): string | null {
   } catch {
     return null;
   }
+}
+
+// Krav 20 (G-10): TOTP for admin-roller. Utrullingsdato styrer 30-dagers
+// nådeperioden for allerede aktive admins uten innrullering.
+const TOTP_ROLLOUT_DATE = new Date(process.env.TOTP_ROLLOUT_DATE || "2026-09-01T00:00:00Z");
+
+async function checkTotpRequirement(user: AuthUser): Promise<"not_required" | "grace_period" | "required_missing" | "satisfied"> {
+  if (!canAccessVendorApiAdmin(user.role)) return "not_required";
+  const enrolled = await hasTotpEnrolled(user.id);
+  if (enrolled) return "satisfied";
+  const daysSinceRollout = (Date.now() - TOTP_ROLLOUT_DATE.getTime()) / (1000 * 60 * 60 * 24);
+  return daysSinceRollout < 30 ? "grace_period" : "required_missing";
+}
+
+// Kalles rett etter en vellykket req.logIn for de web-sesjonsbaserte
+// innloggingsflytene (Google-callback, magic-link, BankID/eID og Entra ID).
+// "required_missing": sesjonen er opprettet, men klienten skal ikke vise
+// dashbordet før TOTP er satt opp — send til oppsettsiden.
+// "grace_period": sesjonsflagg klienten kan lese for et varsel; fortsett.
+// "satisfied": brukeren HAR en registrert TOTP-credential — TOTP kreves ved
+// HVER innlogging etter innrullering. totpVerified settes eksplisitt til
+// false her, og admin-guardene avviser til /api/totp/verify setter true.
+export async function redirectAfterLogin(req: Request, res: Response, user: AuthUser, fallback?: unknown): Promise<void> {
+  const totpStatus = await checkTotpRequirement(user);
+  if (totpStatus === "required_missing") {
+    res.redirect("/totp-setup");
+    return;
+  }
+  if (totpStatus === "grace_period") {
+    (req.session as any).totpGracePeriod = true;
+  }
+  if (totpStatus === "satisfied") {
+    (req.session as any).totpVerified = false;
+    res.redirect("/totp-challenge");
+    return;
+  }
+  res.redirect(getPostAuthRedirect(req, fallback));
 }
 
 function getPostAuthRedirect(req: Request, fallback?: unknown): string {
@@ -435,7 +474,7 @@ export async function setupCustomAuth(app: Express) {
               if (loginError) {
                 return next(loginError);
               }
-              return res.redirect(getPostAuthRedirect(req));
+              redirectAfterLogin(req, res, user).catch(next);
             });
           })
           .catch(next);
@@ -558,7 +597,7 @@ export async function setupCustomAuth(app: Express) {
         if (loginError) {
           return next(loginError);
         }
-        return res.redirect(getPostAuthRedirect(req, payload?.returnTo));
+        redirectAfterLogin(req, res, user, payload?.returnTo).catch(next);
       });
     } catch (error) {
       console.error("Email login verify error:", error);
@@ -688,6 +727,10 @@ async function requireFreshVendorActor(
     return res.status(401).json({ message: "Ikke autentisert" });
   }
 
+  if (isTotpStepUpPending(req)) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
+  }
+
   try {
     const actor = await resolver(req);
     if (!actor) return res.status(403).json({ message: deniedMessage });
@@ -766,6 +809,9 @@ export const requireSuperAdmin: RequestHandler = async (req, res, next) => {
   if (isDevAuthBypassAllowed()) return next();
   if (!hasSessionAuth(req) || !req.user) {
     return res.status(401).json({ message: "Ikke autentisert" });
+  }
+  if (isTotpStepUpPending(req)) {
+    return res.status(401).json({ message: "TOTP-verifisering påkrevd" });
   }
 
   try {

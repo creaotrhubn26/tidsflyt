@@ -86,6 +86,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "098_fiks_intake_metadata.sql",
   "099_push_parity.sql",
   "100_drift_alarmer.sql",
+  "101_admin_totp_credentials.sql",
 ];
 
 // Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i
