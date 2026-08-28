@@ -99,7 +99,7 @@ export default function Integrasjoner() {
   const goToContact = () => setLocation("/kontakt");
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -319,6 +319,6 @@ export default function Integrasjoner() {
           </div>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

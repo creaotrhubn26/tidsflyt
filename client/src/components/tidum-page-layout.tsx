@@ -82,7 +82,7 @@ export default function TidumPageLayout({
   const [, navigate] = useLocation();
 
   return (
-    <main className="tidum-page">
+    <div className="tidum-page">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -215,6 +215,6 @@ export default function TidumPageLayout({
           </div>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

@@ -186,7 +186,7 @@ describe("Barnevern oppgaver (krav 3)", { timeout: 20000 }, () => {
       );
     });
 
-    await runFristEscalations();
+    await runFristEscalations(undefined, [opprettet.body.id]);
 
     const { rows: eierVarsler } = await pool.query(
       `SELECT type FROM notifications WHERE recipient_id = $1 AND type = 'frist_eskalering'`,

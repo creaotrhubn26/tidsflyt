@@ -197,7 +197,7 @@ export default function Pricing() {
   }, [tiers, userCount, settings, sweetSpot]);
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-16 pt-8">
@@ -449,6 +449,6 @@ export default function Pricing() {
           <p className="mt-4 text-center">© 2025 Tidum. Driftet av Creatorhub AS.</p>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }
