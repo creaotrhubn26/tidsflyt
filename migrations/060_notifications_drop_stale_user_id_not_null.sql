@@ -7,4 +7,14 @@
 -- succeed; the column itself is left in place (no data loss) since dropping
 -- it outright is not needed to fix the bug and is easy to do in a later pass
 -- once confirmed nothing else references it.
-ALTER TABLE notifications ALTER COLUMN user_id DROP NOT NULL;
+-- Frisk-DB-guard: på en database bygget fra dagens skjema finnes ikke
+-- legacy-kolonnen — da er det ingenting å fikse.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'notifications' AND column_name = 'user_id'
+  ) THEN
+    ALTER TABLE notifications ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+END $$;

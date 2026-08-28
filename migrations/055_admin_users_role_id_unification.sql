@@ -9,20 +9,30 @@
 -- username (UNIQUE) og password. Begge må oppgis eller INSERT feiler.
 -- Verdiene leses aldri av Tidums egen kode.
 
-INSERT INTO users (id, email, username, password, role, role_id, created_at, updated_at)
-SELECT
-  gen_random_uuid(),
-  a.email,
-  a.username,
-  'unused-admin-users-pairing',
-  a.role,
-  (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true),
-  a.created_at,
-  now()
-FROM tidum_admin_users a
-WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
-  AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
-  AND a.role IN ('super_admin', 'vendor_admin');
+-- Frisk-DB-guard: parringen er kun meningsfull der både admin-tabellen og
+-- username-kolonnen finnes; en nyetablert database har ingen legacy å pare.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'users' AND column_name = 'username'
+  ) AND to_regclass('tidum_admin_users') IS NOT NULL THEN
+    INSERT INTO users (id, email, username, password, role, role_id, created_at, updated_at)
+    SELECT
+      gen_random_uuid(),
+      a.email,
+      a.username,
+      'unused-admin-users-pairing',
+      a.role,
+      (SELECT id FROM tidum_roles WHERE name = a.role AND scope = 'global' AND is_system_default = true),
+      a.created_at,
+      now()
+    FROM tidum_admin_users a
+    WHERE NOT EXISTS (SELECT 1 FROM users u WHERE u.email = a.email)
+      AND NOT EXISTS (SELECT 1 FROM users u2 WHERE u2.username = a.username)
+      AND a.role IN ('super_admin', 'vendor_admin');
+  END IF;
+END $$;
 
 -- Backfill role_id på users-rader som allerede er paret på e-post men
 -- mangler role_id — kun meningsfullt som engangs-bootstrap. Fjernet

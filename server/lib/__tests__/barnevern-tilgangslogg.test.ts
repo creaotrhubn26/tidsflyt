@@ -21,7 +21,6 @@ describe("Barnevern tilgangslogg (krav 15)", { timeout: 20000 }, () => {
       // Append-only logg uten DELETE-grant ryddes via superbruker-pool etterpå.
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
-        await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [id]);
         await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [id]);
       }
       for (const id of meldingIds) {

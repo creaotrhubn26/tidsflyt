@@ -22,6 +22,14 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   // Role: 'super_admin', 'vendor_admin', 'user' (default)
   role: varchar("role").default("user"),
+  // Skjemadrift-fiks: username/password/role_id har alltid eksistert i
+  // driftsdatabasen (custom-auth og bruker-opprettelse skriver dem), men
+  // manglet i Drizzle-skjemaet — en frisk `db:push`-database knakk derfor
+  // både innlogging og migrasjon 055. role_id sin FK til tidum_roles
+  // opprettes av migrasjon 054.
+  username: text("username").unique(),
+  password: text("password"),
+  roleId: uuid("role_id"),
   // Vendor ID - null for super_admin, required for vendor_admin and user
   vendorId: integer("vendor_id"),
   // Kommune-tenant ID — null for vendor-brukere og super_admin, satt for

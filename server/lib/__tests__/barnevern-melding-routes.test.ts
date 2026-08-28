@@ -24,7 +24,6 @@ describe("Barnevern meldingsmottak-ruter", { timeout: 15000 }, () => {
         );
         for (const sak of saker) {
           await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [sak.id]);
-          await client.query(`DELETE FROM tidum_barnevern_sak_fase_historikk WHERE sak_id = $1`, [sak.id]);
           await client.query(`DELETE FROM tidum_barnevern_saker WHERE id = $1`, [sak.id]);
         }
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
