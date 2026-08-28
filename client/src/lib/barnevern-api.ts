@@ -429,6 +429,24 @@ export function getHalvaarsrapport(aar: number, halvaar: 1 | 2): Promise<any> {
   return requestJson(`/api/barnevern/rapportering/halvaar?aar=${aar}&halvaar=${halvaar}`);
 }
 
+// ── NØKKELTALL (KPI) ─────────────────────────────────────────────────────────
+
+export type Kpi = {
+  id: string;
+  navn: string;
+  beskrivelse: string;
+  kilde: string;
+  formel: string;
+  eier: string;
+  frekvens: string;
+  enhet: "antall" | "prosent" | "dager";
+  verdi: number | null;
+};
+
+export function listKpi(): Promise<{ generert: string; kpier: Kpi[] }> {
+  return requestJson("/api/barnevern/kpi");
+}
+
 // ── JOURNAL ──────────────────────────────────────────────────────────────────
 
 export function listJournal(sakId: string): Promise<JournalEntry[]> {

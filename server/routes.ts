@@ -19,6 +19,7 @@ import { registerFristEscalationRoutes, setupFristEscalationCron } from "./route
 import { registerSmsRoutes, setupSmsOutboxCron } from "./routes/sms-routes";
 import { registerBarnevernsregisterRoutes, setupBarnevernsregisterCron } from "./routes/barnevernsregister-routes";
 import { registerIntegrasjonStatusRoutes } from "./routes/integrasjon-status-routes";
+import { registerBarnevernKpiRoutes } from "./routes/barnevern-kpi-routes";
 import { registerBarnevernMeldingRoutes } from "./routes/barnevern-melding-routes";
 import { registerBarnevernSakRoutes } from "./routes/barnevern-sak-routes";
 import { registerBarnevernOppgaveRoutes } from "./routes/barnevern-oppgave-routes";
@@ -6849,6 +6850,7 @@ export async function registerRoutes(
   registerSmsRoutes(app);
   registerBarnevernsregisterRoutes(app);
   registerIntegrasjonStatusRoutes(app);
+  registerBarnevernKpiRoutes(app);
   registerSecureDialogRoutes(app);
   setupFiksIoReceiver(app);
   registerPricingRoutes(app);
