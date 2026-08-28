@@ -342,6 +342,115 @@ async function requireOwnedDraftMiddleware(req: Request, res: Response, next: Ne
   }
 }
 
+/**
+ * Systemutsendelse via sikker dialog: brukes av ekspedering (krav 6) og
+ * innsynsutlevering (krav 16) når kanalen er 'sikker_dialog'. Kjører i
+ * kallerens kommune-RLS-transaksjon slik at statusendring og melding er
+ * atomiske. Finner sakens bekymringsmelding, gjenbruker åpen samtale
+ * eller oppretter ny med alle parter som har aktiv tilgang.
+ */
+export class SikkerUtsendelseError extends Error {
+  constructor(message: string, public readonly code: "INGEN_MELDING" | "INGEN_PART") {
+    super(message);
+  }
+}
+
+export async function sendSystemmeldingViaSikkerDialog(
+  client: Pick<PoolClient, "query">,
+  params: { kommuneId: number; sakId: string; senderUserId: string; subject: string; content: string },
+): Promise<{ conversationId: string; messageId: string }> {
+  const { kommuneId, sakId, senderUserId, subject, content } = params;
+
+  const { rows: [sak] } = await client.query(
+    `SELECT melding_id FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2`,
+    [sakId, kommuneId],
+  );
+  if (!sak?.melding_id) {
+    throw new SikkerUtsendelseError(
+      "Saken har ingen tilknyttet bekymringsmelding — sikker dialog er ikke tilgjengelig.",
+      "INGEN_MELDING",
+    );
+  }
+  const meldingId: string = sak.melding_id;
+
+  let { rows: [conversation] } = await client.query(
+    `SELECT id FROM tidum_secure_conversations
+      WHERE kommune_id = $1 AND barnevern_melding_id = $2
+        AND status = 'open' AND retention_state = 'active'
+      ORDER BY updated_at DESC LIMIT 1`,
+    [kommuneId, meldingId],
+  );
+
+  if (!conversation) {
+    const accesses = await client.query(
+      `SELECT id FROM tidum_secure_case_access
+        WHERE kommune_id = $1 AND barnevern_melding_id = $2
+          AND revoked_at IS NULL AND valid_from <= NOW()
+          AND (valid_until IS NULL OR valid_until > NOW())`,
+      [kommuneId, meldingId],
+    );
+    if (accesses.rowCount === 0) {
+      throw new SikkerUtsendelseError(
+        "Ingen part har aktiv sikker dialog-tilgang til saken — gi tilgang før utsendelse, eller velg manuell kanal.",
+        "INGEN_PART",
+      );
+    }
+    ({ rows: [conversation] } = await client.query(
+      `INSERT INTO tidum_secure_conversations
+         (kommune_id, barnevern_melding_id, subject, created_by)
+       VALUES ($1, $2, $3, $4) RETURNING id`,
+      [kommuneId, meldingId, sealSecureDialogContent(subject), senderUserId],
+    ));
+    for (const access of accesses.rows) {
+      await client.query(
+        `INSERT INTO tidum_secure_conversation_participants
+           (kommune_id, conversation_id, party_access_id, granted_by)
+         VALUES ($1, $2, $3, $4)`,
+        [kommuneId, conversation.id, access.id, senderUserId],
+      );
+    }
+    await appendAudit(client, {
+      kommuneId,
+      actorUserId: senderUserId,
+      actorKind: "staff",
+      action: "conversation_created",
+      conversationId: String(conversation.id),
+      metadata: { participantCount: accesses.rowCount ?? 0 },
+    });
+  }
+
+  const { rows: [message] } = await client.query(
+    `INSERT INTO tidum_secure_messages
+       (kommune_id, conversation_id, sender_user_id, sender_kind, body_encrypted, status, sent_at)
+     VALUES ($1, $2, $3, 'staff', $4, 'sent', NOW())
+     RETURNING id`,
+    [kommuneId, conversation.id, senderUserId, sealSecureDialogContent(content)],
+  );
+  await client.query(
+    `INSERT INTO tidum_secure_notification_outbox (kommune_id, message_id, party_id)
+     SELECT $1, $2, party.id
+       FROM tidum_secure_conversation_participants participant
+       JOIN tidum_secure_case_access access ON access.id = participant.party_access_id
+       JOIN tidum_secure_parties party ON party.id = access.party_id
+      WHERE participant.conversation_id = $3
+        AND participant.revoked_at IS NULL AND access.revoked_at IS NULL
+        AND access.valid_from <= NOW() AND (access.valid_until IS NULL OR access.valid_until > NOW())
+        AND party.status = 'active' AND party.notification_email IS NOT NULL
+        AND party.portal_user_id <> $4
+     ON CONFLICT (message_id, party_id) DO NOTHING`,
+    [kommuneId, message.id, conversation.id, senderUserId],
+  );
+  await appendAudit(client, {
+    kommuneId,
+    actorUserId: senderUserId,
+    actorKind: "staff",
+    action: "message_sent",
+    conversationId: String(conversation.id),
+    messageId: String(message.id),
+  });
+  return { conversationId: String(conversation.id), messageId: String(message.id) };
+}
+
 export async function processSecureNotificationOutbox(messageId?: string, limit = 20): Promise<number> {
   let processed = 0;
   await withSystemRlsContext("secure_notification_recover", (client) => client.query(

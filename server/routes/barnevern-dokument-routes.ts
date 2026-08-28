@@ -2,6 +2,11 @@ import type { Express, Request, Response } from "express";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { queueBarnevernJournalArchiving } from "../lib/archive/archive-service";
 import { loggTilgang, needToKnowVilkar, requireKommuneActor } from "./barnevern-melding-routes";
+import {
+  SikkerUtsendelseError,
+  processSecureNotificationOutbox,
+  sendSystemmeldingViaSikkerDialog,
+} from "./secure-dialog-routes";
 
 /**
  * Kodefaste standardmaler (krav 6). Malinnholdet flettes og snapshotes inn
@@ -289,6 +294,16 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
         if (!dokument) throw new Error("GODKJENT_NOT_FOUND");
 
         const mottakerNavn = dokument.mottaker?.navn ? ` til ${dokument.mottaker.navn}` : "";
+        if (via === "sikker_dialog") {
+          const sendt = await sendSystemmeldingViaSikkerDialog(client, {
+            kommuneId: actor.kommuneId,
+            sakId: dokument.sak_id,
+            senderUserId: actor.userId,
+            subject: dokument.tittel,
+            content: `${dokument.tittel}\n\n${dokument.innhold}`,
+          });
+          (dokument as any).sikkerMeldingId = sendt.messageId;
+        }
         const { rows: [journalEntry] } = await client.query(
           `INSERT INTO tidum_barnevern_sak_journal
              (sak_id, kommune_id, kategori, innhold, forfatter_user_id)
@@ -307,18 +322,27 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
             WHERE id = $3 AND kommune_id = $4 RETURNING *`,
           [via, journalEntry.id, req.params.id, actor.kommuneId],
         );
-        return ekspedert;
+        return { ...ekspedert, sikkerMeldingId: (dokument as any).sikkerMeldingId };
       });
+      // Best-effort varsel-utsendelse for sikker dialog-meldingen etter commit.
+      if (row.sikkerMeldingId) {
+        processSecureNotificationOutbox(row.sikkerMeldingId).catch((err) =>
+          console.error(`[barnevern-dokument] varselkø feilet for ${row.sikkerMeldingId}:`, err?.message ?? err),
+        );
+      }
       // Best-effort arkiv-outbox for journalføringen etter commit.
       if (row.journal_entry_id) {
         queueBarnevernJournalArchiving(row.journal_entry_id, actor.kommuneId).catch((err) =>
           console.error(`[barnevern-dokument] arkivkø feilet for ${row.journal_entry_id}:`, err?.message ?? err),
         );
       }
-      res.json(toApiShape(row));
+      res.json({ ...toApiShape(row), sikkerMeldingId: row.sikkerMeldingId ?? null });
     } catch (err) {
       if (err instanceof Error && err.message === "GODKJENT_NOT_FOUND") {
         return res.status(404).json({ error: "Godkjent dokument ikke funnet — godkjenn før ekspedering." });
+      }
+      if (err instanceof SikkerUtsendelseError) {
+        return res.status(409).json({ error: err.message, code: err.code });
       }
       console.error("[barnevern-dokument] ekspedering feilet", err);
       res.status(500).json({ error: "Kunne ikke ekspedere dokumentet." });

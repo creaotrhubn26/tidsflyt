@@ -2,6 +2,11 @@ import type { Express, Request, Response } from "express";
 import { withKommuneRlsContext } from "../lib/database-rls-context";
 import { registerFrist, cancelFrist } from "../lib/frist-engine";
 import { loggTilgang, needToKnowVilkar, requireKommuneActor } from "./barnevern-melding-routes";
+import {
+  SikkerUtsendelseError,
+  processSecureNotificationOutbox,
+  sendSystemmeldingViaSikkerDialog,
+} from "./secure-dialog-routes";
 
 const PART_RELASJONER = new Set(["forelder", "barn", "verge", "fullmektig", "annet"]);
 const BESLUTNINGER = new Set(["innvilget", "delvis_innvilget", "avslatt"]);
@@ -201,24 +206,51 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
         const { rows: [updated] } = await client.query(
-          `UPDATE tidum_barnevern_innsynskrav
+          `UPDATE tidum_barnevern_innsynskrav krav
               SET status = 'utlevert', utlevert_dato = NOW(), utlevert_via = $1, updated_at = NOW()
-            WHERE id = $2 AND kommune_id = $3 AND status IN ('innvilget', 'delvis_innvilget')
-            RETURNING *`,
+             FROM (SELECT id, status AS beslutning_status FROM tidum_barnevern_innsynskrav
+                    WHERE id = $2 AND kommune_id = $3 AND status IN ('innvilget', 'delvis_innvilget')
+                    FOR UPDATE) gammel
+            WHERE krav.id = gammel.id
+            RETURNING krav.*, gammel.beslutning_status`,
           [via, req.params.id, actor.kommuneId],
         );
         if (!updated) throw new Error("KRAV_NOT_INNVILGET");
+        let sikkerMeldingId: string | null = null;
+        if (via === "sikker_dialog") {
+          const unntak = updated.unntak ?? [];
+          const sendt = await sendSystemmeldingViaSikkerDialog(client, {
+            kommuneId: actor.kommuneId,
+            sakId: updated.sak_id,
+            senderUserId: actor.userId,
+            subject: `Innsyn ${updated.beslutning_status === "delvis_innvilget" ? "delvis innvilget" : "innvilget"}`,
+            content:
+              `Innsynskravet fra ${updated.part_navn} er ${updated.beslutning_status === "delvis_innvilget" ? "delvis innvilget" : "innvilget"} og utlevert via sikker dialog.` +
+              (unntak.length ? `\n\nUnntatt fra innsyn (${unntak.length}): ${unntak.join("; ")}` : "") +
+              (updated.beslutning_begrunnelse ? `\n\nBegrunnelse: ${updated.beslutning_begrunnelse}` : ""),
+          });
+          sikkerMeldingId = sendt.messageId;
+        }
         await loggTilgang(client, {
           kommuneId: actor.kommuneId, userId: actor.userId,
           handling: "nedlastet", objektType: "innsynsutlevering", objektId: updated.id,
           detaljer: { sakId: updated.sak_id, partNavn: updated.part_navn, via, antallUnntak: (updated.unntak ?? []).length },
         });
-        return updated;
+        return { ...updated, sikkerMeldingId };
       });
-      res.json(toApiShape(row));
+      // Best-effort varsel-utsendelse for sikker dialog-meldingen etter commit.
+      if (row.sikkerMeldingId) {
+        processSecureNotificationOutbox(row.sikkerMeldingId).catch((err) =>
+          console.error(`[barnevern-innsyn] varselkø feilet for ${row.sikkerMeldingId}:`, err?.message ?? err),
+        );
+      }
+      res.json({ ...toApiShape(row), sikkerMeldingId: row.sikkerMeldingId ?? null });
     } catch (err) {
       if (err instanceof Error && err.message === "KRAV_NOT_INNVILGET") {
         return res.status(409).json({ error: "Utlevering krever innvilget eller delvis innvilget beslutning." });
+      }
+      if (err instanceof SikkerUtsendelseError) {
+        return res.status(409).json({ error: err.message, code: err.code });
       }
       console.error("[barnevern-innsyn] utlevering feilet", err);
       res.status(500).json({ error: "Kunne ikke registrere utleveringen." });
