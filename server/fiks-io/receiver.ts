@@ -26,22 +26,38 @@ export async function onBekymringsmeldingRaw(kommuneId: number, rawPayload: unkn
 }
 
 /**
- * Inert med mindre FIKS_IO_ENABLED=true OG minst én kommune har
- * fiks_enabled=true med gyldig konfigurasjon. AMQP-legitimasjons-
- * utveksling og meldingskonvoluttens feltnavn er IKKE offentlig
- * dokumentert (se spec § 5.2) — denne funksjonen etablerer derfor
- * ingen AMQP-tilkobling ennå. Speiler setupEntraIdAuth sitt
- * inaktiveringsmønster fra delprosjekt 1.
+ * Aktiv når FIKS_IO_ENABLED=true OG full mottakskonfigurasjon finnes
+ * (se fiks-io-subscriber.ts). AMQP-detaljene er verifisert mot KS'
+ * offisielle, åpne klientkode (ks-no/fiks-io-client-dotnet): kø
+ * fiksio.konto.<kontoId>, username=integrasjons-id, password =
+ * "<integrasjonspassord> <maskinporten-token>". Leveringsbanen lagrer
+ * kun kryptert payload + konvolutt; faglig parsing skjer i
+ * prosessorsteget, fortsatt gated på avtalt meldingstype og eksplisitt
+ * feltmapping (spec-prinsippet: feltnavn gjettes aldri).
  */
 export function setupFiksIoReceiver(_app: Express): void {
   if (process.env.FIKS_IO_ENABLED !== "true") {
     return;
   }
-  console.warn(
-    "[fiks-io] FIKS_IO_ENABLED=true, men AMQP-tilkoblingslaget er ikke implementert " +
-    "(legitimasjonsutveksling og meldingskonvolutt er ikke offentlig dokumentert, se " +
-    "docs/superpowers/specs/2026-08-23-barnevern-meldingsmottak-design.md § 5.2). " +
-    "Maskinporten-tokenutveksling er klar (server/fiks-io/maskinporten-client.ts); " +
-    "resten venter på KS-avtale.",
-  );
+  // Dynamisk import: amqplib lastes kun når mottaket faktisk er skrudd på.
+  import("./fiks-io-subscriber").then(async ({ startFiksIoSubscriber }) => {
+    const startet = await startFiksIoSubscriber();
+    if (!startet) {
+      console.warn("[fiks-io] FIKS_IO_ENABLED=true, men mottakskonfigurasjonen er ufullstendig — abonnenten er inert.");
+    }
+  }).catch((err) => console.error("[fiks-io] oppstart feilet:", err?.message ?? err));
+
+  import("node-cron").then(({ default: cron }) => {
+    cron.schedule("*/10 * * * *", async () => {
+      try {
+        const { processFiksIntake } = await import("./fiks-melding-prosessor");
+        const resultat = await processFiksIntake();
+        if (resultat.opprettet || resultat.feilet) {
+          console.log(`[fiks-io-prosessor] opprettet=${resultat.opprettet} feilet=${resultat.feilet}`);
+        }
+      } catch (err) {
+        console.error("[fiks-io-prosessor] feilet:", err);
+      }
+    });
+  });
 }
