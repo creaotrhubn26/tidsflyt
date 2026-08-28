@@ -18,6 +18,32 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
     const meldingIds = cleanupMeldingIds.splice(0);
     const userIds = cleanupUserIds.splice(0);
     const kommuneIds = cleanupKommuneIds.splice(0);
+    // Sikker dialog-rader: append-only-triggere må av under opprydding
+    // (samme mønster som secure-dialog-routes.test.ts).
+    if (kommuneIds.length) {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query("LOCK TABLE tidum_secure_dialog_audit_events, tidum_secure_messages IN ACCESS EXCLUSIVE MODE");
+        await client.query("ALTER TABLE tidum_secure_dialog_audit_events DISABLE TRIGGER tidum_secure_audit_immutable_trigger");
+        await client.query("ALTER TABLE tidum_secure_messages DISABLE TRIGGER tidum_secure_message_immutable_trigger");
+        for (const tabell of [
+          "tidum_secure_notification_outbox", "tidum_secure_messages",
+          "tidum_secure_conversation_participants", "tidum_secure_conversations",
+          "tidum_secure_case_access", "tidum_secure_dialog_audit_events", "tidum_secure_parties",
+        ]) {
+          await client.query(`DELETE FROM ${tabell} WHERE kommune_id = ANY($1::int[])`, [kommuneIds]);
+        }
+        await client.query("ALTER TABLE tidum_secure_messages ENABLE TRIGGER tidum_secure_message_immutable_trigger");
+        await client.query("ALTER TABLE tidum_secure_dialog_audit_events ENABLE TRIGGER tidum_secure_audit_immutable_trigger");
+        await client.query("COMMIT");
+      } catch (error) {
+        await client.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        client.release();
+      }
+    }
     await withSystemRlsContext("barnevern_innsyn_test_cleanup", async (client) => {
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
@@ -136,11 +162,49 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
     expect(beslutningsInnforsel.kategori).toBe("vedtak");
     expect(beslutningsInnforsel.innhold).toContain("fvl. § 19");
 
+    // Sikker dialog-utlevering krever part med aktiv tilgang.
+    const utenPart = await request(sbApp).post(`/api/barnevern/innsynskrav/${krav.body.id}/utlever`).send({
+      via: "sikker_dialog",
+    });
+    expect(utenPart.status).toBe(409);
+    expect(utenPart.body.code).toBe("INGEN_PART");
+
+    const portalId = uniqueId("portal");
+    await pool.query(
+      `INSERT INTO users (id, username, password, email, kommune_id, role) VALUES ($1, $2, 'x', $3, $4, 'user')`,
+      [portalId, portalId, `${portalId}@example.com`, kommuneId],
+    );
+    cleanupUserIds.push(portalId);
+    const { rows: [{ melding_id: meldingId }] } = await pool.query(
+      `SELECT melding_id FROM tidum_barnevern_saker WHERE id = $1`, [sak.id],
+    );
+    await withSystemRlsContext("innsyn_test_party_setup", async (client) => {
+      const { rows: [party] } = await client.query(
+        `INSERT INTO tidum_secure_parties (kommune_id, portal_user_id, display_name, notification_email, created_by)
+         VALUES ($1, $2, 'Mor Testesen', $3, $4) RETURNING id`,
+        [kommuneId, portalId, `${portalId}@example.com`, sbId],
+      );
+      await client.query(
+        `INSERT INTO tidum_secure_case_access (kommune_id, party_id, barnevern_melding_id, party_role, created_by)
+         VALUES ($1, $2, $3, 'forelder', $4)`,
+        [kommuneId, party.id, meldingId, sbId],
+      );
+    });
+
     const utlevert = await request(sbApp).post(`/api/barnevern/innsynskrav/${krav.body.id}/utlever`).send({
       via: "sikker_dialog",
     });
     expect(utlevert.status).toBe(200);
     expect(utlevert.body.status).toBe("utlevert");
+    expect(utlevert.body.sikkerMeldingId).toBeTruthy();
+
+    // Utleveringsmeldingen er sendt i sikker dialog.
+    const { rows: [sikkerMelding] } = await pool.query(
+      `SELECT status, sender_kind FROM tidum_secure_messages WHERE id = $1`,
+      [utlevert.body.sikkerMeldingId],
+    );
+    expect(sikkerMelding.status).toBe("sent");
+    expect(sikkerMelding.sender_kind).toBe("staff");
 
     const { rows: audit } = await pool.query(
       `SELECT detaljer FROM tidum_barnevern_tilgangslogg
