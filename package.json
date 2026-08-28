@@ -14,6 +14,7 @@
     "check:design": "node scripts/check-design-tokens.mjs",
     "guide:snapshots": "tsx scripts/capture-guide-screenshots.ts",
     "db:push": "drizzle-kit push --strict",
+    "seed:barnevern-demo": "tsx scripts/seed-barnevern-demo.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
