@@ -805,6 +805,20 @@ export const barnevernsregisterInnsendinger = pgTable("tidum_barnevernsregister_
   index("tidum_bvr_innsendinger_status_idx").on(table.status, table.nesteForsok),
 ]);
 
+// Driftsalarmer for terminale køfeil (migrasjon 100, krav 3/25).
+export const driftAlarmer = pgTable("tidum_drift_alarmer", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kilde: text("kilde").notNull(),
+  entityId: text("entity_id").notNull(),
+  kommuneId: integer("kommune_id"),
+  feil: text("feil"),
+  varslet: boolean("varslet").notNull().default(false),
+  varsletAt: timestamp("varslet_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_drift_alarmer_kilde_entity_unique").on(table.kilde, table.entityId),
+]);
+
 // Forebyggende arbeid (migrasjon 095, krav 18). Ikke barn-bundet.
 export const barnevernForebyggende = pgTable("tidum_barnevern_forebyggende", {
   id: uuid("id").defaultRandom().primaryKey(),

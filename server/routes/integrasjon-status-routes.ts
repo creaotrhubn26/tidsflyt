@@ -66,6 +66,9 @@ export function registerIntegrasjonStatusRoutes(app: Express): void {
       sjekk("SMS_GATEWAY_TO_FIELD", { valgfri: true, merknad: "Default: to" }),
       sjekk("SMS_GATEWAY_MESSAGE_FIELD", { valgfri: true, merknad: "Default: message" }),
     ];
+    const driftsalarm = [
+      sjekk("DRIFT_ALARM_EPOST", { merknad: "Mottaker for samle-epost ved terminale køfeil (arkiv/SMS/BVR)" }),
+    ];
     const vedleggslager = [
       sjekk("BARNEVERN_S3_BUCKET", { merknad: "S3-bøtte i norsk/EU-region for barnevernsvedlegg" }),
       sjekk("BARNEVERN_S3_REGION", { valgfri: true, merknad: "Default: eu-central-1" }),
@@ -101,6 +104,11 @@ export function registerIntegrasjonStatusRoutes(app: Express): void {
         vars: vedleggslager,
         ...oppsummer(vedleggslager),
         merknad: "Uten bøtte lagres vedlegg på flyktig lokal disk (kun dev/test).",
+      },
+      driftsalarm: {
+        vars: driftsalarm,
+        ...oppsummer(driftsalarm),
+        merknad: "Uten mottaker logges alarmene kun; e-post tar med etterslepet når mottaker settes.",
       },
     });
   });
