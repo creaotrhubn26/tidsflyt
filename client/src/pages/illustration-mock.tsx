@@ -91,7 +91,7 @@ export default function IllustrationMockPage() {
 
   return (
     <PortalLayout>
-      <main className="tidum-page">
+      <div className="tidum-page">
         <style>{tidumPageStyles}</style>
 
         <section className="tidum-panel rounded-[26px] p-5 sm:p-7">
@@ -184,7 +184,7 @@ export default function IllustrationMockPage() {
             );
           })}
         </section>
-      </main>
+      </div>
     </PortalLayout>
   );
 }

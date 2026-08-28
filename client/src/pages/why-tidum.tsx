@@ -235,7 +235,7 @@ export default function WhyTidum() {
 
   if (isLoading) {
     return (
-      <main className="tidum-page tidum-page--public">
+      <div className="tidum-page tidum-page--public">
         <style>{tidumPageStyles}</style>
         <div className="rt-container pb-20 pt-8">
           <div className="tidum-panel rounded-[28px] p-6 sm:p-8">
@@ -248,12 +248,12 @@ export default function WhyTidum() {
             </div>
           </div>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -537,6 +537,6 @@ export default function WhyTidum() {
           </div>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

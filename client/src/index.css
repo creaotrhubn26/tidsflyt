@@ -26,7 +26,9 @@
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 11%;
   --popover-border: 214 20% 88%;
-  --primary: 199 89% 48%;
+  /* WCAG AA: 48% lyshet ga 2.86:1 mot hvit tekst på alle primærknapper
+     (og 38% målte 4.34); 35% gir ≥4.5:1 med samme kulør. */
+  --primary: 199 89% 35%;
   --primary-foreground: 0 0% 100%;
   --secondary: 215 20% 93%;
   --secondary-foreground: 222 47% 20%;

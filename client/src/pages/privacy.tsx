@@ -120,7 +120,7 @@ Spørsmål om personvern kan rettes til **${TIDUM_SUPPORT_EMAIL}** eller **${TID
   };
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -229,6 +229,6 @@ Spørsmål om personvern kan rettes til **${TIDUM_SUPPORT_EMAIL}** eller **${TID
           </div>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

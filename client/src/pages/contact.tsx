@@ -381,7 +381,7 @@ export default function Contact() {
   };
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
       <style>{`
         .tidum-contact-card {
@@ -679,6 +679,7 @@ export default function Contact() {
                       </span>
                     </div>
                     <Slider
+                      aria-label="Antall brukere"
                       value={[userCount]}
                       min={sliderMin}
                       max={sliderMax}
@@ -859,6 +860,6 @@ export default function Contact() {
           <p className="mt-4 text-center" data-testid="text-copyright">© 2025 Tidum. Driftet av Creatorhub AS.</p>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

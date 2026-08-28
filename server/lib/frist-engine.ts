@@ -115,13 +115,23 @@ export async function cancelFrist(
   ).then(() => undefined));
 }
 
-export async function runFristEscalations(now: Date = new Date()): Promise<{ notified: number; expired: number }> {
+// entityIds er test-only (samme mønster som runTaskEscalations): uten
+// filter scanner kjøringen ALLE aktive frister — det er riktig for den
+// daglige cronen, men gjør tester som kaller den mot en delt database
+// flaky (de claimer/varsler andre testers rader). Tester sender sine egne
+// entity-id-er for å scope kjøringen til rader de eier og rydder.
+export async function runFristEscalations(
+  now: Date = new Date(),
+  entityIds?: string[],
+): Promise<{ notified: number; expired: number }> {
   const rows = await withSystemRlsContext("frist_escalation_scan", async (client) => {
     const result = await client.query<FristRow>(
       `SELECT id, entity_type, entity_id, kommune_id, vendor_id, frist_type,
               due_at, varslet_offsets, notify_user_id
          FROM tidum_frister
-        WHERE status = 'aktiv'`,
+        WHERE status = 'aktiv'
+          ${entityIds ? "AND entity_id = ANY($1)" : ""}`,
+      entityIds ? [entityIds] : [],
     );
     return result.rows;
   });

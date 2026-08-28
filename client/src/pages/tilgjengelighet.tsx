@@ -145,7 +145,7 @@ export default function Tilgjengelighet() {
   });
 
   return (
-    <main className="tidum-page tidum-page--public">
+    <div className="tidum-page tidum-page--public">
       <style>{tidumPageStyles}</style>
 
       <div className="rt-container pb-20 pt-8">
@@ -296,6 +296,6 @@ export default function Tilgjengelighet() {
           </div>
         </footer>
       </div>
-    </main>
+    </div>
   );
 }

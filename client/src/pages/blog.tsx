@@ -165,7 +165,7 @@ export default function Blog() {
   };
 
   return (
-    <main className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <header className="border-b bg-card/80 backdrop-blur-sm sticky top-0 z-40">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between">
@@ -394,7 +394,7 @@ export default function Blog() {
                     {/* Meta line */}
                     <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground mb-2">
                       {post.category_name && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary font-medium">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary text-primary-foreground font-medium">
                           <Tag className="h-3 w-3" />
                           {post.category_name}
                         </span>
@@ -426,7 +426,7 @@ export default function Blog() {
                         {post.tags.slice(0, 3).map((tag) => (
                           <span
                             key={tag}
-                            className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground"
+                            className="text-xs px-2 py-0.5 rounded-full bg-muted text-foreground"
                           >
                             #{tag}
                           </span>
@@ -503,6 +503,6 @@ export default function Blog() {
           </nav>
         )}
       </div>
-    </main>
+    </div>
   );
 }

@@ -90,14 +90,14 @@ describe("frist-engine", () => {
       notifyUserId: testUserIds[0],
     });
 
-    const first = await runFristEscalations(dueAt);
+    const first = await runFristEscalations(dueAt, [entityId]);
     expect(first.notified).toBeGreaterThanOrEqual(1);
     expect(createSpy).toHaveBeenCalledWith(
       expect.objectContaining({ userId: testUserIds[0], type: "frist_eskalering" }),
     );
 
     const callCountAfterFirst = createSpy.mock.calls.length;
-    await runFristEscalations(dueAt);
+    await runFristEscalations(dueAt, [entityId]);
     expect(createSpy.mock.calls.length).toBe(callCountAfterFirst); // ingen ny varsling samme offset
   });
 
@@ -107,7 +107,7 @@ describe("frist-engine", () => {
     vi.spyOn(notificationRoutes, "createNotification").mockResolvedValue(undefined);
     const overdue = new Date(Date.now() - 10 * 86400000);
     await registerFrist({ entityType: "test_entity", entityId, kommuneId, fristType: "avklaring", dueAt: overdue });
-    await runFristEscalations();
+    await runFristEscalations(undefined, [entityId]);
     const { rows } = await pool.query(
       `SELECT status FROM tidum_frister WHERE entity_type = 'test_entity' AND entity_id = $1`,
       [entityId],
@@ -129,7 +129,7 @@ describe("frist-engine", () => {
       notifyUserId: testUserIds[1],
     });
 
-    const result = await runFristEscalations();
+    const result = await runFristEscalations(undefined, [entityId]);
     expect(result.notified).toBeGreaterThanOrEqual(4);
     expect(createSpy).toHaveBeenCalledTimes(4);
 
@@ -154,7 +154,7 @@ describe("frist-engine", () => {
       notifyUserId: testUserIds[0],
     });
 
-    await Promise.all([runFristEscalations(), runFristEscalations()]);
+    await Promise.all([runFristEscalations(undefined, [entityId]), runFristEscalations(undefined, [entityId])]);
 
     expect(createSpy).toHaveBeenCalledTimes(4); // ikke 8 — kun én kjøring claimer hver offset
   });
