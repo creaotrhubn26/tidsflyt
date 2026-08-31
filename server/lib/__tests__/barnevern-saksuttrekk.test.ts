@@ -134,6 +134,39 @@ describe("Barnevern saksuttrekk (krav 17)", { timeout: 20000 }, () => {
     );
     expect(logg).toHaveLength(1);
     expect(logg[0].detaljer.innholdsHash).toBe(uttrekk.body.manifest.innholdsHash);
+
+    // Vedlegg for ZIP-pakken: last opp en fil på journaloppføringen.
+    const journalListe = await request(sbApp).get(`/api/barnevern/saker/${sakId}/journal`);
+    const opplasting = await request(sbApp)
+      .post(`/api/barnevern/saker/${sakId}/journal/${journalListe.body[0].id}/vedlegg`)
+      .attach("file", Buffer.from("%PDF-1.4 pakkeinnhold"), { filename: "notat.pdf", contentType: "application/pdf" });
+    expect(opplasting.status, opplasting.text?.slice(0, 300)).toBe(201);
+
+    // ZIP-pakke (krav 17-rest): gyldig zip med uttrekk, vedlegg og manifest.
+    const pakke = await request(lederApp)
+      .get(`/api/barnevern/saker/${sakId}/uttrekk/pakke`)
+      .buffer(true)
+      .parse((res2, cb) => {
+        const biter: Buffer[] = [];
+        res2.on("data", (b: Buffer) => biter.push(b));
+        res2.on("end", () => cb(null, Buffer.concat(biter)));
+      });
+    expect(pakke.status).toBe(200);
+    expect(pakke.headers["content-type"]).toBe("application/zip");
+    expect((pakke.body as Buffer).subarray(0, 2).toString()).toBe("PK");
+    const zipTekst = (pakke.body as Buffer).toString("latin1");
+    expect(zipTekst).toContain("saksuttrekk.json");
+    expect(zipTekst).toContain("manifest.json");
+    expect(zipTekst).toContain("notat.pdf");
+    // Interne lagringsnøkler lekker ikke i JSON-delen.
+    expect(uttrekk.body.journalVedlegg.every((v: any) => v.filename === undefined)).toBe(true);
+
+    const { rows: pakkeLogg } = await pool.query(
+      `SELECT 1 FROM tidum_barnevern_tilgangslogg
+        WHERE user_id = $1 AND objekt_type = 'saksuttrekk_pakke' AND objekt_id = $2`,
+      [lederId, sakId],
+    );
+    expect(pakkeLogg).toHaveLength(1);
   });
 
   it("saksbehandler nektes utlevering; annen kommunes leder får 404", async () => {

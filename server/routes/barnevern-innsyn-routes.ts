@@ -7,6 +7,7 @@ import {
   processSecureNotificationOutbox,
   sendSystemmeldingViaSikkerDialog,
 } from "./secure-dialog-routes";
+import { lagSladdetInnsynPdf } from "../lib/barnevern-innsyn-pdf";
 
 const PART_RELASJONER = new Set(["forelder", "barn", "verge", "fullmektig", "annet"]);
 const BESLUTNINGER = new Set(["innvilget", "delvis_innvilget", "avslatt"]);
@@ -25,6 +26,13 @@ function validerUnntak(unntak: unknown): string | null {
     }
     if (typeof u.beskrivelse !== "string" || u.beskrivelse.trim().length === 0) {
       return "Hvert unntak må ha beskrivelse av hva som unntas.";
+    }
+    // Valgfri kobling til konkrete journaloppføringer — styrer fysisk
+    // sladding i utleverings-PDF-en (krav 16-rest).
+    if (u.journalEntryIds != null && (
+      !Array.isArray(u.journalEntryIds) || u.journalEntryIds.some((id: unknown) => typeof id !== "string")
+    )) {
+      return "journalEntryIds må være en liste med journaloppførings-id-er.";
     }
   }
   return null;
@@ -189,6 +197,74 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
       }
       console.error("[barnevern-innsyn] beslutning feilet", err);
       res.status(500).json({ error: "Kunne ikke beslutte innsynskravet." });
+    }
+  });
+
+  // Sladdet utleverings-PDF (krav 16-rest): journalen med FYSISK maskerte
+  // oppføringer der beslutningens unntak peker (journalEntryIds). Kun
+  // barnevernsleder; hver generering auditlogges. Krever besluttet krav.
+  app.get("/api/barnevern/innsynskrav/:id/sladdet-pdf", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere innsyns-PDF." });
+    }
+
+    try {
+      const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [krav] } = await client.query(
+          `SELECT krav.*, sak.saksnummer, kommune.navn AS kommune_navn
+             FROM tidum_barnevern_innsynskrav krav
+             JOIN tidum_barnevern_saker sak ON sak.id = krav.sak_id AND sak.kommune_id = krav.kommune_id
+             JOIN tidum_kommuner kommune ON kommune.id = krav.kommune_id
+            WHERE krav.id = $1 AND krav.kommune_id = $2`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!krav) return null;
+        if (krav.status === "mottatt" || krav.status === "avslatt") throw new Error("IKKE_INNVILGET");
+
+        const [journal, dokumenter] = await Promise.all([
+          client.query(
+            `SELECT id, kategori, innhold, created_at FROM tidum_barnevern_sak_journal
+              WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+            [krav.sak_id, actor.kommuneId],
+          ).then((r: any) => r.rows),
+          client.query(
+            `SELECT tittel, dokumenttype, status, created_at FROM tidum_barnevern_dokumenter
+              WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+            [krav.sak_id, actor.kommuneId],
+          ).then((r: any) => r.rows),
+        ]);
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "nedlastet", objektType: "innsyn_sladdet_pdf", objektId: krav.id,
+          detaljer: { sakId: krav.sak_id, antallUnntak: (krav.unntak ?? []).length },
+        });
+        return { krav, journal, dokumenter };
+      });
+      if (!data) return res.status(404).json({ error: "Innsynskrav ikke funnet." });
+
+      const pdf = await lagSladdetInnsynPdf({
+        kommuneNavn: data.krav.kommune_navn,
+        saksnummer: data.krav.saksnummer,
+        partNavn: data.krav.part_navn,
+        beslutningStatus: data.krav.status,
+        beslutningBegrunnelse: data.krav.beslutning_begrunnelse,
+        besluttetDato: data.krav.besluttet_dato,
+        unntak: data.krav.unntak ?? [],
+        journal: data.journal,
+        dokumenter: data.dokumenter,
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Disposition", `attachment; filename="innsyn-${data.krav.id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      if (err instanceof Error && err.message === "IKKE_INNVILGET") {
+        return res.status(409).json({ error: "Utleverings-PDF krever innvilget eller delvis innvilget beslutning." });
+      }
+      console.error("[barnevern-innsyn] sladdet PDF feilet", err);
+      res.status(500).json({ error: "Kunne ikke generere utleverings-PDF." });
     }
   });
 
