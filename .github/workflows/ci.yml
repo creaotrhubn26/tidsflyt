@@ -68,6 +68,78 @@ jobs:
           name: dist
           path: dist/
 
+  tests:
+    name: Vitest + Playwright (isolert Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tidum
+          POSTGRES_PASSWORD: tidum
+          POSTGRES_DB: tidsflyt_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tidum"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://tidum:tidum@localhost:5432/tidsflyt_ci
+      TIDUM_SECRET_KEY: ci-only-secret-key-not-production
+      SESSION_SECRET: ci-only-session-secret
+      AUTH_JWT_SECRET: ci-only-auth-jwt-secret
+      EMAIL_MAGIC_LINK_SECRET: ci-only-magic-link-secret
+      CSRF_SECRET: ci-only-csrf-secret
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund --loglevel=error
+
+      # Fersk database: drizzle-push + startup-migrasjonskjeden — samme
+      # paritet som produksjonsboot (099_push_parity garanterer likhet).
+      - name: Provision database (push + startup migrations)
+        run: |
+          npm run db:push -- --force
+          npx tsx -e "import('./server/lib/run-startup-migrations.ts').then(m => m.runStartupMigrations()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })"
+
+      # Sekvensielt (delt database-tilstand); scopet til suitene som er
+      # grønne mot virgin base. Full-suite har kjente stale tester
+      # (se run-startup-migrations-order m.fl.) — utvides når de er fikset.
+      - name: Vitest (barnevern + køer + sikker dialog + driftsalarm)
+        run: >
+          npx vitest run
+          server/lib/__tests__/barnevern
+          server/lib/__tests__/bvr
+          server/lib/__tests__/sms-gateway.test.ts
+          server/lib/__tests__/fiks-io
+          server/lib/__tests__/integrasjon-status.test.ts
+          server/lib/__tests__/kommune-bruker
+          server/lib/__tests__/secure-dialog
+          server/lib/__tests__/drift-alarm.test.ts
+          --no-file-parallelism
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium webkit
+
+      - name: Playwright e2e (desktop + mobil)
+        run: npx playwright test tests/full-workflow-e2e.spec.ts tests/barnevern-ui.spec.ts tests/a11y-public-pages.spec.ts
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-report
+          path: playwright-report/
+
   security:
     name: Security Audit
     runs-on: ubuntu-latest
