@@ -20,6 +20,10 @@ interface KpiDefinisjon {
   enhet: "antall" | "prosent" | "dager";
   /** SQL som returnerer én rad med kolonnen `verdi`; $1 = kommune_id. */
   sql: string;
+  /** Valgfri: samme mål for forrige periode (én rad, kolonne `verdi`). */
+  trendSql?: string;
+  /** Valgfri: tidsserie for sparkline — rader med kolonnene `punkt` (sorterbar) og `verdi`. */
+  serieSql?: string;
 }
 
 export const KPI_KATALOG: KpiDefinisjon[] = [
@@ -33,6 +37,19 @@ export const KPI_KATALOG: KpiDefinisjon[] = [
     enhet: "antall",
     sql: `SELECT COUNT(*)::float AS verdi FROM tidum_barnevern_meldinger
            WHERE kommune_id = $1 AND mottatt_dato >= NOW() - interval '30 days'`,
+    trendSql: `SELECT COUNT(*)::float AS verdi FROM tidum_barnevern_meldinger
+           WHERE kommune_id = $1
+             AND mottatt_dato >= NOW() - interval '60 days'
+             AND mottatt_dato < NOW() - interval '30 days'`,
+    serieSql: `SELECT uke.start AS punkt,
+                  (SELECT COUNT(*)::float FROM tidum_barnevern_meldinger
+                    WHERE kommune_id = $1
+                      AND mottatt_dato >= uke.start
+                      AND mottatt_dato < uke.start + interval '7 days') AS verdi
+             FROM generate_series(
+                    date_trunc('week', NOW()) - interval '7 weeks',
+                    date_trunc('week', NOW()), interval '7 days') AS uke(start)
+            ORDER BY uke.start`,
   },
   {
     id: "avklart_innen_frist_90d",
@@ -156,6 +173,12 @@ export function registerBarnevernKpiRoutes(app: Express): void {
         const resultater = [];
         for (const kpi of KPI_KATALOG) {
           const { rows: [rad] } = await client.query(kpi.sql, [actor.kommuneId]);
+          const forrige = kpi.trendSql
+            ? (await client.query(kpi.trendSql, [actor.kommuneId])).rows[0]?.verdi ?? null
+            : null;
+          const serie = kpi.serieSql
+            ? (await client.query(kpi.serieSql, [actor.kommuneId])).rows.map((r: any) => Number(r.verdi))
+            : null;
           resultater.push({
             id: kpi.id,
             navn: kpi.navn,
@@ -166,6 +189,8 @@ export function registerBarnevernKpiRoutes(app: Express): void {
             frekvens: kpi.frekvens,
             enhet: kpi.enhet,
             verdi: rad?.verdi ?? null,
+            forrigeVerdi: forrige,
+            serie,
           });
         }
         return resultater;

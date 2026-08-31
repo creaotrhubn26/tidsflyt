@@ -1228,6 +1228,29 @@ function InnrapporteringFane() {
 
 // ── NØKKELTALL (krav 13) ─────────────────────────────────────────────────────
 
+/** Minimal SVG-sparkline for KPI-serier (ingen avhengigheter). */
+function Sparkline({ serie }: { serie: number[] }) {
+  const maks = Math.max(...serie, 1);
+  const b = 96, h = 28;
+  const punkter = serie.map((v, i) => `${(i / (serie.length - 1)) * b},${h - (v / maks) * (h - 4) - 2}`).join(" ");
+  return (
+    <svg width={b} height={h} viewBox={`0 0 ${b} ${h}`} aria-hidden className="text-primary/70">
+      <polyline points={punkter} fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function TrendLinje({ kpi }: { kpi: api.Kpi }) {
+  if (kpi.forrigeVerdi == null || kpi.verdi == null) return null;
+  const diff = kpi.verdi - kpi.forrigeVerdi;
+  const pil = diff > 0 ? "↑" : diff < 0 ? "↓" : "→";
+  return (
+    <span className="text-[11px] text-muted-foreground tabular-nums">
+      {pil} {diff > 0 ? "+" : ""}{diff} vs forrige 30 d ({kpi.forrigeVerdi})
+    </span>
+  );
+}
+
 function NokkeltallFane() {
   const { data, error } = useQuery({
     queryKey: ["barnevern-kpi"],
@@ -1274,6 +1297,10 @@ function NokkeltallFane() {
                 <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{kpi.frekvens}</span>
               </div>
               <span className="mt-1 block text-sm font-medium">{kpi.navn}</span>
+              <div className="mt-1 flex items-end justify-between gap-2">
+                <TrendLinje kpi={kpi} />
+                {kpi.serie && kpi.serie.length > 1 && <Sparkline serie={kpi.serie} />}
+              </div>
               <span className="mt-0.5 block text-[11px] text-muted-foreground group-open:hidden">Klikk for kilde og formel</span>
             </summary>
             <div className="mt-2 pt-2 border-t text-xs text-muted-foreground space-y-1">

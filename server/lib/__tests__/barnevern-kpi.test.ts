@@ -96,6 +96,13 @@ describe("Barnevern KPI (krav 13)", { timeout: 20000 }, () => {
 
     const perId = Object.fromEntries(res.body.kpier.map((k: any) => [k.id, k.verdi]));
     expect(perId.meldinger_30d).toBe(1);
+
+    // Trend + sparkline-serie for meldinger_30d: forrige periode uten
+    // meldinger, 8 ukepunkter der siste uke inneholder testmeldingen.
+    const meldingerKpi = res.body.kpier.find((k: any) => k.id === "meldinger_30d");
+    expect(meldingerKpi.forrigeVerdi).toBe(0);
+    expect(meldingerKpi.serie).toHaveLength(8);
+    expect(meldingerKpi.serie.reduce((a: number, b: number) => a + b, 0)).toBe(1);
     expect(perId.aktive_undersokelser).toBe(1);
     expect(perId.undersokelser_over_frist).toBe(0);
     // Avklart samme dag → 100 % innen frist og ~0 dagers avklaringstid.
