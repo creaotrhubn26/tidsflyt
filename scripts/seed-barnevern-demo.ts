@@ -64,7 +64,7 @@ async function main(): Promise<void> {
     await pool.query(
       `INSERT INTO users (id, username, password, email, first_name, last_name, kommune_id, role)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [b.id, `${b.id}@demo.tidum.no`, hash, `${b.id}@demo.tidum.no`, b.navn[0], b.navn[1], kommuneId, b.rolle],
+      [b.id, `${b.id}@demo.tidum.no`, hash, `daniel+${b.id}@creatorhubn.com`, b.navn[0], b.navn[1], kommuneId, b.rolle],
     );
   }
 
@@ -327,10 +327,10 @@ async function main(): Promise<void> {
 Demodata klart for «Demo kommune (barnevern)» (kommunenummer 3099).
 
 Innlogging (passord: ${DEMO_PASSORD}):
-  demo-leder@demo.tidum.no            Barnevernsleder
-  demo-saksbehandler@demo.tidum.no    Saksbehandler (tildelt sakene)
-  demo-saksbehandler-2@demo.tidum.no  Saksbehandler (need-to-know-demo)
-  demo-kommune-admin@demo.tidum.no    Kommuneadministrator (ingen saksinnsyn)
+  daniel+demo-leder@creatorhubn.com            Barnevernsleder
+  daniel+demo-saksbehandler@creatorhubn.com    Saksbehandler (tildelt sakene)
+  daniel+demo-saksbehandler-2@creatorhubn.com  Saksbehandler (need-to-know-demo)
+  daniel+demo-kommune-admin@creatorhubn.com    Kommuneadministrator (ingen saksinnsyn)
 
 Innhold: 4 meldinger (akutt/under avklaring/ufødt/henlagt) + 3 saker
 (undersøkelse m/journal+oppgaver, tiltak m/godkjent plan+ekspedert vedtak
