@@ -142,6 +142,18 @@ describe("Barnevern dokumenter (krav 6)", { timeout: 20000 }, () => {
     expect(godkjent.status).toBe(200);
     expect(godkjent.body.status).toBe("godkjent");
 
+    // PDF-nedlasting (krav 6): gyldig PDF, auditlogget som 'nedlastet'.
+    const pdf = await request(sbApp).get(`/api/barnevern/dokumenter/${utkast.body.id}/pdf`);
+    expect(pdf.status).toBe(200);
+    expect(pdf.headers["content-type"]).toBe("application/pdf");
+    expect(pdf.body.subarray(0, 5).toString()).toBe("%PDF-");
+    const { rows: pdfAudit } = await pool.query(
+      `SELECT 1 FROM tidum_barnevern_tilgangslogg
+        WHERE user_id = $1 AND objekt_type = 'dokument_pdf' AND objekt_id = $2 AND handling = 'nedlastet'`,
+      [sbId, utkast.body.id],
+    );
+    expect(pdfAudit).toHaveLength(1);
+
     // Godkjent dokument er uforanderlig.
     const laast = await request(sbApp).patch(`/api/barnevern/dokumenter/${utkast.body.id}`).send({ innhold: "Endres ikke" });
     expect(laast.status).toBe(404);
