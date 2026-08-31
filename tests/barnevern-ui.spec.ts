@@ -453,6 +453,6 @@ test.describe("Barnevern UI-flyt", () => {
     await expect(page.getByTestId("kpi-meldinger_30d")).toBeVisible();
     await expect(page.getByTestId("kpi-avklart_innen_frist_90d").getByText("100 %")).toBeVisible();
     await page.getByTestId("kpi-meldinger_30d").click();
-    await expect(page.getByTestId("kpi-meldinger_30d").getByText(/Kilde:/)).toBeVisible();
+    await expect(page.getByTestId("kpi-meldinger_30d").getByText(/^Kilde$/)).toBeVisible();
   });
 });

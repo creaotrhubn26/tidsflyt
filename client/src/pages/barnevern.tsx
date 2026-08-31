@@ -1313,11 +1313,20 @@ function NokkeltallFane() {
               </div>
               <span className="mt-0.5 block text-[11px] text-muted-foreground group-open:hidden">Klikk for kilde og formel</span>
             </summary>
-            <div className="mt-2 pt-2 border-t text-xs text-muted-foreground space-y-1">
-              <p>{kpi.beskrivelse}</p>
-              <p><span className="font-medium">Kilde:</span> {kpi.kilde}</p>
-              <p><span className="font-medium">Eier:</span> {kpi.eier} · <span className="font-medium">Frekvens:</span> {kpi.frekvens}</p>
-              <p className="font-mono text-[10px] break-all">{kpi.formel}</p>
+            <div className="mt-3 space-y-3 border-t pt-3 text-xs">
+              <p className="text-muted-foreground leading-relaxed">{kpi.beskrivelse}</p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+                <dt className="font-medium text-muted-foreground">Kilde</dt>
+                <dd className="font-mono text-[11px]">{kpi.kilde}</dd>
+                <dt className="font-medium text-muted-foreground">Eier</dt>
+                <dd>{kpi.eier}</dd>
+                <dt className="font-medium text-muted-foreground">Frekvens</dt>
+                <dd>{kpi.frekvens}</dd>
+              </dl>
+              <div>
+                <p className="mb-1 font-medium text-muted-foreground uppercase tracking-wide text-[10px]">Beregningsformel (kjøres ved hvert oppslag)</p>
+                <pre className="whitespace-pre-wrap break-words rounded-md bg-muted p-2.5 font-mono text-[10px] leading-relaxed text-foreground/80">{kpi.formel}</pre>
+              </div>
             </div>
           </details>
         ))}
