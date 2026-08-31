@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Kravbesvarelse — Tidum barnevern (2026-112379)</title>
+<style>
+  @page { margin: 1.8cm; }
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; color: #1a1a1a; line-height: 1.4; max-width: 860px; margin: 0 auto; padding: 24px; font-size: 10pt; }
+  h1 { font-size: 17pt; margin-bottom: 2px; }
+  .meta { color: #555; margin-bottom: 14px; }
+  table { border-collapse: collapse; width: 100%; font-size: 9pt; }
+  th, td { border: 1px solid #aaa; padding: 5px 7px; text-align: left; vertical-align: top; }
+  th { background: #eef3f3; }
+  td:first-child, th:first-child { white-space: nowrap; }
+  .ja { color: #1a6b2f; font-weight: 600; }
+  .delvis { color: #8a6d1a; font-weight: 600; }
+  tr { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+<h1>Kravbesvarelse per krav</h1>
+<p class="meta">Halden kommune 2026-112379 — «Administrativt system for barnevernstjenesten». «Oppfylles»-kolonnen er ærlig: «Ja» betyr implementert og automatisk testet i dag; «Ja (aktivering)» betyr ferdig programvare som venter på ekstern tilgang/avtale; «Delvis» beskrives med leveranseplan.</p>
+<table>
+<tr><th>#</th><th>Krav (kort)</th><th>Oppfylles</th><th>Besvarelse</th></tr>
+
+<tr><td>1</td><td>Elektronisk/manuelt meldingsmottak; ufødt barn, tilleggsopplysninger, søskenkopi, redigering</td><td class="ja">Ja / Ja (aktivering)</td><td>Manuelt mottak med kilde, melderkategori, prioritet, ufødt barn, tilleggsopplysninger, søskenkopi og full endringshistorikk er i drift. Elektronisk mottak fra Nasjonal portal (KS Fiks IO) er ferdig utviklet med kryptert transport, idempotent kvittering og automatisk fristregistrering — aktiveres med Fiks-konto.</td></tr>
+
+<tr><td>2</td><td>Tilpassbar faseflyt fra mottak til avslutning</td><td class="ja">Ja</td><td>Egen kommunal barnevernssak med faseflyt (meldingsavklaring → undersøkelse → tiltak → avslutning), fasehistorikk og databaseisolasjon per kommune (FORCE RLS). «Send til undersøkelse» oppretter reell sak med 3-månedersfrist.</td></tr>
+
+<tr><td>3</td><td>Oppgaver med eier, frist, varsel og eskalering</td><td class="ja">Ja</td><td>Oppgaver på sak med ansvarlig, frist og status. Felles fristmotor med automatisk ledereskalering ved forfall; driftsalarm ved permanente feil i varslingskøene.</td></tr>
+
+<tr><td>4</td><td>Strukturert journal med fritekst, tid/forfatter og dokumenter</td><td class="ja">Ja</td><td>Append-only saksjournal (kan aldri endres/slettes — kun korreksjonslenke) med kategori, tidspunkt, forfatter og vedlegg. Vedlegg lagres i kryptert EU-objektlager. Journalposter arkiveres automatisk (Noark 5-outbox).</td></tr>
+
+<tr><td>5</td><td>Tiltaks-/planmodul med ansvar, dato, status og rapportering</td><td class="ja">Ja</td><td>Versjonert tiltaksplan: utkast → leder-godkjenning → gjeldende plan; nytt utkast fra godkjent versjon. Tiltak med ansvarlig, status og frist; evalueringsfrist med varsling.</td></tr>
+
+<tr><td>6</td><td>Malstyrte standardbrev/vedtak med forhåndsutfylling</td><td class="ja">Ja</td><td>Eget dokumentobjekt (vedtak/brev) med standardmaler, hjemmelfelt og automatisk saksdatafletting. Vedtak krever barnevernsleders godkjenning; godkjente dokumenter er uforanderlige. Ekspedering via sikker dialog eller manuelt, med automatisk journalføring og arkivering.</td></tr>
+
+<tr><td>7</td><td>Elektronisk signering (E)</td><td class="delvis">Delvis</td><td>eID-autentisering (BankID/Buypass) og godkjenningsflyt finnes; kvalifisert e-signatur leveres via integrasjon med signeringstjeneste i implementasjonsfasen.</td></tr>
+
+<tr><td>8</td><td>Interne varsler og sikker melding med eksterne</td><td class="ja">Ja</td><td>Interne varsler i app. Ekstern kommunikasjon i sikker dialog: eID-innlogget, kryptert lager, malware-skannede vedlegg, lesekvitteringer, append-only audit, retention-policy per kommune. Sensitivt innhold er sperret for ordinær e-post.</td></tr>
+
+<tr><td>9</td><td>Leverandørnøytral SMS-gateway (E)</td><td class="ja">Ja (aktivering)</td><td>Generisk REST-adapter mot kundens valgte gateway, med utboks-kø, reservasjonsregister-sjekk (fail-closed), backoff og driftsalarm. Aktiveres med gateway-avtale.</td></tr>
+
+<tr><td>10</td><td>Standardrapporter til ledelse, Bufdir/Statsforvalter, SSB</td><td class="ja">Ja (aktivering)</td><td>Automatisk daglig innrapportering til Bufdirs barnevernsregister etter samme modell som markedets fagsystemer: datasett snapshotes, kvalitetssikres mot valideringsregler før innsending, sendes over KS FIKS Protokoll og kvittering lagres for avstemming. Ledelsesrapporter og KPI-er i løsningen. Aktiveres med Bufdir-mottakerkonto.</td></tr>
+
+<tr><td>11</td><td>Egne rapporter (E)</td><td class="ja">Ja</td><td>Rapportbygger med maler, filtre, visninger og eksport er del av plattformen.</td></tr>
+
+<tr><td>12</td><td>Ad hoc, CSV/Excel og API (E)</td><td class="ja">Ja</td><td>CSV/Excel-eksport og autentisert rapporterings-API. Barneverndata eksporteres tenant-sikkert med behovsprøvd tilgang.</td></tr>
+
+<tr><td>13</td><td>Beskriv hvordan nøkkeltall hentes (E)</td><td class="ja">Ja</td><td>KPI-katalogen ER dokumentasjonen: hvert nøkkeltall eksponerer navn, definisjon, datakilde, eier, frekvens og selve beregningsformelen i API og UI — etterprøvbart tall for tall.</td></tr>
+
+<tr><td>14</td><td>RBAC, juridisk avgrenset innsyn, minst tre roller (E)</td><td class="ja">Ja</td><td>Roller: barnevernsleder, saksbehandler, kommune-administrator (ser aldri saksinnhold), i tillegg til plattformens øvrige RBAC. Behovsprøvd («need-to-know») tilgang håndheves i databasen; brukeradministrasjon per kommune med rollematrise.</td></tr>
+
+<tr><td>15</td><td>Alle saksendringer og dokumentoppslag logges søkbart</td><td class="ja">Ja</td><td>Uforanderlig tilgangslogg: hver lesing, endring og nedlasting logges i samme transaksjon (fail-closed — mislykkes loggingen, gjennomføres ikke handlingen). Søkbar revisorflate; loggen overlever sletting av brukere.</td></tr>
+
+<tr><td>16</td><td>Innsynsbegjæring, utskrift, journalkopi, klage (E)</td><td class="ja">Ja</td><td>Full arbeidsflyt: mottak med partsstatus og 5-dagers frist i fristmotoren, lederbeslutning (innvilget/delvis/avslått) med hjemlede unntak (fvl. § 19) og begrunnelse, kontrollert utlevering (sikker dialog/utskrift/manuelt) med audit, klageflyt med oversendelse til statsforvalteren.</td></tr>
+
+<tr><td>17</td><td>Enkelt komplett saksuttrekk (E)</td><td class="ja">Ja</td><td>Ett kall gir komplett mappe i én konsistent transaksjon: sak, melding med revisjoner, fasehistorikk, journal, vedleggsmetadata, planer, vedtak/brev og oppgaver — med manifest og innholds-hash. Forbeholdt barnevernsleder, auditlogget.</td></tr>
+
+<tr><td>18</td><td>Forebyggende arbeid dokumenteres og arkiveres (E)</td><td class="ja">Ja</td><td>Egen modul for forebyggende arbeid (ikke barn-bundet) med aktiviteter, status og arkivering.</td></tr>
+
+<tr><td>19</td><td>TLS og kryptering i hvile (E)</td><td class="ja">Ja</td><td>TLS overalt; database og objektlager kryptert i hvile (EU); applikasjonsnivå-forsegling av sensitive verdier med versjonert nøkkelring, rotasjonsstøtte og append-only rotasjonsbevis. Produksjon feiler lukket uten gyldig nøkkeloppsett.</td></tr>
+
+<tr><td>20</td><td>Sentral identitet/SSO og MFA</td><td class="ja">Ja</td><td>Entra ID SSO for kommuneansatte mot kommunens egen Azure-katalog (invitasjonsbundet — oppretter aldri brukere ved innlogging). TOTP-MFA med step-up ved hver innlogging for administratorroller. BankID/Buypass for eksterne parter.</td></tr>
+
+<tr><td>21</td><td>ISO 27001 / sikkerhetsvurdering (E)</td><td class="delvis">Delvis</td><td>Systematisk intern sikkerhetsherding er dokumentert (tenant-RLS, BOLA-gjennomganger, append-only bevis). Uavhengig penetrasjonstest bestilles; rapport fremlegges. ISO 27001-sertifisering er ikke etablert — styringssystem etter samme prinsipper dokumenteres.</td></tr>
+
+<tr><td>22</td><td>Personvern, minimering, tilgang, anonymisering, DPIA-bistand</td><td class="ja">Ja</td><td>Databehandleravtale, behandlingsprotokoll, dataminimering (need-to-know i databasen), GDPR-eksport/sletting med dokumentert behandlingsgrunnlag, definerte oppbevaringsperioder med automatisk håndhevelse i sikker dialog. Vi bistår i kommunens DPIA med ferdig arkitekturdokumentasjon.</td></tr>
+
+<tr><td>23</td><td>EU/EØS-datalagring, Norge om tilgjengelig</td><td class="ja">Ja</td><td>All persondatalagring i EU (database eu-central-1 med PITR, objektlager EU-region). Norsk lokasjon kan avtales i implementasjonsfasen.</td></tr>
+
+<tr><td>24</td><td>Sikker loggforvaltning og oppbevaringsperioder</td><td class="ja">Ja</td><td>Append-only logger med databasetriggere, definerte retention-policyer per kommune med automatisk, arkiv-sikret sletting (purge krever arkivkvittering), legal hold-støtte.</td></tr>
+
+<tr><td>25</td><td>SLA i Bilag 4</td><td class="ja">Ja</td><td>Foreslått SLA: 99,5 % tilgjengelighet, &lt;500 ms, RPO ≤2 t (PITR), gjenoppretting ≤24 t. Overvåking: healthchecks, automatisk driftsalarm ved permanente køfeil, backup-/restore-rutiner. Detaljert i Bilag 4-besvarelsen.</td></tr>
+
+<tr><td>26</td><td>Elements, Documaster, Visma, KS FIKS, Entra, ID-porten (E)</td><td class="ja">Ja / Ja (aktivering)</td><td>Documaster-arkivadapter ferdig; Elements tilbys som opsjon (eget notat). KS FIKS-integrasjon ferdig utviklet. Entra ID implementert. Visma lønnseksport finnes. ID-porten: BankID/Buypass dekker eID i dag; ID-porten-innlogging kan legges til samme eID-rammeverk om kommunen krever det.</td></tr>
+
+<tr><td>27</td><td>Klientøkonomi, bank, lønn, EHF, avstemming (E)</td><td class="delvis">Delvis</td><td>Lønnseksport (fire systemer) og PowerOffice-integrasjon i drift; fakturering med EHF-oppkobling i implementasjonsfasen. Full klientøkonomi (bank/avstemming) leveres etter avtalt plan.</td></tr>
+
+<tr><td>28</td><td>Nasjonal portal, BFK og rapporteringsbank</td><td class="ja">Ja (aktivering)</td><td>Nasjonal portal-mottak og Barnevernsregister-innrapportering: ferdig programvare (se krav 1 og 10), venter kun på konto/meldingstype. BFK følger samme FIKS-infrastruktur når grensesnittet er tilgjengelig fra Bufdir.</td></tr>
+
+<tr><td>29</td><td>KI, KS-tjenester, e-sign, Outlook, kart m.m. (Ø)</td><td class="delvis">Delvis</td><td>Huskelister, generell sak/prosjekt, video-vedlegg og vedleggshåndtering finnes. Øvrige ønsker (KI-assistanse, Outlook-tillegg, kart) prioriteres i videreutviklingsplanen sammen med kommunen.</td></tr>
+
+<tr><td>30</td><td>Implementering, migrering og opplæring (Bilag 3)</td><td class="ja">Ja</td><td>Gjennomføringsplan i løsningsbeskrivelsen seksjon 6; migrering fra dagens fagsystem etter egen migreringsplan (strukturert eksport/import med validering); opplæring rolle-for-rolle med demodata.</td></tr>
+
+<tr><td>31</td><td>To timers demo (Ø)</td><td class="ja">Ja</td><td>Komplett demonstrasjon er klar i dag med realistisk demodatasett: hele kjeden fra bekymringsmelding til vedtak, innsyn, KPI og innrapportering, pluss sikker dialog og økonomi/timeflyt.</td></tr>
+</table>
+</body>
+</html>

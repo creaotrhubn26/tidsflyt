@@ -37,6 +37,10 @@ for (const { name, url } of PUBLIC_PAGES) {
     // kunne henge til test-timeout. "load" + kort settle er stabilt.
     await page.waitForLoadState("load");
     await page.waitForTimeout(750);
+    // Frys animasjoner/overganger før skanning: axe måler faktisk opacity,
+    // og på treg CI kunne fade-up-animasjonen fortsatt pågå — tekst målt på
+    // ~90 % opacity ga falske kontrastbrudd (#5F6B6D lest som #707a7c).
+    await page.addStyleTag({ content: "*, *::before, *::after { animation: none !important; transition: none !important; }" });
 
     const results = await runAxe(page);
 
