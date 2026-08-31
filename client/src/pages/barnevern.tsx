@@ -277,8 +277,8 @@ function MeldingDetalj({ meldingId, onSakOpprettet }: { meldingId: string; onSak
   const kanBehandles = melding.status === "mottatt" || melding.status === "under_avklaring";
 
   return (
-    <Card data-testid="melding-detalj">
-      <CardHeader className="pb-3">
+    <Card data-testid="melding-detalj" className="shadow-md overflow-hidden">
+      <CardHeader className="pb-3 bg-muted/40 border-b">
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
             <CardTitle className="text-base">{melding.meldingsnummer}</CardTitle>
@@ -1219,8 +1219,8 @@ function SakDetalj({ sakId }: { sakId: string }) {
   const overganger = FASE_OVERGANGER[sak.fase] ?? [];
 
   return (
-    <Card data-testid="sak-detalj">
-      <CardHeader className="pb-3">
+    <Card data-testid="sak-detalj" className="shadow-md overflow-hidden">
+      <CardHeader className="pb-3 bg-muted/40 border-b">
         <div className="flex items-start justify-between gap-2 flex-wrap">
           <div>
             <CardTitle className="text-base">{sak.saksnummer}</CardTitle>
@@ -1375,25 +1375,36 @@ export default function BarnevernPage() {
   });
 
   return (
-    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-4">
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <h1 className="text-xl md:text-2xl font-semibold" data-testid="barnevern-title">Barnevern</h1>
-        <Button onClick={() => setNyMeldingOpen(true)} data-testid="ny-melding-button">
+    <div className="min-h-screen bg-gradient-to-b from-muted/60 to-background">
+    <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-5">
+      <div className="flex items-end justify-between gap-3 flex-wrap border-b pb-4">
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex h-11 w-11 items-center justify-center rounded-xl bg-primary text-primary-foreground shadow-sm">
+            <UsersIcon className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl md:text-2xl font-semibold tracking-tight" data-testid="barnevern-title">Barnevern</h1>
+            <p className="text-sm text-muted-foreground">Meldingsmottak, saksbehandling og rapportering</p>
+          </div>
+        </div>
+        <Button onClick={() => setNyMeldingOpen(true)} data-testid="ny-melding-button" className="shadow-sm">
           <Plus className="h-4 w-4 mr-1.5" /> Ny bekymringsmelding
         </Button>
       </div>
 
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList>
-          <TabsTrigger value="meldinger" data-testid="tab-meldinger">
-            <Inbox className="h-4 w-4 mr-1.5" /> Meldinger ({meldinger.length})
+        <TabsList className="h-11 gap-1 bg-card border shadow-sm px-1.5">
+          <TabsTrigger value="meldinger" data-testid="tab-meldinger" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <Inbox className="h-4 w-4 mr-1.5" /> Meldinger
+            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 text-[11px] tabular-nums group-data-[state=active]:bg-primary-foreground/20">{meldinger.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="saker" data-testid="tab-saker">
-            <FolderOpen className="h-4 w-4 mr-1.5" /> Saker ({saker.length})
+          <TabsTrigger value="saker" data-testid="tab-saker" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <FolderOpen className="h-4 w-4 mr-1.5" /> Saker
+            <span className="ml-1.5 rounded-full bg-foreground/10 px-1.5 text-[11px] tabular-nums">{saker.length}</span>
           </TabsTrigger>
-          <TabsTrigger value="forebyggende" data-testid="tab-forebyggende">Forebyggende</TabsTrigger>
-          <TabsTrigger value="innrapportering" data-testid="tab-innrapportering">Innrapportering</TabsTrigger>
-          <TabsTrigger value="nokkeltall" data-testid="tab-nokkeltall">Nøkkeltall</TabsTrigger>
+          <TabsTrigger value="forebyggende" data-testid="tab-forebyggende" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Forebyggende</TabsTrigger>
+          <TabsTrigger value="innrapportering" data-testid="tab-innrapportering" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Innrapportering</TabsTrigger>
+          <TabsTrigger value="nokkeltall" data-testid="tab-nokkeltall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Nøkkeltall</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meldinger" className="mt-4">
@@ -1406,8 +1417,10 @@ export default function BarnevernPage() {
                   <button key={m.id} type="button"
                     onClick={() => setValgtMeldingId(m.id)}
                     className={cn(
-                      "w-full text-left border rounded-md p-2.5 hover:bg-muted/50 transition-colors",
-                      valgtMeldingId === m.id && "border-primary bg-muted/40",
+                      "w-full text-left rounded-lg border bg-card p-3 shadow-sm transition-all hover:shadow hover:border-primary/40",
+                      "border-l-4 border-l-transparent",
+                      m.prioritet === "akutt" && "border-l-destructive/70",
+                      valgtMeldingId === m.id && "border-primary border-l-primary bg-primary/5 shadow",
                     )}
                     data-testid={`melding-rad-${m.id}`}>
                     <div className="flex items-center justify-between gap-2">
@@ -1424,13 +1437,13 @@ export default function BarnevernPage() {
                 );
               })}
               {!lasterMeldinger && meldinger.length === 0 && (
-                <p className="text-sm text-muted-foreground">Ingen meldinger registrert.</p>
+                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><Inbox className="mx-auto mb-2 h-8 w-8 opacity-40" />Ingen meldinger registrert.</div>
               )}
             </div>
             <div>
               {valgtMeldingId
                 ? <MeldingDetalj meldingId={valgtMeldingId} onSakOpprettet={(sakId) => { setValgtSakId(sakId); setTab("saker"); }} />
-                : <p className="text-sm text-muted-foreground p-4">Velg en melding fra listen.</p>}
+                : <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed bg-card/50 text-sm text-muted-foreground">Velg en melding fra listen</div>}
             </div>
           </div>
         </TabsContent>
@@ -1443,8 +1456,8 @@ export default function BarnevernPage() {
                 <button key={s.id} type="button"
                   onClick={() => setValgtSakId(s.id)}
                   className={cn(
-                    "w-full text-left border rounded-md p-2.5 hover:bg-muted/50 transition-colors",
-                    valgtSakId === s.id && "border-primary bg-muted/40",
+                    "w-full text-left rounded-lg border bg-card p-3 shadow-sm transition-all hover:shadow hover:border-primary/40 border-l-4 border-l-transparent",
+                    valgtSakId === s.id && "border-primary border-l-primary bg-primary/5 shadow",
                   )}
                   data-testid={`sak-rad-${s.id}`}>
                   <div className="flex items-center justify-between gap-2">
@@ -1457,13 +1470,13 @@ export default function BarnevernPage() {
                 </button>
               ))}
               {!lasterSaker && saker.length === 0 && (
-                <p className="text-sm text-muted-foreground">Ingen saker ennå. Opprett fra en melding.</p>
+                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><FolderOpen className="mx-auto mb-2 h-8 w-8 opacity-40" />Ingen saker ennå. Opprett fra en melding.</div>
               )}
             </div>
             <div>
               {valgtSakId
                 ? <SakDetalj sakId={valgtSakId} />
-                : <p className="text-sm text-muted-foreground p-4">Velg en sak fra listen.</p>}
+                : <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed bg-card/50 text-sm text-muted-foreground">Velg en sak fra listen</div>}
             </div>
           </div>
         </TabsContent>
@@ -1479,6 +1492,7 @@ export default function BarnevernPage() {
       </Tabs>
 
       <NyMeldingDialog open={nyMeldingOpen} onOpenChange={setNyMeldingOpen} />
+    </div>
     </div>
   );
 }
