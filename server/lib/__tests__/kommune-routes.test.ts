@@ -34,12 +34,19 @@ describe("kommune-administrasjon API", () => {
 
   beforeAll(async () => {
     const prevNodeEnv = process.env.NODE_ENV;
+    const prevRuntimeRole = process.env.TIDUM_RLS_RUNTIME_ROLE;
     process.env.NODE_ENV = "production";
+    // database-rls-context feiler lukket ved production uten DEDIKERT
+    // runtime-rolle (pg_database_owner avvises eksplisitt). Testdatabasene
+    // har tidum_app_runtime (NOLOGIN, NOBYPASSRLS, medlem av eierrollen).
+    process.env.TIDUM_RLS_RUNTIME_ROLE = "tidum_app_runtime";
     vi.resetModules();
     await import("../../routes");
     const { pool: freshPool } = await import("../../db");
     dynamicPool = freshPool;
     process.env.NODE_ENV = prevNodeEnv;
+    if (prevRuntimeRole === undefined) delete process.env.TIDUM_RLS_RUNTIME_ROLE;
+    else process.env.TIDUM_RLS_RUNTIME_ROLE = prevRuntimeRole;
   });
 
   afterAll(async () => {

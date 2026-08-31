@@ -2474,7 +2474,7 @@ export const invoices = pgTable("tidum_invoices", {
 
 export const invoiceLineItems = pgTable("tidum_invoice_items", {
   id: serial("id").primaryKey(),
-  invoiceId: uuid("invoice_id").notNull(),
+  invoiceId: uuid("invoice_id").notNull().references(() => invoices.id, { onDelete: "cascade" }),
   description: text("description").notNull(),
   quantity: numeric("quantity", { precision: 12, scale: 2 }).notNull().default("0"),
   unitPrice: numeric("unit_price", { precision: 12, scale: 2 }).notNull().default("0"),
