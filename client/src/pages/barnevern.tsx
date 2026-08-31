@@ -775,6 +775,10 @@ function DokumentSeksjon({ sakId }: { sakId: string }) {
                   </Button>
                 </>
               )}
+              <Button size="sm" variant="outline" data-testid={`dokument-pdf-${d.id}`}
+                onClick={() => window.open(`/api/barnevern/dokumenter/${d.id}/pdf`, "_blank", "noopener")}>
+                <FileText className="mr-1.5 h-3.5 w-3.5" /> Vis PDF
+              </Button>
             </div>
           </li>
         ))}
@@ -961,6 +965,12 @@ function InnsynSeksjon({ sakId }: { sakId: string }) {
               {(k.status === "innvilget" || k.status === "delvis_innvilget") && (
                 <Button size="sm" onClick={() => utlever.mutate({ id: k.id, via: "sikker_dialog" })} data-testid={`innsyn-utlever-${k.id}`}>
                   Utlever via sikker dialog
+                </Button>
+              )}
+              {["innvilget", "delvis_innvilget", "utlevert"].includes(k.status) && (
+                <Button size="sm" variant="outline" data-testid={`innsyn-pdf-${k.id}`}
+                  onClick={() => window.open(`/api/barnevern/innsynskrav/${k.id}/sladdet-pdf`, "_blank", "noopener")}>
+                  <FileText className="mr-1.5 h-3.5 w-3.5" /> Sladdet PDF (leder)
                 </Button>
               )}
               {["avslatt", "delvis_innvilget", "utlevert"].includes(k.status) && (
