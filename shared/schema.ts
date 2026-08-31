@@ -821,6 +821,23 @@ export const driftAlarmer = pgTable("tidum_drift_alarmer", {
   uniqueIndex("tidum_drift_alarmer_kilde_entity_unique").on(table.kilde, table.entityId),
 ]);
 
+// Krav 6-rest: kommune-egne dokumentmaler (migrasjon 104).
+export const barnevernDokumentmaler = pgTable("tidum_barnevern_dokumentmaler", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  malId: text("mal_id").notNull(),
+  dokumenttype: text("dokumenttype").notNull(),
+  tittel: text("tittel").notNull(),
+  hjemmel: text("hjemmel"),
+  innhold: text("innhold").notNull(),
+  aktiv: boolean("aktiv").notNull().default(true),
+  opprettetAv: varchar("opprettet_av").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("tidum_bv_dokumentmaler_kommune_mal_unique").on(table.kommuneId, table.malId),
+]);
+
 // Krav 15-rest: delegasjon ved fravær + break-glass-nødtilgang (migrasjon 102).
 export const barnevernTilgangsdelegasjoner = pgTable("tidum_barnevern_tilgangsdelegasjoner", {
   id: uuid("id").defaultRandom().primaryKey(),

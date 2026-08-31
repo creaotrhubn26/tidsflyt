@@ -45,6 +45,9 @@ describe("Barnevern dokumenter (krav 6)", { timeout: 20000 }, () => {
     const userIds = cleanupUserIds.splice(0);
     const kommuneIds = cleanupKommuneIds.splice(0);
     await withSystemRlsContext("barnevern_dokument_test_cleanup", async (client) => {
+      if (kommuneIds.length) {
+        await client.query(`DELETE FROM tidum_barnevern_dokumentmaler WHERE kommune_id = ANY($1::int[])`, [kommuneIds]);
+      }
       for (const id of sakIds) {
         await client.query(`DELETE FROM tidum_frister WHERE entity_id = $1`, [id]);
         await client.query(
@@ -219,7 +222,50 @@ describe("Barnevern dokumenter (krav 6)", { timeout: 20000 }, () => {
     expect(oppforing.innhold).toContain("Mor Testesen");
   });
 
-  it("brev godkjennes av saksbehandler; ukjent mal og vedtak uten hjemmel håndteres; tenant-isolert", async () => {
+  it("kommune-egen mal: leder oppretter, overstyrer kodefast, brukes ved fletting, deaktiveres", async () => {
+    const kommuneId = await insertTestKommune("Malkommune");
+    const { app: lederApp } = await actorApp("leder", kommuneId, "barnevernsleder");
+    const { app: sbApp } = await actorApp("sb", kommuneId, "kommune_saksbehandler");
+    const sak = await opprettSak(sbApp, "Mal Malesen");
+
+    // Saksbehandler nektes; leder oppretter egen mal.
+    expect((await request(sbApp).post("/api/barnevern/dokumentmaler").send({
+      malId: "brev_lokal", dokumenttype: "brev", tittel: "Lokalt brev", innhold: "Hei {{barnNavn}} i {{kommune}}.",
+    })).status).toBe(403);
+    const mal = await request(lederApp).post("/api/barnevern/dokumentmaler").send({
+      malId: "brev_lokal", dokumenttype: "brev", tittel: "Lokalt brev", innhold: "Hei {{barnNavn}} i {{kommune}}.",
+    });
+    expect(mal.status).toBe(201);
+    expect(mal.body.egen).toBe(true);
+
+    // Katalogen inneholder både kodefaste og den egne.
+    const katalog = await request(sbApp).get("/api/barnevern/dokumentmaler");
+    expect(katalog.body.some((m: any) => m.malId === "vedtak_hjelpetiltak" && m.egen === false)).toBe(true);
+    expect(katalog.body.some((m: any) => m.malId === "brev_lokal" && m.egen === true)).toBe(true);
+
+    // Dokument fra egen mal flettes med saksdata.
+    const dok = await request(sbApp).post(`/api/barnevern/saker/${sak.id}/dokumenter`).send({ malId: "brev_lokal" });
+    expect(dok.status).toBe(201);
+    expect(dok.body.innhold).toBe("Hei Mal Malesen i Malkommune.");
+
+    // Overstyr en kodefast mal ved samme mal_id.
+    await request(lederApp).post("/api/barnevern/dokumentmaler").send({
+      malId: "brev_orientering", dokumenttype: "brev", tittel: "Lokal orientering", innhold: "Lokal tekst for {{saksnummer}}.",
+    });
+    const overstyrt = await request(sbApp).post(`/api/barnevern/saker/${sak.id}/dokumenter`).send({ malId: "brev_orientering" });
+    expect(overstyrt.body.tittel).toBe("Lokal orientering");
+    expect(overstyrt.body.innhold).toBe(`Lokal tekst for ${sak.saksnummer}.`);
+
+    // Deaktivering: egen mal borte fra katalogen; kodefast tilbake.
+    expect((await request(lederApp).delete("/api/barnevern/dokumentmaler/brev_orientering")).status).toBe(200);
+    const etter = await request(sbApp).get("/api/barnevern/dokumentmaler");
+    expect(etter.body.find((m: any) => m.malId === "brev_orientering").egen).toBe(false);
+    // Utstedt dokument fra den deaktiverte malen er urørt (snapshot).
+    expect((await request(sbApp).get(`/api/barnevern/saker/${sak.id}/dokumenter`)).body
+      .some((d: any) => d.tittel === "Lokal orientering")).toBe(true);
+  });
+
+    it("brev godkjennes av saksbehandler; ukjent mal og vedtak uten hjemmel håndteres; tenant-isolert", async () => {
     const kommuneA = await insertTestKommune();
     const kommuneB = await insertTestKommune();
     const { app: sbApp } = await actorApp("sb", kommuneA, "kommune_saksbehandler");

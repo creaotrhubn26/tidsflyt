@@ -71,6 +71,30 @@ export const DOKUMENTMALER: Record<string, {
   },
 };
 
+/**
+ * Malkatalogen for en kommune: kodefaste standardmaler + kommunens egne
+ * aktive maler fra migrasjon 104. Kommunens mal overstyrer en kodefast
+ * ved samme mal_id.
+ */
+async function hentMalKatalog(client: any, kommuneId: number): Promise<Map<string, {
+  dokumenttype: "vedtak" | "brev"; tittel: string; hjemmel?: string | null; innhold: string; egen: boolean;
+}>> {
+  const katalog = new Map<string, any>();
+  for (const [malId, mal] of Object.entries(DOKUMENTMALER)) {
+    katalog.set(malId, { ...mal, egen: false });
+  }
+  const { rows } = await client.query(
+    `SELECT mal_id, dokumenttype, tittel, hjemmel, innhold
+       FROM tidum_barnevern_dokumentmaler
+      WHERE kommune_id = $1 AND aktiv = TRUE ORDER BY mal_id`,
+    [kommuneId],
+  );
+  for (const r of rows) {
+    katalog.set(r.mal_id, { dokumenttype: r.dokumenttype, tittel: r.tittel, hjemmel: r.hjemmel, innhold: r.innhold, egen: true });
+  }
+  return katalog;
+}
+
 function flett(mal: string, felter: Record<string, string>): string {
   return mal.replace(/\{\{(\w+)\}\}/g, (_m, nokkel) => felter[nokkel] ?? `{{${nokkel}}}`);
 }
@@ -100,12 +124,89 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
   app.get("/api/barnevern/dokumentmaler", async (req: Request, res: Response) => {
     const actor = await requireKommuneActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
-    res.json(Object.entries(DOKUMENTMALER).map(([malId, mal]) => ({
-      malId,
-      dokumenttype: mal.dokumenttype,
-      tittel: mal.tittel,
-      hjemmel: mal.hjemmel ?? null,
-    })));
+    try {
+      const katalog = await withKommuneRlsContext(actor.kommuneId, (client) =>
+        hentMalKatalog(client, actor.kommuneId));
+      res.json([...katalog.entries()].map(([malId, mal]) => ({
+        malId,
+        dokumenttype: mal.dokumenttype,
+        tittel: mal.tittel,
+        hjemmel: mal.hjemmel ?? null,
+        egen: mal.egen,
+      })));
+    } catch (err) {
+      console.error("[barnevern-dokument] malkatalog feilet", err);
+      res.status(500).json({ error: "Kunne ikke hente malene." });
+    }
+  });
+
+  // Kommune-egne maler (krav 6-rest): kun barnevernsleder. Malinnholdet
+  // snapshotes fortsatt inn i dokumentet — endringer her rører aldri
+  // utstedte dokumenter.
+  app.post("/api/barnevern/dokumentmaler", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan administrere maler." });
+    }
+    const { malId, dokumenttype, tittel, hjemmel, innhold } = req.body;
+    if (typeof malId !== "string" || !/^[a-z0-9_]{2,64}$/.test(malId)) {
+      return res.status(400).json({ error: "malId må være 2–64 tegn a-z, 0-9 og _." });
+    }
+    if (dokumenttype !== "vedtak" && dokumenttype !== "brev") {
+      return res.status(400).json({ error: "dokumenttype må være vedtak eller brev." });
+    }
+    if (!tittel?.trim() || !innhold?.trim()) {
+      return res.status(400).json({ error: "tittel og innhold er påkrevd." });
+    }
+    try {
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [created] } = await client.query(
+          `INSERT INTO tidum_barnevern_dokumentmaler
+             (kommune_id, mal_id, dokumenttype, tittel, hjemmel, innhold, opprettet_av)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)
+           ON CONFLICT (kommune_id, mal_id) DO UPDATE
+             SET dokumenttype = EXCLUDED.dokumenttype, tittel = EXCLUDED.tittel,
+                 hjemmel = EXCLUDED.hjemmel, innhold = EXCLUDED.innhold,
+                 aktiv = TRUE, updated_at = NOW()
+           RETURNING *`,
+          [actor.kommuneId, malId, dokumenttype, tittel.trim(), hjemmel ?? null, innhold, actor.userId],
+        );
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "endret", objektType: "dokumentmal", objektId: created.id,
+          detaljer: { malId, dokumenttype },
+        });
+        return created;
+      });
+      res.status(201).json({ id: row.id, malId: row.mal_id, dokumenttype: row.dokumenttype, tittel: row.tittel, hjemmel: row.hjemmel, egen: true });
+    } catch (err) {
+      console.error("[barnevern-dokument] mal-lagring feilet", err);
+      res.status(500).json({ error: "Kunne ikke lagre malen." });
+    }
+  });
+
+  app.delete("/api/barnevern/dokumentmaler/:malId", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan administrere maler." });
+    }
+    try {
+      const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [updated] } = await client.query(
+          `UPDATE tidum_barnevern_dokumentmaler SET aktiv = FALSE, updated_at = NOW()
+            WHERE kommune_id = $1 AND mal_id = $2 AND aktiv = TRUE RETURNING id`,
+          [actor.kommuneId, req.params.malId],
+        );
+        return updated ?? null;
+      });
+      if (!row) return res.status(404).json({ error: "Kommunemal ikke funnet." });
+      res.json({ ok: true });
+    } catch (err) {
+      console.error("[barnevern-dokument] mal-deaktivering feilet", err);
+      res.status(500).json({ error: "Kunne ikke deaktivere malen." });
+    }
   });
 
   // Opprett dokument fra mal — flettes med saksdata ved opprettelse.
@@ -114,11 +215,12 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
 
     const { malId, mottaker, planId, hjemmel } = req.body;
-    const mal = typeof malId === "string" ? DOKUMENTMALER[malId] : undefined;
-    if (!mal) return res.status(400).json({ error: "Ukjent malId." });
+    if (typeof malId !== "string") return res.status(400).json({ error: "Ukjent malId." });
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const mal = (await hentMalKatalog(client, actor.kommuneId)).get(malId);
+        if (!mal) throw new Error("MAL_NOT_FOUND");
         const ntk = needToKnowVilkar(actor, "s.tildelt_saksbehandler_id", 3, "s.id");
         const { rows: [sak] } = await client.query(
           `SELECT s.*, k.navn AS kommune_navn
@@ -160,6 +262,9 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
       });
       res.status(201).json(toApiShape(row));
     } catch (err) {
+      if (err instanceof Error && err.message === "MAL_NOT_FOUND") {
+        return res.status(400).json({ error: "Ukjent malId." });
+      }
       if (err instanceof Error && err.message === "SAK_NOT_FOUND") {
         return res.status(404).json({ error: "Sak ikke funnet." });
       }
