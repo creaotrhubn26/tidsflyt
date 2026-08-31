@@ -7,9 +7,11 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  AlertTriangle, ArrowRight, Baby, FileText, FolderOpen, Inbox, Paperclip,
-  Pencil, Plus, Users as UsersIcon,
+  AlertTriangle, ArrowRight, Baby, FileText, FolderOpen, Home, Inbox,
+  MessageSquare, Paperclip, Pencil, Phone, Plus, Search, Stamp,
+  Users as UsersIcon,
 } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -60,6 +62,11 @@ const DOKUMENT_STATUSER: Record<string, string> = {
   utkast: "Utkast", godkjent: "Godkjent", ekspedert: "Ekspedert",
 };
 
+const JOURNAL_IKONER: Record<string, typeof FileText> = {
+  notat: FileText, telefonsamtale: Phone, mote: UsersIcon, hjemmebesok: Home,
+  samtale_med_barnet: MessageSquare, vedtak: Stamp, annet: FileText,
+};
+
 const JOURNAL_KATEGORIER: Record<string, string> = {
   notat: "Notat", telefonsamtale: "Telefonsamtale", mote: "Møte", hjemmebesok: "Hjemmebesøk",
   samtale_med_barnet: "Samtale med barnet", vedtak: "Vedtak", annet: "Annet",
@@ -72,6 +79,107 @@ function formatDato(value: string | null | undefined): string {
 
 function fristPassert(value: string | null | undefined): boolean {
   return !!value && new Date(value).getTime() < Date.now();
+}
+
+/** Frist som chip med gjenstående tid: grønn > 7 d, oransje ≤ 7 d, rød passert. */
+function FristChip({ frist, ferdig, label }: { frist: string | null | undefined; ferdig?: boolean; label?: string }) {
+  if (!frist) return null;
+  const dager = Math.ceil((new Date(frist).getTime() - Date.now()) / 86400000);
+  const tekst = ferdig
+    ? "Overholdt"
+    : dager < 0 ? `Frist passert (${-dager} d siden)`
+    : dager === 0 ? "Frist i dag"
+    : `${dager} d igjen`;
+  return (
+    <span className={cn(
+      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium tabular-nums",
+      ferdig ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300"
+      : dager < 0 ? "border-destructive/40 bg-destructive/10 text-destructive"
+      : dager <= 7 ? "border-amber-300 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300"
+      : "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-300",
+    )}>
+      <AlertTriangle className={cn("h-3 w-3", (ferdig || dager > 7) && "hidden")} />
+      {label ? `${label}: ` : ""}{tekst}
+    </span>
+  );
+}
+
+/** Faseflyt som stegindikator. Henlagt vises som eget endepunkt. */
+function FaseStepper({ fase }: { fase: string }) {
+  const steg = ["undersokelse", "tiltak", "avsluttet"];
+  const aktivIdx = fase === "henlagt" ? -1 : steg.indexOf(fase);
+  return (
+    <div className="flex items-center gap-1.5 text-[11px] font-medium" aria-label="Faseflyt">
+      {steg.map((f, i) => (
+        <div key={f} className="flex items-center gap-1.5">
+          {i > 0 && <div className={cn("h-px w-5", i <= aktivIdx ? "bg-primary" : "bg-border")} />}
+          <span className={cn(
+            "flex items-center gap-1 rounded-full px-2 py-0.5",
+            i < aktivIdx && "bg-primary/15 text-primary",
+            i === aktivIdx && "bg-primary text-primary-foreground",
+            i > aktivIdx && "bg-muted text-muted-foreground",
+          )}>
+            {i < aktivIdx && <span aria-hidden>✓</span>}
+            {SAK_FASER[f]}
+          </span>
+        </div>
+      ))}
+      {fase === "henlagt" && (
+        <span className="ml-1 rounded-full bg-muted px-2 py-0.5 text-muted-foreground">Henlagt</span>
+      )}
+    </div>
+  );
+}
+
+/** Skeleton-rader for listelasting. */
+function ListeSkeleton() {
+  return (
+    <div className="space-y-2" aria-hidden>
+      {[0, 1, 2].map((i) => (
+        <div key={i} className="rounded-lg border bg-card p-3 shadow-sm">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-40" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Tom detalj-flate: dagens fristbilde + hurtighandling (UX pkt. 8). */
+function TomDetaljFlate({ tittel, meldinger, saker, onNy }: {
+  tittel: string;
+  meldinger: { id: string; meldingsnummer: string; status: string; avklaringsfrist?: string | null }[];
+  saker: { id: string; saksnummer: string; fase: string; undersokelsesfrist?: string | null }[];
+  onNy: () => void;
+}) {
+  const naerFrist = [
+    ...meldinger
+      .filter((m) => (m.status === "mottatt" || m.status === "under_avklaring") && m.avklaringsfrist)
+      .map((m) => ({ id: m.id, navn: m.meldingsnummer, frist: m.avklaringsfrist! })),
+    ...saker
+      .filter((x) => x.fase === "undersokelse" && x.undersokelsesfrist)
+      .map((x) => ({ id: x.id, navn: x.saksnummer, frist: x.undersokelsesfrist! })),
+  ].sort((a, b) => new Date(a.frist).getTime() - new Date(b.frist).getTime()).slice(0, 4);
+
+  return (
+    <div className="flex h-full min-h-[260px] flex-col items-center justify-center gap-4 rounded-xl border border-dashed bg-card/50 p-6 text-center">
+      <p className="text-sm text-muted-foreground">{tittel} fra listen — eller start noe nytt.</p>
+      {naerFrist.length > 0 && (
+        <div className="w-full max-w-sm space-y-1.5 text-left">
+          <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Nærmeste frister</p>
+          {naerFrist.map((f) => (
+            <div key={f.id} className="flex items-center justify-between rounded-md border bg-card px-3 py-1.5 text-sm">
+              <span className="font-medium">{f.navn}</span>
+              <FristChip frist={f.frist} />
+            </div>
+          ))}
+        </div>
+      )}
+      <Button size="sm" variant="outline" onClick={onNy}>
+        <Plus className="mr-1.5 h-4 w-4" /> Ny bekymringsmelding
+      </Button>
+    </div>
+  );
 }
 
 // ── NY MELDING ───────────────────────────────────────────────────────────────
@@ -1130,7 +1238,17 @@ function NokkeltallFane() {
   if (error) {
     return <p className="text-sm text-muted-foreground p-4">Nøkkeltallene er forbeholdt barnevernsleder.</p>;
   }
-  if (!data) return <p className="text-sm text-muted-foreground p-4">Laster …</p>;
+  if (!data) {
+    return (
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3" aria-hidden>
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <div key={i} className="rounded-xl border bg-card p-4 shadow-sm">
+            <Skeleton className="h-8 w-16" /><Skeleton className="mt-2 h-4 w-32" />
+          </div>
+        ))}
+      </div>
+    );
+  }
 
   const formater = (kpi: api.Kpi) => {
     if (kpi.verdi == null) return "—";
@@ -1147,10 +1265,16 @@ function NokkeltallFane() {
       </p>
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {data.kpier.map((kpi) => (
-          <details key={kpi.id} className="border rounded-md p-3" data-testid={`kpi-${kpi.id}`}>
+          <details key={kpi.id}
+            className="group rounded-xl border bg-card p-4 shadow-sm transition-all hover:shadow hover:border-primary/40 open:border-primary/50 open:shadow"
+            data-testid={`kpi-${kpi.id}`}>
             <summary className="cursor-pointer list-none">
-              <span className="block text-2xl font-semibold">{formater(kpi)}</span>
-              <span className="block text-sm mt-0.5">{kpi.navn}</span>
+              <div className="flex items-start justify-between gap-2">
+                <span className="block text-3xl font-semibold tracking-tight tabular-nums text-primary">{formater(kpi)}</span>
+                <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">{kpi.frekvens}</span>
+              </div>
+              <span className="mt-1 block text-sm font-medium">{kpi.navn}</span>
+              <span className="mt-0.5 block text-[11px] text-muted-foreground group-open:hidden">Klikk for kilde og formel</span>
             </summary>
             <div className="mt-2 pt-2 border-t text-xs text-muted-foreground space-y-1">
               <p>{kpi.beskrivelse}</p>
@@ -1230,12 +1354,14 @@ function SakDetalj({ sakId }: { sakId: string }) {
           </div>
           <Badge>{SAK_FASER[sak.fase] ?? sak.fase}</Badge>
         </div>
+        <div className="mt-2"><FaseStepper fase={sak.fase} /></div>
       </CardHeader>
       <CardContent className="space-y-4 text-sm">
         {sak.fase === "undersokelse" && (
-          <p className={cn("text-xs", fristPassert(sak.undersokelsesfrist) ? "text-destructive font-medium" : "text-muted-foreground")}>
-            Undersøkelsesfrist: {formatDato(sak.undersokelsesfrist)}
-          </p>
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            Undersøkelsesfrist {formatDato(sak.undersokelsesfrist)}
+            <FristChip frist={sak.undersokelsesfrist} />
+          </div>
         )}
 
         {overganger.length > 0 && (
@@ -1298,24 +1424,31 @@ function SakDetalj({ sakId }: { sakId: string }) {
               e.target.value = "";
             }} />
 
-          <ul className="space-y-2">
-            {journal.map((entry) => (
-              <li key={entry.id} className="border rounded-md p-2.5" data-testid={`journal-entry-${entry.id}`}>
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="text-[10px]">{JOURNAL_KATEGORIER[entry.kategori] ?? entry.kategori}</Badge>
-                    <span className="text-xs text-muted-foreground">{formatDato(entry.createdAt)}</span>
-                    {entry.correctsEntryId && <Badge variant="secondary" className="text-[10px]">Retting</Badge>}
+          <ul className="relative space-y-3 pl-5 before:absolute before:left-[13px] before:top-1 before:bottom-1 before:w-px before:bg-border">
+            {journal.map((entry) => {
+              const Ikon = JOURNAL_IKONER[entry.kategori] ?? FileText;
+              return (
+              <li key={entry.id} className="relative" data-testid={`journal-entry-${entry.id}`}>
+                <span className="absolute -left-5 top-1 flex h-6 w-6 items-center justify-center rounded-full border bg-card text-primary shadow-sm">
+                  <Ikon className="h-3 w-3" />
+                </span>
+                <div className="rounded-lg border bg-card p-2.5 shadow-sm ml-3">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-medium">{JOURNAL_KATEGORIER[entry.kategori] ?? entry.kategori}</span>
+                      <span className="text-xs text-muted-foreground">{formatDato(entry.createdAt)}</span>
+                      {entry.correctsEntryId && <Badge variant="secondary" className="text-[10px]">Retting</Badge>}
+                    </div>
+                    <Button size="sm" variant="ghost" className="h-7 px-2" aria-label="Legg ved fil"
+                      onClick={() => { setVedleggEntryId(entry.id); fileInput.current?.click(); }}>
+                      <Paperclip className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
-                  <Button size="sm" variant="ghost" className="h-7 px-2"
-                    onClick={() => { setVedleggEntryId(entry.id); fileInput.current?.click(); }}>
-                    <Paperclip className="h-3.5 w-3.5" />
-                  </Button>
+                  <p className="mt-1 whitespace-pre-wrap">{entry.innhold}</p>
                 </div>
-                <p className="mt-1 whitespace-pre-wrap">{entry.innhold}</p>
               </li>
-            ))}
-            {journal.length === 0 && <li className="text-xs text-muted-foreground">Ingen journaloppføringer ennå.</li>}
+            );})}
+            {journal.length === 0 && <li className="text-xs text-muted-foreground -ml-5">Ingen journaloppføringer ennå.</li>}
           </ul>
           </TabsContent>
 
@@ -1364,6 +1497,10 @@ export default function BarnevernPage() {
   const [nyMeldingOpen, setNyMeldingOpen] = useState(false);
   const [valgtMeldingId, setValgtMeldingId] = useState<string | null>(null);
   const [valgtSakId, setValgtSakId] = useState<string | null>(null);
+  const [meldingSok, setMeldingSok] = useState("");
+  const [meldingFilter, setMeldingFilter] = useState<string | null>(null);
+  const [sakSok, setSakSok] = useState("");
+  const [sakFilter, setSakFilter] = useState<string | null>(null);
 
   const { data: meldinger = [], isLoading: lasterMeldinger } = useQuery({
     queryKey: ["barnevern-meldinger"],
@@ -1373,6 +1510,34 @@ export default function BarnevernPage() {
     queryKey: ["barnevern-saker"],
     queryFn: () => api.listSaker(),
   });
+
+  const visteMeldinger = meldinger.filter((m) => {
+    if (meldingFilter === "akutt" && m.prioritet !== "akutt") return false;
+    if (meldingFilter && meldingFilter !== "akutt" && m.status !== meldingFilter) return false;
+    const q = meldingSok.trim().toLowerCase();
+    if (q && !`${m.meldingsnummer} ${m.barnNavn ?? ""}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const visteSaker = saker.filter((sak) => {
+    if (sakFilter && sak.fase !== sakFilter) return false;
+    const q = sakSok.trim().toLowerCase();
+    if (q && !`${sak.saksnummer} ${sak.barnNavn ?? ""}`.toLowerCase().includes(q)) return false;
+    return true;
+  });
+
+  const filterChip = (aktiv: boolean) => cn(
+    "rounded-full border px-2.5 py-0.5 text-[11px] font-medium transition-colors",
+    aktiv ? "border-primary bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:border-primary/40",
+  );
+
+  // Piltast-navigasjon i listene (UX pkt. 10).
+  const pilNav = (e: React.KeyboardEvent, ider: string[], valgt: string | null, velg: (id: string) => void) => {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    e.preventDefault();
+    const i = valgt ? ider.indexOf(valgt) : -1;
+    const neste = e.key === "ArrowDown" ? Math.min(i + 1, ider.length - 1) : Math.max(i - 1, 0);
+    if (ider[neste]) velg(ider[neste]);
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-muted/60 to-background">
@@ -1409,9 +1574,22 @@ export default function BarnevernPage() {
 
         <TabsContent value="meldinger" className="mt-4">
           <div className="grid md:grid-cols-[minmax(260px,340px)_1fr] gap-4">
-            <div className="space-y-2">
-              {lasterMeldinger && <p className="text-sm text-muted-foreground">Laster …</p>}
-              {meldinger.map((m) => {
+            <div className={cn("space-y-2", valgtMeldingId && "hidden md:block")}
+              role="listbox" aria-label="Bekymringsmeldinger" tabIndex={0}
+              onKeyDown={(e) => pilNav(e, visteMeldinger.map((m) => m.id), valgtMeldingId, setValgtMeldingId)}>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={meldingSok} onChange={(e) => setMeldingSok(e.target.value)}
+                  placeholder="Søk på nummer eller barn …" className="pl-8 bg-card" data-testid="melding-sok" />
+              </div>
+              <div className="flex flex-wrap gap-1.5 pb-1">
+                {[["akutt", "Akutt"], ["mottatt", "Mottatt"], ["under_avklaring", "Under avklaring"], ["henlagt", "Henlagt"]].map(([verdi, navn]) => (
+                  <button key={verdi} type="button" className={filterChip(meldingFilter === verdi)}
+                    onClick={() => setMeldingFilter(meldingFilter === verdi ? null : verdi)}>{navn}</button>
+                ))}
+              </div>
+              {lasterMeldinger && <ListeSkeleton />}
+              {visteMeldinger.map((m) => {
                 const status = MELDING_STATUS[m.status] ?? { label: m.status, variant: "outline" as const };
                 return (
                   <button key={m.id} type="button"
@@ -1422,6 +1600,7 @@ export default function BarnevernPage() {
                       m.prioritet === "akutt" && "border-l-destructive/70",
                       valgtMeldingId === m.id && "border-primary border-l-primary bg-primary/5 shadow",
                     )}
+                    role="option" aria-selected={valgtMeldingId === m.id}
                     data-testid={`melding-rad-${m.id}`}>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-sm">{m.meldingsnummer}</span>
@@ -1433,32 +1612,52 @@ export default function BarnevernPage() {
                     <p className="text-xs text-muted-foreground mt-0.5">
                       {m.ufodtBarn ? "Ufødt barn" : (m.barnNavn ?? "Ukjent barn")} · {formatDato(m.mottattDato)}
                     </p>
+                    {(m.status === "mottatt" || m.status === "under_avklaring") && (
+                      <div className="mt-1.5"><FristChip frist={m.avklaringsfrist} /></div>
+                    )}
                   </button>
                 );
               })}
-              {!lasterMeldinger && meldinger.length === 0 && (
-                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><Inbox className="mx-auto mb-2 h-8 w-8 opacity-40" />Ingen meldinger registrert.</div>
+              {!lasterMeldinger && visteMeldinger.length === 0 && (
+                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><Inbox className="mx-auto mb-2 h-8 w-8 opacity-40" />{meldinger.length === 0 ? "Ingen meldinger registrert." : "Ingen treff — juster søk eller filter."}</div>
               )}
             </div>
-            <div>
-              {valgtMeldingId
-                ? <MeldingDetalj meldingId={valgtMeldingId} onSakOpprettet={(sakId) => { setValgtSakId(sakId); setTab("saker"); }} />
-                : <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed bg-card/50 text-sm text-muted-foreground">Velg en melding fra listen</div>}
+            <div className={cn(!valgtMeldingId && "hidden md:block")}>
+              {valgtMeldingId ? (
+                <div className="space-y-2">
+                  <Button variant="ghost" size="sm" className="md:hidden -ml-2" onClick={() => setValgtMeldingId(null)}>← Til listen</Button>
+                  <MeldingDetalj meldingId={valgtMeldingId} onSakOpprettet={(sakId) => { setValgtSakId(sakId); setTab("saker"); }} />
+                </div>
+              ) : <TomDetaljFlate tittel="Velg en melding" meldinger={meldinger} saker={saker} onNy={() => setNyMeldingOpen(true)} />}
             </div>
           </div>
         </TabsContent>
 
         <TabsContent value="saker" className="mt-4">
           <div className="grid md:grid-cols-[minmax(260px,340px)_1fr] gap-4">
-            <div className="space-y-2">
-              {lasterSaker && <p className="text-sm text-muted-foreground">Laster …</p>}
-              {saker.map((s) => (
+            <div className={cn("space-y-2", valgtSakId && "hidden md:block")}
+              role="listbox" aria-label="Barnevernssaker" tabIndex={0}
+              onKeyDown={(e) => pilNav(e, visteSaker.map((x) => x.id), valgtSakId, setValgtSakId)}>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input value={sakSok} onChange={(e) => setSakSok(e.target.value)}
+                  placeholder="Søk på saksnummer eller barn …" className="pl-8 bg-card" data-testid="sak-sok" />
+              </div>
+              <div className="flex flex-wrap gap-1.5 pb-1">
+                {Object.entries(SAK_FASER).map(([verdi, navn]) => (
+                  <button key={verdi} type="button" className={filterChip(sakFilter === verdi)}
+                    onClick={() => setSakFilter(sakFilter === verdi ? null : verdi)}>{navn}</button>
+                ))}
+              </div>
+              {lasterSaker && <ListeSkeleton />}
+              {visteSaker.map((s) => (
                 <button key={s.id} type="button"
                   onClick={() => setValgtSakId(s.id)}
                   className={cn(
                     "w-full text-left rounded-lg border bg-card p-3 shadow-sm transition-all hover:shadow hover:border-primary/40 border-l-4 border-l-transparent",
                     valgtSakId === s.id && "border-primary border-l-primary bg-primary/5 shadow",
                   )}
+                  role="option" aria-selected={valgtSakId === s.id}
                   data-testid={`sak-rad-${s.id}`}>
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-sm">{s.saksnummer}</span>
@@ -1467,16 +1666,22 @@ export default function BarnevernPage() {
                   <p className="text-xs text-muted-foreground mt-0.5">
                     {s.barnNavn ?? "Ukjent barn"} · {formatDato(s.createdAt)}
                   </p>
+                  {s.fase === "undersokelse" && (
+                    <div className="mt-1.5"><FristChip frist={s.undersokelsesfrist} /></div>
+                  )}
                 </button>
               ))}
-              {!lasterSaker && saker.length === 0 && (
-                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><FolderOpen className="mx-auto mb-2 h-8 w-8 opacity-40" />Ingen saker ennå. Opprett fra en melding.</div>
+              {!lasterSaker && visteSaker.length === 0 && (
+                <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground"><FolderOpen className="mx-auto mb-2 h-8 w-8 opacity-40" />{saker.length === 0 ? "Ingen saker ennå. Opprett fra en melding." : "Ingen treff — juster søk eller filter."}</div>
               )}
             </div>
-            <div>
-              {valgtSakId
-                ? <SakDetalj sakId={valgtSakId} />
-                : <div className="flex h-full min-h-[220px] items-center justify-center rounded-xl border border-dashed bg-card/50 text-sm text-muted-foreground">Velg en sak fra listen</div>}
+            <div className={cn(!valgtSakId && "hidden md:block")}>
+              {valgtSakId ? (
+                <div className="space-y-2">
+                  <Button variant="ghost" size="sm" className="md:hidden -ml-2" onClick={() => setValgtSakId(null)}>← Til listen</Button>
+                  <SakDetalj sakId={valgtSakId} />
+                </div>
+              ) : <TomDetaljFlate tittel="Velg en sak" meldinger={meldinger} saker={saker} onNy={() => setNyMeldingOpen(true)} />}
             </div>
           </div>
         </TabsContent>

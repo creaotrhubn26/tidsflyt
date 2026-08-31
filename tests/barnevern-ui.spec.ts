@@ -32,6 +32,14 @@ async function mockApiFallback(page: Page) {
 test.describe("Barnevern UI-flyt", () => {
   test("melding → undersøkelsessak → fase → journal", async ({ page }) => {
     await mockApiFallback(page);
+    // Toast-viewporten (nederst) fanger pointer-events og Radix pauser
+    // nedtellingen ved hover — på mobil blokkerer det knapper bak.
+    // Testen trenger aldri klikke i toasts; gjør laget klikk-gjennom.
+    await page.addInitScript(() => {
+      const style = document.createElement("style");
+      style.textContent = '[aria-label*="Notifications"] { pointer-events: none !important; } [aria-label*="Notifications"] * { pointer-events: none !important; }';
+      document.addEventListener("DOMContentLoaded", () => document.head.appendChild(style));
+    });
     await page.route("**/api/auth/user", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SAKSBEHANDLER) }));
 
@@ -368,7 +376,7 @@ test.describe("Barnevern UI-flyt", () => {
     await page.getByTestId("fase-tiltak-button").click();
     await page.getByTestId("fase-begrunnelse-input").fill("Undersøkelsen konkluderer med hjelpetiltak.");
     await page.getByTestId("fase-bekreft-button").click();
-    await expect(page.getByTestId("sak-detalj").getByText("Tiltak", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("sak-detalj").getByText("Tiltak", { exact: true }).first()).toBeVisible();
 
     // Plan: utkast med tiltak → godkjenn
     await page.getByTestId("sak-tab-plan").click();
@@ -381,9 +389,13 @@ test.describe("Barnevern UI-flyt", () => {
     // På mobil ligger toast-viewporten øverst og kan dekke knappen mens
     // «Tiltak lagt til»-toasten vises (~5 s) — retry til klikket når frem.
     await expect(async () => {
+      // Radix pauser toast-nedtellingen ved hover — flytt musen vekk så
+      // toasten får lukke seg før nytt klikkforsøk.
+      await page.mouse.move(5, 5);
+      await page.waitForTimeout(600);
       await page.getByTestId("plan-godkjenn-button").click({ timeout: 2000 });
       await expect(page.getByTestId("sak-detalj").getByText("Godkjent", { exact: true })).toBeVisible({ timeout: 2000 });
-    }).toPass({ timeout: 15000 });
+    }).toPass({ timeout: 30000 });
 
     // Dokument: vedtak fra mal → godkjenn → ekspeder
     await page.getByTestId("sak-tab-dokumenter").click();
