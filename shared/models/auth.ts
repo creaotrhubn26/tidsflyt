@@ -103,3 +103,16 @@ export const authLoginEvents = pgTable("tidum_auth_login_events",
 
 export type AuthLoginEvent = typeof authLoginEvents.$inferSelect;
 export type NewAuthLoginEvent = typeof authLoginEvents.$inferInsert;
+
+// Krav 20 (G-10): TOTP for admin-roller (migrasjon 101). Hemmeligheten er
+// secret-box-forseglet; gjenopprettingskoder kun som SHA-256-hash.
+export const adminTotpCredentials = pgTable("tidum_admin_totp_credentials", {
+  id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  totpSecretEncrypted: text("totp_secret_encrypted").notNull(),
+  recoveryCodesHashed: jsonb("recovery_codes_hashed").notNull().default([]),
+  enrolledAt: timestamp("enrolled_at", { withTimezone: true }).notNull().defaultNow(),
+  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+});
+
+export type AdminTotpCredential = typeof adminTotpCredentials.$inferSelect;

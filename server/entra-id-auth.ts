@@ -22,6 +22,7 @@ import { authLoginEvents, eidIdentities, kommuner, users } from "@shared/schema"
 import { eq, and } from "drizzle-orm";
 import { hashSsn } from "./lib/eid-hash";
 import { getAppBaseUrl } from "./lib/app-base-url";
+import { redirectAfterLogin } from "./custom-auth";
 import type { AuthUser } from "./lib/auth-types";
 
 declare module "express-session" {
@@ -226,7 +227,7 @@ export async function setupEntraIdAuth(app: Express): Promise<void> {
 
       req.logIn(resolvedUser, (loginError) => {
         if (loginError) return next(loginError);
-        return res.redirect("/dashboard");
+        redirectAfterLogin(req, res, resolvedUser, "/dashboard").catch(next);
       });
     } catch (err) {
       console.error("[entra-id] Callback feilet", err);

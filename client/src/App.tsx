@@ -23,6 +23,8 @@ import { TesterFeedbackButton } from "@/components/tester/tester-feedback-button
 const Landing = lazy(() => import("@/pages/landing"));
 const KobleBankId = lazy(() => import("@/pages/koble-bankid"));
 const KobleBuypass = lazy(() => import("@/pages/koble-buypass"));
+const TotpSetup = lazy(() => import("@/pages/totp-setup"));
+const TotpChallenge = lazy(() => import("@/pages/totp-challenge"));
 const Dashboard = lazy(() => import("@/pages/dashboard"));
 const TimeTracking = lazy(() => import("@/pages/time-tracking"));
 const Reports = lazy(() => import("@/pages/reports"));
@@ -157,6 +159,8 @@ function Router() {
         <Route path="/logg-inn/koble-buypass" component={KobleBuypass} />
 
         {/* Protected routes */}
+        <Route path="/totp-setup">{() => <AuthGuard><TotpSetup /></AuthGuard>}</Route>
+        <Route path="/totp-challenge">{() => <AuthGuard><TotpChallenge /></AuthGuard>}</Route>
         <Route path="/dashboard">{() => <AuthGuard><Dashboard /></AuthGuard>}</Route>
         <Route path="/time-tracking">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
         <Route path="/time">{() => <AuthGuard><TimeTracking /></AuthGuard>}</Route>
