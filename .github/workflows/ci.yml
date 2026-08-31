@@ -125,6 +125,7 @@ jobs:
           server/lib/__tests__/kommune-bruker
           server/lib/__tests__/secure-dialog
           server/lib/__tests__/drift-alarm.test.ts
+          server/lib/__tests__/vendor-bola-matrix.test.ts
           --no-file-parallelism
 
       - name: Install Playwright browsers
