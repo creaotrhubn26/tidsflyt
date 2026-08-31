@@ -212,7 +212,8 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
       });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Content-Disposition", `attachment; filename="dokument-${data.id}.pdf"`);
+      // inline: åpnes i nettleserens PDF-visning (nedlasting via viewerens egen knapp)
+      res.setHeader("Content-Disposition", `inline; filename="dokument-${data.id}.pdf"`);
       res.send(pdf);
     } catch (err) {
       console.error("[barnevern-dokument] PDF feilet", err);

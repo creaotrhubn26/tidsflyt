@@ -263,7 +263,7 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
       });
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Cache-Control", "no-store");
-      res.setHeader("Content-Disposition", `attachment; filename="innsyn-${data.krav.id}.pdf"`);
+      res.setHeader("Content-Disposition", `inline; filename="innsyn-${data.krav.id}.pdf"`);
       res.send(pdf);
     } catch (err) {
       if (err instanceof Error && err.message === "IKKE_INNVILGET") {
