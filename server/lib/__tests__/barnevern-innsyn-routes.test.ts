@@ -192,6 +192,38 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
     );
     expect(sladdetLogg).toHaveLength(1);
 
+    // Vedlegg: ett på åpen og ett på sladdet oppføring — pakken skal kun
+    // inneholde det åpne.
+    await request(sbApp)
+      .post(`/api/barnevern/saker/${sak.id}/journal/${aapenPost.body.id}/vedlegg`)
+      .attach("file", Buffer.from("%PDF-1.4 aapen"), { filename: "aapen.pdf", contentType: "application/pdf" });
+    await request(sbApp)
+      .post(`/api/barnevern/saker/${sak.id}/journal/${hemmeligPost.body.id}/vedlegg`)
+      .attach("file", Buffer.from("%PDF-1.4 hemmelig"), { filename: "hemmelig.pdf", contentType: "application/pdf" });
+
+    const pakke = await request(lederApp)
+      .get(`/api/barnevern/innsynskrav/${krav.body.id}/utleveringspakke`)
+      .buffer(true)
+      .parse((res3, cb) => {
+        const biter: Buffer[] = [];
+        res3.on("data", (b: Buffer) => biter.push(b));
+        res3.on("end", () => cb(null, Buffer.concat(biter)));
+      });
+    expect(pakke.status).toBe(200);
+    expect(pakke.headers["content-type"]).toBe("application/zip");
+    const zipTekst = (pakke.body as Buffer).toString("latin1");
+    expect((pakke.body as Buffer).subarray(0, 2).toString()).toBe("PK");
+    expect(zipTekst).toContain("innsynsutlevering.pdf");
+    expect(zipTekst).toContain("aapen.pdf");
+    expect(zipTekst).not.toContain("hemmelig.pdf");
+    expect(zipTekst).toContain("manifest.json");
+    const { rows: pakkeLogg } = await pool.query(
+      `SELECT detaljer FROM tidum_barnevern_tilgangslogg
+        WHERE user_id = $1 AND objekt_type = 'innsyn_utleveringspakke' AND objekt_id = $2`,
+      [lederId, krav.body.id],
+    );
+    expect(pakkeLogg).toHaveLength(1);
+
     // Fristen kansellert; beslutningen journalført.
     const { rows: etterBeslutning } = await pool.query(
       `SELECT status FROM tidum_frister WHERE entity_type = 'barnevern_innsynskrav' AND entity_id = $1`,
