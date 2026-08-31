@@ -33,7 +33,7 @@
   --secondary: 215 20% 93%;
   --secondary-foreground: 222 47% 20%;
   --muted: 215 16% 94%;
-  --muted-foreground: 215 16% 47%;
+  --muted-foreground: 215 16% 44%; /* 47% ga 4.49:1 mot bg-muted-lys (#f9fafb) — under WCAG AA */
   --accent: 215 20% 95%;
   --accent-foreground: 222 47% 20%;
   --destructive: 0 72% 51%;
