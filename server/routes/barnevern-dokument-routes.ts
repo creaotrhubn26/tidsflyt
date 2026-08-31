@@ -119,7 +119,7 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntk = needToKnowVilkar(actor, "s.tildelt_saksbehandler_id", 3);
+        const ntk = needToKnowVilkar(actor, "s.tildelt_saksbehandler_id", 3, "s.id");
         const { rows: [sak] } = await client.query(
           `SELECT s.*, k.navn AS kommune_navn
              FROM tidum_barnevern_saker s
@@ -179,7 +179,7 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
 
     try {
       const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntk = needToKnowVilkar(actor, "sak.tildelt_saksbehandler_id", 3);
+        const ntk = needToKnowVilkar(actor, "sak.tildelt_saksbehandler_id", 3, "sak.id");
         const { rows: [row] } = await client.query(
           `SELECT dokument.*, sak.saksnummer, kommune.navn AS kommune_navn
              FROM tidum_barnevern_dokumenter dokument

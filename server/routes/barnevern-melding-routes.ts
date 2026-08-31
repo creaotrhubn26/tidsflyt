@@ -80,7 +80,7 @@ export async function loggTilgang(
   input: {
     kommuneId: number;
     userId: string;
-    handling: "lest" | "nedlastet";
+    handling: "lest" | "nedlastet" | "endret";
     objektType: string;
     objektId: string;
     detaljer?: Record<string, unknown>;
@@ -103,14 +103,31 @@ export async function loggTilgang(
  * må kunne plukkes). Returnerer et AND-fragment + params, med
  * parameternummerering fra `nesteParam`.
  */
+/**
+ * Need-to-know (krav 14/15): saksbehandler ser egne/utildelte saker, PLUSS
+ * to kontrollerte unntak fra migrasjon 102 (begge tidsavgrenset, opphevbare
+ * og auditlogget ved opprettelse):
+ *  - delegasjon: stedfortreder ser fraværende kollegas saker
+ *  - break_glass: nødtilgang til én konkret sak (krever sakIdKolonne —
+ *    kall uten sak-id-kolonne får kun delegasjonsunntaket)
+ */
 export function needToKnowVilkar(
   actor: KommuneActor,
   kolonne: string,
   nesteParam: number,
+  sakIdKolonne?: string,
 ): { clause: string; params: string[] } {
   if (actor.role !== "kommune_saksbehandler") return { clause: "", params: [] };
+  const breakGlass = sakIdKolonne
+    ? ` OR (d.type = 'break_glass' AND d.sak_id = ${sakIdKolonne})`
+    : "";
   return {
-    clause: ` AND (${kolonne} = $${nesteParam} OR ${kolonne} IS NULL)`,
+    clause:
+      ` AND (${kolonne} = $${nesteParam} OR ${kolonne} IS NULL OR EXISTS (` +
+      `SELECT 1 FROM tidum_barnevern_tilgangsdelegasjoner d` +
+      ` WHERE d.til_user_id = $${nesteParam} AND d.opphevet_at IS NULL` +
+      ` AND NOW() >= d.fra_dato AND NOW() < d.til_dato` +
+      ` AND ((d.type = 'delegasjon' AND d.fra_user_id = ${kolonne})${breakGlass})))`,
     params: [actor.userId],
   };
 }

@@ -213,7 +213,7 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
     try {
       const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
         const { rows: [krav] } = await client.query(
-          `SELECT krav.*, sak.saksnummer, kommune.navn AS kommune_navn
+          `SELECT krav.*, sak.saksnummer, sak.adresse_skjermet, kommune.navn AS kommune_navn
              FROM tidum_barnevern_innsynskrav krav
              JOIN tidum_barnevern_saker sak ON sak.id = krav.sak_id AND sak.kommune_id = krav.kommune_id
              JOIN tidum_kommuner kommune ON kommune.id = krav.kommune_id
@@ -251,7 +251,12 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
         beslutningStatus: data.krav.status,
         beslutningBegrunnelse: data.krav.beslutning_begrunnelse,
         besluttetDato: data.krav.besluttet_dato,
-        unntak: data.krav.unntak ?? [],
+        unntak: [
+          ...(data.krav.adresse_skjermet
+            ? [{ hjemmel: "skjermet adresse", beskrivelse: "Opplysninger om bosted er skjermet og utleveres ikke." }]
+            : []),
+          ...(data.krav.unntak ?? []),
+        ],
         journal: data.journal,
         dokumenter: data.dokumenter,
       });
