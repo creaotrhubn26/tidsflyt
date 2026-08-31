@@ -480,3 +480,62 @@ export async function lastOppJournalVedlegg(sakId: string, entryId: string, file
   }
   return body;
 }
+
+// ── Tilgang: revisorlogg, delegasjoner, break-glass (krav 15) ────────────
+
+export type TilgangsloggRad = {
+  id: string;
+  userId: string;
+  handling: string;
+  objektType: string;
+  objektId: string;
+  detaljer: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+export function listTilgangslogg(filter: { objektType?: string; userId?: string } = {}): Promise<TilgangsloggRad[]> {
+  const params = new URLSearchParams();
+  if (filter.objektType) params.set("objektType", filter.objektType);
+  if (filter.userId) params.set("userId", filter.userId);
+  const qs = params.toString();
+  return requestJson(`/api/barnevern/tilgangslogg${qs ? `?${qs}` : ""}`);
+}
+
+export type Delegasjon = {
+  id: string;
+  type: "delegasjon" | "break_glass";
+  fraUserId: string | null;
+  tilUserId: string;
+  sakId: string | null;
+  begrunnelse: string;
+  fraDato: string;
+  tilDato: string;
+  opprettetAv: string;
+  opphevetAv: string | null;
+  opphevetAt: string | null;
+  createdAt: string;
+};
+
+export function listDelegasjoner(): Promise<Delegasjon[]> {
+  return requestJson("/api/barnevern/delegasjoner");
+}
+
+export function opprettDelegasjon(input: { fraUserId: string; tilUserId: string; tilDato: string; begrunnelse: string }): Promise<Delegasjon> {
+  return requestJson("/api/barnevern/delegasjoner", jsonInit("POST", input));
+}
+
+export function opphevDelegasjon(id: string): Promise<Delegasjon> {
+  return requestJson(`/api/barnevern/delegasjoner/${id}/opphev`, jsonInit("POST", {}));
+}
+
+export type KommuneBruker = {
+  id: string;
+  email: string;
+  navn: string | null;
+  rolle: string;
+  rolleLabel: string;
+};
+
+export function listKommuneBrukere(): Promise<KommuneBruker[]> {
+  return requestJson("/api/kommune/brukere");
+}

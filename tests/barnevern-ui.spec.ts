@@ -42,6 +42,11 @@ test.describe("Barnevern UI-flyt", () => {
     });
     await page.route("**/api/auth/user", (route) =>
       route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(SAKSBEHANDLER) }));
+    await page.route("**/api/kommune/brukere", (route) =>
+      route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([
+        { id: "sb-1", email: "sb1@k.no", navn: "Siri Saksbehandler", rolle: "kommune_saksbehandler", rolleLabel: "Saksbehandler" },
+        { id: "sb-2", email: "sb2@k.no", navn: "Trond Trygg", rolle: "kommune_saksbehandler", rolleLabel: "Saksbehandler" },
+      ]) }));
 
     // Tilstandsfull mock av barnevern-API-et.
     const meldinger: any[] = [];
@@ -230,6 +235,19 @@ test.describe("Barnevern UI-flyt", () => {
         const dokument = dokumenter.find((d) => d.id === dokGodkjennMatch[1]);
         dokument.status = "godkjent";
         return json(dokument);
+      }
+      if (path === "/api/barnevern/tilgangslogg") {
+        return json([
+          { id: "tl-1", userId: "sb-1", handling: "lest", objektType: "sak", objektId: "s-1", detaljer: null, createdAt: new Date().toISOString() },
+          { id: "tl-2", userId: "sb-2", handling: "endret", objektType: "break_glass", objektId: "bg-1", detaljer: null, createdAt: new Date().toISOString() },
+        ]);
+      }
+      if (path === "/api/barnevern/delegasjoner" && method === "GET") {
+        return json([{
+          id: "del-1", type: "delegasjon", fraUserId: "sb-1", tilUserId: "sb-2", sakId: null,
+          begrunnelse: "Ferie uke 40", fraDato: new Date().toISOString(), tilDato: new Date(Date.now() + 86400000).toISOString(),
+          opprettetAv: "leder-1", opphevetAv: null, opphevetAt: null, createdAt: new Date().toISOString(),
+        }]);
       }
       const dokEkspederMatch = path.match(/^\/api\/barnevern\/dokumenter\/([^/]+)\/ekspeder$/);
       if (method === "POST" && dokEkspederMatch) {
@@ -454,5 +472,12 @@ test.describe("Barnevern UI-flyt", () => {
     await expect(page.getByTestId("kpi-avklart_innen_frist_90d").getByText("100 %")).toBeVisible();
     await page.getByTestId("kpi-meldinger_30d").click();
     await expect(page.getByTestId("kpi-meldinger_30d").getByText(/^Kilde$/)).toBeVisible();
+
+    // Tilgang (krav 15): revisorlogg + delegasjoner
+    await page.getByTestId("tab-tilgang").click();
+    await expect(page.getByTestId("tilgangslogg-tabell").getByText("Siri Saksbehandler")).toBeVisible();
+    await expect(page.getByTestId("tilgangslogg-tabell").getByText("break_glass", { exact: false })).toBeVisible();
+    await expect(page.getByTestId("delegasjon-del-1")).toBeVisible();
+    await expect(page.getByTestId("delegasjon-del-1").getByText("Ferie uke 40", { exact: false })).toBeVisible();
   });
 });

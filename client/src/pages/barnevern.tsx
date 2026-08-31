@@ -1335,6 +1335,158 @@ function NokkeltallFane() {
   );
 }
 
+// ── TILGANG (krav 15): revisorlogg + delegasjoner + break-glass ─────────────
+
+const TILGANG_HANDLINGER: Record<string, string> = { lest: "Lest", nedlastet: "Nedlastet", endret: "Endret" };
+
+function TilgangFane() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [objektType, setObjektType] = useState("");
+  const [brukerFilter, setBrukerFilter] = useState("");
+  const [fraUserId, setFraUserId] = useState("");
+  const [tilUserId, setTilUserId] = useState("");
+  const [tilDato, setTilDato] = useState("");
+  const [begrunnelse, setBegrunnelse] = useState("");
+
+  const { data: logg = [], error } = useQuery({
+    queryKey: ["barnevern-tilgangslogg", objektType, brukerFilter],
+    queryFn: () => api.listTilgangslogg({ objektType: objektType || undefined, userId: brukerFilter || undefined }),
+    retry: false,
+  });
+  const { data: delegasjoner = [] } = useQuery({
+    queryKey: ["barnevern-delegasjoner"],
+    queryFn: () => api.listDelegasjoner(),
+    retry: false,
+  });
+  const { data: brukere = [] } = useQuery({
+    queryKey: ["kommune-brukere"],
+    queryFn: () => api.listKommuneBrukere(),
+    retry: false,
+  });
+  const brukerNavn = (id: string | null) => brukere.find((b) => b.id === id)?.navn ?? id ?? "—";
+
+  const opprett = useMutation({
+    mutationFn: () => api.opprettDelegasjon({ fraUserId, tilUserId, tilDato: new Date(tilDato).toISOString(), begrunnelse }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["barnevern-delegasjoner"] });
+      setFraUserId(""); setTilUserId(""); setTilDato(""); setBegrunnelse("");
+      toast({ title: "Delegasjon opprettet" });
+    },
+    onError: (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
+  });
+  const opphev = useMutation({
+    mutationFn: (id: string) => api.opphevDelegasjon(id),
+    onSuccess: () => { queryClient.invalidateQueries({ queryKey: ["barnevern-delegasjoner"] }); toast({ title: "Opphevet" }); },
+    onError: (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" }),
+  });
+
+  if (error) {
+    return <p className="text-sm text-muted-foreground p-4">Tilgangsflaten er forbeholdt barnevernsleder.</p>;
+  }
+
+  const saksbehandlere = brukere.filter((b) => b.rolle === "kommune_saksbehandler");
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_360px]">
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 className="text-sm font-semibold mr-2">Tilgangslogg (revisorrapport)</h2>
+          <Select value={objektType || "alle"} onValueChange={(v) => setObjektType(v === "alle" ? "" : v)}>
+            <SelectTrigger className="h-8 w-44 text-xs bg-card" data-testid="tilgang-objekttype-select"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="alle">Alle objekttyper</SelectItem>
+              {["melding", "sak", "journal_vedlegg", "dokument_pdf", "saksuttrekk", "saksuttrekk_pakke", "innsynsutlevering", "innsyn_sladdet_pdf", "break_glass", "delegasjon"].map((t) => (
+                <SelectItem key={t} value={t}>{t}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={brukerFilter || "alle"} onValueChange={(v) => setBrukerFilter(v === "alle" ? "" : v)}>
+            <SelectTrigger className="h-8 w-52 text-xs bg-card"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="alle">Alle brukere</SelectItem>
+              {brukere.map((b) => <SelectItem key={b.id} value={b.id}>{b.navn ?? b.email}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="overflow-x-auto rounded-lg border bg-card shadow-sm">
+          <table className="w-full text-xs" data-testid="tilgangslogg-tabell">
+            <thead>
+              <tr className="border-b bg-muted/40 text-left text-muted-foreground">
+                <th className="p-2 font-medium">Tidspunkt</th>
+                <th className="p-2 font-medium">Bruker</th>
+                <th className="p-2 font-medium">Handling</th>
+                <th className="p-2 font-medium">Objekt</th>
+              </tr>
+            </thead>
+            <tbody>
+              {logg.map((rad) => (
+                <tr key={rad.id} className="border-b last:border-0 align-top">
+                  <td className="p-2 whitespace-nowrap text-muted-foreground">{formatDato(rad.createdAt)}</td>
+                  <td className="p-2">{brukerNavn(rad.userId)}</td>
+                  <td className="p-2">
+                    <Badge variant={rad.objektType === "break_glass" ? "destructive" : "secondary"} className="text-[10px]">
+                      {TILGANG_HANDLINGER[rad.handling] ?? rad.handling}
+                    </Badge>
+                  </td>
+                  <td className="p-2 font-mono text-[10px]">{rad.objektType}<span className="text-muted-foreground"> · {rad.objektId.slice(0, 8)}…</span></td>
+                </tr>
+              ))}
+              {logg.length === 0 && (
+                <tr><td colSpan={4} className="p-6 text-center text-muted-foreground">Ingen loggrader for valgt filter.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold">Delegasjoner og nødtilgang</h2>
+        <div className="rounded-lg border bg-card p-3 shadow-sm space-y-2">
+          <p className="text-xs font-medium text-muted-foreground">Ny fraværsdelegasjon</p>
+          <Select value={fraUserId || undefined} onValueChange={setFraUserId}>
+            <SelectTrigger className="h-8 text-xs" data-testid="delegasjon-fra-select"><SelectValue placeholder="Fraværende saksbehandler" /></SelectTrigger>
+            <SelectContent>{saksbehandlere.map((b) => <SelectItem key={b.id} value={b.id}>{b.navn ?? b.email}</SelectItem>)}</SelectContent>
+          </Select>
+          <Select value={tilUserId || undefined} onValueChange={setTilUserId}>
+            <SelectTrigger className="h-8 text-xs" data-testid="delegasjon-til-select"><SelectValue placeholder="Stedfortreder" /></SelectTrigger>
+            <SelectContent>{saksbehandlere.filter((b) => b.id !== fraUserId).map((b) => <SelectItem key={b.id} value={b.id}>{b.navn ?? b.email}</SelectItem>)}</SelectContent>
+          </Select>
+          <Input type="date" value={tilDato} onChange={(e) => setTilDato(e.target.value)} data-testid="delegasjon-tildato-input" />
+          <Textarea rows={2} placeholder="Begrunnelse (obligatorisk, auditlogges)" value={begrunnelse}
+            onChange={(e) => setBegrunnelse(e.target.value)} data-testid="delegasjon-begrunnelse-input" />
+          <Button size="sm" className="w-full" data-testid="delegasjon-opprett-button"
+            disabled={!fraUserId || !tilUserId || !tilDato || !begrunnelse.trim() || opprett.isPending}
+            onClick={() => opprett.mutate()}>
+            Deleger tilgang
+          </Button>
+        </div>
+        <ul className="space-y-2">
+          {delegasjoner.map((d) => (
+            <li key={d.id} className={cn("rounded-lg border bg-card p-2.5 text-xs shadow-sm", d.opphevetAt && "opacity-60")} data-testid={`delegasjon-${d.id}`}>
+              <div className="flex items-center justify-between gap-2">
+                <Badge variant={d.type === "break_glass" ? "destructive" : "secondary"} className="text-[10px]">
+                  {d.type === "break_glass" ? "Nødtilgang" : "Delegasjon"}
+                </Badge>
+                {!d.opphevetAt ? (
+                  <Button size="sm" variant="ghost" className="h-6 px-2 text-[11px]" onClick={() => opphev.mutate(d.id)} data-testid={`delegasjon-opphev-${d.id}`}>Opphev</Button>
+                ) : <span className="text-[10px] text-muted-foreground">Opphevet {formatDato(d.opphevetAt)}</span>}
+              </div>
+              <p className="mt-1">
+                {d.type === "break_glass"
+                  ? <>{brukerNavn(d.tilUserId)} → sak {d.sakId?.slice(0, 8)}…</>
+                  : <>{brukerNavn(d.fraUserId)} → {brukerNavn(d.tilUserId)}</>}
+              </p>
+              <p className="text-muted-foreground">Til {formatDato(d.tilDato)} · {d.begrunnelse}</p>
+            </li>
+          ))}
+          {delegasjoner.length === 0 && <li className="text-xs text-muted-foreground">Ingen delegasjoner registrert.</li>}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 // ── SAKSDETALJ MED JOURNAL ───────────────────────────────────────────────────
 
 function SakDetalj({ sakId }: { sakId: string }) {
@@ -1398,7 +1550,14 @@ function SakDetalj({ sakId }: { sakId: string }) {
               {sak.barnNavn ?? "Ukjent barn"} · Opprettet {formatDato(sak.createdAt)}
             </p>
           </div>
-          <Badge>{SAK_FASER[sak.fase] ?? sak.fase}</Badge>
+          <div className="flex items-center gap-2">
+            <Button size="sm" variant="outline" className="hidden md:inline-flex h-7 text-xs" data-testid="saksuttrekk-zip-button"
+              title="Komplett mappe med vedlegg og manifest — kun barnevernsleder, auditlogges"
+              onClick={() => window.open(`/api/barnevern/saker/${sakId}/uttrekk/pakke`, "_blank", "noopener")}>
+              <FolderOpen className="mr-1.5 h-3.5 w-3.5" /> Saksuttrekk (ZIP)
+            </Button>
+            <Badge>{SAK_FASER[sak.fase] ?? sak.fase}</Badge>
+          </div>
         </div>
         <div className="mt-2"><FaseStepper fase={sak.fase} /></div>
       </CardHeader>
@@ -1616,6 +1775,7 @@ export default function BarnevernPage() {
           <TabsTrigger value="forebyggende" data-testid="tab-forebyggende" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Forebyggende</TabsTrigger>
           <TabsTrigger value="innrapportering" data-testid="tab-innrapportering" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Innrapportering</TabsTrigger>
           <TabsTrigger value="nokkeltall" data-testid="tab-nokkeltall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Nøkkeltall</TabsTrigger>
+          <TabsTrigger value="tilgang" data-testid="tab-tilgang" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Tilgang</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meldinger" className="mt-4">
@@ -1739,6 +1899,9 @@ export default function BarnevernPage() {
         </TabsContent>
         <TabsContent value="nokkeltall" className="mt-4">
           <NokkeltallFane />
+        </TabsContent>
+        <TabsContent value="tilgang" className="mt-4">
+          <TilgangFane />
         </TabsContent>
       </Tabs>
 
