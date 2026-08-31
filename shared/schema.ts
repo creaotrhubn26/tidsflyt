@@ -665,6 +665,8 @@ export const barnevernSaker = pgTable("tidum_barnevern_saker", {
   id: uuid("id").defaultRandom().primaryKey(),
   kommuneId: integer("kommune_id").notNull().references(() => kommuner.id),
   saksnummer: text("saksnummer").notNull().unique(),
+  adresseSkjermet: boolean("adresse_skjermet").notNull().default(false),
+  adresseSkjermetMerknad: text("adresse_skjermet_merknad"),
   meldingId: uuid("melding_id").unique().references(() => barnevernMeldinger.id),
   barnFodselsnummer: text("barn_fodselsnummer"),
   barnNavn: text("barn_navn"),
@@ -818,6 +820,23 @@ export const driftAlarmer = pgTable("tidum_drift_alarmer", {
 }, (table) => [
   uniqueIndex("tidum_drift_alarmer_kilde_entity_unique").on(table.kilde, table.entityId),
 ]);
+
+// Krav 15-rest: delegasjon ved fravær + break-glass-nødtilgang (migrasjon 102).
+export const barnevernTilgangsdelegasjoner = pgTable("tidum_barnevern_tilgangsdelegasjoner", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  kommuneId: integer("kommune_id").notNull(),
+  type: text("type").notNull(),
+  fraUserId: varchar("fra_user_id"),
+  tilUserId: varchar("til_user_id").notNull(),
+  sakId: uuid("sak_id"),
+  begrunnelse: text("begrunnelse").notNull(),
+  fraDato: timestamp("fra_dato", { withTimezone: true }).notNull().defaultNow(),
+  tilDato: timestamp("til_dato", { withTimezone: true }).notNull(),
+  opprettetAv: varchar("opprettet_av").notNull(),
+  opphevetAv: varchar("opphevet_av"),
+  opphevetAt: timestamp("opphevet_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // Forebyggende arbeid (migrasjon 095, krav 18). Ikke barn-bundet.
 export const barnevernForebyggende = pgTable("tidum_barnevern_forebyggende", {

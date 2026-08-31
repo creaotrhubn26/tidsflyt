@@ -48,7 +48,7 @@ const journalUpload = multer({
 async function loadSakScoped(id: string, kommuneId: number, actor?: KommuneActor) {
   return withKommuneRlsContext(kommuneId, async (client) => {
     const ntk = actor
-      ? needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3)
+      ? needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3, "tidum_barnevern_saker.id")
       : { clause: "", params: [] as string[] };
     const { rows } = await client.query(
       `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
@@ -86,8 +86,8 @@ export function registerBarnevernSakRoutes(app: Express): void {
         return res.status(400).json({ error: "Ugyldig fase." });
       }
       const rows = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntkMedFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
-        const ntkUtenFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 2);
+        const ntkMedFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3, "tidum_barnevern_saker.id");
+        const ntkUtenFase = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 2, "tidum_barnevern_saker.id");
         const result = fase
           ? await client.query(
               `SELECT * FROM tidum_barnevern_saker WHERE kommune_id = $1 AND fase = $2${ntkMedFase.clause} ORDER BY created_at DESC`,
@@ -112,7 +112,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3, "tidum_barnevern_saker.id");
         const { rows: [sak] } = await client.query(
           `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
           [req.params.id, actor.kommuneId, ...ntk.params],
@@ -208,7 +208,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3, "tidum_barnevern_saker.id");
         const { rows: [sak] } = await client.query(
           `SELECT * FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause} FOR UPDATE`,
           [req.params.id, actor.kommuneId, ...ntk.params],
@@ -519,7 +519,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
     try {
       const row = await withKommuneRlsContext(actor.kommuneId, async (client) => {
-        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3);
+        const ntk = needToKnowVilkar(actor, "tildelt_saksbehandler_id", 3, "tidum_barnevern_saker.id");
         const { rows: [sak] } = await client.query(
           `SELECT id, fase FROM tidum_barnevern_saker WHERE id = $1 AND kommune_id = $2${ntk.clause}`,
           [req.params.id, actor.kommuneId, ...ntk.params],
