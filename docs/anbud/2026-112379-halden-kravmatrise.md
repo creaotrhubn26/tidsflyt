@@ -383,7 +383,7 @@ QA-grenen bekrefter også at deler av CMS/Visual Builder er rene visuelle forhå
 
 ### 5.1 Kan bygges videre fra sterk eksisterende kjerne
 
-Krav 3–6, 11–19, 22, 24, deler av 27 og deler av 29 har relevant gjenbruk. Særlig tiltaksplan-/evalueringsmalene, mål/aktivitetslogg, GDPR-eksport, lønnseksport og PowerOffice ble undervurdert i første gjennomgang. Tilbudet bør beskrive konkret videreføring av disse komponentene, samtidig som kjent seeding, resterende systemomfattende BOLA-matrise og integrasjonsverifisering oppgis.
+Krav 3–6, 11–19, 22, 24, deler av 27 og deler av 29 har relevant gjenbruk. Særlig tiltaksplan-/evalueringsmalene, mål/aktivitetslogg, GDPR-eksport, lønnseksport og PowerOffice ble undervurdert i første gjennomgang. Tilbudet bør beskrive konkret videreføring av disse komponentene, samtidig som kjent seeding og integrasjonsverifisering oppgis. BOLA-matrisen er nå etablert som datadrevet, systematisk test (server/lib/__tests__/vendor-bola-matrix.test.ts, kjøres i CI): fremmed vendor mot 16 id-baserte endepunkter på saker/rapporter/fakturaer — aldri 2xx, aldri 5xx, skriveforsøk beviselig uten effekt; utvides per ny objektflate.
 
 ### 5.2 Krever ny barnevernsfaglig funksjonalitet
 
