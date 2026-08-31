@@ -199,6 +199,10 @@ export const tidumPageStyles = `
     to   { opacity: 1; transform: translateY(0); }
   }
 
+  @media (prefers-reduced-motion: reduce) {
+    .tidum-fade-up { animation: none; }
+  }
+
   /* Scroll-triggered animation states */
   .tidum-section[data-anim-type] {
     opacity: 0;

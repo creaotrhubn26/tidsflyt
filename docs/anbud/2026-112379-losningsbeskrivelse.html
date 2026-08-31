@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="nb">
+<head>
+<meta charset="utf-8">
+<title>Løsningsbeskrivelse — Tidum barnevern (2026-112379)</title>
+<style>
+  @page { margin: 2cm; }
+  body { font-family: -apple-system, "Segoe UI", Arial, sans-serif; color: #1a1a1a; line-height: 1.45; max-width: 800px; margin: 0 auto; padding: 24px; font-size: 11pt; }
+  h1 { font-size: 19pt; margin-bottom: 2px; }
+  h2 { font-size: 13.5pt; margin-top: 22px; border-bottom: 2px solid #1A5A61; padding-bottom: 3px; color: #12424a; }
+  h3 { font-size: 11.5pt; margin-top: 14px; color: #12424a; }
+  .meta { color: #555; margin-bottom: 18px; }
+  table { border-collapse: collapse; width: 100%; font-size: 9.5pt; margin: 8px 0; }
+  th, td { border: 1px solid #bbb; padding: 4px 7px; text-align: left; vertical-align: top; }
+  th { background: #eef3f3; }
+  ul { margin: 6px 0; padding-left: 20px; }
+  li { margin: 2px 0; }
+  .honest { background: #f7f4ea; border-left: 3px solid #b89a3e; padding: 8px 12px; margin: 10px 0; font-size: 10pt; }
+  @media print { body { padding: 0; } }
+</style>
+</head>
+<body>
+
+<h1>Løsningsbeskrivelse: Tidum barnevern</h1>
+<p class="meta">Tilbud til Halden kommune — «Administrativt system for barnevernstjenesten», referanse 2026-112379 (2026/3663). Leverandør: [FIRMANAVN / ORG.NR.]. Kontakt: Daniel Qazi, daniel@creatorhubn.com.</p>
+
+<h2>1. Sammendrag</h2>
+<p>Tidum er en norskutviklet, flerkommunal skyplattform som dekker hele verdikjeden i barneverntjenesten: mottak av bekymringsmelding (manuelt og digitalt via KS Fiks/Nasjonal portal), meldingsavklaring med lovpålagte frister, undersøkelsessak med faseflyt, uforanderlig saksjournal, versjonerte tiltaks-/omsorgsplaner, malstyrte vedtak og brev med godkjenningsflyt, oppgaver med frister og ledereskalering, innsynsbegjæringer med sladdehjemler og klageflyt, komplett saksuttrekk, forebyggende arbeid, KPI-rapportering med dokumentert datagrunnlag, og automatisk daglig innrapportering til Bufdirs barnevernsregister. All kommunikasjon med parter skjer i sikre kanaler: eID-innlogget sikker dialog (BankID/Buypass), kryptert meldingslager og SMS-varsling med reservasjonssjekk.</p>
+<p>Systemet er i drift som plattform i dag; barnevernsvertikalen er ferdig implementert og demonstrerbar i sin helhet med testdata. Vi tilbyr fastpris innenfor rammen, norsk/EU-datalagring og en aktiveringsplan for de eksterne integrasjonene (KS Fiks, Bufdir) der all programvare er ferdig og kun avtaler/tilganger gjenstår.</p>
+
+<h2>2. Svar på anskaffelsens formål</h2>
+<h3>2.1 Digital samhandling med brukerne i sikre kanaler</h3>
+<ul>
+  <li><b>Sikker dialog</b>: parter (foreldre, barn, verger, fullmektiger) logger inn med BankID eller Buypass og kommuniserer med tjenesten i krypterte samtaler knyttet til saken. Meldingsinnhold lagres kryptert (versjonert nøkkelring), vedlegg malware-skannes før frigivelse, og alle hendelser auditlogges i uforanderlig logg.</li>
+  <li><b>Ekspedering og utlevering</b>: vedtak, brev og innsynsutleveringer sendes direkte inn i sakens sikre samtale — med automatisk journalføring og arkivering.</li>
+  <li><b>SMS-varsling</b> med sjekk mot reservasjonsregisteret og leverandørnøytral gateway.</li>
+  <li><b>Digital bekymringsmelding</b>: mottak fra Nasjonal portal for bekymringsmeldinger over KS Fiks IO med kryptert transport, kvittering og automatisk fristregistrering.</li>
+</ul>
+<h3>2.2 Optimalisert saksbehandling</h3>
+<ul>
+  <li>Lovpålagte frister (7-dagers meldingsavklaring, 3-måneders undersøkelse, innsynsfrister) registreres automatisk og eskaleres til leder ved forfall.</li>
+  <li>Malstyrte vedtak/brev med automatisk saksdatafletting; maler snapshotes så utstedte dokumenter aldri endres av malendringer.</li>
+  <li>Rollestyrt «need-to-know»-tilgang: saksbehandlere ser kun egne saker; administrativt personell ser aldri saksinnhold; hver lesing/nedlasting auditlogges.</li>
+  <li>KPI-katalog der hvert nøkkeltall viser sin egen datakilde og beregningsformel — etterprøvbar styringsinformasjon.</li>
+</ul>
+<h3>2.3 Kommunikasjon og saksbehandling mellom partene i en sak</h3>
+<p>Én sammenhengende kjede uten medieskift: melding → avklaring → undersøkelse → plan → vedtak → ekspedering → innsyn → arkiv. Partene gis tidsavgrenset, revokerbar tilgang per sak; all partskommunikasjon, alle beslutninger og alle utleveringer ligger i samme journal med korreksjonssporing (aldri sletting).</p>
+
+<h2>3. Sikkerhet og arkitektur</h2>
+<ul>
+  <li><b>Tenant-isolasjon i databasen</b>: PostgreSQL FORCE ROW LEVEL SECURITY med transaksjonsbundet kommunekontekst — kommunens data er isolert på databasenivå, ikke bare i applikasjonskoden.</li>
+  <li><b>Uforanderlige bevis</b>: journal, tilgangslogg og audit-hendelser er append-only med databasetriggere; tilgangsloggen overlever sletting av brukere.</li>
+  <li><b>Kryptering</b>: TLS overalt; sensitivt innhold (dialogmeldinger, integrasjonsnøkler) forsegles med versjonert nøkkelring med rotasjonsstøtte og append-only rotasjonsbevis; vedlegg i S3-objektlager i EU-region med kryptering i hvile.</li>
+  <li><b>Autentisering</b>: BankID/Buypass for parter, Entra ID SSO for kommuneansatte (kommunens egen Azure-katalog), TOTP-MFA med step-up ved hver innlogging for administratorroller.</li>
+  <li><b>Fail-closed</b>: produksjon starter ikke uten sikkerhetsmigrasjonene; ukonfigurerte integrasjoner parkerer trygt i kø i stedet for å feile åpent; driftsalarm varsler ved permanente køfeil.</li>
+  <li><b>WCAG 2.1 AA</b>: automatisert tilgjengelighetstesting (axe) i CI på offentlige sider, desktop og mobil.</li>
+</ul>
+
+<h2>4. Integrasjoner</h2>
+<table>
+  <tr><th>Integrasjon</th><th>Status</th><th>Gjenstår</th></tr>
+  <tr><td>KS Fiks IO — mottak av digital bekymringsmelding</td><td>Ferdig utviklet (AMQP-mottak, CMS-dekryptering, idempotent kvittering)</td><td>Fiks-konto (Halden) + integrasjonsautorisasjon; aktiveres ved konfigurasjon</td></tr>
+  <tr><td>Bufdir Barnevernsregisteret — daglig automatisk innrapportering</td><td>Ferdig utviklet (datasett-snapshot, kvalitetsport, FIKS Protokoll-transport, kvitteringslagring)</td><td>Meldingstype/mottakerkonto fra Bufdir; sandkassetest</td></tr>
+  <tr><td>Noark 5-arkiv (Documaster; Elements som opsjon)</td><td>Ferdig utviklet (outbox, idempotent, skjerming)</td><td>Kommunens arkivkonfigurasjon</td></tr>
+  <tr><td>Maskinporten</td><td>Ferdig utviklet</td><td>Klient hos Digdir (bestilling sendt)</td></tr>
+  <tr><td>SMS-gateway (leverandørnøytral)</td><td>Ferdig utviklet inkl. reservasjonssjekk</td><td>Gateway-avtale</td></tr>
+  <tr><td>eFaktura/EHF</td><td>Fakturering støttes</td><td>EHF-oppkobling i implementasjonsfasen</td></tr>
+</table>
+<p>Alle integrasjoner har en administrativ statusflate som viser nøyaktig hvilken konfigurasjon som mangler — aktivering er konfigurasjon, ikke utvikling.</p>
+
+<h2>5. Drift, SLA og databehandling</h2>
+<ul>
+  <li>Skydrift i EU (databasen i eu-central-1 med point-in-time recovery; objektlager i EU-region). Norsk datalagring kan avtales.</li>
+  <li>Automatisk driftsovervåking: healthchecks, feilkø-alarmer med e-postvarsling, append-only driftslogg.</li>
+  <li>Databehandleravtale etter Datatilsynets mal; all persondatabehandling skjer innenfor EØS.</li>
+  <li>SLA-forslag: 99,5 % tilgjengelighet, responstid &lt; 500 ms, RPO ≤ 2 timer, gjenoppretting ≤ 24 timer. Detaljeres i bilag.</li>
+</ul>
+
+<h2>6. Gjennomføringsplan</h2>
+<table>
+  <tr><th>Fase</th><th>Innhold</th><th>Varighet</th></tr>
+  <tr><td>1. Etablering</td><td>Kommuneoppsett, Entra-kobling, brukere/roller, arkivkonfigurasjon</td><td>2–3 uker</td></tr>
+  <tr><td>2. Integrasjonsaktivering</td><td>Fiks-konto, Maskinporten, Bufdir-sandkasse, SMS-gateway — parallelt med fase 1</td><td>3–6 uker (ledetid hos tredjeparter)</td></tr>
+  <tr><td>3. Opplæring og pilot</td><td>Opplæring av saksbehandlere/ledere, pilot med reelle saker, demodata tilgjengelig fra dag én</td><td>2–4 uker</td></tr>
+  <tr><td>4. Produksjonssetting</td><td>Full drift, eventuelt migrering fra dagens system etter egen migreringsplan</td><td>Avtales</td></tr>
+</table>
+
+<h2>7. Personell</h2>
+<p>[NAVN, ROLLE OG CV-SAMMENDRAG FOR NØKKELPERSONELL — kunngjøringen krever at navn og faglige kvalifikasjoner oppgis i tilbudet.]</p>
+
+<h2>8. Ærlighet om modenhet</h2>
+<div class="honest">Barnevernsvertikalen er nyutviklet i 2026 på en etablert plattform. All funksjonalitet beskrevet over er implementert, automatisk testet (enhets-, integrasjons- og ende-til-ende-tester i CI mot isolert database) og demonstrerbar med testdata. Integrasjonene mot KS/Bufdir er ferdig programvare som venter på eksterne tilganger — bestillingsprosessen er startet. Vi oppgir dette eksplisitt fremfor å overselge: det som er delvis, leveres etter gjennomføringsplanen i seksjon 6.</div>
+
+<p class="meta">Vedlegg: kravspesifikasjonsbesvarelse (per krav), prisskjema, ESPD (i Mercell), databehandleravtale-utkast.</p>
+
+</body>
+</html>
