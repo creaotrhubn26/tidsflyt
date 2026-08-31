@@ -263,21 +263,18 @@ export function registerBarnevernSakRoutes(app: Express): void {
   // Hele uttrekket leses i ÉN transaksjon (konsistent snapshot) og logges
   // som nedlasting med innholds-hash i tilgangsloggen (krav 15).
 
-  app.get("/api/barnevern/saker/:id/uttrekk", async (req: Request, res: Response) => {
-    const actor = await requireKommuneActor(req);
-    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
-    if (actor.role !== "barnevernsleder") {
-      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere saksuttrekk." });
-    }
-
-    try {
-      const manifest = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+  async function byggSaksuttrekk(
+    client: any,
+    actor: KommuneActor,
+    sakId: string,
+    objektType: string,
+  ): Promise<any | null> {
         const { rows: [sak] } = await client.query(
           `SELECT s.*, k.navn AS kommune_navn
              FROM tidum_barnevern_saker s
              JOIN tidum_kommuner k ON k.id = s.kommune_id
             WHERE s.id = $1 AND s.kommune_id = $2`,
-          [req.params.id, actor.kommuneId],
+          [sakId, actor.kommuneId],
         );
         if (!sak) return null;
 
@@ -287,7 +284,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
               ? client.query(
                   `SELECT * FROM tidum_barnevern_meldinger WHERE id = $1 AND kommune_id = $2`,
                   [sak.melding_id, actor.kommuneId],
-                ).then((r) => r.rows[0] ?? null)
+                ).then((r: any) => r.rows[0] ?? null)
               : Promise.resolve(null),
             sak.melding_id
               ? client.query(
@@ -295,49 +292,49 @@ export function registerBarnevernSakRoutes(app: Express): void {
                      FROM tidum_barnevern_melding_revisjoner
                     WHERE melding_id = $1 AND kommune_id = $2 ORDER BY created_at`,
                   [sak.melding_id, actor.kommuneId],
-                ).then((r) => r.rows)
+                ).then((r: any) => r.rows)
               : Promise.resolve([]),
             client.query(
               `SELECT fra_fase, til_fase, begrunnelse, endret_av_user_id, created_at
                  FROM tidum_barnevern_sak_fase_historikk
                 WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
               `SELECT id, kategori, innhold, corrects_entry_id, forfatter_user_id, created_at
                  FROM tidum_barnevern_sak_journal
                 WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
-              `SELECT v.id, v.journal_entry_id, v.original_name, v.mime_type, v.size_bytes, v.uploaded_at
+              `SELECT v.id, v.journal_entry_id, v.filename, v.original_name, v.mime_type, v.size_bytes, v.uploaded_at
                  FROM tidum_barnevern_sak_journal_vedlegg v
                  JOIN tidum_barnevern_sak_journal j
                    ON j.id = v.journal_entry_id AND j.kommune_id = v.kommune_id
                 WHERE j.sak_id = $1 AND v.kommune_id = $2 ORDER BY v.uploaded_at`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
               `SELECT id, plantype, versjon, status, formaal, deltakere, evalueringsfrist,
                       godkjent_av, godkjent_dato, created_at
                  FROM tidum_barnevern_planer
                 WHERE sak_id = $1 AND kommune_id = $2 ORDER BY plantype, versjon`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
               `SELECT t.id, t.plan_id, t.beskrivelse, t.ansvarlig, t.frist, t.status, t.statusnotat
                  FROM tidum_barnevern_plan_tiltak t
                  JOIN tidum_barnevern_planer p ON p.id = t.plan_id AND p.kommune_id = t.kommune_id
                 WHERE p.sak_id = $1 AND t.kommune_id = $2 ORDER BY t.created_at`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
               `SELECT id, dokumenttype, mal_id, tittel, hjemmel, innhold, mottaker, plan_id,
                       status, godkjent_av, godkjent_dato, ekspedert_dato, ekspedert_via, created_at
                  FROM tidum_barnevern_dokumenter
                 WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
-              [req.params.id, actor.kommuneId],
-            ).then((r) => r.rows),
+              [sakId, actor.kommuneId],
+            ).then((r: any) => r.rows),
             client.query(
               `SELECT id, entity_type, entity_id, tittel, beskrivelse, tildelt_user_id,
                       frist, status, fullfort_dato, created_at
@@ -346,8 +343,8 @@ export function registerBarnevernSakRoutes(app: Express): void {
                   AND ((entity_type = 'sak' AND entity_id = $2)
                     OR (entity_type = 'melding' AND entity_id = $3::uuid))
                 ORDER BY created_at`,
-              [actor.kommuneId, req.params.id, sak.melding_id],
-            ).then((r) => r.rows),
+              [actor.kommuneId, sakId, sak.melding_id],
+            ).then((r: any) => r.rows),
           ]);
 
         const innhold = {
@@ -359,7 +356,7 @@ export function registerBarnevernSakRoutes(app: Express): void {
 
         await loggTilgang(client, {
           kommuneId: actor.kommuneId, userId: actor.userId,
-          handling: "nedlastet", objektType: "saksuttrekk", objektId: sak.id,
+          handling: "nedlastet", objektType, objektId: sak.id,
           detaljer: { innholdsHash, antallJournal: journal.length, antallDokumenter: dokumenter.length },
         });
 
@@ -382,13 +379,78 @@ export function registerBarnevernSakRoutes(app: Express): void {
           },
           ...innhold,
         };
-      });
+  }
+
+  app.get("/api/barnevern/saker/:id/uttrekk", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere saksuttrekk." });
+    }
+
+    try {
+      const manifest = await withKommuneRlsContext(actor.kommuneId, (client) =>
+        byggSaksuttrekk(client, actor, req.params.id, "saksuttrekk"));
       if (!manifest) return res.status(404).json({ error: "Sak ikke funnet." });
+      // Interne lagringsnøkler skal ikke ut i JSON-utleveringen.
+      manifest.journalVedlegg = manifest.journalVedlegg.map(({ filename, ...rest }: any) => rest);
       res.setHeader("Cache-Control", "no-store");
       res.json(manifest);
     } catch (err) {
       console.error("[barnevern] saksuttrekk feilet", err);
       res.status(500).json({ error: "Kunne ikke generere saksuttrekket." });
+    }
+  });
+
+  // ZIP-pakke (krav 17-rest): uttrekket + binærvedlegg + manifest med
+  // SHA-256 per fil — én nedlastbar mappe for fysisk utlevering.
+  app.get("/api/barnevern/saker/:id/uttrekk/pakke", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere saksuttrekk." });
+    }
+
+    try {
+      const uttrekk = await withKommuneRlsContext(actor.kommuneId, (client) =>
+        byggSaksuttrekk(client, actor, req.params.id, "saksuttrekk_pakke"));
+      if (!uttrekk) return res.status(404).json({ error: "Sak ikke funnet." });
+
+      const vedleggsfiler = uttrekk.journalVedlegg as any[];
+      uttrekk.journalVedlegg = vedleggsfiler.map(({ filename, ...rest }: any) => rest);
+      const uttrekkJson = Buffer.from(JSON.stringify(uttrekk, null, 2), "utf8");
+
+      const filer: { navn: string; sha256: string }[] = [];
+      const { createHash } = await import("crypto");
+      const { ZipArchive } = (await import("archiver")) as any;
+      const arkiv = new ZipArchive({ zlib: { level: 6 } });
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Disposition", `attachment; filename="saksuttrekk-${uttrekk.manifest.saksnummer}.zip"`);
+      arkiv.on("error", (err: Error) => { throw err; });
+      arkiv.pipe(res);
+
+      arkiv.append(uttrekkJson, { name: "saksuttrekk.json" });
+      filer.push({ navn: "saksuttrekk.json", sha256: createHash("sha256").update(uttrekkJson).digest("hex") });
+
+      for (const v of vedleggsfiler) {
+        try {
+          const innhold = await hentVedlegg("barnevern-sak-journal", v.filename);
+          const navn = `vedlegg/${v.id}-${String(v.original_name).replace(/[^\w.\-æøåÆØÅ ]/g, "_")}`;
+          arkiv.append(innhold, { name: navn });
+          filer.push({ navn, sha256: createHash("sha256").update(innhold).digest("hex") });
+        } catch (err) {
+          // Manglende binær skal ikke velte hele pakken — noteres i manifestet.
+          filer.push({ navn: `vedlegg/${v.id}-MANGLER`, sha256: "" });
+          console.error(`[barnevern] vedlegg ${v.id} mangler i objektlageret:`, (err as Error)?.message);
+        }
+      }
+      arkiv.append(Buffer.from(JSON.stringify({ ...uttrekk.manifest, filer }, null, 2), "utf8"), { name: "manifest.json" });
+      await arkiv.finalize();
+    } catch (err) {
+      console.error("[barnevern] saksuttrekk-pakke feilet", err);
+      if (!res.headersSent) res.status(500).json({ error: "Kunne ikke generere pakken." });
+      else res.end();
     }
   });
 

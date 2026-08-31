@@ -110,7 +110,7 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
 
   it("full flyt: mottak med frist → delvis innvilgelse med unntak → utlevering med audit → klage → oversendelse", async () => {
     const kommuneId = await insertTestKommune();
-    const { app: lederApp } = await actorApp("leder", kommuneId, "barnevernsleder");
+    const { id: lederId, app: lederApp } = await actorApp("leder", kommuneId, "barnevernsleder");
     const { id: sbId, app: sbApp } = await actorApp("sb", kommuneId, "kommune_saksbehandler");
     const sak = await opprettSak(sbApp);
 
@@ -143,13 +143,54 @@ describe("Barnevern innsynskrav (krav 16)", { timeout: 20000 }, () => {
     const forTidlig = await request(sbApp).post(`/api/barnevern/innsynskrav/${krav.body.id}/utlever`).send({ via: "utskrift" });
     expect(forTidlig.status).toBe(409);
 
+    // To journaloppføringer: én skal sladdes fysisk i utleverings-PDF-en.
+    const aapenPost = await request(sbApp).post(`/api/barnevern/saker/${sak.id}/journal`).send({
+      kategori: "notat", innhold: "Åpent notat som parten skal se.",
+    });
+    const hemmeligPost = await request(sbApp).post(`/api/barnevern/saker/${sak.id}/journal`).send({
+      kategori: "notat", innhold: "Melders identitet: Kilde Kildesen.",
+    });
+
     const beslutning = await request(lederApp).post(`/api/barnevern/innsynskrav/${krav.body.id}/beslutning`).send({
       utfall: "delvis_innvilget",
       begrunnelse: "Opplysninger om melder skjermes av hensyn til kilden.",
-      unntak: [{ hjemmel: "fvl. § 19 første ledd bokstav b", beskrivelse: "Melders identitet" }],
+      unntak: [{
+        hjemmel: "fvl. § 19 første ledd bokstav b",
+        beskrivelse: "Melders identitet",
+        journalEntryIds: [hemmeligPost.body.id],
+      }],
     });
     expect(beslutning.status).toBe(200);
     expect(beslutning.body.status).toBe("delvis_innvilget");
+
+    // Sladdet utleverings-PDF (krav 16-rest): åpen tekst med, unntatt tekst
+    // FYSISK fraværende, sladdemarkør til stede. Auditlogges.
+    const sladdet = await request(lederApp)
+      .get(`/api/barnevern/innsynskrav/${krav.body.id}/sladdet-pdf`)
+      .buffer(true)
+      .parse((res2, cb) => {
+        const biter: Buffer[] = [];
+        res2.on("data", (b: Buffer) => biter.push(b));
+        res2.on("end", () => cb(null, Buffer.concat(biter)));
+      });
+    expect(sladdet.status).toBe(200);
+    const pdfTekst = (sladdet.body as Buffer).toString("latin1");
+    expect(pdfTekst.startsWith("%PDF-")).toBe(true);
+    // pdfkit hex-koder tekst i TJ-arrays — dekod alle hex-strenger for å
+    // kunne bevise at unntatt tekst er FYSISK fraværende i filen.
+    // Kerning splitter tekst også midt i ord — sammenlign uten mellomrom.
+    const dekodet = (pdfTekst.match(/<([0-9a-f]+)>/g) ?? [])
+      .map((h) => Buffer.from(h.slice(1, -1), "hex").toString("latin1"))
+      .join("").replace(/\s+/g, "");
+    expect(dekodet).toContain("pentnotatsompartenskalse");
+    expect(dekodet).not.toContain("Kildesen");
+    expect(dekodet).toContain("SLADDET");
+    const { rows: sladdetLogg } = await pool.query(
+      `SELECT 1 FROM tidum_barnevern_tilgangslogg
+        WHERE user_id = $1 AND objekt_type = 'innsyn_sladdet_pdf' AND objekt_id = $2`,
+      [lederId, krav.body.id],
+    );
+    expect(sladdetLogg).toHaveLength(1);
 
     // Fristen kansellert; beslutningen journalført.
     const { rows: etterBeslutning } = await pool.query(
