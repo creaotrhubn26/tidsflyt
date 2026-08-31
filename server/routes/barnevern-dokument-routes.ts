@@ -7,6 +7,7 @@ import {
   processSecureNotificationOutbox,
   sendSystemmeldingViaSikkerDialog,
 } from "./secure-dialog-routes";
+import { lagDokumentPdf } from "../lib/barnevern-dokument-pdf";
 
 /**
  * Kodefaste standardmaler (krav 6). Malinnholdet flettes og snapshotes inn
@@ -167,6 +168,55 @@ export function registerBarnevernDokumentRoutes(app: Express): void {
       }
       console.error("[barnevern-dokument] opprettelse feilet", err);
       res.status(500).json({ error: "Kunne ikke opprette dokumentet." });
+    }
+  });
+
+  // PDF-nedlasting (krav 6): behovsprøvd via sakens saksbehandler-vilkår,
+  // hver nedlasting auditlogges. Utkast har vannmerke-status i topplinjen.
+  app.get("/api/barnevern/dokumenter/:id/pdf", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+
+    try {
+      const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const ntk = needToKnowVilkar(actor, "sak.tildelt_saksbehandler_id", 3);
+        const { rows: [row] } = await client.query(
+          `SELECT dokument.*, sak.saksnummer, kommune.navn AS kommune_navn
+             FROM tidum_barnevern_dokumenter dokument
+             JOIN tidum_barnevern_saker sak ON sak.id = dokument.sak_id AND sak.kommune_id = dokument.kommune_id
+             JOIN tidum_kommuner kommune ON kommune.id = dokument.kommune_id
+            WHERE dokument.id = $1 AND dokument.kommune_id = $2${ntk.clause}`,
+          [req.params.id, actor.kommuneId, ...ntk.params],
+        );
+        if (!row) return null;
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "nedlastet", objektType: "dokument_pdf", objektId: row.id,
+          detaljer: { sakId: row.sak_id, dokumenttype: row.dokumenttype, status: row.status },
+        });
+        return row;
+      });
+      if (!data) return res.status(404).json({ error: "Dokument ikke funnet." });
+
+      const pdf = await lagDokumentPdf({
+        kommuneNavn: data.kommune_navn,
+        saksnummer: data.saksnummer,
+        dokumenttype: data.dokumenttype,
+        tittel: data.status === "utkast" ? `${data.tittel} (UTKAST)` : data.tittel,
+        hjemmel: data.hjemmel,
+        innhold: data.innhold,
+        mottaker: data.mottaker,
+        status: data.status,
+        godkjentDato: data.godkjent_dato,
+        ekspedertDato: data.ekspedert_dato,
+      });
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Disposition", `attachment; filename="dokument-${data.id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      console.error("[barnevern-dokument] PDF feilet", err);
+      res.status(500).json({ error: "Kunne ikke generere PDF." });
     }
   });
 
