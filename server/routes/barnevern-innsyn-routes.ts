@@ -8,6 +8,7 @@ import {
   sendSystemmeldingViaSikkerDialog,
 } from "./secure-dialog-routes";
 import { lagSladdetInnsynPdf } from "../lib/barnevern-innsyn-pdf";
+import { hentVedlegg } from "../lib/barnevern-attachment-storage";
 
 const PART_RELASJONER = new Set(["forelder", "barn", "verge", "fullmektig", "annet"]);
 const BESLUTNINGER = new Set(["innvilget", "delvis_innvilget", "avslatt"]);
@@ -270,6 +271,121 @@ export function registerBarnevernInnsynRoutes(app: Express): void {
       }
       console.error("[barnevern-innsyn] sladdet PDF feilet", err);
       res.status(500).json({ error: "Kunne ikke generere utleverings-PDF." });
+    }
+  });
+
+  // Utleveringspakke (krav 16/17): én ZIP til parten — sladdet PDF +
+  // journalvedlegg, der vedlegg på SLADDEDE journaloppføringer utelates
+  // (fysisk fraværende, som teksten). Kun barnevernsleder; auditlogget.
+  app.get("/api/barnevern/innsynskrav/:id/utleveringspakke", async (req: Request, res: Response) => {
+    const actor = await requireKommuneActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    if (actor.role !== "barnevernsleder") {
+      return res.status(403).json({ error: "Kun barnevernsleder kan utlevere pakken." });
+    }
+
+    try {
+      const data = await withKommuneRlsContext(actor.kommuneId, async (client) => {
+        const { rows: [krav] } = await client.query(
+          `SELECT krav.*, sak.saksnummer, sak.adresse_skjermet, kommune.navn AS kommune_navn
+             FROM tidum_barnevern_innsynskrav krav
+             JOIN tidum_barnevern_saker sak ON sak.id = krav.sak_id AND sak.kommune_id = krav.kommune_id
+             JOIN tidum_kommuner kommune ON kommune.id = krav.kommune_id
+            WHERE krav.id = $1 AND krav.kommune_id = $2`,
+          [req.params.id, actor.kommuneId],
+        );
+        if (!krav) return null;
+        if (krav.status === "mottatt" || krav.status === "avslatt") throw new Error("IKKE_INNVILGET");
+
+        const [journal, dokumenter, vedlegg] = await Promise.all([
+          client.query(
+            `SELECT id, kategori, innhold, created_at FROM tidum_barnevern_sak_journal
+              WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+            [krav.sak_id, actor.kommuneId],
+          ).then((r: any) => r.rows),
+          client.query(
+            `SELECT tittel, dokumenttype, status, created_at FROM tidum_barnevern_dokumenter
+              WHERE sak_id = $1 AND kommune_id = $2 ORDER BY created_at`,
+            [krav.sak_id, actor.kommuneId],
+          ).then((r: any) => r.rows),
+          client.query(
+            `SELECT v.id, v.journal_entry_id, v.filename, v.original_name
+               FROM tidum_barnevern_sak_journal_vedlegg v
+               JOIN tidum_barnevern_sak_journal j
+                 ON j.id = v.journal_entry_id AND j.kommune_id = v.kommune_id
+              WHERE j.sak_id = $1 AND v.kommune_id = $2 ORDER BY v.uploaded_at`,
+            [krav.sak_id, actor.kommuneId],
+          ).then((r: any) => r.rows),
+        ]);
+        await loggTilgang(client, {
+          kommuneId: actor.kommuneId, userId: actor.userId,
+          handling: "nedlastet", objektType: "innsyn_utleveringspakke", objektId: krav.id,
+          detaljer: { sakId: krav.sak_id, antallUnntak: (krav.unntak ?? []).length, antallVedlegg: vedlegg.length },
+        });
+        return { krav, journal, dokumenter, vedlegg };
+      });
+      if (!data) return res.status(404).json({ error: "Innsynskrav ikke funnet." });
+
+      const unntak = [
+        ...(data.krav.adresse_skjermet
+          ? [{ hjemmel: "skjermet adresse", beskrivelse: "Opplysninger om bosted er skjermet og utleveres ikke." }]
+          : []),
+        ...(data.krav.unntak ?? []),
+      ];
+      const sladdedeIds = new Set(unntak.flatMap((u: any) => u.journalEntryIds ?? []));
+
+      const pdf = await lagSladdetInnsynPdf({
+        kommuneNavn: data.krav.kommune_navn,
+        saksnummer: data.krav.saksnummer,
+        partNavn: data.krav.part_navn,
+        beslutningStatus: data.krav.status,
+        beslutningBegrunnelse: data.krav.beslutning_begrunnelse,
+        besluttetDato: data.krav.besluttet_dato,
+        unntak,
+        journal: data.journal,
+        dokumenter: data.dokumenter,
+      });
+
+      const archiverMod: any = await import("archiver");
+      const arkiv = new archiverMod.ZipArchive({ zlib: { level: 6 } });
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Cache-Control", "no-store");
+      res.setHeader("Content-Disposition", `attachment; filename="innsyn-${data.krav.id}.zip"`);
+      arkiv.pipe(res);
+      arkiv.append(pdf, { name: "innsynsutlevering.pdf" });
+
+      const { createHash } = await import("crypto");
+      const filer: { navn: string; sha256: string }[] = [
+        { navn: "innsynsutlevering.pdf", sha256: createHash("sha256").update(pdf).digest("hex") },
+      ];
+      let utelatt = 0;
+      for (const v of data.vedlegg) {
+        if (sladdedeIds.has(v.journal_entry_id)) { utelatt += 1; continue; }
+        try {
+          const innhold = await hentVedlegg("barnevern-sak-journal", v.filename);
+          const navn = `vedlegg/${v.id}-${String(v.original_name).replace(/[^\w.\-æøåÆØÅ ]/g, "_")}`;
+          arkiv.append(innhold, { name: navn });
+          filer.push({ navn, sha256: createHash("sha256").update(innhold).digest("hex") });
+        } catch (err) {
+          filer.push({ navn: `vedlegg/${v.id}-MANGLER`, sha256: "" });
+          console.error(`[barnevern-innsyn] vedlegg ${v.id} mangler i objektlageret:`, (err as Error)?.message);
+        }
+      }
+      arkiv.append(Buffer.from(JSON.stringify({
+        saksnummer: data.krav.saksnummer,
+        part: data.krav.part_navn,
+        generertDato: new Date().toISOString(),
+        vedleggUtelattPgaSladding: utelatt,
+        filer,
+      }, null, 2), "utf8"), { name: "manifest.json" });
+      await arkiv.finalize();
+    } catch (err) {
+      if (err instanceof Error && err.message === "IKKE_INNVILGET") {
+        return res.status(409).json({ error: "Utleveringspakke krever innvilget eller delvis innvilget beslutning." });
+      }
+      console.error("[barnevern-innsyn] utleveringspakke feilet", err);
+      if (!res.headersSent) res.status(500).json({ error: "Kunne ikke generere utleveringspakken." });
+      else res.end();
     }
   });
 
