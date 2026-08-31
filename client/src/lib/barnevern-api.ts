@@ -441,6 +441,8 @@ export type Kpi = {
   frekvens: string;
   enhet: "antall" | "prosent" | "dager";
   verdi: number | null;
+  forrigeVerdi: number | null;
+  serie: number[] | null;
 };
 
 export function listKpi(): Promise<{ generert: string; kpier: Kpi[] }> {
