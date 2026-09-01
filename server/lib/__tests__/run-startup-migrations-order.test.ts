@@ -65,7 +65,13 @@ describe("STARTUP_MIGRATIONS rekkefølge", () => {
     expect(deadlineRls).toBeGreaterThan(archiveRls);
   });
 
-  it("har frist-RLS som siste, fail-closed oppstartsmigrasjon", () => {
-    expect(STARTUP_MIGRATIONS.at(-1)).toBe("086_deadline_tenant_rls.sql");
+  it("alt etter RLS-grunnmuren (086) er nyere migrasjoner i stigende nummerrekkefølge", () => {
+    const deadlineRls = STARTUP_MIGRATIONS.indexOf("086_deadline_tenant_rls.sql");
+    expect(deadlineRls).toBeGreaterThan(-1);
+    const etter = STARTUP_MIGRATIONS.slice(deadlineRls + 1);
+    // Alle er >= 087 (automatisk fail-closed) og sortert stigende.
+    const numre = etter.map((f) => parseInt(f, 10));
+    expect(numre.every((n) => n >= 87)).toBe(true);
+    expect([...numre].sort((a, b) => a - b)).toEqual(numre);
   });
 });

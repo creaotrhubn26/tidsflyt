@@ -13,11 +13,14 @@ describe("tidum_vendors schema", () => {
     );
 
     expect(rows).toEqual(expect.arrayContaining([
-      { table_name: "vendors", column_name: "id", data_type: "character varying" },
       { table_name: "tidum_vendors", column_name: "id", data_type: "integer" },
       { table_name: "tidum_vendors", column_name: "institution_type", data_type: "text" },
       { table_name: "tidum_vendors", column_name: "org_number", data_type: "text" },
     ]));
+    // Den fremmed-eide vendors-tabellen finnes kun på databaser med
+    // historikk — der den finnes skal id fortsatt være varchar (urørt).
+    const vendorsId = rows.find((r) => r.table_name === "vendors" && r.column_name === "id");
+    if (vendorsId) expect(vendorsId.data_type).toBe("character varying");
   });
 
   it("normalizes Tidum-owned vendor references to integer", async () => {

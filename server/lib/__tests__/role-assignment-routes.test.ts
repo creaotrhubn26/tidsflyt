@@ -128,10 +128,31 @@ describe("role assignment routes", () => {
   });
 
   it("PATCH /api/admin/users/:id/role blocks unassigning the only user holding a role with role.manage", async () => {
-    const [superAdminRole] = await db.select().from(roles).where(eq(roles.name, "super_admin")).limit(1);
+    // Selvforsynt: egen rolle med role.manage der testbrukeren er ENESTE
+    // holder — sperren skal da slå til uansett hva databasen ellers
+    // inneholder av super_admin-tildelinger.
+    const [roleManagePermission] = await pool
+      .query(`SELECT id FROM tidum_permissions WHERE key = 'role.manage'`)
+      .then((r) => r.rows);
+    const [eneRolle] = await db.insert(roles).values({ name: "test_assign_sole_manager_role", scope: "global" }).returning();
+    createdRoleIds.push(eneRolle.id);
+    await pool.query(
+      `INSERT INTO tidum_role_permissions (role_id, permission_id) VALUES ($1, $2)`,
+      [eneRolle.id, roleManagePermission.id],
+    );
+    // Sørg for at ingen ANDRE roller med role.manage har tildelte brukere
+    // i dette øyeblikket ved å telle — sperren er global på tvers av roller.
     const userId = await createDisposableUser();
     createdUserIds.push(userId);
-    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [superAdminRole.id, userId]);
+    await pool.query(`UPDATE users SET role_id = $1 WHERE id = $2`, [eneRolle.id, userId]);
+    const { rows: andreHoldere } = await pool.query(
+      `SELECT u.id FROM users u
+         JOIN tidum_role_permissions rp ON rp.role_id = u.role_id
+         JOIN tidum_permissions p ON p.id = rp.permission_id
+        WHERE p.key = 'role.manage' AND u.id <> $1`,
+      [userId],
+    );
+    expect(andreHoldere, "testdatabasen har andre role.manage-holdere — rydd før kjøring").toEqual([]);
 
     const token = await signSuperAdminToken();
     const res = await request(app)

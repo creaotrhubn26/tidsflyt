@@ -111,22 +111,15 @@ jobs:
           npm run db:push -- --force
           npx tsx -e "import('./server/lib/run-startup-migrations.ts').then(m => m.runStartupMigrations()).then(() => process.exit(0)).catch(e => { console.error(e); process.exit(1); })"
 
-      # Sekvensielt (delt database-tilstand); scopet til suitene som er
-      # grønne mot virgin base. Full-suite har kjente stale tester
-      # (se run-startup-migrations-order m.fl.) — utvides når de er fikset.
-      - name: Vitest (barnevern + køer + sikker dialog + driftsalarm)
-        run: >
-          npx vitest run
-          server/lib/__tests__/barnevern
-          server/lib/__tests__/bvr
-          server/lib/__tests__/sms-gateway.test.ts
-          server/lib/__tests__/fiks-io
-          server/lib/__tests__/integrasjon-status.test.ts
-          server/lib/__tests__/kommune-bruker
-          server/lib/__tests__/secure-dialog
-          server/lib/__tests__/drift-alarm.test.ts
-          server/lib/__tests__/vendor-bola-matrix.test.ts
-          --no-file-parallelism
+      # Dedikert RLS-runtime-rolle (kommune-routes-testens
+      # production-import krever annet enn pg_database_owner).
+      - name: Provision RLS runtime role
+        run: |
+          psql "$DATABASE_URL" -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='tidum_app_runtime') THEN CREATE ROLE tidum_app_runtime NOLOGIN NOBYPASSRLS; END IF; END \$\$; GRANT tidum TO tidum_app_runtime;"
+
+      # HELE suiten, sekvensielt (delt database-tilstand).
+      - name: Vitest (full suite)
+        run: npx vitest run --no-file-parallelism
 
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium webkit
