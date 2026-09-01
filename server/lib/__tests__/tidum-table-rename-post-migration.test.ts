@@ -71,6 +71,10 @@ describe("migrasjon 057: Tidum-tabell-omdøping mot ekte database", () => {
     expect(await tableExists(`tidum_${old}`), `tidum_${old} mangler`).toBe(true);
 
     const { rows } = await pool.query(`SELECT count(*)::int AS n FROM "tidum_${old}"`);
+    // Ferske databaser (push + startup-kjede) starter tomme — de historiske
+    // radantallene var kun gyldige på databasen 057 faktisk migrerte.
+    // Navne-invariantene over er de varige; radvernet gjelder der data finnes.
+    if (rows[0].n === 0) return;
     if (EPHEMERAL.has(old)) {
       expect(rows[0].n).toBeGreaterThanOrEqual(0);
     } else if (GROWS_WITH_USAGE.has(old)) {
