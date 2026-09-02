@@ -44,6 +44,7 @@ import {
 } from "@shared/brand";
 import { eq } from "drizzle-orm";
 import { selectReportTemplateUpdateFields } from "./lib/report-template-update";
+import { DESIGN_TOKEN_COLUMNS, SECTION_DESIGN_COLUMNS, safeColumns, snake } from "./lib/design-token-columns";
 import { resolveCrawlerUrl } from "./lib/crawler-url-policy";
 import { z } from "zod";
 import { getSecretBoxRuntimeStatus } from "./lib/secret-box";
@@ -4623,22 +4624,26 @@ export function registerSmartTimingRoutes(app: Express) {
       if (tokens) {
         const existing = await pool.query('SELECT id FROM design_tokens WHERE is_active = true LIMIT 1');
         if (existing.rows.length > 0) {
-          const columns = Object.keys(tokens).filter(k => k !== 'id' && k !== 'updated_at' && k !== 'is_active' && k !== 'name');
-          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
-          const values = columns.map(col => tokens[col]);
-          values.push(existing.rows[0].id);
-          await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          const columns = safeColumns(Object.keys(tokens), DESIGN_TOKEN_COLUMNS);
+          if (columns.length > 0) {
+            const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+            const values = columns.map(col => tokens[col]);
+            values.push(existing.rows[0].id);
+            await pool.query(`UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${columns.length + 1}`, values);
+          }
         }
       }
       
       // Apply section settings
       if (section_settings) {
         for (const [sectionName, settings] of Object.entries(section_settings as Record<string, any>)) {
-          const columns = Object.keys(settings).filter(k => k !== 'id' && k !== 'section_name' && k !== 'updated_at' && k !== 'is_active');
-          const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
-          const values = columns.map(col => settings[col]);
-          values.push(sectionName);
-          await pool.query(`UPDATE tidum_section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
+          const columns = safeColumns(Object.keys(settings), SECTION_DESIGN_COLUMNS);
+          if (columns.length > 0) {
+            const setClause = columns.map((col, i) => `${col} = $${i + 1}`).join(', ');
+            const values = columns.map(col => settings[col]);
+            values.push(sectionName);
+            await pool.query(`UPDATE tidum_section_design_settings SET ${setClause}, updated_at = NOW() WHERE section_name = $${columns.length + 1}`, values);
+          }
         }
       }
       
@@ -6290,10 +6295,12 @@ export function registerSmartTimingRoutes(app: Express) {
           
         case 'design_tokens':
           // Restore design tokens - update all fields
-          const tokenFields = Object.keys(versionData).filter(k => k !== 'id' && k !== 'updated_at');
+          const tokenFields = Object.keys(versionData)
+            .map((f) => ({ orig: f, col: snake(f) }))
+            .filter(({ col }) => DESIGN_TOKEN_COLUMNS.has(col));
           if (tokenFields.length > 0) {
-            const setClause = tokenFields.map((f, i) => `${f.replace(/([A-Z])/g, '_$1').toLowerCase()} = $${i + 1}`).join(', ');
-            const values = tokenFields.map(f => versionData[f]);
+            const setClause = tokenFields.map(({ col }, i) => `${col} = $${i + 1}`).join(', ');
+            const values = tokenFields.map(({ orig }) => versionData[orig]);
             values.push(content_id || 1);
             await pool.query(
               `UPDATE design_tokens SET ${setClause}, updated_at = NOW() WHERE id = $${values.length}`,
