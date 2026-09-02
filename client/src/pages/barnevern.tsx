@@ -1335,6 +1335,130 @@ function NokkeltallFane() {
   );
 }
 
+// ── MALER (krav 6): kommune-egne dokumentmaler ──────────────────────────────
+
+function MalerFane() {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [malId, setMalId] = useState("");
+  const [dokumenttype, setDokumenttype] = useState<"vedtak" | "brev">("brev");
+  const [tittel, setTittel] = useState("");
+  const [hjemmel, setHjemmel] = useState("");
+  const [innhold, setInnhold] = useState("");
+
+  const { data: maler = [], error } = useQuery({
+    queryKey: ["barnevern-dokumentmaler"],
+    queryFn: () => api.listDokumentmaler(),
+    retry: false,
+  });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["barnevern-dokumentmaler"] });
+  const feil = (e: Error) => toast({ title: "Feil", description: e.message, variant: "destructive" });
+
+  const lagre = useMutation({
+    mutationFn: () => api.lagreDokumentmal({ malId, dokumenttype, tittel, hjemmel: hjemmel || null, innhold }),
+    onSuccess: () => {
+      invalidate();
+      setMalId(""); setTittel(""); setHjemmel(""); setInnhold("");
+      toast({ title: "Mal lagret" });
+    },
+    onError: feil,
+  });
+  const slett = useMutation({
+    mutationFn: (id: string) => api.slettDokumentmal(id),
+    onSuccess: () => { invalidate(); toast({ title: "Kommunemal deaktivert" }); },
+    onError: feil,
+  });
+
+  if (error) {
+    return <p className="text-sm text-muted-foreground p-4">Maladministrasjon er forbeholdt barnevernsleder.</p>;
+  }
+
+  const egne = maler.filter((m) => m.egen);
+  const kodefaste = maler.filter((m) => !m.egen);
+
+  return (
+    <div className="grid gap-5 lg:grid-cols-[1fr_400px]">
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold">Malkatalog</h2>
+        <p className="text-xs text-muted-foreground">
+          Kodefaste standardmaler og kommunens egne. Egne maler kan overstyre en standardmal ved
+          samme mal-id. Malinnholdet flettes inn i dokumentet ved opprettelse — endringer her
+          påvirker aldri allerede utstedte dokumenter.
+        </p>
+        <ul className="space-y-2" data-testid="malkatalog">
+          {maler.map((m) => (
+            <li key={m.malId} className="rounded-lg border bg-card p-3 shadow-sm" data-testid={`mal-${m.malId}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] capitalize">{m.dokumenttype}</Badge>
+                  <span className="text-sm font-medium">{m.tittel}</span>
+                  <Badge variant={m.egen ? "default" : "secondary"} className="text-[10px]">
+                    {m.egen ? "Kommunemal" : "Standard"}
+                  </Badge>
+                </div>
+                {m.egen && (
+                  <Button size="sm" variant="ghost" className="h-7 px-2 text-[11px] text-destructive"
+                    onClick={() => slett.mutate(m.malId)} data-testid={`mal-slett-${m.malId}`}>
+                    Deaktiver
+                  </Button>
+                )}
+              </div>
+              <p className="mt-0.5 text-xs text-muted-foreground font-mono">{m.malId}{m.hjemmel ? ` · ${m.hjemmel}` : ""}</p>
+            </li>
+          ))}
+        </ul>
+        <p className="text-[11px] text-muted-foreground">{egne.length} kommunemal(er) · {kodefaste.length} standardmaler</p>
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold">Ny / oppdater kommunemal</h2>
+        <div className="rounded-lg border bg-card p-3 shadow-sm space-y-2">
+          <div className="space-y-1.5">
+            <Label className="text-xs">Mal-id (a-z, 0-9, _)</Label>
+            <Input value={malId} onChange={(e) => setMalId(e.target.value.toLowerCase())}
+              placeholder="brev_lokal_orientering" data-testid="mal-malid-input" />
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Type</Label>
+              <Select value={dokumenttype} onValueChange={(v) => setDokumenttype(v as "vedtak" | "brev")}>
+                <SelectTrigger data-testid="mal-type-select"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="brev">Brev</SelectItem>
+                  <SelectItem value="vedtak">Vedtak</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Hjemmel (valgfri)</Label>
+              <Input value={hjemmel} onChange={(e) => setHjemmel(e.target.value)}
+                placeholder="barnevernsloven § …" data-testid="mal-hjemmel-input" />
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Tittel</Label>
+            <Input value={tittel} onChange={(e) => setTittel(e.target.value)} data-testid="mal-tittel-input" />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Innhold</Label>
+            <Textarea rows={7} value={innhold} onChange={(e) => setInnhold(e.target.value)}
+              placeholder="Bruk flettefelt: {{saksnummer}}, {{barnNavn}}, {{kommune}}, {{dato}}, {{hjemmel}}"
+              data-testid="mal-innhold-input" />
+            <p className="text-[11px] text-muted-foreground">
+              Flettefelt: {"{{saksnummer}}"}, {"{{barnNavn}}"}, {"{{kommune}}"}, {"{{dato}}"}, {"{{hjemmel}}"}
+            </p>
+          </div>
+          <Button size="sm" className="w-full" data-testid="mal-lagre-button"
+            disabled={!/^[a-z0-9_]{2,64}$/.test(malId) || !tittel.trim() || !innhold.trim() || lagre.isPending}
+            onClick={() => lagre.mutate()}>
+            Lagre kommunemal
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── TILGANG (krav 15): revisorlogg + delegasjoner + break-glass ─────────────
 
 const TILGANG_HANDLINGER: Record<string, string> = { lest: "Lest", nedlastet: "Nedlastet", endret: "Endret" };
@@ -1776,6 +1900,7 @@ export default function BarnevernPage() {
           <TabsTrigger value="innrapportering" data-testid="tab-innrapportering" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Innrapportering</TabsTrigger>
           <TabsTrigger value="nokkeltall" data-testid="tab-nokkeltall" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Nøkkeltall</TabsTrigger>
           <TabsTrigger value="tilgang" data-testid="tab-tilgang" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Tilgang</TabsTrigger>
+          <TabsTrigger value="maler" data-testid="tab-maler" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Maler</TabsTrigger>
         </TabsList>
 
         <TabsContent value="meldinger" className="mt-4">
@@ -1902,6 +2027,9 @@ export default function BarnevernPage() {
         </TabsContent>
         <TabsContent value="tilgang" className="mt-4">
           <TilgangFane />
+        </TabsContent>
+        <TabsContent value="maler" className="mt-4">
+          <MalerFane />
         </TabsContent>
       </Tabs>
 

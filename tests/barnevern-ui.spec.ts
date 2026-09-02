@@ -54,6 +54,7 @@ test.describe("Barnevern UI-flyt", () => {
     const journal: Record<string, any[]> = {};
     const planer: any[] = [];
     const dokumenter: any[] = [];
+    const kommunemaler: any[] = [];
     const oppgaver: any[] = [];
     const innsynskrav: any[] = [];
     const forebyggende: any[] = [];
@@ -207,11 +208,27 @@ test.describe("Barnevern UI-flyt", () => {
         return json({ error: "Ikke funnet" }, 404);
       }
       // Dokumenter
-      if (method === "GET" && path === "/api/barnevern/dokumentmaler") {
-        return json([
-          { malId: "vedtak_hjelpetiltak", dokumenttype: "vedtak", tittel: "Vedtak om hjelpetiltak", hjemmel: "barnevernsloven § 3-1" },
-          { malId: "brev_innkalling_samtale", dokumenttype: "brev", tittel: "Innkalling til samtale", hjemmel: null },
-        ]);
+      if (path === "/api/barnevern/dokumentmaler") {
+        if (method === "GET") {
+          return json([
+            { malId: "vedtak_hjelpetiltak", dokumenttype: "vedtak", tittel: "Vedtak om hjelpetiltak", hjemmel: "barnevernsloven § 3-1", egen: false },
+            { malId: "brev_innkalling_samtale", dokumenttype: "brev", tittel: "Innkalling til samtale", hjemmel: null, egen: false },
+            ...kommunemaler,
+          ]);
+        }
+        if (method === "POST") {
+          const body = route.request().postDataJSON();
+          const eksisterende = kommunemaler.findIndex((m: any) => m.malId === body.malId);
+          const mal = { ...body, hjemmel: body.hjemmel ?? null, egen: true };
+          if (eksisterende >= 0) kommunemaler[eksisterende] = mal; else kommunemaler.push(mal);
+          return json(mal, 201);
+        }
+      }
+      const malSlettMatch = path.match(/^\/api\/barnevern\/dokumentmaler\/([^/]+)$/);
+      if (malSlettMatch && method === "DELETE") {
+        const i = kommunemaler.findIndex((m: any) => m.malId === malSlettMatch[1]);
+        if (i >= 0) { kommunemaler.splice(i, 1); return json({ ok: true }); }
+        return json({ error: "Ikke funnet" }, 404);
       }
       const dokListeMatch = path.match(/^\/api\/barnevern\/saker\/([^/]+)\/dokumenter$/);
       if (dokListeMatch) {
@@ -479,5 +496,16 @@ test.describe("Barnevern UI-flyt", () => {
     await expect(page.getByTestId("tilgangslogg-tabell").getByText("break_glass", { exact: false })).toBeVisible();
     await expect(page.getByTestId("delegasjon-del-1")).toBeVisible();
     await expect(page.getByTestId("delegasjon-del-1").getByText("Ferie uke 40", { exact: false })).toBeVisible();
+
+    // Maler (krav 6): opprett kommunemal, den vises i katalogen, deaktiver den
+    await page.getByTestId("tab-maler").click();
+    await expect(page.getByTestId("mal-vedtak_hjelpetiltak").getByText("Standard")).toBeVisible();
+    await page.getByTestId("mal-malid-input").fill("brev_lokal_test");
+    await page.getByTestId("mal-tittel-input").fill("Lokalt testbrev");
+    await page.getByTestId("mal-innhold-input").fill("Hei {{barnNavn}} i {{kommune}}.");
+    await page.getByTestId("mal-lagre-button").click();
+    await expect(page.getByTestId("mal-brev_lokal_test").getByText("Kommunemal")).toBeVisible();
+    await page.getByTestId("mal-slett-brev_lokal_test").click();
+    await expect(page.getByTestId("mal-brev_lokal_test")).toHaveCount(0);
   });
 });
