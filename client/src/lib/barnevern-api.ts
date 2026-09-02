@@ -259,6 +259,7 @@ export type Dokumentmal = {
   dokumenttype: "vedtak" | "brev";
   tittel: string;
   hjemmel: string | null;
+  egen?: boolean;
 };
 
 export type Dokument = {
@@ -277,6 +278,16 @@ export type Dokument = {
 
 export function listDokumentmaler(): Promise<Dokumentmal[]> {
   return requestJson("/api/barnevern/dokumentmaler");
+}
+
+export function lagreDokumentmal(input: {
+  malId: string; dokumenttype: "vedtak" | "brev"; tittel: string; hjemmel?: string | null; innhold: string;
+}): Promise<Dokumentmal> {
+  return requestJson("/api/barnevern/dokumentmaler", jsonInit("POST", input));
+}
+
+export function slettDokumentmal(malId: string): Promise<{ ok: boolean }> {
+  return requestJson(`/api/barnevern/dokumentmaler/${malId}`, jsonInit("DELETE", undefined));
 }
 
 export function listDokumenter(sakId: string): Promise<Dokument[]> {
