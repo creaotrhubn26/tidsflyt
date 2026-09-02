@@ -36,6 +36,10 @@ async function slettEksisterendeDemo(): Promise<void> {
     await client.query(`DELETE FROM tidum_barnevern_meldinger WHERE kommune_id = $1`, [kommuneId]);
     await client.query(`DELETE FROM tidum_barnevern_forebyggende WHERE kommune_id = $1`, [kommuneId]);
     await client.query(`DELETE FROM tidum_sms_utboks WHERE kommune_id = $1`, [kommuneId]);
+    // Migrasjon 102/104: delegasjoner/break-glass og kommunemaler refererer
+    // demo-brukerne — må slettes før users-raden fjernes.
+    await client.query(`DELETE FROM tidum_barnevern_tilgangsdelegasjoner WHERE kommune_id = $1`, [kommuneId]);
+    await client.query(`DELETE FROM tidum_barnevern_dokumentmaler WHERE kommune_id = $1`, [kommuneId]);
   });
   await pool.query(`DELETE FROM tidum_barnevern_tilgangslogg WHERE kommune_id = $1`, [kommuneId]).catch(() => {});
   await pool.query(`DELETE FROM users WHERE kommune_id = $1`, [kommuneId]);
