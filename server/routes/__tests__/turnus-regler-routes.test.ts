@@ -93,6 +93,12 @@ describe("turnus regler/onsker/prioritering routes", () => {
     expect(get.body.vekt_onsker).toBe(7);
   });
 
+  it("rejects a prioritering with a foreign/nonexistent planId", async () => {
+    const app = appFor(userId);
+    const r = await request(app).post("/api/turnus/prioritering").send({ planId: 999999 });
+    expect(r.status).toBe(400);
+  });
+
   it("rejects an unauthenticated request with 403", async () => {
     const app = express();
     app.use(express.json());

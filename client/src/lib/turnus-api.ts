@@ -116,9 +116,12 @@ export function getPrioritering(): Promise<any> {
 }
 
 export function lagrePrioritering(input: {
-  ansattId: number;
-  vaktkodeId: number;
-  vekt?: number;
+  planId?: number;
+  vektOnsker?: number;
+  vektHelgefrekvens?: number;
+  vektRettferdighet?: number;
+  vektKontinuitet?: number;
+  vektKostnad?: number;
 }): Promise<any> {
   return requestJson("/api/turnus/prioritering", jsonInit("POST", input));
 }

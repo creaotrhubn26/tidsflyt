@@ -161,8 +161,11 @@ export function registerTurnusReglerRoutes(app: Express): void {
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
     const body = req.body ?? {};
     try {
-      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (body.planId != null && !(await ownsRow(client, "tidum_turnus_planer", body.planId, actor.orgId))) {
+          return "unknown_plan" as const;
+        }
+        return (await client.query(
           `INSERT INTO tidum_turnus_prioriteringsprofil (org_id, plan_id, vekt_onsker, vekt_helgefrekvens, vekt_rettferdighet, vekt_kontinuitet, vekt_kostnad)
            VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
           [
@@ -173,7 +176,9 @@ export function registerTurnusReglerRoutes(app: Express): void {
             body.vektRettferdighet ?? 5,
             body.vektKontinuitet ?? 5,
             body.vektKostnad ?? 5,
-          ])).rows[0]);
+          ])).rows[0];
+      });
+      if (row === "unknown_plan") return res.status(400).json({ error: "Ukjent plan." });
       res.json(row);
     } catch (err) {
       console.error("[turnus-regler] create prioritering feilet", err);
