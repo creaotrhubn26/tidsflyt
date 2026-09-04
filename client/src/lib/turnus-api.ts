@@ -135,14 +135,59 @@ export function listPlaner(): Promise<any[]> {
 export function opprettPlan(input: {
   navn: string;
   avdelingId: number;
+  rotasjonUker?: number;
+  startDato?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/planer", jsonInit("POST", input));
 }
 
-export function getReadiness(planId: string): Promise<any> {
+export function getReadiness(planId: string | number): Promise<any> {
   return requestJson(`/api/turnus/planer/${planId}/readiness`);
 }
 
-export function listVaktlinjer(planId: string): Promise<any[]> {
+export function listVaktlinjer(planId: string | number): Promise<any[]> {
   return requestJson(`/api/turnus/planer/${planId}/vaktlinjer`);
+}
+
+// ── BEMANNINGSBEHOV ──────────────────────────────────────────────────────────
+
+export function getPlanBehov(planId: string | number): Promise<any[]> {
+  return requestJson(`/api/turnus/planer/${planId}/behov`);
+}
+
+export function opprettBemanningsbehov(input: {
+  avdelingId: number;
+  vaktkodeId: number;
+  ukedag?: number;
+  dato?: string;
+  antallKrevd?: number;
+  kompetanseKravId?: number;
+}): Promise<any> {
+  return requestJson("/api/turnus/bemanningsbehov", jsonInit("POST", input));
+}
+
+// ── GENERERING + XAI ─────────────────────────────────────────────────────────
+
+export function genererTurnus(planId: string | number): Promise<{
+  generId: number; status: string; solverStatus: string;
+  vakterSkrevet: number; avvik: number; solveTidMs: number; feilmelding: string | null;
+}> {
+  return requestJson(`/api/turnus/planer/${planId}/generer`, jsonInit("POST", {}));
+}
+
+export function getGenerering(id: string | number): Promise<any> {
+  return requestJson(`/api/turnus/genereringer/${id}`);
+}
+
+export function getForklaring(id: string | number): Promise<{
+  strukturert: { status: string; prioriteringer: Array<{ dimensjon: string; etikett: string; vekt: number }>; uoppfylte: any[]; konflikter: any[]; sammendrag: string };
+  narrasjon: string;
+}> {
+  return requestJson(`/api/turnus/genereringer/${id}/forklaring`);
+}
+
+export function konsekvens(endringer: Array<{
+  ansattId: number; dato: string; startTid: string; sluttTid: string; pauseTimer?: number;
+}>): Promise<{ brudd: any[]; harHardeBrudd: boolean }> {
+  return requestJson("/api/turnus/konsekvens", jsonInit("POST", { endringer }));
 }
