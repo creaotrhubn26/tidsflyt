@@ -123,4 +123,24 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).post('/api/turnus/konsekvens').send({ endringer: [{}] });
     expect(r.status).toBe(400);
   });
+
+  it.skipIf(!SOLVER_OK)('vakter lists a run\'s generated shifts with code + times + name (A5 grid)', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const v = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/vakter`);
+    expect(v.status).toBe(200);
+    expect(v.body).toHaveLength(2);
+    for (const row of v.body) {
+      expect(row.kode).toBe('D');
+      expect(row.startTid).toBe('08:00');
+      expect(row.sluttTid).toBe('16:00');
+      expect(['A', 'B']).toContain(row.ansattNavn);
+    }
+  }, 30_000);
+
+  it('vakter on a foreign/nonexistent generation → 404', async () => {
+    const app = appFor(userId);
+    const r = await request(app).get('/api/turnus/genereringer/999999/vakter');
+    expect(r.status).toBe(404);
+  });
 });

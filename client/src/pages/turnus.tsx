@@ -2,7 +2,7 @@
  * Tidum Turnus — KI-turnusplanlegger (A4).
  * Setup → generer → forklaring, wired to client/src/lib/turnus-api.ts.
  */
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -223,7 +223,135 @@ function PlanleggingFane() {
           )}
         </CardContent>
       </Card>
+
+      {generId != null && <OverstyrGrid generId={generId} />}
     </div>
+  );
+}
+
+// ── OVERSTYRING (A5) ─────────────────────────────────────────────────────────
+// Grid of generated shifts: drag a shift onto another employee's row (same day)
+// to reassign it; each edit re-runs the AML consequence-preview live.
+
+type Brudd = { ansattId: number; severity: "error" | "warning"; melding?: string; forklaring?: string };
+
+function OverstyrGrid({ generId }: { generId: number }) {
+  const onError = useToastError();
+  const vakter = useQuery({ queryKey: ["turnus-gen-vakter", generId], queryFn: () => api.listGenereringVakter(generId) });
+  const [edits, setEdits] = useState<Record<number, number>>({}); // vaktId → overstyrt ansattId
+  const [dragId, setDragId] = useState<number | null>(null);
+  const [brudd, setBrudd] = useState<Brudd[]>([]);
+
+  // Reset local edits when a fresh generation loads.
+  useEffect(() => { setEdits({}); }, [generId]);
+
+  const rows = vakter.data ?? [];
+  const eff = useMemo(
+    () => rows.map((v) => ({ ...v, ansattId: edits[v.id] ?? v.ansattId })),
+    [rows, edits],
+  );
+
+  const ansatte = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const v of rows) if (v.ansattId != null) m.set(v.ansattId, v.ansattNavn ?? `#${v.ansattId}`);
+    return [...m.entries()].map(([id, navn]) => ({ id, navn }));
+  }, [rows]);
+  const datoer = useMemo(() => [...new Set(rows.map((v) => v.dato))].sort(), [rows]);
+  const cell = useMemo(() => {
+    const m = new Map<string, typeof eff[number]>();
+    for (const v of eff) if (v.ansattId != null) m.set(`${v.ansattId}|${v.dato}`, v);
+    return m;
+  }, [eff]);
+
+  // Live consequence-preview: re-evaluate AML for the whole edited shift set.
+  const konsekvens = useMutation({
+    mutationFn: (shifts: typeof eff) =>
+      api.konsekvens(shifts.filter((v) => v.ansattId != null).map((v) => ({
+        ansattId: v.ansattId as number, dato: v.dato, startTid: v.startTid, sluttTid: v.sluttTid,
+      }))),
+    onError,
+    onSuccess: (r) => setBrudd(r.brudd as Brudd[]),
+  });
+  useEffect(() => { if (eff.length) konsekvens.mutate(eff); /* eslint-disable-next-line */ }, [eff]);
+
+  const bruddFor = (ansattId: number) => {
+    const b = brudd.filter((x) => x.ansattId === ansattId);
+    return { error: b.filter((x) => x.severity === "error").length, warning: b.filter((x) => x.severity === "warning").length };
+  };
+
+  const drop = (targetAnsatt: number, dato: string) => {
+    if (dragId == null) return;
+    const v = rows.find((r) => r.id === dragId);
+    if (!v || v.dato !== dato || (edits[dragId] ?? v.ansattId) === targetAnsatt) { setDragId(null); return; }
+    if (cell.has(`${targetAnsatt}|${dato}`)) { setDragId(null); return; } // opptatt
+    setEdits((e) => ({ ...e, [dragId]: targetAnsatt }));
+    setDragId(null);
+  };
+
+  const dirty = Object.keys(edits).length > 0;
+
+  return (
+    <Card className="lg:col-span-2" data-testid="overstyring">
+      <CardHeader className="flex-row items-center justify-between">
+        <CardTitle className="text-base">Overstyring — dra vakter mellom ansatte</CardTitle>
+        <div className="flex items-center gap-2">
+          {konsekvens.isPending && <span className="text-xs text-muted-foreground">Sjekker…</span>}
+          <Button size="sm" variant="outline" disabled={!dirty} onClick={() => setEdits({})} data-testid="btn-tilbakestill">Tilbakestill</Button>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {rows.length === 0 && <p className="text-sm text-muted-foreground">Ingen genererte vakter å vise.</p>}
+        {rows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className="sticky left-0 bg-background px-2 py-1 text-left font-medium">Ansatt</th>
+                  {datoer.map((d) => (
+                    <th key={d} className="px-1 py-1 text-center font-normal text-muted-foreground whitespace-nowrap">
+                      {UKEDAGER[new Date(d + "T00:00:00").getDay() || 7]}<br />{d.slice(5)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {ansatte.map((a) => {
+                  const bf = bruddFor(a.id);
+                  return (
+                    <tr key={a.id} data-testid={`overstyr-rad-${a.id}`}>
+                      <td className="sticky left-0 bg-background px-2 py-1 whitespace-nowrap">
+                        {a.navn}
+                        {bf.error > 0 && <Badge variant="destructive" className="ml-1" data-testid={`brudd-error-${a.id}`}>{bf.error} brudd</Badge>}
+                        {bf.error === 0 && bf.warning > 0 && <Badge className="ml-1 bg-amber-500 hover:bg-amber-500">{bf.warning} advarsel</Badge>}
+                        {bf.error === 0 && bf.warning === 0 && <Badge variant="outline" className="ml-1 border-emerald-500 text-emerald-600">OK</Badge>}
+                      </td>
+                      {datoer.map((d) => {
+                        const v = cell.get(`${a.id}|${d}`);
+                        return (
+                          <td key={d} className="border px-1 py-1 text-center"
+                            onDragOver={(e) => { if (dragId != null && !v) e.preventDefault(); }}
+                            onDrop={() => drop(a.id, d)}>
+                            {v && (
+                              <span draggable
+                                onDragStart={() => setDragId(v.id)}
+                                onDragEnd={() => setDragId(null)}
+                                className="inline-block cursor-grab rounded bg-primary/10 px-2 py-0.5 font-medium ring-1 ring-primary/30 active:cursor-grabbing"
+                                data-testid={`vakt-${v.id}`}>
+                                {v.kode}
+                              </span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
