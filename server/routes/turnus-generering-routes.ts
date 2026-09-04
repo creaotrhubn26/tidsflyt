@@ -277,6 +277,45 @@ export function registerTurnusGenereringRoutes(app: Express): void {
     }
   });
 
+  // Generated shifts of a run, joined with shift-code times + employee name, so
+  // the override grid can render them and rebuild TurnusShift[] for konsekvens.
+  app.get('/api/turnus/genereringer/:id/vakter', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const rows = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT id FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
+          [id, actor.orgId],
+        );
+        if (!gen) return null;
+        const { rows } = await client.query(
+          `SELECT kv.id, kv.ansatt_id, a.navn AS ansatt_navn, kv.dato::text AS dato,
+                  kv.vaktkode_id, vk.kode, vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+             FROM tidum_turnus_kalendervakter kv
+             JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
+             LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
+            WHERE kv.generering_id = $1 AND kv.org_id = $2
+            ORDER BY kv.dato, kv.ansatt_id`,
+          [id, actor.orgId],
+        );
+        return rows.map((r) => ({
+          id: r.id, ansattId: r.ansatt_id, ansattNavn: r.ansatt_navn,
+          dato: r.dato, vaktkodeId: r.vaktkode_id, kode: r.kode,
+          startTid: (r.start_tid ?? '08:00').slice(0, 5),
+          sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5),
+        }));
+      });
+      if (rows == null) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      res.json(rows);
+    } catch (err) {
+      console.error('[turnus-generering] vakter feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
   // Override consequence-preview: no DB write, pure AML evaluation of a proposed
   // edited shift set (typically one employee's shifts after a manual change).
   app.post('/api/turnus/konsekvens', async (req: Request, res: Response) => {

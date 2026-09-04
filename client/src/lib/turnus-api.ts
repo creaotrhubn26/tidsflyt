@@ -186,6 +186,14 @@ export function getForklaring(id: string | number): Promise<{
   return requestJson(`/api/turnus/genereringer/${id}/forklaring`);
 }
 
+export interface GenerertVakt {
+  id: number; ansattId: number | null; ansattNavn: string | null;
+  dato: string; vaktkodeId: number; kode: string; startTid: string; sluttTid: string;
+}
+export function listGenereringVakter(id: string | number): Promise<GenerertVakt[]> {
+  return requestJson(`/api/turnus/genereringer/${id}/vakter`);
+}
+
 export function konsekvens(endringer: Array<{
   ansattId: number; dato: string; startTid: string; sluttTid: string; pauseTimer?: number;
 }>): Promise<{ brudd: any[]; harHardeBrudd: boolean }> {
