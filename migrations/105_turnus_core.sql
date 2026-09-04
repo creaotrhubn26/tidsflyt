@@ -235,13 +235,15 @@ BEGIN
   LOOP
     EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t);
     EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
-    EXECUTE format(
-      'CREATE POLICY %I ON %I USING (tidum_rls_turnus_org_allowed(org_id)) WITH CHECK (tidum_rls_turnus_org_allowed(org_id))',
-      t || '_isolation', t);
+    BEGIN
+      EXECUTE format(
+        'CREATE POLICY %I ON %I USING (tidum_rls_turnus_org_allowed(org_id)) WITH CHECK (tidum_rls_turnus_org_allowed(org_id))',
+        t || '_isolation', t);
+    EXCEPTION WHEN duplicate_object THEN NULL;
+    END;
     EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE %I TO pg_database_owner', t);
     EXECUTE format('GRANT USAGE, SELECT ON SEQUENCE %I TO pg_database_owner', t || '_id_seq');
   END LOOP;
-EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
 COMMIT;
