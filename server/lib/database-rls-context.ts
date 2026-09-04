@@ -76,6 +76,29 @@ export async function setLocalVendorRlsContext(
 }
 
 /**
+ * Transaction-local tenant context for the Tidum Turnus vertical. Uses its own
+ * config key (tidum.turnus_org_id) so it never touches the hardened kommune path.
+ */
+export async function setLocalTurnusOrgRlsContext(
+  client: QueryClient,
+  orgId: number,
+): Promise<void> {
+  if (!Number.isInteger(orgId) || orgId <= 0) {
+    throw new Error(`Invalid turnus org id: ${orgId}`);
+  }
+  await assumeRlsRuntimeRole(client);
+  await client.query(
+    `SELECT set_config('tidum.rls_mode', 'turnus', true),
+            set_config('tidum.turnus_org_id', $1, true),
+            set_config('tidum.kommune_id', '', true),
+            set_config('tidum.vendor_id', '', true),
+            set_config('tidum.rls_system_operation', '', true),
+            set_config('tidum.rls_actor_user_id', '', true)`,
+    [String(orgId)],
+  );
+}
+
+/**
  * Restricts secure-dialog access to the conversations an eID-authenticated
  * portal user actively participates in. The database policies, not request
  * parameters, resolve the user's permitted objects.
@@ -163,6 +186,16 @@ export function withKommuneRlsContext<T>(
 ): Promise<T> {
   return withRlsTransaction(
     (client) => setLocalKommuneRlsContext(client, kommuneId),
+    callback,
+  );
+}
+
+export function withTurnusOrgRlsContext<T>(
+  orgId: number,
+  callback: (client: PoolClient) => Promise<T>,
+): Promise<T> {
+  return withRlsTransaction(
+    (client) => setLocalTurnusOrgRlsContext(client, orgId),
     callback,
   );
 }
