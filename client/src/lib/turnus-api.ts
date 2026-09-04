@@ -62,8 +62,14 @@ export function listVaktkoder(): Promise<any[]> {
 }
 
 export function opprettVaktkode(input: {
-  navn: string;
-  forkortelse?: string;
+  kode: string;
+  navn?: string;
+  startTid?: string;
+  sluttTid?: string;
+  varighetTimer?: number;
+  type?: string;
+  tellerSomArbeid?: boolean;
+  farge?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/vaktkoder", jsonInit("POST", input));
 }

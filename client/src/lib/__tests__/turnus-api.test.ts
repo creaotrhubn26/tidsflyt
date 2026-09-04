@@ -92,3 +92,23 @@ it("listVaktlinjer GETs with plan id", async () => {
   );
   expect(result[0].id).toBe(1);
 });
+
+it("opprettVaktkode POSTs with kode field", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch" as any).mockResolvedValue({
+    ok: true,
+    json: async () => ({ id: 1, kode: "D" }),
+  } as any);
+  const result = await opprettVaktkode({ kode: "D" });
+  expect(fetchMock).toHaveBeenCalledWith(
+    expect.stringContaining("/api/turnus/vaktkoder"),
+    expect.objectContaining({
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    })
+  );
+  const callArgs = fetchMock.mock.calls[0];
+  const body = JSON.parse((callArgs[1] as any).body);
+  expect(body.kode).toBe("D");
+  expect(result.kode).toBe("D");
+});
