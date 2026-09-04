@@ -17,4 +17,25 @@ pip install -r requirements.txt
 echo '<SolverRequest JSON>' | python3 cli.py     # from this dir
 python3 -m pytest                                # tests
 ```
-Node integration (A1c) calls `cli.py`; a thin HTTP wrapper for Render deploy is a later step.
+## Deploy as a Render service (sidecar-drift)
+
+`server.py` is a stdlib HTTP wrapper (no framework, only ortools) exposing:
+
+- `POST /` — SolverRequest JSON → SolverResponse JSON
+- `GET /health` — liveness
+
+Local:
+```
+pip install -r requirements.txt
+PORT=8000 python3 server.py
+curl -s localhost:8000/health
+```
+
+Render — a separate Python web service (see `../render.yaml` `turnus-solver`):
+build `pip install -r turnus-solver/requirements.txt`, start
+`cd turnus-solver && python3 server.py` (Render sets `$PORT`).
+
+Wiring: set `TURNUS_SOLVER_URL=https://<sidecar>.onrender.com/` on the Node
+backend. `server/lib/turnus-solver-client.ts` then calls the sidecar over HTTP
+(with the request timeout); when the var is unset it spawns `cli.py` locally, so
+dev needs no separate service.

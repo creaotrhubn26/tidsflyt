@@ -24,12 +24,43 @@ export interface RunSolverOptions {
   timeoutMs?: number;
 }
 
+function errorResponse(msg: string): SolverResponse {
+  return {
+    contractVersion: CONTRACT_VERSION,
+    status: 'error',
+    vakter: [], bindende: [], uoppfylte: [], objektiv: {},
+    solveTidMs: 0, solverVersjon: 'unavailable', feilmelding: msg,
+  };
+}
+
 export async function runSolver(
   request: SolverRequest,
   opts: RunSolverOptions = {},
 ): Promise<SolverResponse> {
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const payload = JSON.stringify({ ...request, contractVersion: CONTRACT_VERSION });
+
+  // Preferred in production: call the deployed sidecar over HTTP. Falls back to
+  // spawning cli.py locally when TURNUS_SOLVER_URL is not configured.
+  const url = process.env.TURNUS_SOLVER_URL;
+  if (url) {
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payload,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) return errorResponse(`solver HTTP ${res.status}`);
+      const parsed = (await res.json()) as SolverResponse;
+      if (parsed.contractVersion !== CONTRACT_VERSION) {
+        return errorResponse(`solver contractVersion ${parsed.contractVersion} != ${CONTRACT_VERSION}`);
+      }
+      return parsed;
+    } catch (e) {
+      return errorResponse(`solver HTTP call failed: ${(e as Error).message}`);
+    }
+  }
 
   return new Promise<SolverResponse>((resolve) => {
     const child = spawn(PYTHON_BIN, ['cli.py'], {
