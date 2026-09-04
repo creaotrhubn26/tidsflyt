@@ -84,6 +84,16 @@ export function byggForklaring(input: GenereringForklaringInput): StrukturertFor
  */
 export async function narrer(f: StrukturertForklaring): Promise<string> {
   if (!openai) return f.sammendrag;
+  // Redact the payload sent to the third-party model: drop `referanse` strings
+  // (which carry internal ansatt/avdeling ids) and keep only aggregate facts +
+  // the already-aggregate deterministic summary. No per-employee id leaves the org.
+  const trygg = {
+    status: f.status,
+    prioriteringer: f.prioriteringer.map((p) => ({ etikett: p.etikett, vekt: p.vekt })),
+    antallUoppfylte: f.uoppfylte.length,
+    antallKonflikter: f.konflikter.length,
+    sammendrag: f.sammendrag,
+  };
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
@@ -94,12 +104,12 @@ export async function narrer(f: StrukturertForklaring): Promise<string> {
           content:
             'Du forklarer en KI-generert turnus for en norsk turnusplanlegger. '
             + 'Skriv 2–4 korte setninger på norsk. Bruk KUN faktaene i JSON-en du får '
-            + '(status, prioriteringer med vekt, uoppfylte mål, konflikter). '
+            + '(status, prioriteringer med vekt, antall uoppfylte mål/konflikter, sammendrag). '
             + 'Ikke legg til påstander som ikke står i dataene. Ikke finn på tall.',
         },
-        { role: 'user', content: JSON.stringify(f) },
+        { role: 'user', content: JSON.stringify(trygg) },
       ],
-    });
+    }, { timeout: 15_000 });
     return completion.choices[0]?.message?.content?.trim() || f.sammendrag;
   } catch {
     return f.sammendrag;
