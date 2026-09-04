@@ -15,6 +15,11 @@ services:
         sync: false
       - key: TIDUM_RLS_RUNTIME_ROLE
         sync: false
+      # Full URL of the turnus-solver service below, e.g.
+      # https://turnus-solver.onrender.com/  (set after its first deploy).
+      # Unset ⇒ backend spawns turnus-solver/cli.py locally instead.
+      - key: TURNUS_SOLVER_URL
+        sync: false
       - key: SESSION_SECRET
         sync: false
       - key: JWT_SECRET
@@ -109,3 +114,15 @@ services:
         sync: false
       - key: MILEAGE_PASSENGER_RATE_PER_KM
         sync: false
+
+  # CP-SAT turnus solver sidecar (Tidum Turnus). Own Python service so the
+  # backend can call it over HTTP (TURNUS_SOLVER_URL) instead of spawning it.
+  - type: web
+    name: turnus-solver
+    runtime: python
+    plan: starter
+    branch: main
+    autoDeploy: true
+    buildCommand: pip install -r turnus-solver/requirements.txt
+    startCommand: cd turnus-solver && python3 server.py
+    healthCheckPath: /health
