@@ -1,8 +1,22 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import express from 'express';
 import request from 'supertest';
 import { beforeAll, describe, expect, it } from 'vitest';
+
+// The two tests that actually run the CP-SAT sidecar need python3 + ortools.
+// Where that isn't installed (e.g. the JS CI job), skip them — the solver itself
+// is covered by turnus-solver/test_solver.py (pytest) where ortools is present.
+// The pure-AML/konsekvens/404 tests below never touch the solver and always run.
+let SOLVER_OK = true;
+try {
+  execFileSync(process.env.TURNUS_SOLVER_PYTHON ?? 'python3', ['-c', 'import ortools'], { stdio: 'ignore' });
+} catch {
+  SOLVER_OK = false;
+  // eslint-disable-next-line no-console
+  console.warn('[turnus-generering.test] ortools/python unavailable — skipping CP-SAT integration cases');
+}
 import { pool } from '../../db';
 import { withSystemRlsContext } from '../../lib/database-rls-context';
 import { registerTurnusGenereringRoutes } from '../turnus-generering-routes';
@@ -52,7 +66,7 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     });
   });
 
-  it('generates a rota, persists the run + proposed shifts', async () => {
+  it.skipIf(!SOLVER_OK)('generates a rota, persists the run + proposed shifts', async () => {
     const app = appFor(userId);
     const r = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
     expect(r.status).toBe(200);
@@ -64,7 +78,7 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     expect(check.body.generering.status).toBe('fullfort');
   }, 30_000);
 
-  it('forklaring returns structured XAI + narration for a run', async () => {
+  it.skipIf(!SOLVER_OK)('forklaring returns structured XAI + narration for a run', async () => {
     const app = appFor(userId);
     const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
     const f = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/forklaring`);
