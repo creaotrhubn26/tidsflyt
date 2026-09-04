@@ -3250,3 +3250,88 @@ export const salgEmailTemplates = pgTable("tidum_salg_email_templates", {
 
 export type SalgEmailTemplate = typeof salgEmailTemplates.$inferSelect;
 export type InsertSalgEmailTemplate = typeof salgEmailTemplates.$inferInsert;
+
+export const turnusOrganisasjoner = pgTable("tidum_turnus_organisasjoner", {
+  id: serial("id").primaryKey(),
+  navn: text("navn").notNull(),
+  kommuneId: integer("kommune_id"),
+  orgnr: text("orgnr"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusAvdelinger = pgTable("tidum_turnus_avdelinger", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  navn: text("navn").notNull(),
+  parentId: integer("parent_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusAnsatte = pgTable("tidum_turnus_ansatte", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  primarAvdelingId: integer("primar_avdeling_id"),
+  navn: text("navn").notNull(),
+  stillingsprosent: numeric("stillingsprosent", { precision: 5, scale: 2 }),
+  userEmail: text("user_email"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusVaktkoder = pgTable("tidum_turnus_vaktkoder", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  kode: text("kode").notNull(),
+  navn: text("navn"),
+  startTid: time("start_tid"),
+  sluttTid: time("slutt_tid"),
+  varighetTimer: numeric("varighet_timer", { precision: 4, scale: 2 }),
+  type: text("type"),
+  tellerSomArbeid: boolean("teller_som_arbeid").default(true),
+  farge: text("farge"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusPlaner = pgTable("tidum_turnus_planer", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  avdelingId: integer("avdeling_id").notNull(),
+  navn: text("navn").notNull(),
+  rotasjonUker: integer("rotasjon_uker").default(6),
+  startDato: date("start_dato"),
+  status: text("status").default("utkast"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusRegler = pgTable("tidum_turnus_regler", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  avdelingId: integer("avdeling_id"),
+  ansattId: integer("ansatt_id"),
+  regeltype: text("regeltype").notNull(),
+  parametre: jsonb("parametre").default({}),
+  haard: boolean("haard").default(true),
+  vekt: integer("vekt").default(0),
+  kilde: text("kilde").default("lov"),
+  gyldigFra: date("gyldig_fra"),
+  gyldigTil: date("gyldig_til"),
+  aktiv: boolean("aktiv").default(true),
+  opprettetAv: varchar("opprettet_av"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+export const turnusOnsker = pgTable("tidum_turnus_onsker", {
+  id: serial("id").primaryKey(),
+  orgId: integer("org_id").notNull(),
+  ansattId: integer("ansatt_id").notNull(),
+  planId: integer("plan_id"),
+  type: text("type").notNull(),
+  dato: date("dato"),
+  ukedag: integer("ukedag"),
+  periodeFra: date("periode_fra"),
+  periodeTil: date("periode_til"),
+  vaktkodeId: integer("vaktkode_id"),
+  prioritet: text("prioritet").default("bor"),
+  begrunnelse: text("begrunnelse"),
+  status: text("status").default("registrert"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
