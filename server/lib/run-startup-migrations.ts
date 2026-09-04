@@ -90,6 +90,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "102_barnevern_delegasjon_breakglass.sql",
   "103_push_parity_secret_rotation.sql",
   "104_barnevern_dokumentmaler.sql",
+  "105_turnus_core.sql",
 ];
 
 // Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i
