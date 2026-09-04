@@ -31,6 +31,7 @@ import { registerBarnevernPlanRoutes } from "./routes/barnevern-plan-routes";
 import { registerBarnevernDokumentRoutes } from "./routes/barnevern-dokument-routes";
 import { registerBarnevernInnsynRoutes } from "./routes/barnevern-innsyn-routes";
 import { registerTurnusStrukturRoutes } from "./routes/turnus-struktur-routes";
+import { registerTurnusReglerRoutes } from "./routes/turnus-regler-routes";
 import { registerBarnevernForebyggendeRoutes } from "./routes/barnevern-forebyggende-routes";
 import { registerBarnevernRapporteringRoutes } from "./routes/barnevern-rapportering-routes";
 import { registerKommuneBrukerRoutes } from "./routes/kommune-bruker-routes";
@@ -6851,6 +6852,7 @@ export async function registerRoutes(
   registerBarnevernDokumentRoutes(app);
   registerBarnevernInnsynRoutes(app);
   registerTurnusStrukturRoutes(app);
+  registerTurnusReglerRoutes(app);
   registerBarnevernForebyggendeRoutes(app);
   registerBarnevernRapporteringRoutes(app);
   registerKommuneBrukerRoutes(app);
