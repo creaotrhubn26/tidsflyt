@@ -53,12 +53,15 @@ export function registerTurnusPlanRoutes(app: Express): void {
     const actor = await requireTurnusActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
     try {
-      const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (!(await ownsRow(client, "tidum_turnus_planer", Number(req.params.id), actor.orgId))) return null;
+        return (await client.query(
           `SELECT b.* FROM tidum_turnus_bemanningsbehov b
            JOIN tidum_turnus_planer p ON p.avdeling_id = b.avdeling_id
-           WHERE p.id = $1 AND b.org_id = $2`,
-          [req.params.id, actor.orgId])).rows);
+           WHERE p.id = $1 AND b.org_id = $2 AND p.org_id = $2`,
+          [req.params.id, actor.orgId])).rows;
+      });
+      if (rows === null) return res.status(404).json({ error: "Plan ikke funnet." });
       res.json(rows);
     } catch (err) {
       console.error("[turnus-plan] list behov feilet", err);
@@ -110,10 +113,13 @@ export function registerTurnusPlanRoutes(app: Express): void {
     const actor = await requireTurnusActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
     try {
-      const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (!(await ownsRow(client, "tidum_turnus_planer", Number(req.params.id), actor.orgId))) return null;
+        return (await client.query(
           `SELECT * FROM tidum_turnus_vaktlinjer WHERE plan_id = $1 AND org_id = $2 ORDER BY linjenr`,
-          [req.params.id, actor.orgId])).rows);
+          [req.params.id, actor.orgId])).rows;
+      });
+      if (rows === null) return res.status(404).json({ error: "Plan ikke funnet." });
       res.json(rows);
     } catch (err) {
       console.error("[turnus-plan] list vaktlinjer feilet", err);
@@ -152,14 +158,17 @@ export function registerTurnusPlanRoutes(app: Express): void {
     const actor = await requireTurnusActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
     try {
-      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (!(await ownsRow(client, "tidum_turnus_planer", Number(req.params.id), actor.orgId))) return null;
+        return (await client.query(
           `SELECT
              (SELECT count(*) FROM tidum_turnus_vaktkoder WHERE org_id = $2) AS vaktkoder,
              (SELECT count(*) FROM tidum_turnus_bemanningsbehov b JOIN tidum_turnus_planer p ON p.avdeling_id = b.avdeling_id WHERE p.id = $1 AND b.org_id = $2) AS behov,
              (SELECT count(*) FROM tidum_turnus_ansatte WHERE org_id = $2) AS ansatte,
              (SELECT count(*) FROM tidum_turnus_regler WHERE org_id = $2 AND aktiv) AS regler`,
-          [req.params.id, actor.orgId])).rows[0]);
+          [req.params.id, actor.orgId])).rows[0];
+      });
+      if (row === null) return res.status(404).json({ error: "Plan ikke funnet." });
       const mangler: string[] = [];
       if (Number(row.vaktkoder) === 0) mangler.push("vaktkoder");
       if (Number(row.behov) === 0) mangler.push("bemanningsbehov");

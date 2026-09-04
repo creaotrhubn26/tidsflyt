@@ -97,6 +97,24 @@ describe("turnus plan/behov/vaktlinjer routes", () => {
     expect(r.status).toBe(400);
   });
 
+  it("returns 404 for readiness on a foreign/nonexistent plan", async () => {
+    const app = appFor(userId);
+    const r = await request(app).get("/api/turnus/planer/999999/readiness");
+    expect(r.status).toBe(404);
+  });
+
+  it("returns 404 for vaktlinjer GET on a foreign/nonexistent plan", async () => {
+    const app = appFor(userId);
+    const r = await request(app).get("/api/turnus/planer/999999/vaktlinjer");
+    expect(r.status).toBe(404);
+  });
+
+  it("returns 404 for behov GET on a foreign/nonexistent plan", async () => {
+    const app = appFor(userId);
+    const r = await request(app).get("/api/turnus/planer/999999/behov");
+    expect(r.status).toBe(404);
+  });
+
   it("rejects an unauthenticated request with 403", async () => {
     const app = express();
     app.use(express.json());
