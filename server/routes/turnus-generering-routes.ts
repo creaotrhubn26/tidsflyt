@@ -20,6 +20,7 @@ import { withTurnusOrgRlsContext } from '../lib/database-rls-context';
 import { requireTurnusActor } from './turnus-actor';
 import { runSolver } from '../lib/turnus-solver-client';
 import { evaluateTurnusAml } from '../lib/turnus-aml';
+import { byggForklaring, narrer } from '../lib/turnus-xai';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
   SolverRequest, DekningsKrav, TurnusShift,
@@ -236,6 +237,42 @@ export function registerTurnusGenereringRoutes(app: Express): void {
       res.json(data);
     } catch (err) {
       console.error('[turnus-generering] hent feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // XAI: structured (deterministic) + optional OpenAI narration of a run.
+  app.get('/api/turnus/genereringer/:id/forklaring', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const loaded = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT status::text AS status, objektiv_json, solve_tid_ms
+             FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
+          [id, actor.orgId],
+        );
+        if (!gen) return null;
+        const { rows: avvik } = await client.query(
+          `SELECT type, alvor, referanse, forklaring FROM tidum_turnus_genereringsavvik
+            WHERE generering_id = $1 AND org_id = $2 ORDER BY id`,
+          [id, actor.orgId],
+        );
+        return { gen, avvik };
+      });
+      if (!loaded) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      const strukturert = byggForklaring({
+        status: loaded.gen.status,
+        objektivJson: loaded.gen.objektiv_json ?? {},
+        solveTidMs: loaded.gen.solve_tid_ms ?? null,
+        avvik: loaded.avvik,
+      });
+      const narrasjon = await narrer(strukturert);
+      res.json({ strukturert, narrasjon });
+    } catch (err) {
+      console.error('[turnus-generering] forklaring feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });
     }
   });

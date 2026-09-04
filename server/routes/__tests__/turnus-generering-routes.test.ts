@@ -64,6 +64,24 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     expect(check.body.generering.status).toBe('fullfort');
   }, 30_000);
 
+  it('forklaring returns structured XAI + narration for a run', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const f = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/forklaring`);
+    expect(f.status).toBe(200);
+    expect(f.body.strukturert.status).toBe('fullfort');
+    expect(Array.isArray(f.body.strukturert.prioriteringer)).toBe(true);
+    // no OPENAI key in test → narration falls back to the deterministic summary
+    expect(f.body.narrasjon).toBe(f.body.strukturert.sammendrag);
+    expect(typeof f.body.narrasjon).toBe('string');
+  }, 30_000);
+
+  it('forklaring on a foreign generation → 404', async () => {
+    const app = appFor(userId);
+    const r = await request(app).get('/api/turnus/genereringer/999999/forklaring');
+    expect(r.status).toBe(404);
+  });
+
   it('generer on a foreign/nonexistent plan → 404', async () => {
     const app = appFor(userId);
     const r = await request(app).post(`/api/turnus/planer/999999/generer`).send({});
