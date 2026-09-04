@@ -35,6 +35,11 @@ describe("turnus struktur routes", () => {
     expect(list.status).toBe(200);
     expect(list.body.some((a: any) => a.navn === `Avd ${nonce}`)).toBe(true);
   });
+  it("rejects a parentId that does not exist with 400", async () => {
+    const app = appFor(userId);
+    const r = await request(app).post("/api/turnus/avdelinger").send({ navn: `Avd child ${nonce}`, parentId: 999999 });
+    expect(r.status).toBe(400);
+  });
   it("rejects an unauthenticated request with 403", async () => {
     const app = express();
     app.use(express.json());
