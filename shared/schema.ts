@@ -3355,7 +3355,7 @@ export const turnusVaktlinjer = pgTable("tidum_turnus_vaktlinjer", {
   orgId: integer("org_id").notNull(),
   planId: integer("plan_id").notNull(),
   linjenr: integer("linjenr").notNull(),
-  stillingsprosent: numeric("stillingsprosent", { precision: 5, scale: 2 }),
+  stillingsprosent: numeric("stillingsprosent", { precision: 5, scale: 2 }).notNull().default("100"),
   tildeltAnsattId: integer("tildelt_ansatt_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
