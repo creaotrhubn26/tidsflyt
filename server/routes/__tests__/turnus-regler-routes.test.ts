@@ -70,6 +70,18 @@ describe("turnus regler/onsker/prioritering routes", () => {
     expect(bad.status).toBe(400);
   });
 
+  it("rejects an onske with a foreign/nonexistent ansattId", async () => {
+    const app = appFor(userId);
+    const r = await request(app).post("/api/turnus/onsker").send({ ansattId: 999999, type: "fri" });
+    expect(r.status).toBe(400);
+  });
+
+  it("rejects a regel with a foreign/nonexistent avdelingId", async () => {
+    const app = appFor(userId);
+    const r = await request(app).post("/api/turnus/regler").send({ regeltype: "x", avdelingId: 999999 });
+    expect(r.status).toBe(400);
+  });
+
   it("creates and returns the latest prioritering profile", async () => {
     const app = appFor(userId);
     await request(app).post("/api/turnus/prioritering").send({ vektOnsker: 3 });

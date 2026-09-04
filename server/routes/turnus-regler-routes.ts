@@ -1,6 +1,13 @@
 import type { Express, Request, Response } from "express";
+import type { PoolClient } from "pg";
 import { withTurnusOrgRlsContext } from "../lib/database-rls-context";
 import { requireTurnusActor } from "./turnus-actor";
+
+// table is always a fixed literal string passed by callers below, never req.body — no SQL-injection surface.
+async function ownsRow(client: PoolClient, table: string, id: number, orgId: number): Promise<boolean> {
+  const { rows } = await client.query(`SELECT 1 FROM ${table} WHERE id = $1 AND org_id = $2`, [id, orgId]);
+  return rows.length > 0;
+}
 
 export function registerTurnusReglerRoutes(app: Express): void {
   app.get("/api/turnus/regler", async (req: Request, res: Response) => {
@@ -26,8 +33,14 @@ export function registerTurnusReglerRoutes(app: Express): void {
       return res.status(400).json({ error: "regeltype kreves." });
     }
     try {
-      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (body.avdelingId != null && !(await ownsRow(client, "tidum_turnus_avdelinger", body.avdelingId, actor.orgId))) {
+          return "unknown_avdeling" as const;
+        }
+        if (body.ansattId != null && !(await ownsRow(client, "tidum_turnus_ansatte", body.ansattId, actor.orgId))) {
+          return "unknown_ansatt" as const;
+        }
+        return (await client.query(
           `INSERT INTO tidum_turnus_regler (org_id, avdeling_id, ansatt_id, regeltype, parametre, haard, vekt, kilde, gyldig_fra, gyldig_til, opprettet_av)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
           [
@@ -42,7 +55,10 @@ export function registerTurnusReglerRoutes(app: Express): void {
             body.gyldigFra ?? null,
             body.gyldigTil ?? null,
             actor.userId,
-          ])).rows[0]);
+          ])).rows[0];
+      });
+      if (row === "unknown_avdeling") return res.status(400).json({ error: "Ukjent avdeling." });
+      if (row === "unknown_ansatt") return res.status(400).json({ error: "Ukjent ansatt." });
       res.json(row);
     } catch (err) {
       console.error("[turnus-regler] create regel feilet", err);
@@ -88,8 +104,17 @@ export function registerTurnusReglerRoutes(app: Express): void {
     if (typeof body.ansattId !== "number") return res.status(400).json({ error: "ansattId kreves." });
     if (!body.type || typeof body.type !== "string") return res.status(400).json({ error: "type kreves." });
     try {
-      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
-        (await client.query(
+      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
+        if (!(await ownsRow(client, "tidum_turnus_ansatte", body.ansattId, actor.orgId))) {
+          return "unknown_ansatt" as const;
+        }
+        if (body.planId != null && !(await ownsRow(client, "tidum_turnus_planer", body.planId, actor.orgId))) {
+          return "unknown_plan" as const;
+        }
+        if (body.vaktkodeId != null && !(await ownsRow(client, "tidum_turnus_vaktkoder", body.vaktkodeId, actor.orgId))) {
+          return "unknown_vaktkode" as const;
+        }
+        return (await client.query(
           `INSERT INTO tidum_turnus_onsker (org_id, ansatt_id, plan_id, type, dato, ukedag, periode_fra, periode_til, vaktkode_id, prioritet, begrunnelse)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
           [
@@ -104,7 +129,11 @@ export function registerTurnusReglerRoutes(app: Express): void {
             body.vaktkodeId ?? null,
             body.prioritet ?? "bor",
             body.begrunnelse ?? null,
-          ])).rows[0]);
+          ])).rows[0];
+      });
+      if (row === "unknown_ansatt") return res.status(400).json({ error: "Ukjent ansatt." });
+      if (row === "unknown_plan") return res.status(400).json({ error: "Ukjent plan." });
+      if (row === "unknown_vaktkode") return res.status(400).json({ error: "Ukjent vaktkode." });
       res.json(row);
     } catch (err) {
       console.error("[turnus-regler] create onske feilet", err);
