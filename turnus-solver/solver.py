@@ -186,6 +186,76 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
         model.Add(spread == cmax - cmin)
         obj_terms.append(-w_fair * spread)
 
+    w_helg = int(vekter.get("vektHelgefrekvens", 5))
+    w_kont = int(vekter.get("vektKontinuitet", 5))
+    w_kost = int(vekter.get("vektKostnad", 5))
+
+    def _is_weekend(dato: str) -> bool:
+        return _dt.date.fromisoformat(dato).isoweekday() >= 6  # Sat=6, Sun=7
+
+    # Helgefrekvens: fair spread of weekend (Sat/Sun) shifts across employees.
+    if emp_ids:
+        wknd = []
+        for a in emp_ids:
+            wc = model.NewIntVar(0, len(krav), f"wknd_{a}")
+            model.Add(wc == sum(
+                x[(a, ki)] for ki in range(len(krav))
+                if (a, ki) in x and _is_weekend(krav[ki]["dato"])))
+            wknd.append(wc)
+        wmax = model.NewIntVar(0, len(krav), "wmax")
+        wmin = model.NewIntVar(0, len(krav), "wmin")
+        model.AddMaxEquality(wmax, wknd)
+        model.AddMinEquality(wmin, wknd)
+        wspread = model.NewIntVar(0, len(krav), "wspread")
+        model.Add(wspread == wmax - wmin)
+        obj_terms.append(-w_helg * wspread)
+
+    # Kontinuitet: reward the same employee working consecutive calendar days
+    # (continuity for users/patients). y[a,date] is 1 iff employee a works that
+    # day; a bonus fires when both a day and its successor are worked.
+    dates_sorted = sorted({k["dato"] for k in krav})
+    next_day = {}
+    for i in range(len(dates_sorted) - 1):
+        d0 = _dt.date.fromisoformat(dates_sorted[i])
+        d1 = _dt.date.fromisoformat(dates_sorted[i + 1])
+        if (d1 - d0).days == 1:
+            next_day[dates_sorted[i]] = dates_sorted[i + 1]
+    y: dict[tuple[int, str], Any] = {}
+    for a in emp_ids:
+        for d in dates_sorted:
+            same_day = [x[(a, ki)] for ki in range(len(krav)) if (a, ki) in x and krav[ki]["dato"] == d]
+            if same_day:
+                yv = model.NewBoolVar(f"y_{a}_{d}")
+                model.Add(yv == sum(same_day))  # sum is 0/1 (one-per-day enforced)
+                y[(a, d)] = yv
+    for a in emp_ids:
+        for d, dn in next_day.items():
+            if (a, d) in y and (a, dn) in y:
+                b = model.NewBoolVar(f"cont_{a}_{d}")
+                model.Add(b <= y[(a, d)])
+                model.Add(b <= y[(a, dn)])
+                model.Add(b >= y[(a, d)] + y[(a, dn)] - 1)
+                obj_terms.append(w_kont * b)
+
+    # Kostnad: penalize weekly overtime beyond each employee's contracted norm
+    # (stillingsprosent × 37.5 t/uke). Coverage is fixed, so this steers *who*
+    # absorbs extra hours toward those with headroom, not the total.
+    prosent = {a["ansattId"]: float(a.get("stillingsprosent") or 100) for a in ansatte}
+    for a in emp_ids:
+        weeks: dict[str, list[tuple[Any, int]]] = {}
+        for ki in range(len(krav)):
+            if (a, ki) in x:
+                weeks.setdefault(_iso_week(krav[ki]["dato"]), []).append((x[(a, ki)], span[ki][2]))
+        norm_min = int(prosent.get(a, 100) / 100 * 37.5 * 60)
+        for wk, items in weeks.items():
+            worked = model.NewIntVar(0, 7 * 24 * 60, f"wk_{a}_{wk}")
+            model.Add(worked == sum(var * mins for var, mins in items))
+            over = model.NewIntVar(0, 7 * 24 * 60, f"ot_{a}_{wk}")
+            model.Add(over >= worked - norm_min)  # floored at 0 by domain
+            over_h = model.NewIntVar(0, 168, f"oth_{a}_{wk}")
+            model.AddDivisionEquality(over_h, over, 60)  # overtime in whole hours
+            obj_terms.append(-w_kost * over_h)
+
     if obj_terms:
         model.Maximize(sum(obj_terms))
 
@@ -235,6 +305,9 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
             "objektiv": {
                 "onske": float(w_onske),
                 "rettferdighet": float(w_fair),
+                "helgefrekvens": float(w_helg),
+                "kontinuitet": float(w_kont),
+                "kostnad": float(w_kost),
             },
             "solveTidMs": solve_ms,
             "solverVersjon": SOLVER_VERSION,
