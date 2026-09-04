@@ -249,10 +249,23 @@ export function registerTurnusGenereringRoutes(app: Express): void {
     if (!Array.isArray(endringer)) {
       return res.status(400).json({ error: 'endringer (TurnusShift[]) kreves.' });
     }
-    const brudd = evaluateTurnusAml(endringer as TurnusShift[]);
-    res.json({
-      brudd,
-      harHardeBrudd: brudd.some((b) => b.severity === 'error'),
-    });
+    // Validate each element's shape before the (synchronous) evaluator touches it,
+    // so a malformed item can never throw and leave the request hanging.
+    const gyldig = endringer.every((e) =>
+      e && typeof e === 'object'
+      && Number.isFinite(Number((e as any).ansattId))
+      && typeof (e as any).dato === 'string'
+      && typeof (e as any).startTid === 'string'
+      && typeof (e as any).sluttTid === 'string');
+    if (!gyldig) {
+      return res.status(400).json({ error: 'Hver endring krever ansattId, dato, startTid, sluttTid.' });
+    }
+    try {
+      const brudd = evaluateTurnusAml(endringer as TurnusShift[]);
+      res.json({ brudd, harHardeBrudd: brudd.some((b) => b.severity === 'error') });
+    } catch (err) {
+      console.error('[turnus-generering] konsekvens feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
   });
 }

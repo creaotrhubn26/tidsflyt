@@ -85,4 +85,10 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).post('/api/turnus/konsekvens').send({});
     expect(r.status).toBe(400);
   });
+
+  it('konsekvens rejects a malformed element with 400 (no hang/crash)', async () => {
+    const app = appFor(userId);
+    const r = await request(app).post('/api/turnus/konsekvens').send({ endringer: [{}] });
+    expect(r.status).toBe(400);
+  });
 });

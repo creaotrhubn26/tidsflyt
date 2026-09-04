@@ -89,6 +89,9 @@ export async function runSolver(
       }
     });
 
+    // Guard against EPIPE if the child dies before draining stdin (e.g. ENOENT):
+    // an unhandled stream 'error' would otherwise throw and crash the process.
+    child.stdin.on('error', () => { /* surfaced via child 'error'/'close' → error envelope */ });
     child.stdin.write(payload);
     child.stdin.end();
   });
