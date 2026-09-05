@@ -246,6 +246,54 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     expect(r.status).toBe(404);
   });
 
+  it.skipIf(!SOLVER_OK)('a registered rule reaches the solver and constrains the result (K-01/K-02)', async () => {
+    const app = appFor(userId);
+    // Cap the week at 1h: the seeded Monday needs 2 x 7.5h shifts, so no
+    // employee can be assigned and the run must come back infeasible.
+    const { rows: [regel] } = await pool.query(
+      `INSERT INTO tidum_turnus_regler (org_id, regeltype, parametre, haard, kilde)
+       VALUES ($1, 'aml_max_uketimer', '{"timer":1}'::jsonb, true, 'saeravtale') RETURNING id`,
+      [orgId]);
+    try {
+      const r = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+      expect(r.status).toBe(200);
+      expect(r.body.status).toBe('infeasible');
+    } finally {
+      await pool.query(`DELETE FROM tidum_turnus_regler WHERE id = $1`, [regel.id]);
+    }
+  }, 30_000);
+
+  it.skipIf(!SOLVER_OK)('an expired agreement is not sent to the solver', async () => {
+    const app = appFor(userId);
+    // Same 1h cap, but the agreement expired before the plan starts (2026-01-05)
+    // — it must be filtered out, so generation succeeds as normal.
+    const { rows: [regel] } = await pool.query(
+      `INSERT INTO tidum_turnus_regler (org_id, regeltype, parametre, haard, kilde, gyldig_til)
+       VALUES ($1, 'aml_max_uketimer', '{"timer":1}'::jsonb, true, 'saeravtale', '2025-12-31') RETURNING id`,
+      [orgId]);
+    try {
+      const r = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+      expect(r.body.status).toBe('fullfort');
+    } finally {
+      await pool.query(`DELETE FROM tidum_turnus_regler WHERE id = $1`, [regel.id]);
+    }
+  }, 30_000);
+
+  it.skipIf(!SOLVER_OK)('an unsupported rule is recorded as a deviation, not silently ignored', async () => {
+    const app = appFor(userId);
+    const { rows: [regel] } = await pool.query(
+      `INSERT INTO tidum_turnus_regler (org_id, regeltype, parametre, haard, kilde)
+       VALUES ($1, 'helt_ukjent_regel', '{}'::jsonb, true, 'lokal_avtale') RETURNING id`,
+      [orgId]);
+    try {
+      const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+      const detalj = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}`);
+      expect(detalj.body.avvik.some((a: any) => a.type === 'regel_ikke_stottet')).toBe(true);
+    } finally {
+      await pool.query(`DELETE FROM tidum_turnus_regler WHERE id = $1`, [regel.id]);
+    }
+  }, 30_000);
+
   it.skipIf(!SOLVER_OK)('publiser sends SMS via the gateway when kanaler includes sms', async () => {
     const { setSmsGatewayForTesting } = await import('../../lib/sms/sms-gateway');
     const sendt: Array<{ telefon: string; melding: string }> = [];

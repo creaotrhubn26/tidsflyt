@@ -27,7 +27,8 @@ const DIM_LABEL: Record<string, string> = {
 
 export interface GenereringForklaringInput {
   status: string; // fullfort | infeasible | feilet
-  objektivJson: Record<string, number>;
+  /** Weight dimensions plus non-numeric context (e.g. anvendteRegler). */
+  objektivJson: Record<string, unknown>;
   solveTidMs: number | null;
   avvik: Array<{ type: string; alvor: string; referanse: string | null; forklaring: string }>;
 }
@@ -42,7 +43,10 @@ export interface StrukturertForklaring {
 
 /** Deterministic structured explanation built purely from recorded solver facts. */
 export function byggForklaring(input: GenereringForklaringInput): StrukturertForklaring {
+  // objektiv_json also carries non-numeric context (anvendteRegler); only the
+  // numeric weight dimensions are priorities.
   const prioriteringer = Object.entries(input.objektivJson ?? {})
+    .filter(([, vekt]) => typeof vekt === 'number' && Number.isFinite(vekt))
     .map(([dimensjon, vekt]) => ({
       dimensjon,
       etikett: DIM_LABEL[dimensjon] ?? dimensjon,
