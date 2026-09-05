@@ -218,6 +218,26 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     expect(r.body.mottakere).toBe(0);       // seeded A/B have no user_email
     expect(r.body.utenEpost).toBe(2);
     expect(r.body.varslet).toBe(0);
+    expect(r.body.varsletApp).toBe(0);      // no matching platform accounts
+  }, 30_000);
+
+  it.skipIf(!SOLVER_OK)('publiser creates an in-app notification for an ansatt with a platform account', async () => {
+    const app = appFor(userId);
+    // give employee A a platform account by email, then publish
+    const epost = `ans-${nonce}@example.test`;
+    await withSystemRlsContext('test_gen', async (c) => {
+      await c.query(`UPDATE tidum_turnus_ansatte SET user_email = $1 WHERE org_id = $2 AND navn = 'A'`, [epost, orgId]);
+    });
+    await pool.query(
+      `INSERT INTO users (id, email, role) VALUES ($1, $2, 'user') ON CONFLICT (id) DO NOTHING`,
+      [`u-${nonce}`, epost]);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const r = await request(app).post(`/api/turnus/genereringer/${gen.body.generId}/publiser`)
+      .send({ kanaler: ['app'] });
+    expect(r.status).toBe(200);
+    expect(r.body.varsletApp).toBe(1);
+    const n = await pool.query(`SELECT 1 FROM notifications WHERE recipient_id = $1 AND type = 'turnus_publisert'`, [`u-${nonce}`]);
+    expect(n.rowCount).toBe(1);
   }, 30_000);
 
   it('publiser on a foreign/nonexistent generation → 404', async () => {

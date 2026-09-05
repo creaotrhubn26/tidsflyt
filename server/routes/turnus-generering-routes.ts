@@ -23,6 +23,8 @@ import { evaluateTurnusAml } from '../lib/turnus-aml';
 import { byggForklaring, narrer } from '../lib/turnus-xai';
 import { renderTurnusPdf } from '../lib/turnus-pdf';
 import { emailService } from '../lib/email-service';
+import { createNotification } from './notification-routes';
+import { pool } from '../db';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
   SolverRequest, DekningsKrav, TurnusShift,
@@ -471,20 +473,44 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         g.vakter.push(r); perAnsatt.set(r.user_email, g);
       }
 
-      const utfall = await Promise.allSettled([...perAnsatt.entries()].map(([epost, g]) => {
-        const linjer = g.vakter.map((v: any) => `<li>${v.dato} — <strong>${v.kode}</strong> (${(v.start_tid ?? '').slice(0, 5)}–${(v.slutt_tid ?? '').slice(0, 5)})</li>`).join('');
-        return emailService.sendEmail({
-          purpose: 'administrative',
-          to: epost,
-          subject: `Din turnus er klar — ${data.planNavn}`,
-          html: `<p>Hei ${g.navn},</p><p>Turnusen din for <strong>${data.planNavn}</strong> er publisert. Dine vakter:</p><ul>${linjer}</ul><p>Full turnus er vedlagt som PDF.</p><p>Hilsen Tidum Turnus</p>`,
-          attachments: [{ filename: `turnus-${id}.pdf`, content: pdf, contentType: 'application/pdf' }],
-          throwOnError: true,
-        });
-      }));
-      const varslet = utfall.filter((u) => u.status === 'fulfilled' && u.value !== false).length;
+      // Channels: e-post + in-app (both free) by default. SMS is a paid option
+      // and also needs a phone column that the schema does not have yet.
+      const kanaler: string[] = Array.isArray(req.body?.kanaler) ? req.body.kanaler : ['epost', 'app'];
 
-      res.json({ publisert: data.antall, varslet, utenEpost, mottakere: perAnsatt.size });
+      let varslet = 0;
+      if (kanaler.includes('epost')) {
+        const utfall = await Promise.allSettled([...perAnsatt.entries()].map(([epost, g]) => {
+          const linjer = g.vakter.map((v: any) => `<li>${v.dato} — <strong>${v.kode}</strong> (${(v.start_tid ?? '').slice(0, 5)}–${(v.slutt_tid ?? '').slice(0, 5)})</li>`).join('');
+          return emailService.sendEmail({
+            purpose: 'administrative',
+            to: epost,
+            subject: `Din turnus er klar — ${data.planNavn}`,
+            html: `<p>Hei ${g.navn},</p><p>Turnusen din for <strong>${data.planNavn}</strong> er publisert. Dine vakter:</p><ul>${linjer}</ul><p>Full turnus er vedlagt som PDF.</p><p>Hilsen Tidum Turnus</p>`,
+            attachments: [{ filename: `turnus-${id}.pdf`, content: pdf, contentType: 'application/pdf' }],
+            throwOnError: true,
+          });
+        }));
+        varslet = utfall.filter((u) => u.status === 'fulfilled' && u.value !== false).length;
+      }
+
+      // In-app notification for employees that have a platform account (matched
+      // by email, since ansatte carry no direct user_id). Free channel.
+      let varsletApp = 0;
+      if (kanaler.includes('app')) {
+        for (const [epost, g] of perAnsatt) {
+          const { rows: [u] } = await pool.query(`SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`, [epost]);
+          if (u) {
+            await createNotification({
+              userId: String(u.id), type: 'turnus_publisert',
+              title: 'Turnus publisert', message: `Din turnus for ${data.planNavn} er klar.`,
+              link: '/turnus', createdBy: actor.userId,
+            });
+            varsletApp++;
+          }
+        }
+      }
+
+      res.json({ publisert: data.antall, varslet, varsletApp, utenEpost, mottakere: perAnsatt.size });
     } catch (err) {
       console.error('[turnus-generering] publiser feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });

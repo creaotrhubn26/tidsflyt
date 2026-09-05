@@ -489,7 +489,7 @@ function OverstyrGrid({ generId }: { generId: number }) {
     mutationFn: () => api.publiserTurnus(generId), onError,
     onSuccess: (r) => toast({
       title: "Turnus publisert",
-      description: `${r.varslet} av ${r.mottakere} ansatte varslet på e-post${r.utenEpost ? ` · ${r.utenEpost} mangler e-post` : ""}.`,
+      description: `E-post: ${r.varslet}/${r.mottakere} · app-varsel: ${r.varsletApp}${r.utenEpost ? ` · ${r.utenEpost} mangler e-post` : ""}.`,
     }),
   });
 
@@ -590,7 +590,7 @@ function OverstyrGrid({ generId }: { generId: number }) {
               <Button size="sm" disabled={publiser.isPending} data-testid="btn-publiser">{publiser.isPending ? "Publiserer…" : "Publiser & varsle"}</Button>
             </PopoverTrigger>
             <PopoverContent className="w-64 text-sm">
-              <p className="mb-2">Dette markerer turnusen som publisert og sender e-post med PDF til ansatte som har e-postadresse.</p>
+              <p className="mb-2">Dette markerer turnusen som publisert og varsler ansatte via <strong>e-post</strong> (med PDF) og <strong>app-varsel</strong> for de som har konto. SMS kan legges til senere (koster per melding).</p>
               <Button size="sm" className="w-full" onClick={() => publiser.mutate()} data-testid="btn-publiser-bekreft">Publiser & send varsel</Button>
             </PopoverContent>
           </Popover>

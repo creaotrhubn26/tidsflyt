@@ -206,7 +206,7 @@ export interface GenereringKontekst {
 export function getGenereringKontekst(id: string | number): Promise<GenereringKontekst> {
   return requestJson(`/api/turnus/genereringer/${id}/kontekst`);
 }
-export function publiserTurnus(id: string | number): Promise<{ publisert: number; varslet: number; utenEpost: number; mottakere: number }> {
+export function publiserTurnus(id: string | number): Promise<{ publisert: number; varslet: number; varsletApp: number; utenEpost: number; mottakere: number }> {
   return requestJson(`/api/turnus/genereringer/${id}/publiser`, jsonInit("POST", {}));
 }
 
