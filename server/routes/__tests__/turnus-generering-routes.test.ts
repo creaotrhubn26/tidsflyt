@@ -173,4 +173,22 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).patch('/api/turnus/genereringer/1/vakter').send({ endringer: 'x' });
     expect(r.status).toBe(400);
   });
+
+  it.skipIf(!SOLVER_OK)('kontekst returns per-day required coverage (dekning vs behov)', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const k = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/kontekst`);
+    expect(k.status).toBe(200);
+    expect(Array.isArray(k.body.krav)).toBe(true);
+    // seeded behov requires 2 on Monday 2026-01-05
+    const man = k.body.krav.find((x: any) => x.dato === '2026-01-05');
+    expect(man?.krevd).toBe(2);
+    expect(Array.isArray(k.body.onsker)).toBe(true);
+  }, 30_000);
+
+  it('kontekst on a foreign/nonexistent generation → 404', async () => {
+    const app = appFor(userId);
+    const r = await request(app).get('/api/turnus/genereringer/999999/kontekst');
+    expect(r.status).toBe(404);
+  });
 });

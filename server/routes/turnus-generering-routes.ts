@@ -28,6 +28,12 @@ import type {
 
 type Q = { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> };
 
+/** Local (not UTC) YYYY-MM-DD — toISOString() would shift dates a day in +offset
+ *  timezones, mislabelling weekdays in the grid. */
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 /** Expand a bemanningsbehov row into concrete dated coverage requirements. */
 function expandBehov(
   behov: any,
@@ -49,7 +55,7 @@ function expandBehov(
     d.setDate(start.getDate() + i);
     const isoDow = d.getDay() || 7; // Sun=0 → 7
     if (isoDow === behov.ukedag) {
-      out.push({ ...base, dato: d.toISOString().slice(0, 10) });
+      out.push({ ...base, dato: localIso(d) });
     }
   }
   return out;
@@ -312,6 +318,64 @@ export function registerTurnusGenereringRoutes(app: Express): void {
       res.json(rows);
     } catch (err) {
       console.error('[turnus-generering] vakter feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // Grid context: required coverage per day (dekning vs behov) + employee wishes
+  // (ønsker) mapped to concrete dates, so the override grid can show gaps and
+  // whether each wish was honoured. Read-only, org-scoped.
+  app.get('/api/turnus/genereringer/:id/kontekst', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT g.plan_id, p.avdeling_id, p.rotasjon_uker, p.start_dato::text AS start_dato
+             FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return null;
+        const [{ rows: behov }, { rows: onsker }] = await Promise.all([
+          client.query(
+            `SELECT avdeling_id, ukedag, dato::text AS dato, vaktkode_id, antall_krevd
+               FROM tidum_turnus_bemanningsbehov WHERE org_id = $1 AND avdeling_id = $2`,
+            [actor.orgId, gen.avdeling_id]),
+          client.query(
+            `SELECT ansatt_id, dato::text AS dato, ukedag, vaktkode_id, type, prioritet
+               FROM tidum_turnus_onsker WHERE org_id = $1 AND (plan_id = $2 OR plan_id IS NULL)`,
+            [actor.orgId, gen.plan_id]),
+        ]);
+        const uker = gen.rotasjon_uker || 6;
+        // Aggregate required coverage per concrete date.
+        const kravMap = new Map<string, number>();
+        for (const b of behov) {
+          for (const k of expandBehov(b, gen.start_dato, uker)) {
+            kravMap.set(k.dato, (kravMap.get(k.dato) ?? 0) + Number(k.antallKrevd || 0));
+          }
+        }
+        const krav = [...kravMap.entries()].map(([dato, krevd]) => ({ dato, krevd }));
+        // Expand wishes (dated + weekday-recurring) to concrete dates.
+        const start = new Date(gen.start_dato + 'T00:00:00');
+        const onskerUt: any[] = [];
+        for (const o of onsker) {
+          const base = { ansattId: o.ansatt_id, vaktkodeId: o.vaktkode_id ?? null, type: o.type, prioritet: o.prioritet ?? 'bor' };
+          if (o.dato) { onskerUt.push({ ...base, dato: String(o.dato).slice(0, 10) }); continue; }
+          if (o.ukedag == null) continue;
+          for (let i = 0; i < uker * 7; i++) {
+            const d = new Date(start); d.setDate(start.getDate() + i);
+            if ((d.getDay() || 7) === o.ukedag) onskerUt.push({ ...base, dato: localIso(d) });
+          }
+        }
+        return { krav, onsker: onskerUt };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      res.json(data);
+    } catch (err) {
+      console.error('[turnus-generering] kontekst feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });
     }
   });

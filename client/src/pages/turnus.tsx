@@ -1,10 +1,10 @@
 /**
  * Tidum Turnus — KI-turnusplanlegger.
- * Guided flow (Oppsett → Planlegging → Regler), generation with explainable AI,
- * and a colour-coded override grid with live AML consequence-preview + save.
- * Wired to client/src/lib/turnus-api.ts.
+ * Guided flow (Oppsett → Planlegging → Regler), explainable generation, and an
+ * accessible, colour-coded override grid: keyboard + drag reassignment, live AML
+ * consequence-preview, coverage-vs-demand, wishes, weight sliders, save/undo.
  */
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,16 +15,17 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import * as api from "@/lib/turnus-api";
-import type { GenerertVakt } from "@/lib/turnus-api";
+import type { GenerertVakt, GenereringKontekst } from "@/lib/turnus-api";
 
 const UKEDAGER = ["", "man", "tir", "ons", "tor", "fre", "lør", "søn"];
 const MND = ["jan", "feb", "mar", "apr", "mai", "jun", "jul", "aug", "sep", "okt", "nov", "des"];
 
-// ── date helpers (norsk) ─────────────────────────────────────────────────────
+// ── formatting helpers (norsk) ───────────────────────────────────────────────
 const d0 = (dato: string) => new Date(dato + "T00:00:00");
 const isoDow = (dato: string) => d0(dato).getDay() || 7; // Sun=0 → 7
 const erHelg = (dato: string) => isoDow(dato) >= 6;
 const kortDato = (dato: string) => { const d = d0(dato); return `${d.getDate()}. ${MND[d.getMonth()]}`; };
+const nkomma = (n: number) => n.toFixed(1).replace(".", ",").replace(",0", "");
 function isoUke(dato: string): number {
   const d = d0(dato); const day = d.getDay() || 7;
   d.setDate(d.getDate() + 4 - day);
@@ -35,11 +36,9 @@ function timer(start: string, slutt: string): number {
   const [sh, sm] = start.split(":").map(Number);
   const [eh, em] = slutt.split(":").map(Number);
   let mins = (eh * 60 + em) - (sh * 60 + sm);
-  if (mins <= 0) mins += 24 * 60; // overnatt
+  if (mins <= 0) mins += 24 * 60;
   return mins / 60;
 }
-
-// Shift-code colour role (day = amber, evening = sky, night = violet, other = slate).
 function vaktkodeStil(kode: string): string {
   const k = (kode || "").trim().toUpperCase()[0];
   if (k === "D") return "bg-amber-100 text-amber-900 ring-amber-300 dark:bg-amber-400/15 dark:text-amber-200 dark:ring-amber-400/30";
@@ -47,7 +46,6 @@ function vaktkodeStil(kode: string): string {
   if (k === "N") return "bg-violet-200 text-violet-900 ring-violet-400 dark:bg-violet-400/20 dark:text-violet-200 dark:ring-violet-400/30";
   return "bg-slate-200 text-slate-800 ring-slate-300 dark:bg-slate-400/15 dark:text-slate-200 dark:ring-slate-400/30";
 }
-
 const BRUDD_LABEL: Record<string, string> = {
   max_daily_over_13h: "Over 13t på ett døgn", max_daily_over_9h: "Over 9t på ett døgn",
   insufficient_rest_11h: "Under 11t døgnhvile", weekly_over_48h: "Over 48t i uka",
@@ -64,7 +62,7 @@ export default function TurnusPage() {
   ];
   return (
     <div className="mx-auto max-w-6xl p-6 space-y-6" data-testid="turnus-page">
-      <header className="space-y-1">
+      <header className="space-y-1 no-print">
         <div className="flex items-center gap-2">
           <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary font-bold">T</span>
           <h1 className="text-2xl font-semibold tracking-tight">Tidum Turnus</h1>
@@ -75,8 +73,7 @@ export default function TurnusPage() {
       </header>
 
       <Tabs value={tab} onValueChange={setTab}>
-        {/* Stepper-styled navigation */}
-        <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0">
+        <TabsList className="h-auto w-full justify-start gap-1 bg-transparent p-0 no-print">
           {STEG.map((s, i) => (
             <TabsTrigger key={s.id} value={s.id} data-testid={`tab-${s.id}`}
               className="group gap-2 rounded-lg border border-transparent px-3 py-2 data-[state=active]:border-border data-[state=active]:bg-card data-[state=active]:shadow-sm">
@@ -98,7 +95,6 @@ function useToastError() {
   const { toast } = useToast();
   return (e: unknown) => toast({ title: "Feil", description: e instanceof Error ? e.message : "Ukjent feil", variant: "destructive" });
 }
-
 function TomHint({ children }: { children: ReactNode }) {
   return <p className="rounded-md border border-dashed bg-muted/30 px-3 py-6 text-center text-sm text-muted-foreground">{children}</p>;
 }
@@ -222,7 +218,7 @@ function PlanleggingFane() {
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
+        <Card className="no-print">
           <CardHeader><CardTitle className="text-base">Turnusplaner</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-2">
@@ -258,7 +254,7 @@ function PlanleggingFane() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="no-print">
           <CardHeader><CardTitle className="text-base">Generering</CardTitle></CardHeader>
           <CardContent className="space-y-4">
             {valgtPlan == null && <TomHint>Velg en plan til venstre.</TomHint>}
@@ -270,8 +266,11 @@ function PlanleggingFane() {
                     : <Badge variant="destructive">Mangler oppsett</Badge>}
                   {!ready && (readiness.data?.mangler ?? []).map((m: string) => <Badge key={m} variant="outline">{m}</Badge>)}
                 </div>
+
+                <VektPanel planId={valgtPlan} />
+
                 <Button className="w-full" disabled={!ready || mGenerer.isPending} onClick={() => mGenerer.mutate()} data-testid="btn-generer">
-                  {mGenerer.isPending ? "Genererer turnus…" : "Generer turnus"}
+                  {mGenerer.isPending ? "Genererer turnus…" : generId == null ? "Generer turnus" : "Regenerer med vekter"}
                 </Button>
 
                 {mGenerer.isPending && (
@@ -293,7 +292,7 @@ function PlanleggingFane() {
                           <div key={p.dimensjon} className="flex items-center gap-2">
                             <span className="w-40 shrink-0 text-xs">{p.etikett}</span>
                             <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                              <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, (p.vekt / 10) * 100)}%` }} />
+                              <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${Math.min(100, (p.vekt / 10) * 100)}%` }} />
                             </div>
                             <span className="w-5 text-right text-xs tabular-nums text-muted-foreground">{p.vekt}</span>
                           </div>
@@ -318,7 +317,57 @@ function PlanleggingFane() {
   );
 }
 
-// ── OVERSTYRING (A5) ─────────────────────────────────────────────────────────
+// ── VEKT-SKYVERE (item 3) ────────────────────────────────────────────────────
+
+const VEKTER: { key: keyof VektState; navn: string }[] = [
+  { key: "vektOnsker", navn: "Ansattes ønsker" },
+  { key: "vektRettferdighet", navn: "Rettferdig vaktfordeling" },
+  { key: "vektHelgefrekvens", navn: "Rettferdig helgefordeling" },
+  { key: "vektKontinuitet", navn: "Kontinuitet for brukere" },
+  { key: "vektKostnad", navn: "Kostnadseffektivitet" },
+];
+type VektState = { vektOnsker: number; vektRettferdighet: number; vektHelgefrekvens: number; vektKontinuitet: number; vektKostnad: number };
+
+function VektPanel({ planId }: { planId: number }) {
+  const qc = useQueryClient();
+  const onError = useToastError();
+  const prioritering = useQuery({ queryKey: ["turnus-prioritering", planId], queryFn: api.getPrioritering });
+  const [vekt, setVekt] = useState<VektState>({ vektOnsker: 5, vektRettferdighet: 5, vektHelgefrekvens: 5, vektKontinuitet: 5, vektKostnad: 5 });
+
+  useEffect(() => {
+    const p = prioritering.data;
+    if (p) setVekt({
+      vektOnsker: p.vekt_onsker ?? 5, vektRettferdighet: p.vekt_rettferdighet ?? 5,
+      vektHelgefrekvens: p.vekt_helgefrekvens ?? 5, vektKontinuitet: p.vekt_kontinuitet ?? 5, vektKostnad: p.vekt_kostnad ?? 5,
+    });
+  }, [prioritering.data]);
+
+  const lagre = useMutation({
+    mutationFn: () => api.lagrePrioritering({ planId, ...vekt }), onError,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-prioritering", planId] }),
+  });
+
+  return (
+    <details className="rounded-lg border bg-muted/20 px-3 py-2 text-sm">
+      <summary className="cursor-pointer font-medium">Juster prioriteringer (KI-vekter)</summary>
+      <div className="mt-3 space-y-2">
+        {VEKTER.map((v) => (
+          <label key={v.key} className="flex items-center gap-2">
+            <span className="w-44 shrink-0 text-xs">{v.navn}</span>
+            <input type="range" min={0} max={10} value={vekt[v.key]} className="flex-1 accent-[hsl(var(--primary))]"
+              onChange={(e) => setVekt((s) => ({ ...s, [v.key]: Number(e.target.value) }))}
+              onMouseUp={() => lagre.mutate()} onTouchEnd={() => lagre.mutate()}
+              aria-label={v.navn} />
+            <span className="w-5 text-right text-xs tabular-nums text-muted-foreground">{vekt[v.key]}</span>
+          </label>
+        ))}
+        <p className="text-xs text-muted-foreground">Dra en vekt og trykk «Regenerer med vekter» for å se turnusen endre seg.</p>
+      </div>
+    </details>
+  );
+}
+
+// ── OVERSTYRING ──────────────────────────────────────────────────────────────
 
 type Brudd = { ansattId: number; severity: "error" | "warning"; code?: string; message?: string };
 
@@ -327,28 +376,29 @@ function OverstyrGrid({ generId }: { generId: number }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const vakter = useQuery({ queryKey: ["turnus-gen-vakter", generId], queryFn: () => api.listGenereringVakter(generId) });
+  const kontekst = useQuery({ queryKey: ["turnus-gen-kontekst", generId], queryFn: () => api.getGenereringKontekst(generId) });
+  const ansatteFull = useQuery({ queryKey: ["turnus-ansatte"], queryFn: api.listAnsatte });
 
-  // edits: vaktId → overstyrt ansattId. history/redo stacks for undo/redo.
   const [edits, setEdits] = useState<Record<number, number>>({});
   const [fortid, setFortid] = useState<Record<number, number>[]>([]);
   const [fremtid, setFremtid] = useState<Record<number, number>[]>([]);
   const [dragId, setDragId] = useState<number | null>(null);
+  const [plukket, setPlukket] = useState<number | null>(null); // keyboard pick-up
   const [brudd, setBrudd] = useState<Brudd[]>([]);
+  const [visSammenlign, setVisSammenlign] = useState(false);
+  const [melding, setMelding] = useState(""); // aria-live
+  const [losLaster, setLosLaster] = useState<number | null>(null);
+  const baseline = useRef<{ harde: number; myke: number } | null>(null);
+  const cellRefs = useRef<Map<string, HTMLTableCellElement>>(new Map());
 
-  useEffect(() => { setEdits({}); setFortid([]); setFremtid([]); }, [generId]);
+  useEffect(() => { setEdits({}); setFortid([]); setFremtid([]); setPlukket(null); baseline.current = null; }, [generId]);
 
-  const commit = (neste: Record<number, number>) => {
-    setFortid((f) => [...f, edits]); setFremtid([]); setEdits(neste);
-  };
+  const commit = (neste: Record<number, number>) => { setFortid((f) => [...f, edits]); setFremtid([]); setEdits(neste); };
   const angre = () => { if (!fortid.length) return; const prev = fortid[fortid.length - 1]; setFortid((f) => f.slice(0, -1)); setFremtid((r) => [edits, ...r]); setEdits(prev); };
   const gjenta = () => { if (!fremtid.length) return; const nxt = fremtid[0]; setFremtid((r) => r.slice(1)); setFortid((f) => [...f, edits]); setEdits(nxt); };
 
   const rows = vakter.data ?? [];
-  const eff = useMemo(
-    () => rows.map((v) => ({ ...v, ansattId: edits[v.id] ?? v.ansattId })),
-    [rows, edits],
-  );
-
+  const eff = useMemo(() => rows.map((v) => ({ ...v, ansattId: edits[v.id] ?? v.ansattId })), [rows, edits]);
   const ansatte = useMemo(() => {
     const m = new Map<number, string>();
     for (const v of rows) if (v.ansattId != null) m.set(v.ansattId, v.ansattNavn ?? `#${v.ansattId}`);
@@ -360,14 +410,9 @@ function OverstyrGrid({ generId }: { generId: number }) {
     for (const v of eff) if (v.ansattId != null) m.set(`${v.ansattId}|${v.dato}`, v);
     return m;
   }, [eff]);
-  // week groupings for the header (colspans)
   const ukeGrupper = useMemo(() => {
     const out: { uke: number; dager: string[] }[] = [];
-    for (const d of datoer) {
-      const u = isoUke(d);
-      const siste = out[out.length - 1];
-      if (siste && siste.uke === u) siste.dager.push(d); else out.push({ uke: u, dager: [d] });
-    }
+    for (const d of datoer) { const u = isoUke(d); const s = out[out.length - 1]; if (s && s.uke === u) s.dager.push(d); else out.push({ uke: u, dager: [d] }); }
     return out;
   }, [datoer]);
   const dekningPerDag = useMemo(() => {
@@ -375,12 +420,27 @@ function OverstyrGrid({ generId }: { generId: number }) {
     for (const v of eff) if (v.ansattId != null) m.set(v.dato, (m.get(v.dato) ?? 0) + 1);
     return m;
   }, [eff]);
+  const kravPerDag = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const k of kontekst.data?.krav ?? []) m.set(k.dato, k.krevd);
+    return m;
+  }, [kontekst.data]);
+  const onskeMap = useMemo(() => {
+    const m = new Map<string, GenereringKontekst["onsker"][number]>();
+    for (const o of kontekst.data?.onsker ?? []) m.set(`${o.ansattId}|${o.dato}`, o);
+    return m;
+  }, [kontekst.data]);
+  const stillingsprosent = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const a of ansatteFull.data ?? []) m.set(a.id, Number(a.stillingsprosent ?? 100));
+    return m;
+  }, [ansatteFull.data]);
   const sumPerAnsatt = useMemo(() => {
-    const m = new Map<number, { vakter: number; timer: number }>();
+    const m = new Map<number, { vakter: number; timer: number; helger: number }>();
     for (const v of eff) {
       if (v.ansattId == null) continue;
-      const cur = m.get(v.ansattId) ?? { vakter: 0, timer: 0 };
-      cur.vakter++; cur.timer += timer(v.startTid, v.sluttTid);
+      const cur = m.get(v.ansattId) ?? { vakter: 0, timer: 0, helger: 0 };
+      cur.vakter++; cur.timer += timer(v.startTid, v.sluttTid); if (erHelg(v.dato)) cur.helger++;
       m.set(v.ansattId, cur);
     }
     return m;
@@ -392,7 +452,13 @@ function OverstyrGrid({ generId }: { generId: number }) {
         ansattId: v.ansattId as number, dato: v.dato, startTid: v.startTid, sluttTid: v.sluttTid,
       }))),
     onError,
-    onSuccess: (r) => setBrudd(r.brudd as Brudd[]),
+    onSuccess: (r) => {
+      const b = r.brudd as Brudd[];
+      setBrudd(b);
+      if (baseline.current == null && Object.keys(edits).length === 0) {
+        baseline.current = { harde: b.filter((x) => x.severity === "error").length, myke: b.filter((x) => x.severity === "warning").length };
+      }
+    },
   });
   useEffect(() => { if (eff.length) konsekvens.mutate(eff); /* eslint-disable-next-line */ }, [eff]);
 
@@ -401,18 +467,23 @@ function OverstyrGrid({ generId }: { generId: number }) {
     onError,
     onSuccess: (r) => {
       toast({ title: "Turnus lagret", description: `${r.oppdatert} vakter oppdatert.` });
-      setEdits({}); setFortid([]); setFremtid([]);
+      setEdits({}); setFortid([]); setFremtid([]); baseline.current = null;
       qc.invalidateQueries({ queryKey: ["turnus-gen-vakter", generId] });
     },
   });
 
   const bruddFor = (ansattId: number) => brudd.filter((x) => x.ansattId === ansattId);
+  const hardeNaa = brudd.filter((x) => x.severity === "error").length;
+  const antallEndringer = Object.keys(edits).length;
+  const deltaHarde = baseline.current ? hardeNaa - baseline.current.harde : 0;
 
   const flytt = (vaktId: number, targetAnsatt: number, dato: string) => {
     const eier = edits[vaktId] ?? rows.find((r) => r.id === vaktId)?.ansattId;
     if (eier === targetAnsatt) return;
     if (cell.has(`${targetAnsatt}|${dato}`)) { toast({ title: "Cellen er opptatt", description: "Ansatt har allerede en vakt denne dagen." }); return; }
+    const v = rows.find((r) => r.id === vaktId);
     commit({ ...edits, [vaktId]: targetAnsatt });
+    setMelding(`Flyttet ${v?.kode ?? "vakt"} til ${ansatte.find((a) => a.id === targetAnsatt)?.navn ?? ""}`);
   };
   const drop = (targetAnsatt: number, dato: string) => {
     if (dragId == null) return;
@@ -421,7 +492,53 @@ function OverstyrGrid({ generId }: { generId: number }) {
     setDragId(null);
   };
 
-  const dirty = Object.keys(edits).length > 0;
+  // Suggest a legal swap: try moving each of the employee's shifts to an empty
+  // cell of another employee that day; keep the first that removes the hard brudd.
+  const foreslaaLosning = async (ansattId: number) => {
+    setLosLaster(ansattId);
+    try {
+      const mine = eff.filter((v) => v.ansattId === ansattId);
+      for (const v of mine) {
+        for (const a of ansatte) {
+          if (a.id === ansattId || cell.has(`${a.id}|${v.dato}`)) continue;
+          const kand = eff.map((x) => x.id === v.id ? { ...x, ansattId: a.id } : x);
+          const r = await api.konsekvens(kand.filter((x) => x.ansattId != null).map((x) => ({
+            ansattId: x.ansattId as number, dato: x.dato, startTid: x.startTid, sluttTid: x.sluttTid,
+          })));
+          const hardeForBegge = (r.brudd as Brudd[]).filter((b) => b.severity === "error" && (b.ansattId === ansattId || b.ansattId === a.id)).length;
+          if (hardeForBegge === 0) {
+            flytt(v.id, a.id, v.dato);
+            toast({ title: "Lovlig bytte funnet", description: `Flyttet ${v.kode} til ${a.navn}.` });
+            return;
+          }
+        }
+      }
+      toast({ title: "Fant ingen enkelt lovlig bytte", description: "Prøv å justere bemanning eller vekter." });
+    } finally { setLosLaster(null); }
+  };
+
+  // Keyboard grid navigation: roving focus + Enter to pick up / drop.
+  const onCellKey = (e: React.KeyboardEvent, r: number, c: number, ansattId: number, dato: string) => {
+    const move = (nr: number, nc: number) => { const el = cellRefs.current.get(`${nr}-${nc}`); if (el) { el.focus(); e.preventDefault(); } };
+    if (e.key === "ArrowRight") return move(r, c + 1);
+    if (e.key === "ArrowLeft") return move(r, c - 1);
+    if (e.key === "ArrowDown") return move(r + 1, c);
+    if (e.key === "ArrowUp") return move(r - 1, c);
+    if (e.key === "Escape") { setPlukket(null); setMelding("Avbrutt."); return; }
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      const her = cell.get(`${ansattId}|${dato}`);
+      if (plukket == null) {
+        if (her) { setPlukket(her.id); setMelding(`Plukket opp ${her.kode}. Naviger med piltaster og trykk Enter for å slippe.`); }
+      } else {
+        const v = rows.find((x) => x.id === plukket);
+        if (v && v.dato === dato) { flytt(plukket, ansattId, dato); setPlukket(null); }
+        else setMelding("Kan bare slippe på samme dag i en ledig celle.");
+      }
+    }
+  };
+
+  const dirty = antallEndringer > 0;
 
   if (vakter.isLoading) {
     return <Card data-testid="overstyring"><CardHeader><CardTitle className="text-base">Overstyring</CardTitle></CardHeader>
@@ -432,34 +549,50 @@ function OverstyrGrid({ generId }: { generId: number }) {
     <Card data-testid="overstyring">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
         <div>
-          <CardTitle className="text-base">Resultat — dra vakter mellom ansatte for å overstyre</CardTitle>
-          <p className="mt-0.5 text-xs text-muted-foreground">Hver endring viser lovlighetskonsekvensen med én gang. Klikk en vakt for å flytte uten å dra.</p>
+          <CardTitle className="text-base">Resultat — dra eller bruk piltaster for å overstyre</CardTitle>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            Hver endring viser lovlighetskonsekvensen med én gang.
+            {antallEndringer > 0 && <> {" "}<span className="font-medium text-foreground">{antallEndringer} {antallEndringer === 1 ? "endring" : "endringer"}</span>{deltaHarde > 0 && <span className="text-destructive"> · +{deltaHarde} brudd</span>}{deltaHarde < 0 && <span className="text-emerald-600"> · {deltaHarde} brudd</span>}</>}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 no-print">
           {konsekvens.isPending && <span className="text-xs text-muted-foreground">Sjekker…</span>}
+          <Button size="sm" variant="ghost" onClick={() => setVisSammenlign((v) => !v)}>Sammenlign</Button>
+          <Button size="sm" variant="ghost" onClick={() => window.print()}>Skriv ut</Button>
           <Button size="sm" variant="ghost" disabled={!fortid.length} onClick={angre} title="Angre">↶ Angre</Button>
           <Button size="sm" variant="ghost" disabled={!fremtid.length} onClick={gjenta} title="Gjenta">↷ Gjenta</Button>
-          <Button size="sm" variant="outline" disabled={!dirty} onClick={() => { commit({}); }} data-testid="btn-tilbakestill">Tilbakestill</Button>
+          <Button size="sm" variant="outline" disabled={!dirty} onClick={() => commit({})} data-testid="btn-tilbakestill">Tilbakestill</Button>
           <Button size="sm" disabled={!dirty || lagre.isPending} onClick={() => lagre.mutate()} data-testid="btn-lagre">{lagre.isPending ? "Lagrer…" : "Lagre turnus"}</Button>
         </div>
       </CardHeader>
       <CardContent>
+        {/* aria-live announcements for screen readers */}
+        <div aria-live="polite" className="sr-only">{melding}</div>
+
         {rows.length === 0 && <TomHint>Ingen genererte vakter å vise.</TomHint>}
+
+        {rows.length > 0 && visSammenlign && baseline.current && (
+          <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Generert (før)</div><div>{baseline.current.harde} brudd · {baseline.current.myke} advarsler</div></div>
+            <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Nå (etter dine endringer)</div><div>{hardeNaa} brudd · {brudd.filter((x) => x.severity === "warning").length} advarsler</div></div>
+          </div>
+        )}
+
         {rows.length > 0 && (
           <>
-            {/* legend */}
             <div className="mb-3 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-              {["D", "A", "N"].map((k) => <span key={k} className="flex items-center gap-1"><span className={`inline-flex min-w-5 justify-center rounded px-1 font-bold ring-1 ${vaktkodeStil(k)}`}>{k}</span></span>)}
+              {["D", "A", "N"].map((k) => <span key={k} className={`inline-flex min-w-5 justify-center rounded px-1 font-bold ring-1 ${vaktkodeStil(k)}`}>{k}</span>)}
               <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm bg-amber-100 ring-1 ring-amber-300 dark:bg-amber-400/15" /> helg</span>
+              <span className="flex items-center gap-1">♥ ønsket</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="border-separate border-spacing-0 text-sm">
+
+            {/* Desktop grid */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="border-separate border-spacing-0 text-sm" role="grid" aria-label="Turnusrutenett">
                 <thead>
                   <tr>
                     <th rowSpan={2} className="sticky left-0 z-10 bg-card px-2 py-1 text-left align-bottom font-medium">Ansatt</th>
-                    {ukeGrupper.map((g) => (
-                      <th key={g.uke} colSpan={g.dager.length} className="border-b px-1 pb-1 text-center text-xs font-semibold text-muted-foreground">Uke {g.uke}</th>
-                    ))}
+                    {ukeGrupper.map((g) => (<th key={g.uke} colSpan={g.dager.length} className="border-b px-1 pb-1 text-center text-xs font-semibold text-muted-foreground">Uke {g.uke}</th>))}
                     <th rowSpan={2} className="px-2 text-right align-bottom text-xs font-medium text-muted-foreground">Sum</th>
                   </tr>
                   <tr>
@@ -471,47 +604,87 @@ function OverstyrGrid({ generId }: { generId: number }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {ansatte.map((a) => {
+                  {ansatte.map((a, ri) => {
                     const b = bruddFor(a.id);
                     const nErr = b.filter((x) => x.severity === "error").length;
                     const nWarn = b.filter((x) => x.severity === "warning").length;
-                    const sum = sumPerAnsatt.get(a.id) ?? { vakter: 0, timer: 0 };
+                    const sum = sumPerAnsatt.get(a.id) ?? { vakter: 0, timer: 0, helger: 0 };
                     return (
                       <tr key={a.id} data-testid={`overstyr-rad-${a.id}`} className="hover:bg-muted/20">
                         <td className="sticky left-0 z-10 whitespace-nowrap bg-card px-2 py-1">
                           <div className="flex items-center gap-1.5">
-                            <span className="font-medium">{a.navn}</span>
+                            <AnsattDetalj navn={a.navn} sum={sum} prosent={stillingsprosent.get(a.id) ?? 100} brudd={b} />
                             <StatusBadge ansattId={a.id} nErr={nErr} nWarn={nWarn} brudd={b} />
+                            {nErr > 0 && <Button size="sm" variant="ghost" className="h-6 px-1.5 text-xs no-print" disabled={losLaster === a.id} onClick={() => foreslaaLosning(a.id)}>{losLaster === a.id ? "…" : "Løs"}</Button>}
                           </div>
                         </td>
-                        {datoer.map((d) => {
+                        {datoer.map((d, ci) => {
                           const v = cell.get(`${a.id}|${d}`);
                           const droppbar = dragId != null && !v;
+                          const onske = onskeMap.get(`${a.id}|${d}`);
+                          const overstyrt = v != null && edits[v.id] != null;
+                          const erPlukket = v != null && plukket === v.id;
                           return (
                             <td key={d} data-testid={`celle-${a.id}-${d}`}
-                              className={`border-b border-r px-1 py-1 text-center ${erHelg(d) ? "bg-amber-50/50 dark:bg-amber-400/5" : ""} ${droppbar ? "outline-dashed outline-1 outline-primary/40" : ""}`}
+                              ref={(el) => { if (el) cellRefs.current.set(`${ri}-${ci}`, el); }}
+                              tabIndex={ri === 0 && ci === 0 ? 0 : -1}
+                              role="gridcell"
+                              aria-label={`${a.navn}, ${UKEDAGER[isoDow(d)]} ${kortDato(d)}${v ? `, vakt ${v.kode}` : ", ledig"}`}
+                              onKeyDown={(e) => onCellKey(e, ri, ci, a.id, d)}
+                              className={`border-b border-r px-1 py-1 text-center outline-none focus:ring-2 focus:ring-primary ${erHelg(d) ? "bg-amber-50/50 dark:bg-amber-400/5" : ""} ${droppbar ? "outline-dashed outline-1 outline-primary/40" : ""} ${erPlukket ? "ring-2 ring-primary" : ""}`}
                               onDragOver={(e) => { if (droppbar) e.preventDefault(); }}
                               onDrop={() => drop(a.id, d)}>
-                              {v && <VaktChip vakt={v} ansatte={ansatte} onDragStart={() => setDragId(v.id)} onDragEnd={() => setDragId(null)} onReassign={(til) => flytt(v.id, til, d)} />}
+                              {v && <VaktChip vakt={v} ansatte={ansatte} overstyrt={overstyrt} onske={onske?.type} onDragStart={() => setDragId(v.id)} onDragEnd={() => setDragId(null)} onReassign={(til) => flytt(v.id, til, d)} />}
+                              {!v && onske && <span className="text-[10px] text-muted-foreground/60" title={`Ønske: ${onske.type}`}>♥</span>}
                             </td>
                           );
                         })}
-                        <td className="whitespace-nowrap px-2 text-right text-xs tabular-nums text-muted-foreground">
-                          {sum.vakter}v · {sum.timer.toFixed(0)}t
-                        </td>
+                        <td className="whitespace-nowrap px-2 text-right text-xs tabular-nums text-muted-foreground">{sum.vakter}v · {nkomma(sum.timer)}t</td>
                       </tr>
                     );
                   })}
-                  {/* coverage footer */}
                   <tr>
-                    <td className="sticky left-0 z-10 bg-card px-2 py-1 text-xs font-medium text-muted-foreground">Dekket</td>
-                    {datoer.map((d) => (
-                      <td key={d} className={`border-t px-1 py-1 text-center text-xs tabular-nums text-muted-foreground ${erHelg(d) ? "bg-amber-50/50 dark:bg-amber-400/5" : ""}`}>{dekningPerDag.get(d) ?? 0}</td>
-                    ))}
+                    <td className="sticky left-0 z-10 bg-card px-2 py-1 text-xs font-medium text-muted-foreground">Dekket / krevd</td>
+                    {datoer.map((d) => {
+                      const dek = dekningPerDag.get(d) ?? 0; const krav = kravPerDag.get(d);
+                      const under = krav != null && dek < krav;
+                      return (
+                        <td key={d} className={`border-t px-1 py-1 text-center text-xs tabular-nums ${erHelg(d) ? "bg-amber-50/50 dark:bg-amber-400/5" : ""} ${under ? "font-semibold text-destructive" : "text-muted-foreground"}`}>
+                          {dek}{krav != null ? `/${krav}` : ""}
+                        </td>
+                      );
+                    })}
                     <td className="border-t" />
                   </tr>
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile: per-employee cards */}
+            <div className="space-y-2 md:hidden">
+              {ansatte.map((a) => {
+                const b = bruddFor(a.id);
+                const nErr = b.filter((x) => x.severity === "error").length;
+                const nWarn = b.filter((x) => x.severity === "warning").length;
+                const sum = sumPerAnsatt.get(a.id) ?? { vakter: 0, timer: 0, helger: 0 };
+                const mine = eff.filter((v) => v.ansattId === a.id).sort((x, y) => x.dato.localeCompare(y.dato));
+                return (
+                  <div key={a.id} className="rounded-lg border p-3">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="font-medium">{a.navn}</span>
+                      <div className="flex items-center gap-1.5"><StatusBadge ansattId={a.id} nErr={nErr} nWarn={nWarn} brudd={b} /><span className="text-xs text-muted-foreground">{sum.vakter}v · {nkomma(sum.timer)}t</span></div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {mine.map((v) => (
+                        <span key={v.id} className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ring-1 ${vaktkodeStil(v.kode)}`}>
+                          <span className="text-[10px] opacity-70">{UKEDAGER[isoDow(v.dato)]} {kortDato(v.dato)}</span> {v.kode}
+                        </span>
+                      ))}
+                      {mine.length === 0 && <span className="text-xs text-muted-foreground">Ingen vakter</span>}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </>
         )}
@@ -521,17 +694,15 @@ function OverstyrGrid({ generId }: { generId: number }) {
 }
 
 function StatusBadge({ ansattId, nErr, nWarn, brudd }: { ansattId: number; nErr: number; nWarn: number; brudd: Brudd[] }) {
-  if (nErr === 0 && nWarn === 0) {
-    return <Badge variant="outline" className="border-emerald-500 text-emerald-600">OK</Badge>;
-  }
+  if (nErr === 0 && nWarn === 0) return <Badge variant="outline" className="border-emerald-500 text-emerald-600 transition-colors">OK</Badge>;
   const testId = nErr > 0 ? `brudd-error-${ansattId}` : undefined;
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <button data-testid={testId}>
+        <button data-testid={testId} aria-label={nErr > 0 ? `${nErr} lovbrudd, vis detaljer` : `${nWarn} advarsler, vis detaljer`}>
           {nErr > 0
-            ? <Badge variant="destructive" className="cursor-pointer">{nErr} brudd</Badge>
-            : <Badge className="cursor-pointer bg-amber-500 hover:bg-amber-500">{nWarn} advarsel</Badge>}
+            ? <Badge variant="destructive" className="cursor-pointer transition-colors">{nErr} brudd</Badge>
+            : <Badge className="cursor-pointer bg-amber-500 transition-colors hover:bg-amber-500">{nWarn} advarsel</Badge>}
         </button>
       </PopoverTrigger>
       <PopoverContent className="w-72 text-sm">
@@ -549,8 +720,29 @@ function StatusBadge({ ansattId, nErr, nWarn, brudd }: { ansattId: number; nErr:
   );
 }
 
-function VaktChip({ vakt, ansatte, onDragStart, onDragEnd, onReassign }: {
-  vakt: GenerertVakt; ansatte: { id: number; navn: string }[];
+function AnsattDetalj({ navn, sum, prosent, brudd }: { navn: string; sum: { vakter: number; timer: number; helger: number }; prosent: number; brudd: Brudd[] }) {
+  const maalTimer = (prosent / 100) * 37.5;
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button className="font-medium underline-offset-2 hover:underline" aria-label={`Detaljer for ${navn}`}>{navn}</button>
+      </PopoverTrigger>
+      <PopoverContent className="w-64 text-sm">
+        <div className="mb-2 font-medium">{navn}</div>
+        <dl className="space-y-1 text-xs">
+          <div className="flex justify-between"><dt className="text-muted-foreground">Stillingsprosent</dt><dd>{prosent} %</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Timer (uke-snitt mål {nkomma(maalTimer)}t)</dt><dd>{nkomma(sum.timer)}t</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Vakter</dt><dd>{sum.vakter}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Helgevakter</dt><dd>{sum.helger}</dd></div>
+          <div className="flex justify-between"><dt className="text-muted-foreground">Lovbrudd / advarsler</dt><dd>{brudd.filter((b) => b.severity === "error").length} / {brudd.filter((b) => b.severity === "warning").length}</dd></div>
+        </dl>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function VaktChip({ vakt, ansatte, overstyrt, onske, onDragStart, onDragEnd, onReassign }: {
+  vakt: GenerertVakt; ansatte: { id: number; navn: string }[]; overstyrt: boolean; onske?: string;
   onDragStart: () => void; onDragEnd: () => void; onReassign: (til: number) => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -558,9 +750,10 @@ function VaktChip({ vakt, ansatte, onDragStart, onDragEnd, onReassign }: {
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <span draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
-          className={`inline-flex min-w-7 cursor-grab justify-center rounded px-2 py-0.5 text-xs font-bold ring-1 active:cursor-grabbing ${vaktkodeStil(vakt.kode)}`}
+          className={`relative inline-flex min-w-7 cursor-grab justify-center rounded px-2 py-0.5 text-xs font-bold ring-1 transition-transform active:cursor-grabbing active:scale-95 ${vaktkodeStil(vakt.kode)} ${overstyrt ? "ring-2 ring-primary" : ""}`}
           data-testid={`vakt-${vakt.id}`}>
           {vakt.kode}
+          {onske && <span className="absolute -right-1 -top-1 text-[8px]" title={`Ønske: ${onske}`}>♥</span>}
         </span>
       </PopoverTrigger>
       <PopoverContent className="w-56 text-sm">
@@ -584,14 +777,8 @@ function ReglerFane() {
   const [regeltype, setRegeltype] = useState("aml_daglig_hvile_11t");
   const [haard, setHaard] = useState(true);
 
-  const mRegel = useMutation({
-    mutationFn: api.opprettRegel, onError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }),
-  });
-  const mSlett = useMutation({
-    mutationFn: api.slettRegel, onError,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }),
-  });
+  const mRegel = useMutation({ mutationFn: api.opprettRegel, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }) });
+  const mSlett = useMutation({ mutationFn: api.slettRegel, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }) });
 
   return (
     <Card>
@@ -604,9 +791,7 @@ function ReglerFane() {
             <option value="helgefrekvens">Helgefrekvens</option>
             <option value="kompetansekrav">Kompetansekrav</option>
           </select>
-          <label className="flex items-center gap-1.5 text-sm">
-            <input type="checkbox" checked={haard} onChange={(e) => setHaard(e.target.checked)} /> Hard
-          </label>
+          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={haard} onChange={(e) => setHaard(e.target.checked)} /> Hard</label>
           <Button onClick={() => mRegel.mutate({ regeltype, haard })} data-testid="btn-regel">Legg til regel</Button>
         </div>
         {(regler.data ?? []).length === 0

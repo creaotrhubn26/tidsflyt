@@ -199,6 +199,13 @@ export function lagreVaktEndringer(
 ): Promise<{ oppdatert: number }> {
   return requestJson(`/api/turnus/genereringer/${id}/vakter`, jsonInit("PATCH", { endringer }));
 }
+export interface GenereringKontekst {
+  krav: Array<{ dato: string; krevd: number }>;
+  onsker: Array<{ ansattId: number; dato: string; vaktkodeId: number | null; type: string; prioritet: string }>;
+}
+export function getGenereringKontekst(id: string | number): Promise<GenereringKontekst> {
+  return requestJson(`/api/turnus/genereringer/${id}/kontekst`);
+}
 
 export function konsekvens(endringer: Array<{
   ansattId: number; dato: string; startTid: string; sluttTid: string; pauseTimer?: number;
