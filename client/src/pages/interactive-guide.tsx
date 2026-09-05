@@ -625,6 +625,6 @@ function FAQAccordion({ q, a }: { q: string; a: string }) {
 const ROLE_LABELS: Partial<Record<GuideRole, string>> = {
   miljoarbeider: "Miljøarbeider",
   tiltaksleder: "Tiltaksleder",
-  vendor_admin: "Vendor admin",
-  super_admin: "Super admin",
+  vendor_admin: "Leverandøradmin",
+  super_admin: "Superadmin",
 };

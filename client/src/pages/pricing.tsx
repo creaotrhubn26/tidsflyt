@@ -280,7 +280,7 @@ export default function Pricing() {
                               <span className="font-semibold">Enterprise</span>
                             </div>
                             <p className="text-base text-[#203138]">
-                              {userCount} brukere er Enterprise-segment. Ta kontakt for et tilpasset tilbud.
+                              Med {userCount} brukere er dere i Enterprise-segmentet. Ta kontakt for et tilpasset tilbud.
                             </p>
                             <Link href={`/kontakt?users=${userCount}`}>
                               <Button className="tidum-btn-primary mt-2"
@@ -363,7 +363,7 @@ export default function Pricing() {
                         <CardTitle className="flex items-center gap-2 text-lg font-semibold text-[#15343D]">
                           {t.label}
                           {t.isEnterprise && (
-                            <Badge className="bg-[#1F6B73]/15 text-[#1F6B73]">Custom</Badge>
+                            <Badge className="bg-[#1F6B73]/15 text-[#1F6B73]">Skreddersydd</Badge>
                           )}
                         </CardTitle>
                         {t.description && (
@@ -446,7 +446,7 @@ export default function Pricing() {
               Vilkår
             </Link>
           </div>
-          <p className="mt-4 text-center">© 2025 Tidum. Driftet av Creatorhub AS.</p>
+          <p className="mt-4 text-center">© {new Date().getFullYear()} Tidum. Driftet av Creatorhub AS.</p>
         </footer>
       </div>
     </div>

@@ -60,7 +60,7 @@ Vi er åpne om hva som ennå ikke er i fullt samsvar. Disse avvikene er registre
 
 ### 4.1 Rapport-editor (Quill rich text)
 
-**Problem:** Tredjeparts-editoren Quill brukt i rapportskriving har enkelte tastaturnavigasjons-mangler, spesielt i verktøylinjen.
+**Problem:** Tredjepartseditoren Quill brukt i rapportskriving har enkelte tastaturnavigasjonsmangler, spesielt i verktøylinjen.
 **Status:** Arbeides med — plan om å bytte til en tilgjengelig rich-text-editor eller egen minimum-markup-editor.
 **Omgåelse:** Skjermleserbrukere kan redigere rå tekst i editor-området og bruke hurtigtaster for fet/kursiv (Ctrl+B / Ctrl+I).
 
@@ -73,13 +73,13 @@ Vi er åpne om hva som ennå ikke er i fullt samsvar. Disse avvikene er registre
 ### 4.3 Fargekodede heatmap-grafikker
 
 **Problem:** Kalenderheatmap og aktivitetsgrafer kommuniserer intensitet kun via farge.
-**Status:** Tooltips med tallverdier lagt til som en del av oppgraderingen; tekstalternativ planlagt.
+**Status:** Tooltips med tallverdier er lagt til som en del av oppgraderingen; tekstalternativ er planlagt.
 **Omgåelse:** Hovedinformasjonen er alltid tilgjengelig i den relaterte tabellen ved siden av grafen.
 
 ### 4.4 PDF-rapporter
 
 **Problem:** PDF-er generert av Tidum er ikke alltid tagget etter PDF/UA (Universal Accessibility).
-**Status:** Planlagt migrering til tagget PDF med overskriftsstruktur, tabelltagg og alt-tekst på bilder.
+**Status:** Planlagt migrering til tagget PDF med overskriftsstruktur, tabelltagger og alt-tekst på bilder.
 **Omgåelse:** HTML-versjonen av samme rapport er tilgjengelig i plattformen og er fullt tilgjengelig.
 
 ## 5. Testing og metode
@@ -89,7 +89,7 @@ Tilgjengelighetsarbeidet i Tidum er basert på:
 - **Automatiske verktøy** — axe-core, Lighthouse og WAVE kjøres på alle hovedsider før release
 - **Manuell testing** — tastaturnavigasjon, skjermleser (NVDA og VoiceOver), zoom 200 % og høy kontrast
 - **Brukertesting** — planlagt involvering av brukere med nedsatt funksjonsevne for 2026
-- **Kontinuerlig forbedring** — tilgjengelighet er del av PR-gjennomgang på fargekontrast, aria-attributter og tastaturstøtte
+- **Kontinuerlig forbedring** — tilgjengelighet er del av PR-gjennomgangen, med vekt på fargekontrast, aria-attributter og tastaturstøtte
 
 ## 6. Teknisk informasjon
 
@@ -104,7 +104,7 @@ Hvis du opplever tilgjengelighetsproblemer i Tidum, vil vi gjerne høre fra deg.
 
 - **E-post:** ${TIDUM_SUPPORT_EMAIL}
 - **Emne i e-post:** "Tilgjengelighet — [kort beskrivelse]"
-- **Oppgi:** hvilken side / funksjon det gjelder, hva som ikke fungerer, hvilken hjelpemiddel-teknologi du bruker (skjermleser, tastatur, zoom osv.), og nettleser / operativsystem
+- **Oppgi:** hvilken side / funksjon det gjelder, hva som ikke fungerer, hvilken hjelpemiddelteknologi du bruker (skjermleser, tastatur, zoom osv.), og nettleser / operativsystem
 
 Om du ikke får tilfredsstillende svar fra oss, kan du klage til:
 
@@ -181,7 +181,7 @@ export default function Tilgjengelighet() {
             </div>
             <h1 className="tidum-title">Tilgjengelighetserklæring</h1>
             <p className="tidum-text mt-4 max-w-2xl mx-auto">
-              Tidum skal være brukbar for alle — uavhengig av funksjonsevne, hjelpemiddel-teknologi eller nettleser.
+              Tidum skal være brukbar for alle — uavhengig av funksjonsevne, hjelpemiddelteknologi eller nettleser.
             </p>
             <p className="text-sm text-[var(--color-text-muted)] mt-3">
               Sist oppdatert: {LAST_UPDATED}
@@ -275,7 +275,7 @@ export default function Tilgjengelighet() {
               <div className="mt-3 grid gap-2">
                 {[
                   "Brukbar med tastatur og skjermleser",
-                  "Kontrast og skrift skalerer",
+                  "Skalerbar skrift og god kontrast",
                   "Kontinuerlig forbedring",
                 ].map((item) => (
                   <div
