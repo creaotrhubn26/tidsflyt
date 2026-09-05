@@ -461,6 +461,30 @@ const howItWorksSteps = [
   },
 ] as const;
 
+const solutionCards = [
+  {
+    title: "Tidsregistrering",
+    description: "Enkel timeføring for alle ansatte, med rapporter og full oversikt for ledere.",
+    image: "/screenshots/tidum-time-desktop.png",
+    alt: "Tidum tidsregistrering — oversikt over registrerte timer og status",
+    icon: Clock3,
+  },
+  {
+    title: "Barnevern",
+    description: "Meldingsmottak, saksbehandling og rapportering med frister og sporbar historikk — bygget for kommunal barneverntjeneste.",
+    image: "/screenshots/tidum-barnevern-desktop.png",
+    alt: "Tidum Barnevern — meldingsmottak med frister og saksbehandling",
+    icon: ShieldCheck,
+  },
+  {
+    title: "Tidum Turnus",
+    description: "KI-basert turnusplanlegging som sikrer lovlig bemanning og forklarer hvorfor — automatisk sjekket mot arbeidsmiljøloven.",
+    image: "/screenshots/tidum-turnus-desktop.png",
+    alt: "Tidum Turnus — KI-generert turnusplan med forklaring og overstyring",
+    icon: Calendar,
+  },
+] as const;
+
 const AUTH_ERROR_MESSAGES: Record<string, { title: string; body: string }> = {
   access_request_required: {
     title: "Denne Google-kontoen er ikke aktivert i Tidum ennå.",
@@ -946,6 +970,33 @@ export default function LandingPage() {
                 <Icon className="h-5 w-5 text-[var(--color-primary)]" />
                 <p className="font-medium">{label}</p>
               </div>
+            ))}
+          </div>
+        </section>
+
+        <section id="losninger" className="tidum-fade-up mt-12">
+          <h2 className="text-3xl font-semibold tracking-tight text-[#15343D] dark:text-[#c8e8ec] sm:text-4xl">Løsninger for din virksomhet</h2>
+          <p className="mt-2 max-w-2xl text-[var(--color-text-muted)]">
+            Samme plattform, tilpasset ulike behov — fra enkel timeføring til spesialiserte fagmoduler.
+          </p>
+          <div className="mt-6 grid gap-5 md:grid-cols-3">
+            {solutionCards.map(({ title, description, image, alt, icon: Icon }) => (
+              <Card key={title} className="overflow-hidden rounded-2xl border-[var(--color-border)] bg-white/95 dark:bg-[#141e21]/95 shadow-[0_8px_28px_rgba(22,43,49,0.06)]">
+                <div className="border-b border-[var(--color-border)] bg-[#F0F3F4] dark:bg-[#0f1a1e]">
+                  <div className="h-[190px] w-full overflow-hidden">
+                    <img src={image} alt={alt} className="h-full w-full object-cover object-top" loading="lazy" />
+                  </div>
+                </div>
+                <CardContent className="p-5 sm:p-6">
+                  <div className="flex items-center gap-2.5">
+                    <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#EAF4EF] dark:bg-[#1a2d2a]">
+                      <Icon className="h-4 w-4 text-[#2A7B62] dark:text-[#5cc9a7]" />
+                    </span>
+                    <h3 className="text-lg font-semibold text-[#1D2C31] dark:text-[#d0e0e3]">{title}</h3>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-[var(--color-text-muted)]">{description}</p>
+                </CardContent>
+              </Card>
             ))}
           </div>
         </section>
