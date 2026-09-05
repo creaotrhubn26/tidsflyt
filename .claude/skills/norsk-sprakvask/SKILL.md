@@ -40,8 +40,23 @@ gjetning.
 3. **Sjekk konsistens på tvers**, ikke bare i én fil: samme begrep skal
    skrives likt overalt. `grep -roh "<begrep>[a-zæøå]*" client/src server/ shared/ | sort | uniq -c`
    avslører raskt at et begrep har to former.
-4. **Verifiser** med `tsc` + `npm run build` — tekstendringer i JSX kan
-   bryte bygget hvis anførselstegn eller entiteter blir feil.
+4. **Kontroller den redigerte teksten på nytt, med friske øyne.** Dette er
+   ikke valgfritt. Rettelser skaper nye feil, og du ser dem ikke selv rett
+   etter at du har skrevet dem — du leser det du mente, ikke det som står.
+
+   Faktiske eksempler fra denne kodebasen: «hvilke prioriteringer som
+   styrte» manglet objekt, ble rettet til «som styrte forslaget» — og da
+   sto «forslaget» to ganger i samme setning. «Da gjelder den bare der»
+   (stedsadverb om en person) ble rettet til «bare for den ene» — som ga
+   tvetydig referanse, siden både «regel» og «ansatt» er felleskjønn.
+   Ingen av dem ble oppdaget av den som rettet.
+
+   Bruk en subagent til kontrollrunden, med teksten *etter* redigering.
+   Kostnaden er ett kall; alternativet er at feilen står i produksjon.
+5. **Verifiser** med `tsc` + `npm run build` — tekstendringer i JSX kan
+   bryte bygget hvis anførselstegn eller entiteter blir feil. Er teksten
+   seed-data, sjekk også at den faktisk når ut: hent den fra API-et og let
+   etter de rettede formuleringene.
 
 ## Verifiserte regler for dette prosjektet
 
@@ -98,8 +113,26 @@ Rangert etter hvor ofte de faktisk dukket opp i denne kodebasen:
 5. **Løse pronomen og partisipp** — «forklarer hvorfor» (hvorfor *hva*?),
    eller et partisipp som grammatisk peker på feil subjekt. Les setningen
    høyt: hvis du må gjette hva et ord viser til, skriv om.
-6. **Hardkodede årstall** — `© 2025`. Bruk `{new Date().getFullYear()}`.
-7. **Feil preposisjon** — «gjennomgang på fargekontrast» skal være «av»
+6. **Negasjon som treffer feil** — «er sjelden vanskelig fordi noen mangler
+   vilje» sier bokstavelig at noe *sjelden er vanskelig*. Negasjonen slår ut
+   på hele setningen, ikke på årsaken. Stod i åpningssetningen på en
+   bloggartikkel og påsto det motsatte av poenget.
+7. **Partikkelverb med motsatt betydning** — «gis til slutt opp til manuell
+   oppfølging» («gi opp» = forlate, ikke overlate); «motoren regner med dem»
+   («regne med» = forvente, ikke ta med i beregningen); «stille om reglene».
+   Disse leses riktig av forfatteren og galt av alle andre.
+8. **Setninger som må leses to ganger** — «genererer forslag med CP-SAT,
+   vekter ønsker, rettferdighet …»: `vekter` leses som substantiv i
+   oppregningen til man skjønner det er verb. Del setningen.
+9. **Gjentakelse innenfor én setning** — «Et *forslag* … blir aldri
+   *foreslått*», «avvik *ved avtale* … *ved skriftlig avtale*», dobbelt
+   «med». Oppstår særlig når man retter noe annet i samme setning.
+10. **Haltende metaforer** — «Regnearket klarer ikke å holde alt i *hodet*»;
+    «mennesker *står* i en floke av tråder». Sjekk at bildet henger sammen
+    med det du nettopp skrev.
+11. **Utellelige substantiv med artikkel** — «en ekstra finpuss».
+12. **Hardkodede årstall** — `© 2025`. Bruk `{new Date().getFullYear()}`.
+13. **Feil preposisjon** — «gjennomgang på fargekontrast» skal være «av»
    eller omformuleres.
 
 ## Prosjektkonvensjoner
