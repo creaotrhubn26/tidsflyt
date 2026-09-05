@@ -3,6 +3,14 @@
 # ever serves the static frontend build.
 /api/*  https://tidum-backend.onrender.com/api/:splat  200
 
+# Server-generated files that live outside /api. Without these the SPA fallback
+# below swallows them and returns index.html with status 200, so the RSS link on
+# /blog opened the app instead of a feed, and crawlers fetching sitemap.xml and
+# robots.txt got HTML. Add any future non-/api server route here too.
+/feed.xml     https://tidum-backend.onrender.com/feed.xml     200
+/sitemap.xml  https://tidum-backend.onrender.com/sitemap.xml  200
+/robots.txt   https://tidum-backend.onrender.com/robots.txt   200
+
 # SPA fallback: client-side routes (e.g. /dashboard) have no matching static
-# file on Netlify. Must come after the /api/* rule above — first match wins.
+# file on Netlify. Must come after the rules above — first match wins.
 /*  /index.html  200
