@@ -857,45 +857,217 @@ function VaktChip({ vakt, ansatte, overstyrt, onske, onDragStart, onDragEnd, onR
 
 // ── REGLER & ØNSKER ──────────────────────────────────────────────────────────
 
+const KILDE_LABEL: Record<string, string> = {
+  lov: "Lov", lokal_avtale: "Lokal avtale", saeravtale: "Særavtale", dispensasjon: "Dispensasjon",
+};
+const PRIORITET_LABEL: Record<string, string> = { maa: "Må", bor: "Bør", kan: "Kan" };
+
 function ReglerFane() {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <ReglerPanel />
+      <OnskerPanel />
+      <VarselPanel />
+    </div>
+  );
+}
+
+// ── REGLER: lov, lokale avtaler, særavtaler, dispensasjoner (K-01/K-02),
+//    valgfritt bundet til én ansatt som individuelt unntak (K-03).
+
+function ReglerPanel() {
   const qc = useQueryClient();
   const onError = useToastError();
   const regler = useQuery({ queryKey: ["turnus-regler"], queryFn: api.listRegler });
+  const ansatte = useQuery({ queryKey: ["turnus-ansatte"], queryFn: api.listAnsatte });
+
   const [regeltype, setRegeltype] = useState("aml_daglig_hvile_11t");
   const [haard, setHaard] = useState(true);
+  const [kilde, setKilde] = useState<api.RegelKilde>("lov");
+  const [ansattId, setAnsattId] = useState<number | "">("");
+  const [vekt, setVekt] = useState(5);
+  const [gyldigFra, setGyldigFra] = useState("");
+  const [gyldigTil, setGyldigTil] = useState("");
 
-  const mRegel = useMutation({ mutationFn: api.opprettRegel, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }) });
+  const mRegel = useMutation({
+    mutationFn: api.opprettRegel, onError,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["turnus-regler"] }); setAnsattId(""); setGyldigFra(""); setGyldigTil(""); },
+  });
   const mSlett = useMutation({ mutationFn: api.slettRegel, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }) });
 
+  const navnFor = (id: number | null) => (ansatte.data ?? []).find((a) => a.id === id)?.navn;
+
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
     <Card>
-      <CardHeader><CardTitle className="text-base">Regler</CardTitle></CardHeader>
+      <CardHeader><CardTitle className="text-base">Regler og avtaler</CardTitle></CardHeader>
       <CardContent className="space-y-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={regeltype} onChange={(e) => setRegeltype(e.target.value)} data-testid="sel-regeltype">
-            <option value="aml_daglig_hvile_11t">AML: 11t døgnhvile</option>
-            <option value="aml_max_uketimer">AML: maks uketimer</option>
-            <option value="helgefrekvens">Helgefrekvens</option>
-            <option value="kompetansekrav">Kompetansekrav</option>
+        <div className="grid gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={regeltype} onChange={(e) => setRegeltype(e.target.value)} data-testid="sel-regeltype">
+              <option value="aml_daglig_hvile_11t">AML: 11t døgnhvile</option>
+              <option value="aml_max_uketimer">AML: maks uketimer</option>
+              <option value="helgefrekvens">Helgefrekvens</option>
+              <option value="kompetansekrav">Kompetansekrav</option>
+              <option value="max_netter_paa_rad">Maks netter på rad</option>
+              <option value="onsket_vaktlengde">Ønsket vaktlengde</option>
+            </select>
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={kilde} onChange={(e) => setKilde(e.target.value as api.RegelKilde)} data-testid="sel-kilde">
+              <option value="lov">Lov</option>
+              <option value="lokal_avtale">Lokal avtale</option>
+              <option value="saeravtale">Særavtale</option>
+              <option value="dispensasjon">Dispensasjon</option>
+            </select>
+          </div>
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-regel-ansatt">
+            <option value="">Gjelder alle ansatte</option>
+            {(ansatte.data ?? []).map((a) => <option key={a.id} value={a.id}>Kun {a.navn} (individuelt unntak)</option>)}
           </select>
-          <label className="flex items-center gap-1.5 text-sm"><input type="checkbox" checked={haard} onChange={(e) => setHaard(e.target.checked)} /> Hard</label>
-          <Button onClick={() => mRegel.mutate({ regeltype, haard })} data-testid="btn-regel">Legg til regel</Button>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-1.5 text-sm">
+              <input type="checkbox" checked={haard} onChange={(e) => setHaard(e.target.checked)} /> Hard (blokkerer)
+            </label>
+            {!haard && (
+              <label className="flex items-center gap-1.5 text-sm">
+                Vekt
+                <input type="range" min={0} max={10} value={vekt} onChange={(e) => setVekt(Number(e.target.value))} className="accent-[hsl(var(--primary))]" aria-label="Vekt for myk regel" />
+                <span className="w-4 tabular-nums text-muted-foreground">{vekt}</span>
+              </label>
+            )}
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-sm">
+            <span className="text-muted-foreground">Gyldig</span>
+            <Input type="date" value={gyldigFra} onChange={(e) => setGyldigFra(e.target.value)} className="w-40" aria-label="Gyldig fra" />
+            <span className="text-muted-foreground">–</span>
+            <Input type="date" value={gyldigTil} onChange={(e) => setGyldigTil(e.target.value)} className="w-40" aria-label="Gyldig til" />
+          </div>
+          <Button data-testid="btn-regel"
+            onClick={() => mRegel.mutate({
+              regeltype, haard, kilde,
+              ansattId: ansattId || undefined,
+              vekt: haard ? undefined : vekt,
+              gyldigFra: gyldigFra || undefined,
+              gyldigTil: gyldigTil || undefined,
+            })}>
+            Legg til regel
+          </Button>
         </div>
+
         {(regler.data ?? []).length === 0
           ? <TomHint>Ingen regler ennå — harde regler blokkerer, myke vektes.</TomHint>
           : <ul className="space-y-1 text-sm">
               {(regler.data ?? []).map((r) => (
-                <li key={r.id} className="flex items-center justify-between rounded bg-muted/40 px-2 py-1.5">
-                  <span>{r.regeltype} {r.haard ? <Badge variant="outline" className="ml-1">hard</Badge> : <Badge variant="secondary" className="ml-1">myk</Badge>}</span>
+                <li key={r.id} className="flex items-start justify-between gap-2 rounded bg-muted/40 px-2 py-1.5">
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="font-medium">{r.regeltype}</span>
+                      {r.haard ? <Badge variant="outline">hard</Badge> : <Badge variant="secondary">myk · vekt {r.vekt}</Badge>}
+                      {r.kilde && r.kilde !== "lov" && <Badge className="bg-sky-600 hover:bg-sky-600">{KILDE_LABEL[r.kilde] ?? r.kilde}</Badge>}
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {r.ansatt_id ? `Kun ${navnFor(r.ansatt_id) ?? `#${r.ansatt_id}`}` : "Alle ansatte"}
+                      {(r.gyldig_fra || r.gyldig_til) && ` · ${r.gyldig_fra ? String(r.gyldig_fra).slice(0, 10) : "…"}–${r.gyldig_til ? String(r.gyldig_til).slice(0, 10) : "…"}`}
+                    </div>
+                  </div>
                   <Button size="sm" variant="ghost" onClick={() => mSlett.mutate(String(r.id))}>Fjern</Button>
                 </li>
               ))}
             </ul>}
       </CardContent>
     </Card>
-    <VarselPanel />
-    </div>
+  );
+}
+
+// ── ØNSKER: ansattes innspill og preferanser (K-05). Vektes av solveren
+//    via vektOnsker; prioritet skiller må/bør/kan.
+
+function OnskerPanel() {
+  const qc = useQueryClient();
+  const onError = useToastError();
+  const onsker = useQuery({ queryKey: ["turnus-onsker"], queryFn: api.listOnsker });
+  const ansatte = useQuery({ queryKey: ["turnus-ansatte"], queryFn: api.listAnsatte });
+  const vaktkoder = useQuery({ queryKey: ["turnus-vaktkoder"], queryFn: api.listVaktkoder });
+
+  const [ansattId, setAnsattId] = useState<number | "">("");
+  const [type, setType] = useState<api.OnskeType>("onske_fri");
+  const [dato, setDato] = useState("");
+  const [vaktkodeId, setVaktkodeId] = useState<number | "">("");
+  const [prioritet, setPrioritet] = useState<api.OnskePrioritet>("bor");
+  const [begrunnelse, setBegrunnelse] = useState("");
+
+  const mOnske = useMutation({
+    mutationFn: api.opprettOnske, onError,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["turnus-onsker"] }); setDato(""); setBegrunnelse(""); },
+  });
+  const mSlett = useMutation({ mutationFn: api.slettOnske, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-onsker"] }) });
+
+  const navnFor = (id: number) => (ansatte.data ?? []).find((a) => a.id === id)?.navn ?? `#${id}`;
+  const kodeFor = (id: number | null) => (vaktkoder.data ?? []).find((v) => v.id === id)?.kode;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Ansattes ønsker</CardTitle>
+        <p className="mt-0.5 text-xs text-muted-foreground">Registrer innspill og preferanser. Ønsker vektes av KI-en ved generering — «må» teller tyngst.</p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="grid gap-2">
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-onske-ansatt">
+            <option value="">Velg ansatt…</option>
+            {(ansatte.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.navn}</option>)}
+          </select>
+          <div className="flex flex-wrap items-center gap-2">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={type} onChange={(e) => setType(e.target.value as api.OnskeType)} data-testid="sel-onske-type">
+              <option value="onske_fri">Ønsker fri</option>
+              <option value="onske_vakt">Ønsker vakt</option>
+            </select>
+            <Input type="date" value={dato} onChange={(e) => setDato(e.target.value)} className="w-40" aria-label="Dato for ønsket" data-testid="inp-onske-dato" />
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={prioritet} onChange={(e) => setPrioritet(e.target.value as api.OnskePrioritet)} data-testid="sel-onske-prioritet">
+              <option value="kan">Kan</option>
+              <option value="bor">Bør</option>
+              <option value="maa">Må</option>
+            </select>
+          </div>
+          {type === "onske_vakt" && (
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={vaktkodeId} onChange={(e) => setVaktkodeId(Number(e.target.value) || "")} data-testid="sel-onske-vaktkode">
+              <option value="">Hvilken som helst vaktkode</option>
+              {(vaktkoder.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.kode}</option>)}
+            </select>
+          )}
+          <Input placeholder="Begrunnelse (valgfritt)" value={begrunnelse} onChange={(e) => setBegrunnelse(e.target.value)} data-testid="inp-onske-begrunnelse" />
+          <Button disabled={!ansattId || !dato || mOnske.isPending} data-testid="btn-onske"
+            onClick={() => mOnske.mutate({
+              ansattId: Number(ansattId), type, dato, prioritet,
+              vaktkodeId: type === "onske_vakt" && vaktkodeId ? Number(vaktkodeId) : undefined,
+              begrunnelse: begrunnelse.trim() || undefined,
+            })}>
+            Registrer ønske
+          </Button>
+        </div>
+
+        {(onsker.data ?? []).length === 0
+          ? <TomHint>Ingen ønsker registrert ennå.</TomHint>
+          : <ul className="space-y-1 text-sm">
+              {(onsker.data ?? []).map((o) => (
+                <li key={o.id} className="flex items-start justify-between gap-2 rounded bg-muted/40 px-2 py-1.5" data-testid={`onske-${o.id}`}>
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="font-medium">{navnFor(o.ansatt_id)}</span>
+                      <Badge variant={o.type === "onske_fri" ? "outline" : "secondary"}>
+                        {o.type === "onske_fri" ? "ønsker fri" : `ønsker vakt${kodeFor(o.vaktkode_id) ? ` (${kodeFor(o.vaktkode_id)})` : ""}`}
+                      </Badge>
+                      <Badge variant="outline">{PRIORITET_LABEL[o.prioritet] ?? o.prioritet}</Badge>
+                    </div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">
+                      {o.dato ? String(o.dato).slice(0, 10) : o.ukedag ? `hver ${UKEDAGER[o.ukedag]}` : "uten dato"}
+                      {o.begrunnelse ? ` · ${o.begrunnelse}` : ""}
+                    </div>
+                  </div>
+                  <Button size="sm" variant="ghost" onClick={() => mSlett.mutate(o.id)}>Fjern</Button>
+                </li>
+              ))}
+            </ul>}
+      </CardContent>
+    </Card>
   );
 }
 
