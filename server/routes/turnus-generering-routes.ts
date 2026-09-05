@@ -316,6 +316,55 @@ export function registerTurnusGenereringRoutes(app: Express): void {
     }
   });
 
+  // Persist override edits: reassign generated shifts to different employees.
+  // Each edit is org-validated (the shift must belong to this run+org and the
+  // target employee to this org) before any UPDATE, so a forged vaktId/ansattId
+  // cannot touch another tenant's rows.
+  app.patch('/api/turnus/genereringer/:id/vakter', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    const endringer = req.body?.endringer;
+    if (!Array.isArray(endringer) || endringer.some((e) =>
+      !e || !Number.isInteger(Number(e.vaktId)) || !Number.isInteger(Number(e.ansattId)))) {
+      return res.status(400).json({ error: 'endringer ([{vaktId, ansattId}]) kreves.' });
+    }
+    try {
+      const result = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT id FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return { notFound: true as const };
+        for (const e of endringer) {
+          const vaktId = Number(e.vaktId), ansattId = Number(e.ansattId);
+          const { rows: [v] } = await client.query(
+            `SELECT 1 FROM tidum_turnus_kalendervakter WHERE id = $1 AND generering_id = $2 AND org_id = $3`,
+            [vaktId, id, actor.orgId]);
+          const { rows: [a] } = await client.query(
+            `SELECT 1 FROM tidum_turnus_ansatte WHERE id = $1 AND org_id = $2`,
+            [ansattId, actor.orgId]);
+          if (!v || !a) return { bad: true as const };
+        }
+        let oppdatert = 0;
+        for (const e of endringer) {
+          await client.query(
+            `UPDATE tidum_turnus_kalendervakter SET ansatt_id = $1, kilde = 'manuell'
+              WHERE id = $2 AND org_id = $3`,
+            [Number(e.ansattId), Number(e.vaktId), actor.orgId]);
+          oppdatert++;
+        }
+        return { oppdatert };
+      });
+      if ((result as any)?.notFound) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      if ((result as any)?.bad) return res.status(400).json({ error: 'Ugyldig vakt eller ansatt for denne organisasjonen.' });
+      res.json(result);
+    } catch (err) {
+      console.error('[turnus-generering] lagre vakter feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
   // Override consequence-preview: no DB write, pure AML evaluation of a proposed
   // edited shift set (typically one employee's shifts after a manual change).
   app.post('/api/turnus/konsekvens', async (req: Request, res: Response) => {

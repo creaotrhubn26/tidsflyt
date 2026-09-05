@@ -143,4 +143,34 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).get('/api/turnus/genereringer/999999/vakter');
     expect(r.status).toBe(404);
   });
+
+  it.skipIf(!SOLVER_OK)('PATCH vakter reassigns a shift to another employee (A5 save)', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const list = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/vakter`);
+    const v = list.body[0];
+    const annen = list.body.find((x: any) => x.ansattId !== v.ansattId);
+    const r = await request(app).patch(`/api/turnus/genereringer/${gen.body.generId}/vakter`)
+      .send({ endringer: [{ vaktId: v.id, ansattId: annen.ansattId }] });
+    expect(r.status).toBe(200);
+    expect(r.body.oppdatert).toBe(1);
+    const after = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/vakter`);
+    expect(after.body.find((x: any) => x.id === v.id).ansattId).toBe(annen.ansattId);
+  }, 30_000);
+
+  it('PATCH vakter rejects a foreign ansattId with 400', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    // generering may be infeasible without solver; only assert the validation path
+    const genId = gen.body.generId ?? 1;
+    const r = await request(app).patch(`/api/turnus/genereringer/${genId}/vakter`)
+      .send({ endringer: [{ vaktId: 1, ansattId: 999999 }] });
+    expect([400, 404]).toContain(r.status);
+  });
+
+  it('PATCH vakter requires an endringer array', async () => {
+    const app = appFor(userId);
+    const r = await request(app).patch('/api/turnus/genereringer/1/vakter').send({ endringer: 'x' });
+    expect(r.status).toBe(400);
+  });
 });

@@ -193,6 +193,12 @@ export interface GenerertVakt {
 export function listGenereringVakter(id: string | number): Promise<GenerertVakt[]> {
   return requestJson(`/api/turnus/genereringer/${id}/vakter`);
 }
+export function lagreVaktEndringer(
+  id: string | number,
+  endringer: Array<{ vaktId: number; ansattId: number }>,
+): Promise<{ oppdatert: number }> {
+  return requestJson(`/api/turnus/genereringer/${id}/vakter`, jsonInit("PATCH", { endringer }));
+}
 
 export function konsekvens(endringer: Array<{
   ansattId: number; dato: string; startTid: string; sluttTid: string; pauseTimer?: number;
