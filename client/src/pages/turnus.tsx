@@ -868,6 +868,7 @@ function ReglerFane() {
   const mSlett = useMutation({ mutationFn: api.slettRegel, onError, onSuccess: () => qc.invalidateQueries({ queryKey: ["turnus-regler"] }) });
 
   return (
+    <div className="grid gap-4 lg:grid-cols-2">
     <Card>
       <CardHeader><CardTitle className="text-base">Regler</CardTitle></CardHeader>
       <CardContent className="space-y-3">
@@ -891,6 +892,63 @@ function ReglerFane() {
                 </li>
               ))}
             </ul>}
+      </CardContent>
+    </Card>
+    <VarselPanel />
+    </div>
+  );
+}
+
+// ── VARSLING (påminnelser) ───────────────────────────────────────────────────
+
+function VarselPanel() {
+  const qc = useQueryClient();
+  const onError = useToastError();
+  const { toast } = useToast();
+  const innst = useQuery({ queryKey: ["turnus-varsel"], queryFn: api.getVarselInnstillinger });
+  const [min, setMin] = useState(60);
+  const [epost, setEpost] = useState(false);
+  const [appVarsel, setAppVarsel] = useState(true);
+  const [sms, setSms] = useState(false);
+  const [aktiv, setAktiv] = useState(true);
+
+  useEffect(() => {
+    const d = innst.data;
+    if (d) { setMin(d.paaminnelse_min); setEpost(d.epost); setAppVarsel(d.app); setSms(d.sms); setAktiv(d.aktiv); }
+  }, [innst.data]);
+
+  const lagre = useMutation({
+    mutationFn: () => api.lagreVarselInnstillinger({ paaminnelseMin: min, epost, app: appVarsel, sms, aktiv }),
+    onError,
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["turnus-varsel"] }); toast({ title: "Varsling lagret" }); },
+  });
+
+  return (
+    <Card>
+      <CardHeader><CardTitle className="text-base">Vakt-påminnelser</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={aktiv} onChange={(e) => setAktiv(e.target.checked)} data-testid="chk-varsel-aktiv" />
+          <span>Send påminnelse før vaktstart</span>
+        </label>
+        <div className="flex items-center gap-2">
+          <span className="text-muted-foreground">Varsle</span>
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={min} onChange={(e) => setMin(Number(e.target.value))} data-testid="sel-varsel-min" disabled={!aktiv}>
+            <option value={15}>15 min</option>
+            <option value={30}>30 min</option>
+            <option value={60}>1 time</option>
+            <option value={120}>2 timer</option>
+            <option value={720}>12 timer</option>
+            <option value={1440}>1 dag</option>
+          </select>
+          <span className="text-muted-foreground">før vaktstart, via:</span>
+        </div>
+        <div className="flex flex-wrap gap-4">
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={appVarsel} onChange={(e) => setAppVarsel(e.target.checked)} disabled={!aktiv} /> App-varsel</label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={epost} onChange={(e) => setEpost(e.target.checked)} disabled={!aktiv} /> E-post</label>
+          <label className="flex items-center gap-1.5"><input type="checkbox" checked={sms} onChange={(e) => setSms(e.target.checked)} disabled={!aktiv} /> SMS <span className="text-muted-foreground">(betalt)</span></label>
+        </div>
+        <Button size="sm" disabled={lagre.isPending} onClick={() => lagre.mutate()} data-testid="btn-varsel-lagre">{lagre.isPending ? "Lagrer…" : "Lagre varsling"}</Button>
       </CardContent>
     </Card>
   );

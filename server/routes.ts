@@ -34,6 +34,7 @@ import { registerTurnusStrukturRoutes } from "./routes/turnus-struktur-routes";
 import { registerTurnusReglerRoutes } from "./routes/turnus-regler-routes";
 import { registerTurnusPlanRoutes } from "./routes/turnus-plan-routes";
 import { registerTurnusGenereringRoutes } from "./routes/turnus-generering-routes";
+import { registerTurnusReminderRoutes, setupTurnusReminderCron } from "./routes/turnus-reminder-cron";
 import { registerBarnevernForebyggendeRoutes } from "./routes/barnevern-forebyggende-routes";
 import { registerBarnevernRapporteringRoutes } from "./routes/barnevern-rapportering-routes";
 import { registerKommuneBrukerRoutes } from "./routes/kommune-bruker-routes";
@@ -6830,6 +6831,7 @@ export async function registerRoutes(
     setupSeatOverrunCron();
     setupTaskEscalationCron();
     setupFristEscalationCron();
+    setupTurnusReminderCron();
     setupArchiveCron();
     setupSecureAttachmentQuarantineCleanup();
     setupSecureDialogGovernanceCron();
@@ -6857,6 +6859,7 @@ export async function registerRoutes(
   registerTurnusReglerRoutes(app);
   registerTurnusPlanRoutes(app);
   registerTurnusGenereringRoutes(app);
+  registerTurnusReminderRoutes(app);
   registerBarnevernForebyggendeRoutes(app);
   registerBarnevernRapporteringRoutes(app);
   registerKommuneBrukerRoutes(app);
