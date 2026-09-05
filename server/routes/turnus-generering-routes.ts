@@ -117,6 +117,19 @@ export function registerTurnusGenereringRoutes(app: Express): void {
             ),
           ]);
 
+        // Registered rules in force for this plan's window (K-01/K-02/K-03).
+        // Validity is checked against the plan's start date, so an agreement
+        // that expired before the plan begins never reaches the solver.
+        const { rows: regler } = await client.query(
+          `SELECT regeltype, haard, vekt, parametre, ansatt_id, avdeling_id
+             FROM tidum_turnus_regler
+            WHERE org_id = $1 AND aktiv
+              AND (avdeling_id IS NULL OR avdeling_id = $2)
+              AND (gyldig_fra IS NULL OR gyldig_fra <= $3::date)
+              AND (gyldig_til IS NULL OR gyldig_til >= $3::date)`,
+          [actor.orgId, plan.avdeling_id, plan.start_dato],
+        );
+
         const dekningskrav = behov.flatMap((b) =>
           expandBehov(b, plan.start_dato, plan.rotasjon_uker || 6));
 
@@ -156,6 +169,14 @@ export function registerTurnusGenereringRoutes(app: Express): void {
             vektKontinuitet: prof?.vekt_kontinuitet ?? 5,
             vektKostnad: prof?.vekt_kostnad ?? 5,
           },
+          regler: regler.map((r) => ({
+            regeltype: r.regeltype,
+            haard: r.haard !== false,
+            vekt: Number(r.vekt ?? 0),
+            parametre: (r.parametre ?? {}) as Record<string, unknown>,
+            ansattId: r.ansatt_id ?? null,
+            avdelingId: r.avdeling_id ?? null,
+          })),
           laasteVakter: [],
         };
 
@@ -180,13 +201,22 @@ export function registerTurnusGenereringRoutes(app: Express): void {
                   objektiv_json = $4, fullfort = NOW()
             WHERE id = $5 AND org_id = $6`,
           [dbStatus, resp.solverVersjon, resp.solveTidMs,
-           JSON.stringify(resp.objektiv ?? {}), generId, actor.orgId],
+           JSON.stringify({ ...(resp.objektiv ?? {}), anvendteRegler: resp.anvendteRegler ?? [] }),
+           generId, actor.orgId],
         );
 
         // Deviations: unmet soft goals (+ infeasibility conflicts) → XAI rows.
         const avvik = [
           ...resp.uoppfylte.map((u) => ({ type: u.type, alvor: 'advarsel', ref: u.referanse, f: u.forklaring })),
           ...(resp.konfliktsett ?? []).map((c) => ({ type: 'infeasible_constraint', alvor: 'feil', ref: c.referanse, f: c.forklaring })),
+          // A registered rule the solver has no implementation for is surfaced
+          // rather than silently ignored — the planner must not assume it held.
+          ...(resp.anvendteRegler ?? [])
+            .filter((r) => !r.stottet)
+            .map((r) => ({
+              type: 'regel_ikke_stottet', alvor: 'advarsel', ref: r.regeltype,
+              f: `Regelen «${r.regeltype}» er registrert, men støttes ikke av turnusmotoren ennå og påvirket ikke dette forslaget.`,
+            })),
         ];
         for (const av of avvik) {
           await client.query(

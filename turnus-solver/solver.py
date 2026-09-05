@@ -64,6 +64,77 @@ def _iso_week(dato: str) -> str:
     return f"{y}-W{w:02d}"
 
 
+#: regeltype -> (parameter key, default value). Anything not listed is
+#: ignored by the model but still reported back as stottet=False.
+_REGEL_DEFAULTS = {
+    "aml_daglig_hvile_11t": ("timer", 11.0),
+    "aml_max_uketimer": ("timer", 48.0),
+    "max_netter_paa_rad": ("antall", None),
+    "max_vakter_paa_rad": ("antall", None),
+}
+
+
+def _regel_verdi(regler, regeltype, ansatt_id, default):
+    """Resolve a rule's numeric value for one employee.
+
+    An employee-scoped rule wins over an org-wide one, so a dispensasjon for a
+    single person does not leak to the rest of the org. Among rules of equal
+    scope the last one registered wins.
+    """
+    key = _REGEL_DEFAULTS.get(regeltype, (None, None))[0]
+    if key is None:
+        return default
+    value = default
+    for r in regler:
+        if r.get("regeltype") != regeltype:
+            continue
+        scope = r.get("ansattId")
+        if scope is not None and scope != ansatt_id:
+            continue
+        raw = (r.get("parametre") or {}).get(key)
+        if raw is None:
+            continue
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            continue
+        if scope == ansatt_id:
+            return val  # most specific match — stop here
+        value = val
+    return value
+
+
+def _anvendte_regler(regler, emp_ids) -> list[dict[str, Any]]:
+    """Report what each registered rule resolved to, for the XAI panel (K-14).
+
+    stottet=False means the solver has no implementation for that regeltype, so
+    the UI can say plainly that the rule had no effect on the result rather than
+    implying it was honoured.
+    """
+    ut = []
+    for r in regler:
+        rt = r.get("regeltype")
+        scope = r.get("ansattId")
+        gjelder = [a for a in emp_ids if scope is None or scope == a]
+        stottet = rt in _REGEL_DEFAULTS
+        verdi = None
+        if stottet and gjelder:
+            verdi = _regel_verdi(regler, rt, gjelder[0], None)
+        ut.append({
+            "regeltype": rt,
+            "haard": bool(r.get("haard")),
+            "gjelderAnsatte": gjelder,
+            "stottet": stottet,
+            "verdi": verdi,
+        })
+    return ut
+
+
+def _er_natt(start: str, slutt: str) -> bool:
+    """A shift counts as a night when it starts at/after 20:00 or crosses midnight."""
+    return _parse_hm(start) >= 20 * 60 or _parse_hm(slutt) <= _parse_hm(start)
+
+
 def solve(request: dict[str, Any]) -> dict[str, Any]:
     t0 = time.time()
 
@@ -76,6 +147,7 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
     onsker = request.get("onsker", [])
     vekter = request.get("vekter", {})
     laaste = request.get("laasteVakter", [])
+    regler = request.get("regler") or []
     max_sec = float(request.get("maxSekunder") or 10)
 
     komp = {a["ansattId"]: set(a.get("kompetanser", [])) for a in ansatte}
@@ -116,8 +188,12 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
         en = vk.get("sluttTid", "16:00")
         span.append((_abs_start(k["dato"], st), _abs_end(k["dato"], st, en), _shift_minutes(st, en)))
 
-    # Hard: <11h rest between two shifts for the same employee are exclusive.
+    # Hard: too-short rest between two shifts for the same employee are exclusive.
+    # The minimum defaults to AML §10-8's 11h but a registered rule (typically a
+    # dispensasjon, which AML permits down to 8h by agreement) can lower it for
+    # the whole org or one employee.
     for a in emp_ids:
+        hvile_min = _regel_verdi(regler, "aml_daglig_hvile_11t", a, 11.0) * 60
         mine = [ki for ki in range(len(krav)) if (a, ki) in x]
         for idx_i in range(len(mine)):
             for idx_j in range(idx_i + 1, len(mine)):
@@ -129,17 +205,49 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
                     rest_min = (sj - ei).total_seconds() / 60
                 else:
                     rest_min = (si - ej).total_seconds() / 60
-                if 0 <= rest_min < 11 * 60:
+                if 0 <= rest_min < hvile_min:
                     model.Add(x[(a, ki)] + x[(a, kj)] <= 1)
 
-    # Hard: weekly worked <= 48h per employee per ISO week.
+    # Hard: weekly worked hours per employee per ISO week (AML §10-6 default 48h,
+    # overridable by a registered local agreement / særavtale).
     for a in emp_ids:
+        uketimer = _regel_verdi(regler, "aml_max_uketimer", a, 48.0)
         weeks: dict[str, list[tuple[Any, int]]] = {}
         for ki in range(len(krav)):
             if (a, ki) in x:
                 weeks.setdefault(_iso_week(krav[ki]["dato"]), []).append((x[(a, ki)], span[ki][2]))
         for _wk, items in weeks.items():
-            model.Add(sum(var * mins for var, mins in items) <= 48 * 60)
+            model.Add(sum(var * mins for var, mins in items) <= int(uketimer * 60))
+
+    # Registered consecutive-run limits: at most N nights (or shifts) in any
+    # window of N+1 consecutive days. Hard rules constrain the model; soft ones
+    # are left to the objective (they carry vekt, not a bound).
+    dager_sortert = sorted({k["dato"] for k in krav})
+    natt_ki = {
+        ki for ki, k in enumerate(krav)
+        if _er_natt(vaktkoder.get(k["vaktkodeId"], {}).get("startTid", "08:00"),
+                    vaktkoder.get(k["vaktkodeId"], {}).get("sluttTid", "16:00"))
+    }
+    for regeltype, bare_natt in (("max_netter_paa_rad", True), ("max_vakter_paa_rad", False)):
+        harde = [r for r in regler if r.get("regeltype") == regeltype and r.get("haard")]
+        if not harde:
+            continue
+        for a in emp_ids:
+            grense = _regel_verdi(regler, regeltype, a, None)
+            if grense is None or grense < 0:
+                continue
+            n = int(grense)
+            # Only employees the rule actually scopes to.
+            if not any(r.get("ansattId") in (None, a) for r in harde):
+                continue
+            for start_i in range(0, max(0, len(dager_sortert) - n)):
+                vindu = dager_sortert[start_i:start_i + n + 1]
+                vars_i_vindu = [
+                    x[(a, ki)] for ki, k in enumerate(krav)
+                    if (a, ki) in x and k["dato"] in vindu and (not bare_natt or ki in natt_ki)
+                ]
+                if len(vars_i_vindu) > n:
+                    model.Add(sum(vars_i_vindu) <= n)
 
     # Hard: locked shifts forced on (match by ansatt+dato+vaktkode).
     locked_keys = {(l["ansattId"], l["dato"], l.get("vaktkodeId")) for l in laaste}
@@ -302,6 +410,7 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
             "vakter": vakter,
             "bindende": bindende,
             "uoppfylte": uoppfylte,
+            "anvendteRegler": _anvendte_regler(regler, emp_ids),
             "objektiv": {
                 "onske": float(w_onske),
                 "rettferdighet": float(w_fair),

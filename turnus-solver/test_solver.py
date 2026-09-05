@@ -130,3 +130,114 @@ def test_locked_shift_is_kept():
     ))
     assert r["status"] in ("optimal", "feasible")
     assert r["vakter"][0]["ansattId"] == 1
+
+
+# ── Registrerte regler (K-01/K-02/K-03): avtaler, dispensasjoner, unntak ──────
+
+def _hvile_case(regler):
+    """Night 22-06 then next-morning 08-16 with a single employee: only solvable
+    when the required rest is relaxed below 2h."""
+    return solve(base(
+        ansatte=[{"ansattId": 1, "stillingsprosent": 100, "kompetanser": [10]}],
+        dekningskrav=[
+            {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 2, "antallKrevd": 1},
+            {"avdelingId": 1, "dato": "2026-01-06", "vaktkodeId": 1, "antallKrevd": 1},
+        ],
+        regler=regler,
+    ))
+
+
+def test_dispensasjon_relaxes_daily_rest():
+    # Without a rule the 11h default makes this infeasible (see the test above).
+    r = _hvile_case([{
+        "regeltype": "aml_daglig_hvile_11t", "haard": True, "vekt": 0,
+        "parametre": {"timer": 2}, "ansattId": None, "avdelingId": None,
+    }])
+    assert r["status"] in ("optimal", "feasible")
+    assert len(r["vakter"]) == 2
+
+
+def test_employee_scoped_rule_does_not_leak_to_others():
+    # The dispensasjon is bound to employee 2, so employee 1 keeps the 11h rest
+    # and the pair of shifts stays unfillable.
+    r = _hvile_case([{
+        "regeltype": "aml_daglig_hvile_11t", "haard": True, "vekt": 0,
+        "parametre": {"timer": 2}, "ansattId": 2, "avdelingId": None,
+    }])
+    assert r["status"] == "infeasible"
+
+
+def test_weekly_hours_rule_tightens_the_default_cap():
+    # Five day-shifts (7.5h each = 37.5h) for one employee, capped at 20h/week.
+    krav = [{"avdelingId": 1, "dato": d, "vaktkodeId": 1, "antallKrevd": 1}
+            for d in ("2026-01-05", "2026-01-06", "2026-01-07", "2026-01-08", "2026-01-09")]
+    r = solve(base(
+        ansatte=[{"ansattId": 1, "stillingsprosent": 100, "kompetanser": [10]}],
+        dekningskrav=krav,
+        regler=[{"regeltype": "aml_max_uketimer", "haard": True, "vekt": 0,
+                 "parametre": {"timer": 20}, "ansattId": None, "avdelingId": None}],
+    ))
+    assert r["status"] == "infeasible"
+
+
+def test_max_consecutive_nights_is_enforced():
+    # Three consecutive nights, one employee, rule allows at most 2 in a row.
+    krav = [{"avdelingId": 1, "dato": d, "vaktkodeId": 2, "antallKrevd": 1}
+            for d in ("2026-01-05", "2026-01-06", "2026-01-07")]
+    r = solve(base(
+        ansatte=[{"ansattId": 1, "stillingsprosent": 100, "kompetanser": [10]}],
+        dekningskrav=krav,
+        regler=[{"regeltype": "max_netter_paa_rad", "haard": True, "vekt": 0,
+                 "parametre": {"antall": 2}, "ansattId": None, "avdelingId": None}],
+    ))
+    assert r["status"] == "infeasible"
+
+
+def test_soft_rule_does_not_block_the_solution():
+    # Same three nights, but the rule is soft: it must not constrain the model.
+    krav = [{"avdelingId": 1, "dato": d, "vaktkodeId": 2, "antallKrevd": 1}
+            for d in ("2026-01-05", "2026-01-06", "2026-01-07")]
+    r = solve(base(
+        ansatte=[{"ansattId": 1, "stillingsprosent": 100, "kompetanser": [10]}],
+        dekningskrav=krav,
+        regler=[{"regeltype": "max_netter_paa_rad", "haard": False, "vekt": 8,
+                 "parametre": {"antall": 2}, "ansattId": None, "avdelingId": None}],
+    ))
+    assert r["status"] in ("optimal", "feasible")
+    assert len(r["vakter"]) == 3
+
+
+def test_unsupported_rule_is_reported_not_silently_ignored():
+    r = solve(base(
+        dekningskrav=[{"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 1}],
+        regler=[{"regeltype": "helt_ukjent_regel", "haard": True, "vekt": 0,
+                 "parametre": {}, "ansattId": None, "avdelingId": None}],
+    ))
+    assert r["status"] in ("optimal", "feasible")
+    anvendt = {a["regeltype"]: a for a in r["anvendteRegler"]}
+    assert anvendt["helt_ukjent_regel"]["stottet"] is False
+
+
+def test_supported_rule_is_reported_with_resolved_value():
+    r = solve(base(
+        dekningskrav=[{"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 1}],
+        regler=[{"regeltype": "aml_max_uketimer", "haard": True, "vekt": 0,
+                 "parametre": {"timer": 35}, "ansattId": None, "avdelingId": None}],
+    ))
+    anvendt = {a["regeltype"]: a for a in r["anvendteRegler"]}
+    assert anvendt["aml_max_uketimer"]["stottet"] is True
+    assert anvendt["aml_max_uketimer"]["verdi"] == 35
+    assert anvendt["aml_max_uketimer"]["gjelderAnsatte"] == [1, 2]
+
+
+def test_no_regler_key_keeps_default_behaviour():
+    # Backwards compatibility: an old caller that omits `regler` still gets the
+    # AML defaults (11h rest makes this infeasible).
+    r = _hvile_case(None) if False else solve(base(
+        ansatte=[{"ansattId": 1, "stillingsprosent": 100, "kompetanser": [10]}],
+        dekningskrav=[
+            {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 2, "antallKrevd": 1},
+            {"avdelingId": 1, "dato": "2026-01-06", "vaktkodeId": 1, "antallKrevd": 1},
+        ],
+    ))
+    assert r["status"] == "infeasible"

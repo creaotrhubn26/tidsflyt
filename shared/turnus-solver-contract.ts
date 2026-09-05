@@ -58,6 +58,41 @@ export interface OnskeInput {
   prioritet: 'maa' | 'bor' | 'kan';
 }
 
+/**
+ * A registered rule the solver must honour (K-01/K-02/K-03). Mirrors
+ * tidum_turnus_regler. Scope: ansattId set = only that employee (individual
+ * exemption); null = the whole org. An employee-scoped rule overrides an
+ * org-wide one of the same type, so a dispensasjon can relax a general limit
+ * for one person without touching the rest.
+ *
+ * Recognised regeltype values (unknown types are ignored, and reported back
+ * in anvendteRegler so the UI can say they had no effect):
+ *   aml_daglig_hvile_11t  parametre {timer}  — minimum rest between shifts
+ *   aml_max_uketimer      parametre {timer}  — weekly worked-hours cap
+ *   max_netter_paa_rad    parametre {antall} — consecutive night shifts
+ *   max_vakter_paa_rad    parametre {antall} — consecutive shifts
+ */
+export interface SolverRegel {
+  regeltype: string;
+  haard: boolean;
+  /** Penalty weight when haard is false. */
+  vekt: number;
+  parametre: Record<string, unknown>;
+  ansattId?: number | null;
+  avdelingId?: number | null;
+}
+
+/** What the solver actually did with a rule — feeds the XAI "rules applied". */
+export interface AnvendtRegel {
+  regeltype: string;
+  haard: boolean;
+  /** Employees the rule was applied to; empty when it matched nobody. */
+  gjelderAnsatte: number[];
+  /** false when the solver does not implement this regeltype. */
+  stottet: boolean;
+  verdi?: number | null;
+}
+
 export interface SolverRequest {
   contractVersion: number;
   planId: number;
@@ -69,6 +104,8 @@ export interface SolverRequest {
   dekningskrav: DekningsKrav[];
   onsker: OnskeInput[];
   vekter: PrioriteringsVekter;
+  /** Registered rules/agreements/exemptions in force for this plan. */
+  regler?: SolverRegel[];
   /** Shifts the planner has locked; the solver must keep these exactly. */
   laasteVakter: TurnusShift[];
   /** Solver wall-clock budget; the sidecar returns its best feasible solution. */
@@ -103,6 +140,8 @@ export interface SolverResponse {
   uoppfylte: UoppfyltMaal[];
   /** Objective value broken down per priority dimension (XAI "how we weighed"). */
   objektiv: Partial<Record<UoppfyltMaal['type'], number>>;
+  /** Which registered rules were applied, and whether the solver supports them. */
+  anvendteRegler?: AnvendtRegel[];
   /** On infeasible: the minimal conflicting hard-constraint set, if the solver produced one. */
   konfliktsett?: BindendeConstraint[];
   solveTidMs: number;
