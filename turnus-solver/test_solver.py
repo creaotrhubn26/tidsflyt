@@ -241,3 +241,57 @@ def test_no_regler_key_keeps_default_behaviour():
         ],
     ))
     assert r["status"] == "infeasible"
+
+
+# ── K-08: skala — ~25 turnuslinjer med målbar generingstid ────────────────────
+
+def test_scale_25_lines_four_weeks_produces_a_complete_roster():
+    """Anbudets K-08: generere turnus for ~25 linjer med målbar tid.
+
+    25 ansatte, 4 uker, D/A/N hver dag = 84 dekningskrav / 236 vakter og
+    2 100 beslutningsvariabler.
+
+    Målt oppførsel: CP-SAT finner en komplett, lovlig turnus raskt (fylte all
+    dekning også med 3 sekunders budsjett), men beviser ikke optimalitet på
+    denne størrelsen — den bruker hele budsjettet på å lete etter bedre
+    løsninger og returnerer 'feasible'. maxSekunder er derfor en kvalitets-
+    knapp, ikke en risiko for å ende opp uten svar.
+
+    Testen fester det som betyr noe: full dekning, ingen dobbeltbooking, og
+    at tiden rapporteres og holder seg innenfor budsjettet.
+    """
+    import datetime as dt
+
+    budsjett_sek = 10
+    ansatte = [{"ansattId": i, "stillingsprosent": 100, "kompetanser": [10]}
+               for i in range(1, 26)]
+    vaktkoder = [
+        {"vaktkodeId": 1, "startTid": "07:00", "sluttTid": "15:00", "tellerSomArbeid": True},
+        {"vaktkodeId": 2, "startTid": "15:00", "sluttTid": "23:00", "tellerSomArbeid": True},
+        {"vaktkodeId": 3, "startTid": "23:00", "sluttTid": "07:00", "tellerSomArbeid": True},
+    ]
+    start = dt.date(2026, 1, 5)
+    krav = []
+    for d in range(28):
+        dato = (start + dt.timedelta(days=d)).isoformat()
+        helg = (start + dt.timedelta(days=d)).isoweekday() >= 6
+        for vk, antall in ((1, 3 if helg else 4), (2, 2 if helg else 3), (3, 2)):
+            krav.append({"avdelingId": 1, "dato": dato, "vaktkodeId": vk, "antallKrevd": antall})
+
+    r = solve(base(
+        ansatte=ansatte, vaktkoder=vaktkoder, dekningskrav=krav,
+        rotasjonUker=4, maxSekunder=budsjett_sek,
+    ))
+
+    assert r["status"] in ("optimal", "feasible"), r.get("feilmelding")
+    assert len(r["vakter"]) == sum(k["antallKrevd"] for k in krav)  # full dekning
+    assert r["solveTidMs"] > 0                                     # målbar tid
+    # Toleranse: solveTidMs måler hele solve()-kallet, ikke bare CP-SAT-loopen.
+    assert r["solveTidMs"] < (budsjett_sek + 5) * 1000
+
+    # Ingen ansatt får to vakter samme dag — invariant som lett ryker i skala.
+    per_ansatt_dag: dict[tuple[int, str], int] = {}
+    for v in r["vakter"]:
+        nokkel = (v["ansattId"], v["dato"])
+        per_ansatt_dag[nokkel] = per_ansatt_dag.get(nokkel, 0) + 1
+    assert max(per_ansatt_dag.values()) == 1

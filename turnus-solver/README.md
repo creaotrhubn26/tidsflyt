@@ -29,6 +29,23 @@ with `stottet: false`, so the caller can surface that the rule had no effect
 rather than implying it was honoured. The backend records those as a
 `regel_ikke_stottet` deviation.
 
+## Scale (measured)
+
+25 employees × 4 weeks × three shift codes a day = 84 coverage requirements,
+236 shifts, ~2 100 decision variables. Measured on a dev laptop:
+
+| `maxSekunder` | status | shifts filled | wall clock |
+|---|---|---|---|
+| 3 | feasible | 236 (all) | ~3.0s |
+| 10 | feasible | 236 (all) | ~10.1s |
+| 30 | feasible | 236 (all) | ~30.1s |
+
+A complete, legal roster appears well inside a 3-second budget; CP-SAT does not
+prove optimality at this size and keeps searching for better solutions until the
+budget runs out. So `maxSekunder` is a solution-quality dial, not a risk of
+getting no answer — raise it for a better-balanced roster, lower it for a snappy
+demo. Covered by `test_scale_25_lines_four_weeks_produces_a_complete_roster`.
+
 ## Run
 ```
 pip install -r requirements.txt

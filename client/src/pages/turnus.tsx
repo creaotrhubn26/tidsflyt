@@ -145,7 +145,7 @@ function OppsettFane() {
             <Input type="email" placeholder="E-post (varsel)" value={ansEpost} onChange={(e) => setAnsEpost(e.target.value)} data-testid="inp-ans-epost" />
             <Input type="tel" placeholder="Telefon (SMS)" value={ansTlf} onChange={(e) => setAnsTlf(e.target.value)} data-testid="inp-ans-tlf" />
           </div>
-          <select className="w-full rounded-md border bg-background px-2 py-1.5 text-sm" value={ansAvd} onChange={(e) => setAnsAvd(Number(e.target.value) || "")}>
+          <select className="w-full rounded-md border bg-background px-2 py-1.5 text-sm" value={ansAvd} aria-label="Primær avdeling for ansatt" onChange={(e) => setAnsAvd(Number(e.target.value) || "")}>
             <option value="">Primær avdeling…</option>
             {(avdelinger.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.navn}</option>)}
           </select>
@@ -161,8 +161,8 @@ function OppsettFane() {
         <CardContent className="space-y-3">
           <div className="flex gap-2">
             <Input placeholder="Kode" value={vkKode} onChange={(e) => setVkKode(e.target.value)} className="w-20" data-testid="inp-vk-kode" />
-            <Input type="time" value={vkStart} onChange={(e) => setVkStart(e.target.value)} />
-            <Input type="time" value={vkSlutt} onChange={(e) => setVkSlutt(e.target.value)} />
+            <Input type="time" value={vkStart} aria-label="Vaktkode starttid" onChange={(e) => setVkStart(e.target.value)} />
+            <Input type="time" value={vkSlutt} aria-label="Vaktkode slutttid" onChange={(e) => setVkSlutt(e.target.value)} />
           </div>
           <Button className="w-full" disabled={!vkKode.trim()} onClick={() => mVk.mutate({ kode: vkKode.trim(), startTid: vkStart, sluttTid: vkSlutt })} data-testid="btn-vk">Legg til vaktkode</Button>
           {(vaktkoder.data ?? []).length === 0
@@ -230,12 +230,12 @@ function PlanleggingFane() {
             <div className="grid gap-2">
               <Input placeholder="Plannavn" value={pNavn} onChange={(e) => setPNavn(e.target.value)} data-testid="inp-plan-navn" />
               <div className="flex gap-2">
-                <select className="flex-1 rounded-md border bg-background px-2 py-1.5 text-sm" value={pAvd} onChange={(e) => setPAvd(Number(e.target.value) || "")}>
+                <select className="flex-1 rounded-md border bg-background px-2 py-1.5 text-sm" value={pAvd} aria-label="Avdeling for turnusplanen" onChange={(e) => setPAvd(Number(e.target.value) || "")}>
                   <option value="">Avdeling…</option>
                   {(avdelinger.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.navn}</option>)}
                 </select>
-                <Input type="number" value={pUker} min={1} max={26} onChange={(e) => setPUker(Number(e.target.value))} className="w-20" title="Rotasjonsuker" />
-                <Input type="date" value={pStart} onChange={(e) => setPStart(e.target.value)} />
+                <Input type="number" value={pUker} min={1} max={26} onChange={(e) => setPUker(Number(e.target.value))} className="w-20" aria-label="Antall rotasjonsuker" title="Rotasjonsuker" />
+                <Input type="date" value={pStart} aria-label="Startdato for turnusplanen" onChange={(e) => setPStart(e.target.value)} />
               </div>
               <Button disabled={!pNavn.trim() || !pAvd} data-testid="btn-plan"
                 onClick={() => mPlan.mutate({ navn: pNavn.trim(), avdelingId: Number(pAvd), rotasjonUker: pUker, startDato: pStart })}>
@@ -268,7 +268,7 @@ function PlanleggingFane() {
               <>
                 <div className="flex flex-wrap items-center gap-2" data-testid="readiness">
                   {ready
-                    ? <Badge className="bg-emerald-600 hover:bg-emerald-600">✓ Klar til generering</Badge>
+                    ? <Badge className="bg-emerald-700 hover:bg-emerald-700">✓ Klar til generering</Badge>
                     : <Badge variant="destructive">Mangler oppsett</Badge>}
                   {!ready && (readiness.data?.mangler ?? []).map((m: string) => <Badge key={m} variant="outline">{m}</Badge>)}
                 </div>
@@ -727,7 +727,8 @@ function OverstyrGrid({ generId }: { generId: number }) {
                     <div className="flex flex-wrap gap-1.5">
                       {mine.map((v) => (
                         <span key={v.id} className={`inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ring-1 ${vaktkodeStil(v.kode)}`}>
-                          <span className="text-[10px] opacity-70">{UKEDAGER[isoDow(v.dato)]} {kortDato(v.dato)}</span> {v.kode}
+                          {/* Ingen opacity: den dempet teksten under WCAG AA på de fargede chipsene. */}
+                          <span className="text-[10px]">{UKEDAGER[isoDow(v.dato)]} {kortDato(v.dato)}</span> {v.kode}
                         </span>
                       ))}
                       {mine.length === 0 && <span className="text-xs text-muted-foreground">Ingen vakter</span>}
@@ -781,7 +782,7 @@ function MiniGrid({ tittel, ansatte, datoer, cellMap, endret }: {
 }
 
 function StatusBadge({ ansattId, nErr, nWarn, brudd }: { ansattId: number; nErr: number; nWarn: number; brudd: Brudd[] }) {
-  if (nErr === 0 && nWarn === 0) return <Badge variant="outline" className="border-emerald-500 text-emerald-600 transition-colors">OK</Badge>;
+  if (nErr === 0 && nWarn === 0) return <Badge variant="outline" className="border-emerald-600 text-emerald-700 transition-colors">OK</Badge>;
   const testId = nErr > 0 ? `brudd-error-${ansattId}` : undefined;
   return (
     <Popover>
@@ -836,11 +837,15 @@ function VaktChip({ vakt, ansatte, overstyrt, onske, onDragStart, onDragEnd, onR
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <span draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
+        {/* role=button: PopoverTrigger sets aria-haspopup/expanded, which are
+            not valid on a role-less span (axe: aria-allowed-attr). */}
+        <span draggable role="button" tabIndex={0}
+          aria-label={`Vakt ${vakt.kode} ${vakt.startTid}–${vakt.sluttTid}${onske ? ", ønsket" : ""} — flytt til annen ansatt`}
+          onDragStart={onDragStart} onDragEnd={onDragEnd}
           className={`relative inline-flex min-w-7 cursor-grab justify-center rounded px-2 py-0.5 text-xs font-bold ring-1 transition-transform active:cursor-grabbing active:scale-95 ${vaktkodeStil(vakt.kode)} ${overstyrt ? "ring-2 ring-primary" : ""}`}
           data-testid={`vakt-${vakt.id}`}>
           {vakt.kode}
-          {onske && <span className="absolute -right-1 -top-1 text-[8px]" title={`Ønske: ${onske}`}>♥</span>}
+          {onske && <span aria-hidden="true" className="absolute -right-1 -top-1 text-[8px]">♥</span>}
         </span>
       </PopoverTrigger>
       <PopoverContent className="w-56 text-sm">
@@ -903,7 +908,7 @@ function ReglerPanel() {
       <CardContent className="space-y-3">
         <div className="grid gap-2">
           <div className="flex flex-wrap items-center gap-2">
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={regeltype} onChange={(e) => setRegeltype(e.target.value)} data-testid="sel-regeltype">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={regeltype} aria-label="Regeltype" onChange={(e) => setRegeltype(e.target.value)} data-testid="sel-regeltype">
               <option value="aml_daglig_hvile_11t">AML: 11t døgnhvile</option>
               <option value="aml_max_uketimer">AML: maks uketimer</option>
               <option value="helgefrekvens">Helgefrekvens</option>
@@ -911,14 +916,14 @@ function ReglerPanel() {
               <option value="max_netter_paa_rad">Maks netter på rad</option>
               <option value="onsket_vaktlengde">Ønsket vaktlengde</option>
             </select>
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={kilde} onChange={(e) => setKilde(e.target.value as api.RegelKilde)} data-testid="sel-kilde">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={kilde} aria-label="Regelens kilde" onChange={(e) => setKilde(e.target.value as api.RegelKilde)} data-testid="sel-kilde">
               <option value="lov">Lov</option>
               <option value="lokal_avtale">Lokal avtale</option>
               <option value="saeravtale">Særavtale</option>
               <option value="dispensasjon">Dispensasjon</option>
             </select>
           </div>
-          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-regel-ansatt">
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} aria-label="Hvem regelen gjelder for" onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-regel-ansatt">
             <option value="">Gjelder alle ansatte</option>
             {(ansatte.data ?? []).map((a) => <option key={a.id} value={a.id}>Kun {a.navn} (individuelt unntak)</option>)}
           </select>
@@ -1011,24 +1016,24 @@ function OnskerPanel() {
       </CardHeader>
       <CardContent className="space-y-3">
         <div className="grid gap-2">
-          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-onske-ansatt">
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={ansattId} aria-label="Ansatt ønsket gjelder" onChange={(e) => setAnsattId(Number(e.target.value) || "")} data-testid="sel-onske-ansatt">
             <option value="">Velg ansatt…</option>
             {(ansatte.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.navn}</option>)}
           </select>
           <div className="flex flex-wrap items-center gap-2">
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={type} onChange={(e) => setType(e.target.value as api.OnskeType)} data-testid="sel-onske-type">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={type} aria-label="Type ønske" onChange={(e) => setType(e.target.value as api.OnskeType)} data-testid="sel-onske-type">
               <option value="onske_fri">Ønsker fri</option>
               <option value="onske_vakt">Ønsker vakt</option>
             </select>
             <Input type="date" value={dato} onChange={(e) => setDato(e.target.value)} className="w-40" aria-label="Dato for ønsket" data-testid="inp-onske-dato" />
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={prioritet} onChange={(e) => setPrioritet(e.target.value as api.OnskePrioritet)} data-testid="sel-onske-prioritet">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={prioritet} aria-label="Prioritet for ønsket" onChange={(e) => setPrioritet(e.target.value as api.OnskePrioritet)} data-testid="sel-onske-prioritet">
               <option value="kan">Kan</option>
               <option value="bor">Bør</option>
               <option value="maa">Må</option>
             </select>
           </div>
           {type === "onske_vakt" && (
-            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={vaktkodeId} onChange={(e) => setVaktkodeId(Number(e.target.value) || "")} data-testid="sel-onske-vaktkode">
+            <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={vaktkodeId} aria-label="Ønsket vaktkode" onChange={(e) => setVaktkodeId(Number(e.target.value) || "")} data-testid="sel-onske-vaktkode">
               <option value="">Hvilken som helst vaktkode</option>
               {(vaktkoder.data ?? []).map((v) => <option key={v.id} value={v.id}>{v.kode}</option>)}
             </select>
@@ -1105,7 +1110,7 @@ function VarselPanel() {
         </label>
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">Varsle</span>
-          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={min} onChange={(e) => setMin(Number(e.target.value))} data-testid="sel-varsel-min" disabled={!aktiv}>
+          <select className="rounded-md border bg-background px-2 py-1.5 text-sm" value={min} aria-label="Hvor lenge før vaktstart påminnelsen sendes" onChange={(e) => setMin(Number(e.target.value))} data-testid="sel-varsel-min" disabled={!aktiv}>
             <option value={15}>15 min</option>
             <option value={30}>30 min</option>
             <option value={60}>1 time</option>
