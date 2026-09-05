@@ -111,13 +111,15 @@ function OppsettFane() {
   const [avdNavn, setAvdNavn] = useState("");
   const [ansNavn, setAnsNavn] = useState("");
   const [ansAvd, setAnsAvd] = useState<number | "">("");
+  const [ansEpost, setAnsEpost] = useState("");
+  const [ansTlf, setAnsTlf] = useState("");
   const [vkKode, setVkKode] = useState("");
   const [vkStart, setVkStart] = useState("08:00");
   const [vkSlutt, setVkSlutt] = useState("16:00");
 
   const invalidate = (k: string) => qc.invalidateQueries({ queryKey: [k] });
   const mAvd = useMutation({ mutationFn: api.opprettAvdeling, onError, onSuccess: () => { invalidate("turnus-avd"); setAvdNavn(""); } });
-  const mAns = useMutation({ mutationFn: api.opprettAnsatt, onError, onSuccess: () => { invalidate("turnus-ansatte"); setAnsNavn(""); } });
+  const mAns = useMutation({ mutationFn: api.opprettAnsatt, onError, onSuccess: () => { invalidate("turnus-ansatte"); setAnsNavn(""); setAnsEpost(""); setAnsTlf(""); } });
   const mVk = useMutation({ mutationFn: api.opprettVaktkode, onError, onSuccess: () => { invalidate("turnus-vaktkoder"); setVkKode(""); } });
 
   return (
@@ -139,11 +141,15 @@ function OppsettFane() {
         <CardHeader><CardTitle className="text-base">Ansatte</CardTitle></CardHeader>
         <CardContent className="space-y-3">
           <Input placeholder="Navn" value={ansNavn} onChange={(e) => setAnsNavn(e.target.value)} data-testid="inp-ans-navn" />
+          <div className="flex gap-2">
+            <Input type="email" placeholder="E-post (varsel)" value={ansEpost} onChange={(e) => setAnsEpost(e.target.value)} data-testid="inp-ans-epost" />
+            <Input type="tel" placeholder="Telefon (SMS)" value={ansTlf} onChange={(e) => setAnsTlf(e.target.value)} data-testid="inp-ans-tlf" />
+          </div>
           <select className="w-full rounded-md border bg-background px-2 py-1.5 text-sm" value={ansAvd} onChange={(e) => setAnsAvd(Number(e.target.value) || "")}>
             <option value="">Primær avdeling…</option>
             {(avdelinger.data ?? []).map((a) => <option key={a.id} value={a.id}>{a.navn}</option>)}
           </select>
-          <Button className="w-full" disabled={!ansNavn.trim()} onClick={() => mAns.mutate({ navn: ansNavn.trim(), primarAvdelingId: ansAvd || undefined })} data-testid="btn-ans">Legg til ansatt</Button>
+          <Button className="w-full" disabled={!ansNavn.trim()} onClick={() => mAns.mutate({ navn: ansNavn.trim(), primarAvdelingId: ansAvd || undefined, userEmail: ansEpost.trim() || undefined, telefon: ansTlf.trim() || undefined })} data-testid="btn-ans">Legg til ansatt</Button>
           {(ansatte.data ?? []).length === 0
             ? <TomHint>Legg til ansatte som skal inn i turnusen.</TomHint>
             : <ul className="space-y-1 text-sm">{(ansatte.data ?? []).map((a) => <li key={a.id} className="rounded bg-muted/40 px-2 py-1.5">{a.navn}</li>)}</ul>}
@@ -485,11 +491,12 @@ function OverstyrGrid({ generId }: { generId: number }) {
     },
   });
 
+  const [inklSms, setInklSms] = useState(false);
   const publiser = useMutation({
-    mutationFn: () => api.publiserTurnus(generId), onError,
+    mutationFn: (kanaler: string[]) => api.publiserTurnus(generId, kanaler), onError,
     onSuccess: (r) => toast({
       title: "Turnus publisert",
-      description: `E-post: ${r.varslet}/${r.mottakere} · app-varsel: ${r.varsletApp}${r.utenEpost ? ` · ${r.utenEpost} mangler e-post` : ""}.`,
+      description: `E-post ${r.varslet}/${r.mottakere} · app ${r.varsletApp}${r.varsletSms ? ` · SMS ${r.varsletSms}/${r.medTelefon}` : ""}${r.utenEpost ? ` · ${r.utenEpost} mangler e-post` : ""}.`,
     }),
   });
 
@@ -589,9 +596,13 @@ function OverstyrGrid({ generId }: { generId: number }) {
             <PopoverTrigger asChild>
               <Button size="sm" disabled={publiser.isPending} data-testid="btn-publiser">{publiser.isPending ? "Publiserer…" : "Publiser & varsle"}</Button>
             </PopoverTrigger>
-            <PopoverContent className="w-64 text-sm">
-              <p className="mb-2">Dette markerer turnusen som publisert og varsler ansatte via <strong>e-post</strong> (med PDF) og <strong>app-varsel</strong> for de som har konto. SMS kan legges til senere (koster per melding).</p>
-              <Button size="sm" className="w-full" onClick={() => publiser.mutate()} data-testid="btn-publiser-bekreft">Publiser & send varsel</Button>
+            <PopoverContent className="w-72 text-sm">
+              <p className="mb-2">Markerer turnusen som publisert og varsler ansatte via <strong>e-post</strong> (med PDF) og <strong>app-varsel</strong> for de med konto.</p>
+              <label className="mb-2 flex items-center gap-2">
+                <input type="checkbox" checked={inklSms} onChange={(e) => setInklSms(e.target.checked)} data-testid="chk-sms" />
+                <span>Send også <strong>SMS</strong> <span className="text-muted-foreground">(koster per melding)</span></span>
+              </label>
+              <Button size="sm" className="w-full" onClick={() => publiser.mutate(["epost", "app", ...(inklSms ? ["sms"] : [])])} data-testid="btn-publiser-bekreft">Publiser & send varsel</Button>
             </PopoverContent>
           </Popover>
         </div>

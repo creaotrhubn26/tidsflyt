@@ -58,7 +58,7 @@ export function registerTurnusStrukturRoutes(app: Express): void {
   app.post("/api/turnus/ansatte", async (req: Request, res: Response) => {
     const actor = await requireTurnusActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
-    const { navn, primarAvdelingId, stillingsprosent, userEmail } = req.body ?? {};
+    const { navn, primarAvdelingId, stillingsprosent, userEmail, telefon } = req.body ?? {};
     if (!navn || typeof navn !== "string") return res.status(400).json({ error: "navn kreves." });
     try {
       const row = await withTurnusOrgRlsContext(actor.orgId, async (client) => {
@@ -70,8 +70,8 @@ export function registerTurnusStrukturRoutes(app: Express): void {
           if (rows.length === 0) return "unknown_avdeling" as const;
         }
         return (await client.query(
-          `INSERT INTO tidum_turnus_ansatte (org_id, primar_avdeling_id, navn, stillingsprosent, user_email) VALUES ($1,$2,$3,$4,$5) RETURNING *`,
-          [actor.orgId, primarAvdelingId ?? null, navn, stillingsprosent ?? 100, userEmail ?? null])).rows[0];
+          `INSERT INTO tidum_turnus_ansatte (org_id, primar_avdeling_id, navn, stillingsprosent, user_email, telefon) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+          [actor.orgId, primarAvdelingId ?? null, navn, stillingsprosent ?? 100, userEmail ?? null, telefon ?? null])).rows[0];
       });
       if (row === "unknown_avdeling") return res.status(400).json({ error: "Ukjent avdeling." });
       res.json(row);

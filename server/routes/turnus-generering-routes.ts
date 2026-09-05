@@ -24,6 +24,7 @@ import { byggForklaring, narrer } from '../lib/turnus-xai';
 import { renderTurnusPdf } from '../lib/turnus-pdf';
 import { emailService } from '../lib/email-service';
 import { createNotification } from './notification-routes';
+import { getSmsGateway, normaliserTelefon } from '../lib/sms/sms-gateway';
 import { pool } from '../db';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
@@ -443,7 +444,7 @@ export function registerTurnusGenereringRoutes(app: Express): void {
             WHERE g.id = $1 AND g.org_id = $2`, [id, actor.orgId]);
         if (!gen) return null;
         const { rows } = await client.query(
-          `SELECT a.navn AS ansatt_navn, a.user_email, kv.dato::text AS dato, vk.kode,
+          `SELECT a.navn AS ansatt_navn, a.user_email, a.telefon, kv.dato::text AS dato, vk.kode,
                   vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
              FROM tidum_turnus_kalendervakter kv
              JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
@@ -510,7 +511,25 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         }
       }
 
-      res.json({ publisert: data.antall, varslet, varsletApp, utenEpost, mottakere: perAnsatt.size });
+      // SMS — paid, opt-in channel. Sends via the configured gateway directly
+      // (the utboks queue is kommune-scoped and does not fit a turnus org). When
+      // no gateway is configured, varsletSms stays 0.
+      let varsletSms = 0;
+      const perTelefon = new Map<string, string>(); // normalisert telefon → navn
+      for (const r of data.rows) {
+        const t = r.telefon ? normaliserTelefon(String(r.telefon)) : null;
+        if (t) perTelefon.set(t, r.ansatt_navn ?? '');
+      }
+      if (kanaler.includes('sms')) {
+        const gw = getSmsGateway();
+        if (gw) {
+          const utfall = await Promise.allSettled([...perTelefon.entries()].map(([tlf, navn]) =>
+            gw.send({ telefon: tlf, melding: `Hei ${navn}, din turnus for ${data.planNavn} er publisert. Se e-post/app for detaljer. – Tidum Turnus` })));
+          varsletSms = utfall.filter((u) => u.status === 'fulfilled').length;
+        }
+      }
+
+      res.json({ publisert: data.antall, varslet, varsletApp, varsletSms, medTelefon: perTelefon.size, utenEpost, mottakere: perAnsatt.size });
     } catch (err) {
       console.error('[turnus-generering] publiser feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });

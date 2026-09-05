@@ -36,7 +36,7 @@ describe('turnus generering routes (CP-SAT integration)', () => {
   let planId = 0;
 
   beforeAll(async () => {
-    for (const m of ['105_turnus_core.sql', '106_turnus_org_members.sql', '107_turnus_genereringer.sql']) {
+    for (const m of ['105_turnus_core.sql', '106_turnus_org_members.sql', '107_turnus_genereringer.sql', '108_turnus_ansatt_telefon.sql']) {
       await pool.query(readFileSync(`migrations/${m}`, 'utf8'));
     }
     await withSystemRlsContext('test_gen', async (c) => {
@@ -245,4 +245,23 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).post('/api/turnus/genereringer/999999/publiser').send({});
     expect(r.status).toBe(404);
   });
+
+  it.skipIf(!SOLVER_OK)('publiser sends SMS via the gateway when kanaler includes sms', async () => {
+    const { setSmsGatewayForTesting } = await import('../../lib/sms/sms-gateway');
+    const sendt: Array<{ telefon: string; melding: string }> = [];
+    setSmsGatewayForTesting({ send: async (i) => { sendt.push(i); return { gatewayMeldingId: 'test-1' }; } });
+    try {
+      const app = appFor(userId);
+      await withSystemRlsContext('test_gen', async (c) => {
+        await c.query(`UPDATE tidum_turnus_ansatte SET telefon = '+4791234567' WHERE org_id = $1 AND navn = 'A'`, [orgId]);
+      });
+      const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+      const r = await request(app).post(`/api/turnus/genereringer/${gen.body.generId}/publiser`).send({ kanaler: ['sms'] });
+      expect(r.status).toBe(200);
+      expect(r.body.medTelefon).toBe(1);
+      expect(r.body.varsletSms).toBe(1);
+      expect(sendt).toHaveLength(1);
+      expect(sendt[0].telefon).toContain('91234567');
+    } finally { setSmsGatewayForTesting(null); }
+  }, 30_000);
 });

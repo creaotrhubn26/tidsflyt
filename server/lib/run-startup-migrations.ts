@@ -93,6 +93,7 @@ export const STARTUP_MIGRATIONS: string[] = [
   "105_turnus_core.sql",
   "106_turnus_org_members.sql",
   "107_turnus_genereringer.sql",
+  "108_turnus_ansatt_telefon.sql",
 ];
 
 // Eldre migrasjoner (< 083) som likevel er fail-closed — se kommentaren i

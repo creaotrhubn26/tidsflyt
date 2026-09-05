@@ -51,6 +51,8 @@ export function listAnsatte(): Promise<any[]> {
 export function opprettAnsatt(input: {
   navn: string;
   primarAvdelingId?: number;
+  userEmail?: string;
+  telefon?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/ansatte", jsonInit("POST", input));
 }
@@ -206,8 +208,8 @@ export interface GenereringKontekst {
 export function getGenereringKontekst(id: string | number): Promise<GenereringKontekst> {
   return requestJson(`/api/turnus/genereringer/${id}/kontekst`);
 }
-export function publiserTurnus(id: string | number): Promise<{ publisert: number; varslet: number; varsletApp: number; utenEpost: number; mottakere: number }> {
-  return requestJson(`/api/turnus/genereringer/${id}/publiser`, jsonInit("POST", {}));
+export function publiserTurnus(id: string | number, kanaler?: string[]): Promise<{ publisert: number; varslet: number; varsletApp: number; varsletSms: number; medTelefon: number; utenEpost: number; mottakere: number }> {
+  return requestJson(`/api/turnus/genereringer/${id}/publiser`, jsonInit("POST", kanaler ? { kanaler } : {}));
 }
 
 export function konsekvens(endringer: Array<{
