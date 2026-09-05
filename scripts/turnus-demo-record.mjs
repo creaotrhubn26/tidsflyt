@@ -76,6 +76,43 @@ await clickAt(page, '[data-testid="btn-generer"]');
 await page.locator('[data-testid="xai"]').waitFor({ timeout: 30000 });
 await sleep(2500); // hold on the explanation
 
+// ── A5: override grid (drag a shift → live AML consequence-preview) ──────────
+const grid = page.locator('[data-testid="overstyring"]');
+try {
+  await grid.waitFor({ state: 'visible', timeout: 15000 });
+  await grid.scrollIntoViewIfNeeded();
+  await sleep(2200); // show the grid + per-employee OK/brudd badges (konsekvens ran)
+
+  // Pick a source shift and an empty cell in the same day-column of another row.
+  const picked = await page.evaluate(() => {
+    const span = document.querySelector('[data-testid="overstyring"] span[data-testid^="vakt-"]');
+    if (!span) return null;
+    const td = span.closest('td');
+    const col = td.cellIndex;
+    const srcRow = td.closest('tr');
+    for (const r of document.querySelectorAll('[data-testid="overstyring"] tbody tr')) {
+      if (r === srcRow) continue;
+      const cell = r.cells[col];
+      if (cell && !cell.querySelector('span[data-testid^="vakt-"]')) {
+        cell.setAttribute('data-testid', 'dnd-target');
+        return { src: span.getAttribute('data-testid') };
+      }
+    }
+    return null;
+  });
+
+  if (picked) {
+    await moveTo(page, `[data-testid="${picked.src}"]`);
+    await sleep(500);
+    await page.locator(`[data-testid="${picked.src}"]`)
+      .dragTo(page.locator('[data-testid="dnd-target"]'));
+    await sleep(2800); // show the reassigned shift + updated consequence badges
+  }
+} catch (e) {
+  console.log('override-grid demo hoppet over:', e.message);
+}
+await sleep(1200);
+
 await ctx.close();  // finalizes the webm
 await browser.close();
 
