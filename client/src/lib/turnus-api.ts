@@ -206,6 +206,9 @@ export interface GenereringKontekst {
 export function getGenereringKontekst(id: string | number): Promise<GenereringKontekst> {
   return requestJson(`/api/turnus/genereringer/${id}/kontekst`);
 }
+export function publiserTurnus(id: string | number): Promise<{ publisert: number; varslet: number; utenEpost: number; mottakere: number }> {
+  return requestJson(`/api/turnus/genereringer/${id}/publiser`, jsonInit("POST", {}));
+}
 
 export function konsekvens(endringer: Array<{
   ansattId: number; dato: string; startTid: string; sluttTid: string; pauseTimer?: number;

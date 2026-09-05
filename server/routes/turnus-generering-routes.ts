@@ -22,6 +22,7 @@ import { runSolver } from '../lib/turnus-solver-client';
 import { evaluateTurnusAml } from '../lib/turnus-aml';
 import { byggForklaring, narrer } from '../lib/turnus-xai';
 import { renderTurnusPdf } from '../lib/turnus-pdf';
+import { emailService } from '../lib/email-service';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
   SolverRequest, DekningsKrav, TurnusShift,
@@ -419,6 +420,73 @@ export function registerTurnusGenereringRoutes(app: Express): void {
       res.send(pdf);
     } catch (err) {
       console.error('[turnus-generering] pdf feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // Publish a run and notify employees: flip the run's shifts to 'publisert' and
+  // email each employee (who has an address) their shifts with the roster PDF
+  // attached. Emails go out AFTER the DB tx (no SMTP inside a transaction), only
+  // to this org's own ansatte, and failures are counted — never thrown.
+  app.post('/api/turnus/genereringer/:id/publiser', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT p.navn AS plan_navn FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`, [id, actor.orgId]);
+        if (!gen) return null;
+        const { rows } = await client.query(
+          `SELECT a.navn AS ansatt_navn, a.user_email, kv.dato::text AS dato, vk.kode,
+                  vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+             FROM tidum_turnus_kalendervakter kv
+             JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
+             LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
+            WHERE kv.generering_id = $1 AND kv.org_id = $2
+            ORDER BY a.navn, kv.dato`, [id, actor.orgId]);
+        const publisert = (await client.query(
+          `UPDATE tidum_turnus_kalendervakter SET status = 'publisert'
+            WHERE generering_id = $1 AND org_id = $2`, [id, actor.orgId])) as any;
+        return { planNavn: gen.plan_navn as string, rows, antall: rows.length };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+
+      // Build the roster PDF once, attach to every employee's email.
+      const pdf = await renderTurnusPdf({
+        planNavn: data.planNavn,
+        vakter: data.rows.map((r: any) => ({ ansattNavn: r.ansatt_navn, dato: r.dato, kode: r.kode, startTid: (r.start_tid ?? '08:00').slice(0, 5), sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5) })),
+      });
+
+      // Group shifts per employee address.
+      const perAnsatt = new Map<string, { navn: string; vakter: any[] }>();
+      let utenEpost = 0;
+      const settSeen = new Set<string>();
+      for (const r of data.rows) {
+        if (!r.user_email) { if (r.ansatt_navn && !settSeen.has(r.ansatt_navn)) { settSeen.add(r.ansatt_navn); utenEpost++; } continue; }
+        const g = perAnsatt.get(r.user_email) ?? { navn: r.ansatt_navn ?? '', vakter: [] as any[] };
+        g.vakter.push(r); perAnsatt.set(r.user_email, g);
+      }
+
+      const utfall = await Promise.allSettled([...perAnsatt.entries()].map(([epost, g]) => {
+        const linjer = g.vakter.map((v: any) => `<li>${v.dato} — <strong>${v.kode}</strong> (${(v.start_tid ?? '').slice(0, 5)}–${(v.slutt_tid ?? '').slice(0, 5)})</li>`).join('');
+        return emailService.sendEmail({
+          purpose: 'administrative',
+          to: epost,
+          subject: `Din turnus er klar — ${data.planNavn}`,
+          html: `<p>Hei ${g.navn},</p><p>Turnusen din for <strong>${data.planNavn}</strong> er publisert. Dine vakter:</p><ul>${linjer}</ul><p>Full turnus er vedlagt som PDF.</p><p>Hilsen Tidum Turnus</p>`,
+          attachments: [{ filename: `turnus-${id}.pdf`, content: pdf, contentType: 'application/pdf' }],
+          throwOnError: true,
+        });
+      }));
+      const varslet = utfall.filter((u) => u.status === 'fulfilled' && u.value !== false).length;
+
+      res.json({ publisert: data.antall, varslet, utenEpost, mottakere: perAnsatt.size });
+    } catch (err) {
+      console.error('[turnus-generering] publiser feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });
     }
   });

@@ -485,6 +485,14 @@ function OverstyrGrid({ generId }: { generId: number }) {
     },
   });
 
+  const publiser = useMutation({
+    mutationFn: () => api.publiserTurnus(generId), onError,
+    onSuccess: (r) => toast({
+      title: "Turnus publisert",
+      description: `${r.varslet} av ${r.mottakere} ansatte varslet på e-post${r.utenEpost ? ` · ${r.utenEpost} mangler e-post` : ""}.`,
+    }),
+  });
+
   const bruddFor = (ansattId: number) => brudd.filter((x) => x.ansattId === ansattId);
   const hardeNaa = brudd.filter((x) => x.severity === "error").length;
   const antallEndringer = Object.keys(edits).length;
@@ -576,7 +584,16 @@ function OverstyrGrid({ generId }: { generId: number }) {
           <Button size="sm" variant="ghost" disabled={!fortid.length} onClick={angre} title="Angre">↶ Angre</Button>
           <Button size="sm" variant="ghost" disabled={!fremtid.length} onClick={gjenta} title="Gjenta">↷ Gjenta</Button>
           <Button size="sm" variant="outline" disabled={!dirty} onClick={() => commit({})} data-testid="btn-tilbakestill">Tilbakestill</Button>
-          <Button size="sm" disabled={!dirty || lagre.isPending} onClick={() => lagre.mutate()} data-testid="btn-lagre">{lagre.isPending ? "Lagrer…" : "Lagre turnus"}</Button>
+          <Button size="sm" variant="outline" disabled={!dirty || lagre.isPending} onClick={() => lagre.mutate()} data-testid="btn-lagre">{lagre.isPending ? "Lagrer…" : "Lagre turnus"}</Button>
+          <Popover>
+            <PopoverTrigger asChild>
+              <Button size="sm" disabled={publiser.isPending} data-testid="btn-publiser">{publiser.isPending ? "Publiserer…" : "Publiser & varsle"}</Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-64 text-sm">
+              <p className="mb-2">Dette markerer turnusen som publisert og sender e-post med PDF til ansatte som har e-postadresse.</p>
+              <Button size="sm" className="w-full" onClick={() => publiser.mutate()} data-testid="btn-publiser-bekreft">Publiser & send varsel</Button>
+            </PopoverContent>
+          </Popover>
         </div>
       </CardHeader>
       <CardContent>

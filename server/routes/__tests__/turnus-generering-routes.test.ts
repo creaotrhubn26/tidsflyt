@@ -208,4 +208,21 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).get('/api/turnus/genereringer/999999/pdf');
     expect(r.status).toBe(404);
   });
+
+  it.skipIf(!SOLVER_OK)('publiser marks shifts published + reports who lacks email (no SMTP sends)', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const r = await request(app).post(`/api/turnus/genereringer/${gen.body.generId}/publiser`).send({});
+    expect(r.status).toBe(200);
+    expect(r.body.publisert).toBe(2);       // 2 shifts flipped to 'publisert'
+    expect(r.body.mottakere).toBe(0);       // seeded A/B have no user_email
+    expect(r.body.utenEpost).toBe(2);
+    expect(r.body.varslet).toBe(0);
+  }, 30_000);
+
+  it('publiser on a foreign/nonexistent generation → 404', async () => {
+    const app = appFor(userId);
+    const r = await request(app).post('/api/turnus/genereringer/999999/publiser').send({});
+    expect(r.status).toBe(404);
+  });
 });
