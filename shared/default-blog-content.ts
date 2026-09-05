@@ -1666,22 +1666,22 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
     title: "Tidum Turnus: KI som lager turnusen — og forklarer hvorfor",
     slug: "tidum-turnus-ki-turnusplanlegging",
     excerpt:
-      "Turnusplanlegging er sjelden vanskelig fordi noen mangler vilje. Den er vanskelig fordi kravene drar i hver sin retning. Tidum Turnus løser floken med en optimeringsmotor som holder seg innenfor arbeidsmiljøloven — og som kan gjøre rede for hvert eneste valg.",
+      "Turnusplanlegging er ikke vanskelig fordi noen mangler vilje. Den er vanskelig fordi kravene drar i hver sin retning. Tidum Turnus løser floken med en optimeringsmotor som holder seg innenfor arbeidsmiljøloven — og som kan gjøre rede for hvert eneste valg.",
     categorySlug: "problem-og-oversikt",
     metaTitle: "Tidum Turnus — KI-basert turnusplanlegging med forklaring",
     metaDescription:
-      "Tidum Turnus genererer lovlige turnusforslag med OR-Tools CP-SAT, vekter ønsker, rettferdighet, helgefordeling, kontinuitet og kostnad mot hverandre, og forklarer hvorfor forslaget ble som det ble.",
+      "Tidum Turnus genererer lovlige turnusforslag med OR-Tools CP-SAT. Motoren vekter ønsker, rettferdighet, helgefordeling, kontinuitet og kostnad mot hverandre, og forklarer hvorfor forslaget ble som det ble.",
     tags: ["turnus", "KI", "arbeidsmiljøloven", "bemanningsplanlegging", "vaktplan"],
     intro: [
-      "Å legge en turnus er å løse en floke der alle trådene drar i hver sin retning. Bemanningen skal være forsvarlig hver eneste vakt. Arbeidsmiljøloven setter grenser for hvile, ukebelastning og helgefrekvens. Lokale avtaler og særavtaler gjelder i tillegg, av og til bare for én enkelt ansatt. Og et sted i alt dette står det mennesker med ønsker som betyr noe for hverdagen deres.",
-      "Regnearket klarer ikke å holde alt dette i hodet samtidig. Derfor tar turnusarbeid dager, og derfor blir resultatet ofte «godt nok» framfor godt. Tidum Turnus er bygget for nettopp denne floken.",
+      "Å legge en turnus er å løse en floke der alle trådene drar i hver sin retning. Bemanningen skal være forsvarlig på hver eneste vakt. Arbeidsmiljøloven setter grenser for hvile, ukebelastning og helgefrekvens. Lokale avtaler og særavtaler gjelder i tillegg, av og til bare for én enkelt ansatt. Og et sted i alt dette er det mennesker med ønsker som betyr noe for hverdagen deres.",
+      "Ingen klarer å holde alt dette i hodet samtidig, og regnearket hjelper ikke. Derfor tar turnusarbeidet dager, og derfor blir resultatet ofte «godt nok» framfor godt. Tidum Turnus er bygget for nettopp denne floken.",
     ],
     sections: [
       {
         heading: "Lovligheten er ikke til forhandling",
         section: {
           paragraphs: [
-            "Motoren behandler arbeidsmiljølovens grenser som harde krav. Et forslag som bryter dem, blir aldri foreslått — det er ikke et forslag motoren vurderer og forkaster, det er en løsning den ikke har lov til å konstruere. Døgnhvile (§ 10-8), ukentlig arbeidstid (§ 10-6), kompetansekrav på hver vakt og forsvarlig bemanning ligger alle i denne kategorien.",
+            "Motoren behandler arbeidsmiljølovens grenser som harde krav. En turnus som bryter dem, blir aldri foreslått. Det er ikke et forslag motoren vurderer og forkaster; det er en løsning den ikke har lov til å konstruere. Døgnhvile (§ 10-8), ukentlig arbeidstid (§ 10-6), kompetansekrav på hver vakt og forsvarlig bemanning ligger alle i denne kategorien.",
             "Dette er en viktig forskjell fra å generere en plan først og kontrollere den etterpå. Kontrollerer du i etterkant, må noen rydde opp. Legger du grensene inn i selve søket, finnes bruddene aldri.",
           ],
         },
@@ -1690,8 +1690,8 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Lokale avtaler og individuelle unntak",
         section: {
           paragraphs: [
-            "Arbeidsmiljøloven er utgangspunktet, ikke fasiten. Loven åpner selv for avvik ved avtale — døgnhvilen kan for eksempel settes ned ved skriftlig avtale. Tidum Turnus lar dere registrere lokale avtaler, særavtaler og dispensasjoner, og motoren regner med dem.",
-            "En regel kan bindes til én ansatt. Da gjelder den bare der, og lekker ikke til resten av avdelingen. Det er slik dispensasjoner faktisk fungerer i praksis: en tilrettelegging for én person skal ikke stille om reglene for alle andre.",
+            "Arbeidsmiljøloven er utgangspunktet, ikke fasiten. Loven åpner selv for avvik — døgnhvilen kan for eksempel settes ned ved skriftlig avtale. Tidum Turnus lar dere registrere lokale avtaler, særavtaler og dispensasjoner, og motoren tar dem med i beregningen.",
+            "En regel kan bindes til én ansatt. Da gjelder den bare for vedkommende, og lekker ikke til resten av avdelingen. Det er slik dispensasjoner faktisk fungerer i praksis: en tilrettelegging for én person skal ikke endre reglene for alle andre.",
           ],
         },
       },
@@ -1700,7 +1700,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         section: {
           paragraphs: [
             "Når det lovlige rommet er definert, står som regel svært mange gyldige turnuser igjen. Hvilken som er best, er ikke et teknisk spørsmål — det er et ledelsesspørsmål.",
-            "Derfor lar Tidum Turnus dere vekte fem hensyn mot hverandre: ansattes ønsker, rettferdig vaktfordeling, rettferdig helgefordeling, kontinuitet for brukerne og kostnadseffektivitet. Skyv vekten mot ønsker, og turnusen tar mer hensyn til den enkelte. Skyv den mot kontinuitet, og brukerne møter færre ulike ansatte. Motoren regner ut resultatet på nytt, og dere ser med én gang hva prioriteringen faktisk koster på de andre områdene.",
+            "Derfor lar Tidum Turnus dere vekte fem hensyn mot hverandre: ansattes ønsker, rettferdig vaktfordeling, rettferdig helgefordeling, kontinuitet for brukerne og kostnadseffektivitet. Skyv vekten mot ønsker, og turnusen tar mer hensyn til den enkelte. Skyv den mot kontinuitet, og brukerne møter færre ulike ansatte. Motoren regner ut resultatet på nytt, og dere ser med én gang hva prioriteringen faktisk koster de andre områdene.",
           ],
         },
       },
@@ -1708,17 +1708,17 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Forklaringen er en del av produktet",
         section: {
           paragraphs: [
-            "En turnus ingen forstår, er vanskelig å stå inne for. Derfor svarer Tidum Turnus alltid med både forslaget og begrunnelsen: hvilke prioriteringer som styrte, hvilke ønsker som ikke lot seg innfri, og hvilke hensyn som måtte vike.",
-            "Er oppgaven umulig — for eksempel fordi det ikke finnes nok kvalifiserte ansatte til å dekke en natt — sier motoren det rett ut, og peker på hva som skaper konflikten. Det er mer nyttig enn et forslag som ser fint ut, men som skjuler at noe måtte ryke.",
+            "En turnus ingen forstår, er vanskelig å stå inne for. Derfor svarer Tidum Turnus alltid med både forslaget og begrunnelsen: hvilke prioriteringer som lå til grunn, hvilke ønsker som ikke lot seg innfri, og hvilke hensyn som måtte vike.",
+            "Er oppgaven umulig — for eksempel fordi det ikke finnes nok kvalifiserte ansatte til å dekke en natt — sier motoren det rett ut, og peker på hva som skaper konflikten. Det er mer nyttig enn et forslag som ser fint ut, men som skjuler at noe ikke gikk opp.",
           ],
         },
       },
       {
-        heading: "Overstyring med konsekvensen synlig med én gang",
+        heading: "Overstyring — konsekvensen vises umiddelbart",
         section: {
           paragraphs: [
             "Ingen turnusmotor kjenner alt som skjer på en arbeidsplass. Derfor kan planleggeren flytte vakter fritt i rutenettet, med mus eller tastatur.",
-            "For hver endring regnes lovligheten ut på nytt umiddelbart, og hver ansatt merkes grønn, gul eller rød. Flytter du en vakt slik at noen mister døgnhvilen, ser du det i samme øyeblikk — ikke ved neste kontroll. Skulle en endring skape et brudd, kan motoren foreslå et lovlig bytte som løser det.",
+            "Lovligheten regnes ut på nytt for hver endring, og hver ansatt merkes med grønt, gult eller rødt. Flytter du en vakt slik at noen mister døgnhvilen, ser du det i samme øyeblikk — ikke ved neste kontroll. Skulle en endring skape et brudd, kan motoren foreslå et lovlig bytte som løser det.",
           ],
         },
       },
@@ -1727,7 +1727,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         section: {
           paragraphs: [
             "En ferdig turnus har liten verdi før den er hos dem den gjelder. Når planen publiseres, varsles hver ansatt automatisk: e-post med hele turnusen vedlagt som PDF, og et varsel i appen for dem som har konto. SMS kan slås på i tillegg der det er ønskelig.",
-            "I tillegg kan dere sette opp påminnelser før vaktstart — fra et kvarter til et døgn før, og på de kanalene dere velger.",
+            "Dere kan også sette opp påminnelser før vaktstart — fra et kvarter til et døgn før, og på de kanalene dere velger.",
           ],
         },
       },
@@ -1736,7 +1736,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         section: {
           paragraphs: [
             "For en avdeling med 25 ansatte, fire ukers rotasjon og tre vaktkoder i døgnet — 236 vakter til sammen — finner motoren en komplett og lovlig turnus på under tre sekunder.",
-            "Vi vil være presise på hva det tallet betyr: motoren fyller hele bemanningsbehovet innenfor alle harde krav, men beviser ikke at løsningen er den matematisk beste. Får den lengre tid, leter den videre etter en bedre balanse. Tidsbudsjettet er derfor en kvalitetsknapp, ikke en risiko for å stå uten svar.",
+            "Vi vil være presise på hva det tallet betyr: motoren fyller hele bemanningsbehovet innenfor alle harde krav, men beviser ikke at løsningen er den matematisk beste. Får motoren lengre tid, leter den videre etter en bedre balanse. Tidsbudsjettet er derfor en kvalitetsknapp, ikke en risiko for å stå uten svar.",
           ],
         },
       },
@@ -1744,8 +1744,8 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Bygget for å brukes av alle",
         section: {
           paragraphs: [
-            "Turnusrutenettet kan betjenes fullt ut med tastatur, med skjermleservennlig merking og varsling underveis. Fargene brukes aldri alene til å formidle noe viktig, og kontrastene er testet mot WCAG-kravene.",
-            "For offentlige virksomheter er ikke dette en ekstra finpuss. Det er et krav — og det er enklere å bygge inn fra start enn å ettermontere.",
+            "Turnusrutenettet kan betjenes fullt ut med tastatur, og har skjermleservennlig merking og varsling underveis. Fargene brukes aldri alene til å formidle noe viktig, og kontrastene er testet mot WCAG-kravene.",
+            "For offentlige virksomheter er ikke dette ekstra finpuss. Det er et krav — og det er enklere å bygge inn fra start enn å legge til i etterkant.",
           ],
         },
       },
