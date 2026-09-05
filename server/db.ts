@@ -2,9 +2,11 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
 import * as schema from "@shared/schema";
-import { requireDatabaseConnectionString } from "./database-config";
+import { requireRuntimeConnectionString } from "./database-config";
 
-const connectionString = requireDatabaseConnectionString();
+// Runtime pool. Falls back to DATABASE_URL when RUNTIME_DATABASE_URL is unset,
+// so single-connection setups (local dev, CI) are unaffected.
+const connectionString = requireRuntimeConnectionString();
 const sslDisabled = process.env.DATABASE_SSL === "false" || process.env.PGSSLMODE === "disable";
 const isLocal = connectionString
   ? /localhost|127\.0\.0\.1/.test(connectionString)

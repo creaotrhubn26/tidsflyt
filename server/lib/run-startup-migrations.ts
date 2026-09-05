@@ -1,6 +1,11 @@
 import { readFile } from "fs/promises";
 import { join } from "path";
-import { pool } from "../db";
+import pkg from "pg";
+import { buildSslConfig, pool as runtimePool } from "../db";
+import {
+  hasSeparateRuntimeConnection,
+  requireDatabaseConnectionString,
+} from "../database-config";
 
 // Migrations to apply on every startup. All SQL must be idempotent
 // (CREATE TABLE IF NOT EXISTS, ON CONFLICT DO NOTHING, etc.) so they
@@ -108,7 +113,36 @@ const LEGACY_FAIL_CLOSED = new Set([
   "082_secret_rotation_run_audit.sql",
 ]);
 
+/**
+ * Migrations need DDL rights, which the runtime role deliberately lacks. When
+ * RUNTIME_DATABASE_URL splits the two, open a short-lived privileged pool for
+ * the migration run and close it again; otherwise reuse the app pool exactly
+ * as before.
+ */
+function openMigrationPool(): { pool: InstanceType<typeof pkg.Pool>; dedicated: boolean } {
+  if (!hasSeparateRuntimeConnection()) {
+    return { pool: runtimePool, dedicated: false };
+  }
+  return {
+    pool: new pkg.Pool({
+      connectionString: requireDatabaseConnectionString(),
+      max: 2,
+      ssl: buildSslConfig(),
+    }),
+    dedicated: true,
+  };
+}
+
 export async function runStartupMigrations(): Promise<void> {
+  const { pool, dedicated } = openMigrationPool();
+  try {
+    await runMigrationsWith(pool);
+  } finally {
+    if (dedicated) await pool.end().catch(() => {});
+  }
+}
+
+async function runMigrationsWith(pool: InstanceType<typeof pkg.Pool>): Promise<void> {
   // Migrations live at <repo-root>/migrations/ in both dev (tsx from repo
   // root) and prod (node dist/index.cjs from repo root). Don't use
   // import.meta.url — esbuild bundles to CJS where it's undefined.
