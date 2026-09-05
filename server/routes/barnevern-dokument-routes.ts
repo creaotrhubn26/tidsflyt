@@ -62,7 +62,7 @@ export const DOKUMENTMALER: Record<string, {
   },
   brev_orientering: {
     dokumenttype: "brev",
-    tittel: "Orientering fra barneverntjenesten",
+    tittel: "Orientering fra barnevernstjenesten",
     innhold: [
       "Orientering — sak {{saksnummer}}",
       "",

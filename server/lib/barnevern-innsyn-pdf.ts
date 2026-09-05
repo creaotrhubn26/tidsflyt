@@ -49,7 +49,7 @@ export function lagSladdetInnsynPdf(input: InnsynPdfInput): Promise<Buffer> {
     doc.font("Helvetica-Bold").fontSize(15).fillColor("#12424a")
       .text(`Innsynsutlevering — sak ${input.saksnummer ?? ""}`, { width: bredde });
     doc.font("Helvetica").fontSize(10).fillColor("#555")
-      .text(`${input.kommuneNavn} — barneverntjenesten · Utlevert til ${input.partNavn} · ${dato(new Date())}`);
+      .text(`${input.kommuneNavn} — barnevernstjenesten · Utlevert til ${input.partNavn} · ${dato(new Date())}`);
     doc.moveDown(1);
 
     doc.font("Helvetica-Bold").fontSize(11).fillColor("#1a1a1a")

@@ -471,14 +471,14 @@ const solutionCards = [
   },
   {
     title: "Barnevern",
-    description: "Meldingsmottak, saksbehandling og rapportering med frister og sporbar historikk — bygget for kommunal barneverntjeneste.",
+    description: "Meldingsmottak, saksbehandling og rapportering med frister og sporbar historikk — bygget for kommunale barnevernstjenester.",
     image: "/screenshots/tidum-barnevern-desktop.png",
     alt: "Tidum Barnevern — meldingsmottak med frister og saksbehandling",
     icon: ShieldCheck,
   },
   {
     title: "Tidum Turnus",
-    description: "KI-basert turnusplanlegging som sikrer lovlig bemanning og forklarer hvorfor — automatisk sjekket mot arbeidsmiljøloven.",
+    description: "KI-basert turnusplanlegging som foreslår lovlige turnuser og forklarer hvorfor forslaget ble som det ble. Alle forslag kontrolleres automatisk mot arbeidsmiljøloven.",
     image: "/screenshots/tidum-turnus-desktop.png",
     alt: "Tidum Turnus — KI-generert turnusplan med forklaring og overstyring",
     icon: Calendar,
