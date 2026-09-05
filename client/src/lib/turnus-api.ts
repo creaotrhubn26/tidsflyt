@@ -82,12 +82,21 @@ export function listRegler(): Promise<any[]> {
   return requestJson("/api/turnus/regler");
 }
 
+/** Rule source (K-02): statutory, or a locally negotiated agreement/exemption. */
+export type RegelKilde = "lov" | "lokal_avtale" | "saeravtale" | "dispensasjon";
+
 export function opprettRegel(input: {
   regeltype: string;
   avdelingId?: number;
+  /** Set to bind the rule to one employee (K-03: individual exemption). */
   ansattId?: number;
   haard?: boolean;
   parametre?: Record<string, unknown>;
+  kilde?: RegelKilde;
+  /** Weight for soft rules; ignored when haard is true. */
+  vekt?: number;
+  gyldigFra?: string;
+  gyldigTil?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/regler", jsonInit("POST", input));
 }
@@ -102,13 +111,29 @@ export function listOnsker(): Promise<any[]> {
   return requestJson("/api/turnus/onsker");
 }
 
+/** Wish types the solver understands: wants a shift / wants time off. */
+export type OnskeType = "onske_vakt" | "onske_fri";
+/** How strongly the wish weighs: must / should / could. */
+export type OnskePrioritet = "maa" | "bor" | "kan";
+
 export function opprettOnske(input: {
   ansattId: number;
-  type: string;
+  type: OnskeType | string;
   vaktkodeId?: number;
   planId?: number;
+  /** A concrete date, or ukedag (1-7) for a recurring weekday wish. */
+  dato?: string;
+  ukedag?: number;
+  periodeFra?: string;
+  periodeTil?: string;
+  prioritet?: OnskePrioritet;
+  begrunnelse?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/onsker", jsonInit("POST", input));
+}
+
+export function slettOnske(id: string | number): Promise<{ id: number }> {
+  return requestJson(`/api/turnus/onsker/${id}`, jsonInit("DELETE", undefined));
 }
 
 // ── PRIORITERING ─────────────────────────────────────────────────────────────

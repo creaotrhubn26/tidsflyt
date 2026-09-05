@@ -99,6 +99,59 @@ describe("turnus regler/onsker/prioritering routes", () => {
     expect(r.status).toBe(400);
   });
 
+  it("stores a local agreement bound to one employee with a validity period (K-02/K-03)", async () => {
+    const app = appFor(userId);
+    const { rows: [avd] } = await pool.query(
+      `INSERT INTO tidum_turnus_avdelinger (org_id, navn) VALUES ($1,'Avd K02') RETURNING id`, [orgId]);
+    const { rows: [ans] } = await pool.query(
+      `INSERT INTO tidum_turnus_ansatte (org_id, primar_avdeling_id, navn) VALUES ($1,$2,'Unntak-Ansatt') RETURNING id`,
+      [orgId, avd.id]);
+    const r = await request(app).post("/api/turnus/regler").send({
+      regeltype: "max_netter_paa_rad", haard: false, vekt: 7,
+      kilde: "saeravtale", ansattId: ans.id,
+      gyldigFra: "2026-01-01", gyldigTil: "2026-12-31",
+    });
+    expect(r.status).toBe(200);
+    expect(r.body.kilde).toBe("saeravtale");
+    expect(Number(r.body.ansatt_id)).toBe(Number(ans.id));
+    expect(r.body.vekt).toBe(7);
+    expect(String(r.body.gyldig_fra)).toContain("2026-01-01");
+  });
+
+  it("rejects a regel bound to a foreign ansattId with 400", async () => {
+    const app = appFor(userId);
+    const r = await request(app).post("/api/turnus/regler")
+      .send({ regeltype: "helgefrekvens", ansattId: 999999 });
+    expect(r.status).toBe(400);
+  });
+
+  it("registers a dated wish with priority and withdraws it (K-05)", async () => {
+    const app = appFor(userId);
+    const { rows: [avd] } = await pool.query(
+      `INSERT INTO tidum_turnus_avdelinger (org_id, navn) VALUES ($1,'Avd K05') RETURNING id`, [orgId]);
+    const { rows: [ans] } = await pool.query(
+      `INSERT INTO tidum_turnus_ansatte (org_id, primar_avdeling_id, navn) VALUES ($1,$2,'Ønske-Ansatt') RETURNING id`,
+      [orgId, avd.id]);
+    const c = await request(app).post("/api/turnus/onsker").send({
+      ansattId: Number(ans.id), type: "onske_fri", dato: "2026-03-08",
+      prioritet: "maa", begrunnelse: "Fastlegetime",
+    });
+    expect(c.status).toBe(200);
+    expect(c.body.prioritet).toBe("maa");
+    expect(c.body.begrunnelse).toBe("Fastlegetime");
+
+    const del = await request(app).delete(`/api/turnus/onsker/${c.body.id}`);
+    expect(del.status).toBe(200);
+    const after = await request(app).get("/api/turnus/onsker");
+    expect(after.body.some((o: any) => o.id === c.body.id)).toBe(false);
+  });
+
+  it("rejects withdrawing an unknown onske with 404", async () => {
+    const app = appFor(userId);
+    const r = await request(app).delete("/api/turnus/onsker/999999");
+    expect(r.status).toBe(404);
+  });
+
   it("rejects an unauthenticated request with 403", async () => {
     const app = express();
     app.use(express.json());

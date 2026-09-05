@@ -16,7 +16,10 @@ export function registerTurnusReglerRoutes(app: Express): void {
     try {
       const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
         (await client.query(
-          `SELECT * FROM tidum_turnus_regler WHERE org_id = $1 AND aktiv ORDER BY created_at DESC`,
+          // DATE-kolonner castes til text: uten cast blir de JS Date og
+          // serialiseres til UTC, så 2026-01-01 vises som 2025-12-31 i +01:00.
+          `SELECT *, gyldig_fra::text AS gyldig_fra, gyldig_til::text AS gyldig_til
+             FROM tidum_turnus_regler WHERE org_id = $1 AND aktiv ORDER BY created_at DESC`,
           [actor.orgId])).rows);
       res.json(rows);
     } catch (err) {
@@ -42,7 +45,8 @@ export function registerTurnusReglerRoutes(app: Express): void {
         }
         return (await client.query(
           `INSERT INTO tidum_turnus_regler (org_id, avdeling_id, ansatt_id, regeltype, parametre, haard, vekt, kilde, gyldig_fra, gyldig_til, opprettet_av)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           RETURNING *, gyldig_fra::text AS gyldig_fra, gyldig_til::text AS gyldig_til`,
           [
             actor.orgId,
             body.avdelingId ?? null,
@@ -88,7 +92,8 @@ export function registerTurnusReglerRoutes(app: Express): void {
     try {
       const rows = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
         (await client.query(
-          `SELECT * FROM tidum_turnus_onsker WHERE org_id = $1 ORDER BY created_at DESC`,
+          `SELECT *, dato::text AS dato, periode_fra::text AS periode_fra, periode_til::text AS periode_til
+             FROM tidum_turnus_onsker WHERE org_id = $1 ORDER BY created_at DESC`,
           [actor.orgId])).rows);
       res.json(rows);
     } catch (err) {
@@ -116,7 +121,8 @@ export function registerTurnusReglerRoutes(app: Express): void {
         }
         return (await client.query(
           `INSERT INTO tidum_turnus_onsker (org_id, ansatt_id, plan_id, type, dato, ukedag, periode_fra, periode_til, vaktkode_id, prioritet, begrunnelse)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           RETURNING *, dato::text AS dato, periode_fra::text AS periode_fra, periode_til::text AS periode_til`,
           [
             actor.orgId,
             body.ansattId,
@@ -137,6 +143,26 @@ export function registerTurnusReglerRoutes(app: Express): void {
       res.json(row);
     } catch (err) {
       console.error("[turnus-regler] create onske feilet", err);
+      res.status(500).json({ error: "Serverfeil." });
+    }
+  });
+
+  // Withdraw a wish. Hard delete (onsker has no aktiv-flag) — org-scoped, so a
+  // forged id can never remove another tenant's row.
+  app.delete("/api/turnus/onsker/:id", async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: "Ugyldig id." });
+    try {
+      const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
+        (await client.query(
+          `DELETE FROM tidum_turnus_onsker WHERE id = $1 AND org_id = $2 RETURNING id`,
+          [id, actor.orgId])).rows[0]);
+      if (!row) return res.status(404).json({ error: "Fant ikke ønske." });
+      res.json(row);
+    } catch (err) {
+      console.error("[turnus-regler] delete onske feilet", err);
       res.status(500).json({ error: "Serverfeil." });
     }
   });
