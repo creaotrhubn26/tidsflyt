@@ -547,7 +547,7 @@ export default function Contact() {
                       <Input
                         id="orgSearch"
                         ref={brregInputRef}
-                        placeholder="Skriv org.nummer eller bedriftsnavn..."
+                        placeholder="Skriv org.nr eller bedriftsnavn..."
                         onChange={(e) => {
                           const value = e.target.value;
                           if (!brregVerified) {
@@ -615,7 +615,7 @@ export default function Contact() {
                           <p className="font-medium text-[#203138]" data-testid="text-verified-company">{formData.company}</p>
                         </div>
                         <div>
-                          <span className="text-[#5B686B]">Org.nummer:</span>
+                          <span className="text-[#5B686B]">Org.nr:</span>
                           <p className="font-medium text-[#203138]" data-testid="text-verified-orgnumber">{formData.orgNumber}</p>
                         </div>
                       </div>
@@ -636,7 +636,7 @@ export default function Contact() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="orgNumber" className="text-[#223238]">Org.nummer (manuelt)</Label>
+                        <Label htmlFor="orgNumber" className="text-[#223238]">Org.nr (manuelt)</Label>
                         <Input
                           id="orgNumber"
                           placeholder="123 456 789"
@@ -663,7 +663,7 @@ export default function Contact() {
                       <option value="">Velg type...</option>
                       <option value="privat">Privat institusjon</option>
                       <option value="offentlig">Offentlig institusjon</option>
-                      <option value="nav">NAV / BUFetat</option>
+                      <option value="nav">NAV / Bufetat</option>
                     </select>
                   </div>
 

@@ -412,7 +412,7 @@ function HowStepIllustration({ variant }: { variant: HowStepVariant }) {
           <rect x="14" y="32" width="264" height="1.5" fill="#D9E5E1" />
           {[
             { y: 44, a: "Maria N.", b: "40 t", c: "Godkjent" },
-            { y: 66, a: "Ali H.", b: "37.5 t", c: "Godkjent" },
+            { y: 66, a: "Ali H.", b: "37,5 t", c: "Godkjent" },
             { y: 88, a: "Sofie K.", b: "42 t", c: "Godkjent" },
           ].map((row) => (
             <g key={row.a} transform={`translate(14 ${row.y})`}>
@@ -1007,7 +1007,7 @@ export default function LandingPage() {
             <div className="grid gap-3 sm:grid-cols-2">
               {[
                 {
-                  title: "Norsk språk - norsk flagg",
+                  title: "Norsk språk",
                   detail: "Språk og begreper som føles kjent i hverdagen.",
                   flag: true,
                   icon: null,
