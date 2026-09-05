@@ -21,12 +21,23 @@ import { requireTurnusActor } from './turnus-actor';
 import { runSolver } from '../lib/turnus-solver-client';
 import { evaluateTurnusAml } from '../lib/turnus-aml';
 import { byggForklaring, narrer } from '../lib/turnus-xai';
+import { renderTurnusPdf } from '../lib/turnus-pdf';
+import { emailService } from '../lib/email-service';
+import { createNotification } from './notification-routes';
+import { getSmsGateway, normaliserTelefon } from '../lib/sms/sms-gateway';
+import { pool } from '../db';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
   SolverRequest, DekningsKrav, TurnusShift,
 } from '@shared/turnus-solver-contract';
 
 type Q = { query: (sql: string, params?: any[]) => Promise<{ rows: any[] }> };
+
+/** Local (not UTC) YYYY-MM-DD — toISOString() would shift dates a day in +offset
+ *  timezones, mislabelling weekdays in the grid. */
+function localIso(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /** Expand a bemanningsbehov row into concrete dated coverage requirements. */
 function expandBehov(
@@ -49,7 +60,7 @@ function expandBehov(
     d.setDate(start.getDate() + i);
     const isoDow = d.getDay() || 7; // Sun=0 → 7
     if (isoDow === behov.ukedag) {
-      out.push({ ...base, dato: d.toISOString().slice(0, 10) });
+      out.push({ ...base, dato: localIso(d) });
     }
   }
   return out;
@@ -312,6 +323,264 @@ export function registerTurnusGenereringRoutes(app: Express): void {
       res.json(rows);
     } catch (err) {
       console.error('[turnus-generering] vakter feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // Grid context: required coverage per day (dekning vs behov) + employee wishes
+  // (ønsker) mapped to concrete dates, so the override grid can show gaps and
+  // whether each wish was honoured. Read-only, org-scoped.
+  app.get('/api/turnus/genereringer/:id/kontekst', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT g.plan_id, p.avdeling_id, p.rotasjon_uker, p.start_dato::text AS start_dato
+             FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return null;
+        const [{ rows: behov }, { rows: onsker }] = await Promise.all([
+          client.query(
+            `SELECT avdeling_id, ukedag, dato::text AS dato, vaktkode_id, antall_krevd
+               FROM tidum_turnus_bemanningsbehov WHERE org_id = $1 AND avdeling_id = $2`,
+            [actor.orgId, gen.avdeling_id]),
+          client.query(
+            `SELECT ansatt_id, dato::text AS dato, ukedag, vaktkode_id, type, prioritet
+               FROM tidum_turnus_onsker WHERE org_id = $1 AND (plan_id = $2 OR plan_id IS NULL)`,
+            [actor.orgId, gen.plan_id]),
+        ]);
+        const uker = gen.rotasjon_uker || 6;
+        // Aggregate required coverage per concrete date.
+        const kravMap = new Map<string, number>();
+        for (const b of behov) {
+          for (const k of expandBehov(b, gen.start_dato, uker)) {
+            kravMap.set(k.dato, (kravMap.get(k.dato) ?? 0) + Number(k.antallKrevd || 0));
+          }
+        }
+        const krav = [...kravMap.entries()].map(([dato, krevd]) => ({ dato, krevd }));
+        // Expand wishes (dated + weekday-recurring) to concrete dates.
+        const start = new Date(gen.start_dato + 'T00:00:00');
+        const onskerUt: any[] = [];
+        for (const o of onsker) {
+          const base = { ansattId: o.ansatt_id, vaktkodeId: o.vaktkode_id ?? null, type: o.type, prioritet: o.prioritet ?? 'bor' };
+          if (o.dato) { onskerUt.push({ ...base, dato: String(o.dato).slice(0, 10) }); continue; }
+          if (o.ukedag == null) continue;
+          for (let i = 0; i < uker * 7; i++) {
+            const d = new Date(start); d.setDate(start.getDate() + i);
+            if ((d.getDay() || 7) === o.ukedag) onskerUt.push({ ...base, dato: localIso(d) });
+          }
+        }
+        return { krav, onsker: onskerUt };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      res.json(data);
+    } catch (err) {
+      console.error('[turnus-generering] kontekst feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // PDF export of a run's roster (landscape grid) for distribution/printing.
+  app.get('/api/turnus/genereringer/:id/pdf', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT p.navn AS plan_navn FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return null;
+        const { rows } = await client.query(
+          `SELECT a.navn AS ansatt_navn, kv.dato::text AS dato, vk.kode,
+                  vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+             FROM tidum_turnus_kalendervakter kv
+             JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
+             LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
+            WHERE kv.generering_id = $1 AND kv.org_id = $2
+            ORDER BY a.navn, kv.dato`,
+          [id, actor.orgId]);
+        return {
+          planNavn: gen.plan_navn as string,
+          vakter: rows.map((r) => ({
+            ansattNavn: r.ansatt_navn, dato: r.dato, kode: r.kode,
+            startTid: (r.start_tid ?? '08:00').slice(0, 5), sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5),
+          })),
+        };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      const pdf = await renderTurnusPdf(data);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="turnus-${id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      console.error('[turnus-generering] pdf feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // Publish a run and notify employees: flip the run's shifts to 'publisert' and
+  // email each employee (who has an address) their shifts with the roster PDF
+  // attached. Emails go out AFTER the DB tx (no SMTP inside a transaction), only
+  // to this org's own ansatte, and failures are counted — never thrown.
+  app.post('/api/turnus/genereringer/:id/publiser', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT p.navn AS plan_navn FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`, [id, actor.orgId]);
+        if (!gen) return null;
+        const { rows } = await client.query(
+          `SELECT a.navn AS ansatt_navn, a.user_email, a.telefon, kv.dato::text AS dato, vk.kode,
+                  vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+             FROM tidum_turnus_kalendervakter kv
+             JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
+             LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
+            WHERE kv.generering_id = $1 AND kv.org_id = $2
+            ORDER BY a.navn, kv.dato`, [id, actor.orgId]);
+        const publisert = (await client.query(
+          `UPDATE tidum_turnus_kalendervakter SET status = 'publisert'
+            WHERE generering_id = $1 AND org_id = $2`, [id, actor.orgId])) as any;
+        return { planNavn: gen.plan_navn as string, rows, antall: rows.length };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+
+      // Build the roster PDF once, attach to every employee's email.
+      const pdf = await renderTurnusPdf({
+        planNavn: data.planNavn,
+        vakter: data.rows.map((r: any) => ({ ansattNavn: r.ansatt_navn, dato: r.dato, kode: r.kode, startTid: (r.start_tid ?? '08:00').slice(0, 5), sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5) })),
+      });
+
+      // Group shifts per employee address.
+      const perAnsatt = new Map<string, { navn: string; vakter: any[] }>();
+      let utenEpost = 0;
+      const settSeen = new Set<string>();
+      for (const r of data.rows) {
+        if (!r.user_email) { if (r.ansatt_navn && !settSeen.has(r.ansatt_navn)) { settSeen.add(r.ansatt_navn); utenEpost++; } continue; }
+        const g = perAnsatt.get(r.user_email) ?? { navn: r.ansatt_navn ?? '', vakter: [] as any[] };
+        g.vakter.push(r); perAnsatt.set(r.user_email, g);
+      }
+
+      // Channels: e-post + in-app (both free) by default. SMS is a paid option
+      // and also needs a phone column that the schema does not have yet.
+      const kanaler: string[] = Array.isArray(req.body?.kanaler) ? req.body.kanaler : ['epost', 'app'];
+
+      let varslet = 0;
+      if (kanaler.includes('epost')) {
+        const utfall = await Promise.allSettled([...perAnsatt.entries()].map(([epost, g]) => {
+          const linjer = g.vakter.map((v: any) => `<li>${v.dato} — <strong>${v.kode}</strong> (${(v.start_tid ?? '').slice(0, 5)}–${(v.slutt_tid ?? '').slice(0, 5)})</li>`).join('');
+          return emailService.sendEmail({
+            purpose: 'administrative',
+            to: epost,
+            subject: `Din turnus er klar — ${data.planNavn}`,
+            html: `<p>Hei ${g.navn},</p><p>Turnusen din for <strong>${data.planNavn}</strong> er publisert. Dine vakter:</p><ul>${linjer}</ul><p>Full turnus er vedlagt som PDF.</p><p>Hilsen Tidum Turnus</p>`,
+            attachments: [{ filename: `turnus-${id}.pdf`, content: pdf, contentType: 'application/pdf' }],
+            throwOnError: true,
+          });
+        }));
+        varslet = utfall.filter((u) => u.status === 'fulfilled' && u.value !== false).length;
+      }
+
+      // In-app notification for employees that have a platform account (matched
+      // by email, since ansatte carry no direct user_id). Free channel.
+      let varsletApp = 0;
+      if (kanaler.includes('app')) {
+        for (const [epost, g] of perAnsatt) {
+          const { rows: [u] } = await pool.query(`SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`, [epost]);
+          if (u) {
+            await createNotification({
+              userId: String(u.id), type: 'turnus_publisert',
+              title: 'Turnus publisert', message: `Din turnus for ${data.planNavn} er klar.`,
+              link: '/turnus', createdBy: actor.userId,
+            });
+            varsletApp++;
+          }
+        }
+      }
+
+      // SMS — paid, opt-in channel. Sends via the configured gateway directly
+      // (the utboks queue is kommune-scoped and does not fit a turnus org). When
+      // no gateway is configured, varsletSms stays 0.
+      let varsletSms = 0;
+      const perTelefon = new Map<string, string>(); // normalisert telefon → navn
+      for (const r of data.rows) {
+        const t = r.telefon ? normaliserTelefon(String(r.telefon)) : null;
+        if (t) perTelefon.set(t, r.ansatt_navn ?? '');
+      }
+      if (kanaler.includes('sms')) {
+        const gw = getSmsGateway();
+        if (gw) {
+          const utfall = await Promise.allSettled([...perTelefon.entries()].map(([tlf, navn]) =>
+            gw.send({ telefon: tlf, melding: `Hei ${navn}, din turnus for ${data.planNavn} er publisert. Se e-post/app for detaljer. – Tidum Turnus` })));
+          varsletSms = utfall.filter((u) => u.status === 'fulfilled').length;
+        }
+      }
+
+      res.json({ publisert: data.antall, varslet, varsletApp, varsletSms, medTelefon: perTelefon.size, utenEpost, mottakere: perAnsatt.size });
+    } catch (err) {
+      console.error('[turnus-generering] publiser feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // Persist override edits: reassign generated shifts to different employees.
+  // Each edit is org-validated (the shift must belong to this run+org and the
+  // target employee to this org) before any UPDATE, so a forged vaktId/ansattId
+  // cannot touch another tenant's rows.
+  app.patch('/api/turnus/genereringer/:id/vakter', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    const endringer = req.body?.endringer;
+    if (!Array.isArray(endringer) || endringer.some((e) =>
+      !e || !Number.isInteger(Number(e.vaktId)) || !Number.isInteger(Number(e.ansattId)))) {
+      return res.status(400).json({ error: 'endringer ([{vaktId, ansattId}]) kreves.' });
+    }
+    try {
+      const result = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT id FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return { notFound: true as const };
+        for (const e of endringer) {
+          const vaktId = Number(e.vaktId), ansattId = Number(e.ansattId);
+          const { rows: [v] } = await client.query(
+            `SELECT 1 FROM tidum_turnus_kalendervakter WHERE id = $1 AND generering_id = $2 AND org_id = $3`,
+            [vaktId, id, actor.orgId]);
+          const { rows: [a] } = await client.query(
+            `SELECT 1 FROM tidum_turnus_ansatte WHERE id = $1 AND org_id = $2`,
+            [ansattId, actor.orgId]);
+          if (!v || !a) return { bad: true as const };
+        }
+        let oppdatert = 0;
+        for (const e of endringer) {
+          await client.query(
+            `UPDATE tidum_turnus_kalendervakter SET ansatt_id = $1, kilde = 'manuell'
+              WHERE id = $2 AND org_id = $3`,
+            [Number(e.ansattId), Number(e.vaktId), actor.orgId]);
+          oppdatert++;
+        }
+        return { oppdatert };
+      });
+      if ((result as any)?.notFound) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      if ((result as any)?.bad) return res.status(400).json({ error: 'Ugyldig vakt eller ansatt for denne organisasjonen.' });
+      res.json(result);
+    } catch (err) {
+      console.error('[turnus-generering] lagre vakter feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });
     }
   });

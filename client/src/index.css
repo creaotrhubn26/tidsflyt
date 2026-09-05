@@ -730,3 +730,8 @@
   padding-top: max(1rem, env(safe-area-inset-top));
   padding-bottom: max(1rem, env(safe-area-inset-bottom));
 }
+
+/* Print: hide interactive chrome so a turnus grid prints clean (Tidum Turnus). */
+@media print {
+  .no-print { display: none !important; }
+}

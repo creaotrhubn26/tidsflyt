@@ -51,6 +51,8 @@ export function listAnsatte(): Promise<any[]> {
 export function opprettAnsatt(input: {
   navn: string;
   primarAvdelingId?: number;
+  userEmail?: string;
+  telefon?: string;
 }): Promise<any> {
   return requestJson("/api/turnus/ansatte", jsonInit("POST", input));
 }
@@ -192,6 +194,30 @@ export interface GenerertVakt {
 }
 export function listGenereringVakter(id: string | number): Promise<GenerertVakt[]> {
   return requestJson(`/api/turnus/genereringer/${id}/vakter`);
+}
+export function lagreVaktEndringer(
+  id: string | number,
+  endringer: Array<{ vaktId: number; ansattId: number }>,
+): Promise<{ oppdatert: number }> {
+  return requestJson(`/api/turnus/genereringer/${id}/vakter`, jsonInit("PATCH", { endringer }));
+}
+export interface GenereringKontekst {
+  krav: Array<{ dato: string; krevd: number }>;
+  onsker: Array<{ ansattId: number; dato: string; vaktkodeId: number | null; type: string; prioritet: string }>;
+}
+export function getGenereringKontekst(id: string | number): Promise<GenereringKontekst> {
+  return requestJson(`/api/turnus/genereringer/${id}/kontekst`);
+}
+export interface VarselInnstillinger { paaminnelse_min: number; epost: boolean; app: boolean; sms: boolean; aktiv: boolean }
+export function getVarselInnstillinger(): Promise<VarselInnstillinger> {
+  return requestJson(`/api/turnus/varsel-innstillinger`);
+}
+export function lagreVarselInnstillinger(input: { paaminnelseMin: number; epost: boolean; app: boolean; sms: boolean; aktiv: boolean }): Promise<VarselInnstillinger> {
+  return requestJson(`/api/turnus/varsel-innstillinger`, jsonInit("PUT", input));
+}
+
+export function publiserTurnus(id: string | number, kanaler?: string[]): Promise<{ publisert: number; varslet: number; varsletApp: number; varsletSms: number; medTelefon: number; utenEpost: number; mottakere: number }> {
+  return requestJson(`/api/turnus/genereringer/${id}/publiser`, jsonInit("POST", kanaler ? { kanaler } : {}));
 }
 
 export function konsekvens(endringer: Array<{
