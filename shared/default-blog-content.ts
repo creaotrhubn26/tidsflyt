@@ -235,7 +235,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     ],
     leadFigure: {
       src: screenshotDesktop,
-      alt: "Tidum timeføring på desktop",
+      alt: "Tidum timeføring på PC",
       caption: "Når timer føres i én samlet arbeidsflyt, blir oversikten enklere å beholde gjennom hele uka.",
     },
     whatIs: {
@@ -317,8 +317,8 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     ],
     intro: [
       "Det å bytte vakt- eller timeløsning er ikke et tastetrykk. Ansattlisten er ryggraden i alle påfølgende prosesser — turnus, lønn, godkjenning og rapportering — og en uryddig migrering forplanter seg som duplikater, manglende kontaktinfo og feil rolletildeling i månedsvis.",
-      "Tidum er bygget for å redusere smerten det innebærer i praksis. Importen tar utgangspunkt i kildens egen eksport-format (Planday, Visma, Quinyx, eller en generisk CSV/Excel), og kjører hele filen gjennom en forhåndsvisning før noen rad lagres. Hver bekreftelse er eksplisitt, hvert avvik er synlig, og hvis noe likevel går skjevt har dere 7 dager på å rulle tilbake hele importen.",
-      "Denne guiden tar deg gjennom hele veien — fra eksport i kilde-systemet, via Tidum-wizarden, til ferdig oppsett. Vi dekker også de tre vanligste feilene som koster bedrifter mest tid i etterkant.",
+      "Tidum er bygget for å redusere smerten det innebærer i praksis. Importen tar utgangspunkt i kildens eget eksportformat (Planday, Visma, Quinyx, eller en generisk CSV/Excel), og kjører hele filen gjennom en forhåndsvisning før noen rad lagres. Hver bekreftelse er eksplisitt, hvert avvik er synlig, og hvis noe likevel går skjevt, har dere 7 dager på å rulle tilbake hele importen.",
+      "Denne guiden tar deg gjennom hele veien — fra eksport i kildesystemet, via Tidum-wizarden, til ferdig oppsett. Vi dekker også de tre vanligste feilene som koster bedrifter mest tid i etterkant.",
     ],
     leadFigure: {
       src: screenshotDesktop,
@@ -328,7 +328,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     },
     whatIs: {
       paragraphs: [
-        "Migrering i denne sammenhengen betyr å overføre ansatt-stamdata — navn, e-post, mobilnummer, avdeling, eventuelt stilling — fra et eksisterende system til Tidum. Det handler ikke om å flytte historiske vakter eller lønnskjøringer; de hører hjemme der de har vært ført.",
+        "Migrering i denne sammenhengen betyr å overføre ansattstamdata — navn, e-post, mobilnummer, avdeling, eventuelt stilling — fra et eksisterende system til Tidum. Det handler ikke om å flytte historiske vakter eller lønnskjøringer; de hører hjemme der de har vært ført.",
         "Tidum trenger bevisst lite for å virke: e-post (obligatorisk, brukes som identitet), fornavn, etternavn, og helst mobilnummer for SMS-varsling. Personnummer, bankkonto og hjemmeadresse importeres aldri — Tidum trenger dem ikke, og GDPR-prinsippet om dataminimering tilsier at de ikke skal samles inn uten formål.",
       ],
     },
@@ -337,7 +337,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "En ryddig migrering skiller seg fra en uryddig på tre punkter: hvor mye dere kan rulle tilbake, hvor godt avvik fanges på vei inn, og hvor mye GDPR-grunnlag som faktisk dokumenteres.",
       ],
       bullets: [
-        "Idempotens betyr at samme rad ikke importeres dobbelt — Tidum identifiserer dubletter på e-post-nivå og merker dem tydelig før commit.",
+        "Idempotens betyr at samme rad ikke importeres dobbelt — Tidum identifiserer dubletter på e-postnivå og merker dem tydelig før commit.",
         "Forhåndsvisning gir hovedadmin sjansen til å justere rolle per ansatt, ikke bare i bulk. Vendor_admin-tildelinger må bekreftes individuelt.",
         "GDPR-bekreftelsen er obligatorisk: hovedadmin må aktivt krysse av at virksomheten har rettsgrunnlag (typisk arbeidskontrakt) før raden går til DB.",
         "7 dagers rollback gir en reell mulighet til å angre hele importen hvis noe likevel viste seg feil — alle opprettede brukere fjernes i én operasjon.",
@@ -348,9 +348,9 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Hele flyten tar typisk under en time for et lag på 30–100 ansatte. Tidum håndterer opp til 10 000 rader per import, og logikken er den samme uansett størrelse — bare lengre forhåndsvisning når listen vokser.",
       ],
       bullets: [
-        "Eksporter ansatte fra kilde-systemet. I Planday: Personer → Ansatte → Verktøy → Eksporter data → Employee details (Integration template). Hak av «Include deactivated employees» — uten den haken risikerer dere å miste ansatte som var midlertidig deaktivert i forrige system.",
+        "Eksporter ansatte fra kildesystemet. I Planday: Personer → Ansatte → Verktøy → Eksporter data → Employee details (Integration template). Hak av «Include deactivated employees» — uten den haken risikerer dere å miste ansatte som var midlertidig deaktivert i forrige system.",
         "Velg Excel-format hvis kilden tilbyr det. CSV fungerer også, men Excel håndterer norske tegn (æøå) mer robust uten at dere må tenke på UTF-8 vs Windows-1252.",
-        "Logg inn i Tidum som hovedadmin, gå til /import-employees og velg riktig kilde. Wizard-en åpner en interaktiv guide hvis dere er usikre på eksport-stien i kilde-systemet.",
+        "Logg inn i Tidum som hovedadmin, gå til /import-employees og velg riktig kilde. Wizard-en åpner en interaktiv guide hvis dere er usikre på eksport-stien i kildesystemet.",
         "Last opp filen. Tidum parser den i minnet, lager en staged import (ingenting er lagret i ansattlisten ennå), og åpner forhåndsvisningen.",
         "Gå gjennom radene. Tildel rolle per ansatt — Miljøarbeider er default, men Tiltaksleder, Teamleder, Saksbehandler eller Leverandøradmin kan velges fra en dropdown. Smart hint foreslår tiltaksleder hvis kildens «Job title» inneholder ord som leder, manager eller koordinator.",
         "Hvis noen rader skal være vendor_admin (backup-administrator), ser hovedadmin en eksplisitt liste med navnene før commit. Tidum oppmuntrer til å holde antallet under tre.",
@@ -372,15 +372,15 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Tre feil går igjen, og alle tre er enkle å unngå hvis dere kjenner til dem på forhånd.",
       ],
       bullets: [
-        "Glemmer «Include deactivated employees» i Planday-eksporten. Resultat: ansatte som var midlertidig deaktivert i kilde-systemet havner ikke i Tidum, og må senere legges til manuelt med tap av historikk.",
+        "Glemmer «Include deactivated employees» i Planday-eksporten. Resultat: ansatte som var midlertidig deaktivert i kildesystemet havner ikke i Tidum, og må senere legges til manuelt med tap av historikk.",
         "Setter alle som vendor_admin for å «være på den sikre siden». Vendor_admin har tilnærmet samme rettigheter som hovedadmin — det er en sikkerhetsrisiko og et brudd på prinsippet om minste privilegium. Hold antall vendor_admin-er under tre, og bruk Tiltaksleder eller Teamleder for andre med leder-ansvar.",
         "Bytter format midt i flyten. Hvis dere starter med CSV og ombestemmer dere underveis, kanseller importen og start på nytt med Excel — ikke prøv å «fikse» kolonnemappingen for å få begge til å passe.",
       ],
     },
     tools: {
       paragraphs: [
-        "Tidum-importen støtter Planday direkte med kilde-spesifikk parsing av Integration template-eksporten. For Visma og Quinyx brukes generisk CSV/Excel-mapping mens vi jobber med dedikert oppsett — kolonnegjenkjenningen er fleksibel og takler de fleste vanlige eksport-formater.",
-        "Underveis i flyten dukker Tideman opp som hjelpe-agent hvis dere blir sittende fast. Tideman er den samme assistenten som ber om tilbakemelding etter at importen er bekreftet — han ønsker å høre hva som fungerte og hva som var rart, slik at vi kan gjøre løsningen bedre for neste kunde.",
+        "Tidum-importen støtter Planday direkte med kildespesifikk parsing av Integration template-eksporten. For Visma og Quinyx brukes generisk CSV/Excel-mapping mens vi jobber med dedikert oppsett — kolonnegjenkjenningen er fleksibel og takler de fleste vanlige eksport-formater.",
+        "Underveis i flyten dukker Tideman opp som hjelpeagent hvis dere blir sittende fast. Tideman er den samme assistenten som ber om tilbakemelding etter at importen er bekreftet — han ønsker å høre hva som fungerte og hva som var rart, slik at vi kan gjøre løsningen bedre for neste kunde.",
       ],
     },
     sources: [
@@ -462,7 +462,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     },
     tools: {
       paragraphs: [
-        "Et verktøy som fungerer i praksis må gjøre de riktige valgene enkle. Det bør være like lett å føre timer på mobilen som å kontrollere dem på desktop.",
+        "Et verktøy som fungerer i praksis må gjøre de riktige valgene enkle. Det bør være like lett å føre timer på mobilen som å kontrollere dem på PC.",
         "Tidum er bygget for å redusere nettopp disse feilene med tydelige arbeidsflater, enklere avviksføring og en ledervisning som gjør godkjenning mindre skjønnsbasert.",
       ],
     },
@@ -550,7 +550,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     title: "Stress på jobb? Slik får du kontroll på timene dine",
     slug: "stress-pa-jobb-slik-far-du-kontroll-pa-timene-dine",
     excerpt:
-      "Når arbeidsdagen er hektisk, blir timeregistrering ofte utsatt. Her er en mer realistisk måte å få kontroll uten å gjøre hverdagen tyngre.",
+      "Når arbeidsdagen er hektisk, blir timeregistrering ofte utsatt. Her er en mer realistisk måte å få kontroll på uten å gjøre hverdagen tyngre.",
     categorySlug: "problem-og-oversikt",
     featuredImage: stockClock,
     ogImage: assetOg(stockClock),
@@ -578,7 +578,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Når stressnivået er høyt, trenger ledelsen enda bedre oversikt over belastning, overtid og hva som faktisk skjer i hverdagen. Hvis timer mangler eller kommer sent, mister man et viktig styringsgrunnlag.",
       ],
       bullets: [
-        "det blir lettere å oppdage ubalanse i arbeidsmengde",
+        "det blir lettere å oppdage ubalanse i arbeidsmengden",
         "du slipper å rekonstruere dagen i etterkant",
         "lønn og avspasering blir enklere å kontrollere",
         "leder får et mer realistisk bilde av bemanningen",
@@ -592,7 +592,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Bestem ett tidspunkt i løpet av vakten for å kontrollere tidene.",
         "Før kun det viktigste først: start, slutt og pause.",
         "Legg til notater eller aktivitet bare når det faktisk trengs.",
-        "La leder godkjenne på fast tidspunkt i stedet for tilfeldig.",
+        "La leder godkjenne på et fast tidspunkt i stedet for tilfeldig.",
         "Bruk ukevisning eller rapport for å fange opp mønstre, ikke bare enkeltdager.",
       ],
       ordered: true,
@@ -747,7 +747,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "For å få kontroll i helsevesenet bør virksomheten bygge registreringen rundt avvikshåndtering, ikke bare standardvakter.",
       ],
       bullets: [
-        "La planlagt turnus være utgangspunkt, men registrer faktisk tid separat.",
+        "La planlagt turnus være utgangspunktet, men registrer faktisk tid separat.",
         "Marker ekstraarbeid, bytte av vakt og forlengelser samme dag.",
         "Avklar hvordan beredskap og passive perioder skal registreres i virksomheten.",
         "Sjekk ukentlig om gjennomsnittsberegning, hviletid og samlet belastning ser forsvarlig ut.",
@@ -815,7 +815,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     },
     whyImportant: {
       paragraphs: [
-        "BPA-arbeid kan være organisert gjennom kommune, privat leverandør eller andre arbeidsgivere. Uansett modell er det viktig at arbeidstiden dokumenteres tydelig, slik at både lønn, turnus og lederoppfølging blir riktig.",
+        "BPA-arbeid kan være organisert gjennom kommune, privat leverandør eller andre arbeidsgivere. Uansett modell er det viktig at arbeidstiden dokumenteres tydelig, slik at både lønn, turnus og lederoppfølging blir riktige.",
         "Hvis arbeidsgiverrollen ligger hos en privatperson eller arbeidsleder, blir det ekstra viktig med en enkel og forståelig løsning som ikke gjør oppfølgingen unødvendig vanskelig.",
       ],
       bullets: [
@@ -834,7 +834,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Registrer faktisk start og slutt samme dag.",
         "Marker tydelig hvis vakten ble forlenget, forkortet eller byttet.",
         "Bruk korte, nøytrale aktivitetsbeskrivelser der det er nødvendig.",
-        "La arbeidsleder eller arbeidsgiver godkjenne på fast tidspunkt.",
+        "La arbeidsleder eller arbeidsgiver godkjenne på et fast tidspunkt.",
       ],
       ordered: true,
     },
@@ -849,7 +849,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       ],
       bullets: [
         "timene føres samlet på slutten av uka",
-        "man skriver for mye personinformasjon i kommentarfelt",
+        "man skriver for mye personinformasjon i kommentarfeltet",
         "vaktendringer blir ikke registrert som egne avvik",
         "arbeidsgiver må tolke fritekst i stedet for tydelige timer",
       ],
@@ -891,7 +891,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     whatIs: {
       paragraphs: [
         "Tidsregistrering i turnus betyr at du ikke bare fører hvilke vakter som skulle skje, men hvilke timer som faktisk ble jobbet. Det er dette som gir grunnlag for riktig oppfølging, lønn og kontroll.",
-        "Turnus og timelister bør derfor sees som to sider av samme bilde: plan og gjennomføring.",
+        "Turnus og timelister bør derfor sees som to sider av samme sak: plan og gjennomføring.",
       ],
     },
     whyImportant: {
@@ -912,7 +912,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
       bullets: [
         "La planlagt turnus være synlig, men registrer avvik separat.",
         "Marker alltid bytte av vakt, ekstra oppmøte og forlenget vakt.",
-        "Se på ukes- eller månedsnivå, ikke bare én vakt av gangen.",
+        "Se på ukes- eller månedsnivå, ikke bare én vakt om gangen.",
         "Avklar hvordan beredskap, passive perioder og tillegg skal føres.",
         "La leder bruke rapportene til kapasitetsstyring, ikke bare etterkontroll.",
       ],
@@ -921,7 +921,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     supportFigure: {
       src: screenshotMobileViewport,
       alt: "Tidum mobil timeføring i turnus",
-      caption: "Mobil føring gjør det lettere å registrere endringer mens vakten fortsatt er pågående.",
+      caption: "Mobil føring gjør det lettere å registrere endringer mens vakten fortsatt pågår.",
     },
     commonMistakes: {
       paragraphs: [
@@ -1281,31 +1281,31 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     ],
     leadFigure: {
       src: "/screenshots/tidum-time-mobile.png",
-      alt: "Tidum stemplings-flate på mobil med sak-velger og kjøre-felt",
-      caption: "Sak-velger over timer-kortet. Når sak har «standard arbeidssted» registrert, dukker auto-kjøring opp som en grønn indikator.",
+      alt: "Tidum stemplingsflate på mobil med saksvelger og kjørefelt",
+      caption: "Saksvelger over timerkortet. Når sak har «standard arbeidssted» registrert, dukker auto-kjøring opp som en grønn indikator.",
     },
     whatIs: {
       paragraphs: [
-        "Auto-kjøregodt er en kobling mellom tre ting Tidum allerede har: sakens registrerte adresse, miljøarbeiderens GPS ved stempling, og kjøreloggen som regnskaps-bilag.",
-        "Når disse tre møtes på samme tidspunkt, kan systemet skrive en hel kjøre-linje selv: fra punkt A (der du er) til punkt B (sakens adresse), beregnet i kilometer, multiplisert med statens skattefrie sats, og lagret som primær-kjøretur for dagen.",
+        "Auto-kjøregodt er en kobling mellom tre ting Tidum allerede har: sakens registrerte adresse, miljøarbeiderens GPS ved stempling, og kjøreloggen som regnskapsbilag.",
+        "Når disse tre møtes på samme tidspunkt, kan systemet skrive en hel kjørelinje selv: fra punkt A (der du er) til punkt B (sakens adresse), beregnet i kilometer, multiplisert med statens skattefrie sats, og lagret som primærkjøretur for dagen.",
       ],
       bullets: [
-        "Tiltakslederen registrerer sakens standard arbeidssted én gang — adresse via Kartverket-søk, lat/lng faller på plass automatisk.",
-        "Miljøarbeideren får en sak-velger over timer-kortet. Velger sak før «Fortsett».",
-        "Ved stempling fanges posisjonen én gang. Hvis avstanden til sak er mer enn 300 meter, opprettes en kjøre-leg automatisk.",
-        "Mellomstopp i løpet av dagen kan legges til manuelt — Auto-flyten er bare for primærruten.",
+        "Tiltakslederen registrerer sakens standard arbeidssted én gang — adresse via Kartverket-søk, koordinatene faller på plass automatisk.",
+        "Miljøarbeideren får en saksvelger over timerkortet. Velger sak før «Fortsett».",
+        "Ved stempling fanges posisjonen én gang. Hvis avstanden til sak er mer enn 300 meter, opprettes en kjøreetappe automatisk.",
+        "Mellomstopp i løpet av dagen kan legges til manuelt — Autoflyten er bare for primærruten.",
       ],
     },
     whyImportant: {
       paragraphs: [
-        "Riktig kjøregodt handler ikke bare om penger. Det er en del av arbeidskontrakten din, og når føringen blir tungvint blir den i praksis underrapportert.",
+        "Riktig kjøregodt handler ikke bare om penger. Det er en del av arbeidskontrakten din, og når føringen blir tungvint, blir den i praksis underrapportert.",
         "Tidum gir fra første dag en korrekt logg over reisene som faktisk skjedde, knyttet til den faktiske saken. Når regnskap eller skattemyndigheter spør, har du dokumentasjon med tidsstempel og posisjon — ikke en Excel-fil med tilnærmede tall.",
       ],
       bullets: [
         "Miljøarbeider får riktig betalt for kjøring uten å fylle ut skjema",
         "Tiltaksleder slipper å minne om manglende kjøreloggføring",
-        "Vendor får revisjonsklar dokumentasjon på 3,50 kr/km-utlegg",
-        "Klient-adresser ligger ett sted (saken) i stedet for spredt i hver miljøarbeiders egen liste",
+        "Leverandøren får revisjonsklar dokumentasjon på 3,50 kr/km-utlegg",
+        "Klientadresser ligger ett sted (saken) i stedet for spredt i hver miljøarbeiders egen liste",
       ],
     },
     steps: {
@@ -1313,12 +1313,12 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Sett det opp én gang per sak, så går det av seg selv. Slik:",
       ],
       bullets: [
-        "Tiltaksleder åpner saken under «Mine saker» og trykker stedmarkør-knappen.",
-        "Skriver inn klient-adressen i Kartverket-søket — koordinatene fylles inn automatisk.",
+        "Tiltaksleder åpner saken under «Mine saker» og trykker stedmarkørknappen.",
+        "Skriver inn klientadressen i Kartverket-søket — koordinatene fylles inn automatisk.",
         "Tildeler saken til miljøarbeider(e) som vanlig.",
-        "Miljøarbeider åpner Tidum, velger saken i sak-velgeren, trykker «Fortsett».",
-        "Første gang vises et informert valg om GPS — etter Arbeidsmiljøloven §9-1. Aksepter eller avvis.",
-        "Når «Ferdig» trykkes, opprettes timeoppføringen og kjøre-linjen samtidig.",
+        "Miljøarbeider åpner Tidum, velger saken i saksvelgeren, trykker «Fortsett».",
+        "Første gang vises et informert valg om GPS — etter arbeidsmiljøloven § 9-1. Aksepter eller avvis.",
+        "Når «Ferdig» trykkes, opprettes timeoppføringen og kjørelinjen samtidig.",
       ],
       ordered: true,
     },
@@ -1332,7 +1332,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Auto-kjøregodt erstatter ikke godt skjønn — det forutsetter at miljøarbeider og tiltaksleder bruker det riktig.",
       ],
       bullets: [
-        "Glemmer å sette sakens arbeidssted: da skjer ingen auto-leg, miljøarbeider må føre manuelt",
+        "Glemmer å sette sakens arbeidssted: da skjer ingen autoetappe, miljøarbeider må føre manuelt",
         "Trykker «Fortsett» hjemme i stedet for ved klienten: GPS fanger hjem-koordinaten, ikke kjøreturen",
         "Avvist GPS én gang for alltid: kan reverseres i innstillinger, men er enkelt å glemme",
         "Mellomstopp uten standard arbeidssted: må legges inn manuelt fra «Legg til kjøring»-knappen",
@@ -1340,7 +1340,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     },
     tools: {
       paragraphs: [
-        "Auto-kjøregodt er bygd inn i Tidums miljøarbeider-app — du trenger ingen ekstra funksjoner. GPS-lagringen er privat: koordinater avrundes til ~110m presisjon etter 90 dager og slettes helt etter 5 år. Datatilsynet og Arbeidsmiljøloven §9-1 er hovedrammeverket.",
+        "Auto-kjøregodt er bygd inn i Tidums miljøarbeiderapp — du trenger ingen ekstra funksjoner. GPS-lagringen er privat: koordinater avrundes til ~110 m presisjon etter 90 dager og slettes helt etter 5 år. Datatilsynet og arbeidsmiljøloven § 9-1 er hovedrammeverket.",
         "Vi sender ikke koordinater til Vegvesenet, Google eller andre tredjeparter. Avstanden beregnes lokalt på serveren med Haversine-formelen (luftlinje). For kunder som krever eksakt kjørestrekning kobler vi senere på Statens vegvesens NVDB.",
       ],
     },
@@ -1357,13 +1357,13 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     title: "GDPR for arbeidstid og oppfølging — slik håndterer du personopplysninger trygt",
     slug: "gdpr-for-arbeidstid-og-oppfolging",
     excerpt:
-      "Personopplysningsloven, Arbeidsmiljøloven §9-1, Bokføringsloven §13. Slik fungerer regelverket for timelister, GPS-sporing og dokumentasjon i sosial- og helse-sektor.",
+      "Personopplysningsloven, arbeidsmiljøloven § 9-1, bokføringsloven § 13. Slik fungerer regelverket for timelister, GPS-sporing og dokumentasjon i sosial- og helsesektor.",
     categorySlug: "regelverk-og-krav",
     featuredImage: "/illustrations/data-analytics.svg",
     ogImage: assetOg("/illustrations/data-analytics.svg"),
     metaTitle: "GDPR for arbeidstid og oppfølging | Tidum",
     metaDescription:
-      "Forstå GDPR, Personopplysningsloven og norske særregler for behandling av timelister, posisjonsdata og helsedokumentasjon i arbeidsforhold.",
+      "Forstå GDPR, personopplysningsloven og norske særregler for behandling av timelister, posisjonsdata og helsedokumentasjon i arbeidsforhold.",
     tags: ["gdpr", "personvern", "datatilsynet", "personopplysningsloven", "arbeidsmiljøloven"],
     intro: [
       "Personvern handler om hvilke regler som gjelder når noen behandler opplysninger om deg. I arbeidssammenheng — særlig i barnevern, NAV-tiltak og kommunalt miljøarbeid — er det ekstra strengt fordi dataene ofte berører hjelpetrengende tredjeparter.",
@@ -1378,12 +1378,12 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     whatIs: {
       paragraphs: [
         "GDPR krever at all behandling av personopplysninger har et klart formål, et lovlig rettsgrunnlag, og en kort nok oppbevaringstid. I et arbeidsforhold er rettsgrunnlaget vanligvis arbeidskontrakten (art. 6 b) eller berettiget interesse (art. 6 f) — sjelden samtykke, fordi maktforholdet mellom arbeidsgiver og ansatt er asymmetrisk.",
-        "Norsk særrett: Arbeidsmiljøloven §9-1 sier at kontrolltiltak overfor ansatte krever saklig grunn, drøfting med ansatte/tillitsvalgte, skriftlig informasjon og at tiltaket ikke er uforholdsmessig. GPS-sporing av miljøarbeidere er et typisk kontrolltiltak.",
-        "Bokføringsloven §13 setter en motgrense: timebilag skal oppbevares i 5 år. Det betyr at «slett alt nå» ikke alltid er lov — vi må anonymisere brukeren, men beholde regnskapssporet.",
+        "Norsk særrett: Arbeidsmiljøloven § 9-1 sier at kontrolltiltak overfor ansatte krever saklig grunn, drøfting med ansatte/tillitsvalgte, skriftlig informasjon og at tiltaket ikke er uforholdsmessig. GPS-sporing av miljøarbeidere er et typisk kontrolltiltak.",
+        "Bokføringsloven § 13 setter en motgrense: timebilag skal oppbevares i 5 år. Det betyr at «slett alt nå» ikke alltid er lov — vi må anonymisere brukeren, men beholde regnskapssporet.",
       ],
       bullets: [
         "Formål — hva skal data brukes til? Skriv det ned.",
-        "Rettsgrunnlag — hvilken artikkel i GDPR / Personopplysningsloven hjemler behandlingen?",
+        "Rettsgrunnlag — hvilken artikkel i GDPR / personopplysningsloven hjemler behandlingen?",
         "Minimering — bare det som er nødvendig.",
         "Oppbevaring — så kort som lovlig mulig, lengre kun hvis loven krever.",
         "Sikkerhet — tilgangskontroll, kryptering, logging.",
@@ -1391,13 +1391,13 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     },
     whyImportant: {
       paragraphs: [
-        "I sosial- og helse-sektor håndterer dere data om sårbare mennesker — barn under barnevernet, brukere på NAV, klienter med diagnose. Et brudd er både juridisk og etisk dyrere her enn i andre bransjer.",
-        "Datatilsynet kan ilegge bøter på inntil 4 % av global omsetning eller 20 millioner euro — det høyeste. Mer praktisk: vendor-kunder krever skriftlig databehandleravtale (DPA) før kontrakt skrives. Uten orden i personvernet får dere ikke signere.",
+        "I sosial- og helsesektor håndterer dere data om sårbare mennesker — barn under barnevernet, brukere på NAV, klienter med diagnose. Et brudd er både juridisk og etisk dyrere her enn i andre bransjer.",
+        "Datatilsynet kan ilegge bøter på inntil 4 % av global omsetning eller 20 millioner euro — det høyeste. Mer praktisk: leverandørkunder krever skriftlig databehandleravtale (DPA) før kontrakt skrives. Uten orden i personvernet får dere ikke signere.",
       ],
       bullets: [
         "DPA er inngangsbilletten for offentlige kunder",
         "Avvik må meldes til Datatilsynet innen 72 timer (art. 33)",
-        "DPIA (vurdering av personvernkonsekvenser) kreves for systematisk overvåking eller behandling av Art. 9-data",
+        "DPIA (vurdering av personvernkonsekvenser) kreves for systematisk overvåking eller behandling av art. 9-data",
         "De ansatte har rett til innsyn, retting og «sletting» (med begrensninger for regnskap)",
       ],
     },
@@ -1409,10 +1409,10 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Kartlegg hvilke data dere samler inn — lag en behandlingsoversikt (art. 30).",
         "Skriv en personvernerklæring som dekker alle datatypene. Oppdater når dere endrer rutiner.",
         "Inngå databehandleravtale med hver leverandør (regnskap, lønn, timeliste-system).",
-        "Drøft kontrolltiltak (timeliste, GPS, kameraovervåking) med ansatte før innføring — Arbeidsmiljøloven §9-1.",
+        "Drøft kontrolltiltak (timeliste, GPS, kameraovervåking) med ansatte før innføring — arbeidsmiljøloven § 9-1.",
         "Sett oppbevaringsfrister per datatype og automatiser sletting der det er mulig.",
         "Tren ledere og HR i å besvare innsynsforespørsler innen 30 dager.",
-        "Lag en avviks-rutine: hva gjør dere hvis en bærbar PC mistes med klient-data på?",
+        "Lag en avviks-rutine: hva gjør dere hvis en bærbar PC mistes med klientdata på?",
       ],
       ordered: true,
     },
@@ -1428,16 +1428,16 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
         "Spør om samtykke der rettsgrunnlaget egentlig er kontrakt eller lov — gjør det vanskeligere å trekke tilbake senere",
         "Lagrer sykmeldinger i 5+ år «for sikkerhets skyld» — Datatilsynet anbefaler 1 år for helsedata",
         "Lar GPS-koordinater stå med full presisjon på arkiverte kjøreturer",
-        "Eksporterer hele klient-databasen til en ekstern konsulent uten DPA",
-        "Bruker «alle ledere»-tilgang i stedet for rolle-basert tilgangskontroll",
+        "Eksporterer hele klientdatabasen til en ekstern konsulent uten DPA",
+        "Bruker «alle ledere»-tilgang i stedet for rollebasert tilgangskontroll",
         "Glemmer å oppdatere personvernerklæringen når en ny integrasjon legges til",
       ],
     },
     tools: {
       paragraphs: [
         "Tidum er bygget med GDPR-prinsippene som grunnpilarer — ikke som ettertanke. Auditspor på alle endringer, automatisk sletting etter konfigurerbare retensjonstider, krypterte filer for sykmeldinger, dataportabilitet via «Last ned dataene mine»-knapp og rett til pseudonymisering for hver bruker.",
-        "Vendoradminer kan se vår offentlige retensjons-policy på <code>/api/gdpr/retention-policy</code>, og hver databehandleravtale knytter de konkrete fristene til kunden. Det gjør det mulig å svare ja på «Hvor lenge oppbevarer dere min data?» med en lenke i stedet for et estimat.",
-        "Ingen verktøy gjør GDPR for dere — men et godt verktøy reduserer hvor mange beslutninger dere må ta hver dag for å holde regelverket. Det er forskjellen mellom etterlevelse og etterskuddsvis opprydning.",
+        "Leverandøradministratorer kan se vår offentlige retensjonspolicy på <code>/api/gdpr/retention-policy</code>, og hver databehandleravtale knytter de konkrete fristene til kunden. Det gjør det mulig å svare ja på «Hvor lenge oppbevarer dere mine data?» med en lenke i stedet for et estimat.",
+        "Ingen verktøy gjør GDPR for dere — men et godt verktøy reduserer hvor mange beslutninger dere må ta hver dag for å overholde regelverket. Det er forskjellen mellom etterlevelse og etterskuddsvis opprydning.",
       ],
     },
     sources: [
@@ -1523,7 +1523,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Hva «nivå høy» faktisk krever",
         section: {
           paragraphs: [
-            "Sikkerhetsnivåene for elektronisk ID i Norge er ikke Tidum sin oppfinnelse. De er fastsatt av Digdir og brukes som felles språk mellom alle offentlige og private tjenester som håndterer sensitive data. Nivå høy krever to-faktor-autentisering med en eID som er personlig utstedt og verifisert mot folkeregisteret, ikke bare en e-postadresse og et selvvalgt passord.",
+            "Sikkerhetsnivåene for elektronisk ID i Norge er ikke Tidums oppfinnelse. De er fastsatt av Digdir og brukes som felles språk mellom alle offentlige og private tjenester som håndterer sensitive data. Nivå høy krever tofaktorautentisering med en eID som er personlig utstedt og verifisert mot folkeregisteret, ikke bare en e-postadresse og et selvvalgt passord.",
             "For Tidum betyr det at når en miljøarbeider eller tiltaksleder logger inn med BankID, er identiteten deres bekreftet av en uavhengig tredjepart, ikke bare av at de kjenner riktig passord til akkurat denne appen.",
           ],
         },
@@ -1540,7 +1540,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Fødselsnummeret lagres aldri i klartekst",
         section: {
           paragraphs: [
-            "Når BankID bekrefter en identitet, får Tidum et fødselsnummer tilbake fra eID-leverandøren. Det lagres aldri rått i databasen. I stedet regnes det om til en énveis kryptografisk hash (HMAC-SHA256 med en hemmelig salt), en verdi som kan brukes til å gjenkjenne at «dette er samme person som sist», men som ikke kan regnes tilbake til et faktisk fødselsnummer hvis databasen noensinne skulle komme på avveie.",
+            "Når BankID bekrefter en identitet, får Tidum et fødselsnummer tilbake fra eID-leverandøren. Det lagres aldri rått i databasen. I stedet regnes det om til en enveis kryptografisk hash (HMAC-SHA256 med et hemmelig salt), en verdi som kan brukes til å gjenkjenne at «dette er samme person som sist», men som ikke kan regnes tilbake til et faktisk fødselsnummer hvis databasen noensinne skulle komme på avveie.",
             "Hver innlogging logges i et hash-kjedet revisjonsspor, samme mønster som resten av Tidums sensitive handlinger, slik at dere kan dokumentere i ettertid nøyaktig når og på hvilket sikkerhetsnivå en person fikk tilgang.",
           ],
         },
@@ -1581,7 +1581,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Én person, én konto uansett hvilken eID",
         section: {
           paragraphs: [
-            "Det viktigste designvalget i denne integrasjonen er usynlig for brukeren: en person som er koblet til Tidum med BankID skal gjenkjennes som nøyaktig samme konto hvis de en annen dag logger inn med Buypass. Det oppnås ved at begge eID-leverandørene regner ut den samme énveis-hashen av fødselsnummeret, og kontoen slås opp på hashen, ikke på hvilken leverandør som beviste identiteten akkurat denne gangen.",
+            "Det viktigste designvalget i denne integrasjonen er usynlig for brukeren: en person som er koblet til Tidum med BankID skal gjenkjennes som nøyaktig samme konto hvis de en annen dag logger inn med Buypass. Det oppnås ved at begge eID-leverandørene regner ut den samme enveis-hashen av fødselsnummeret, og kontoen slås opp på hashen, ikke på hvilken leverandør som beviste identiteten akkurat denne gangen.",
             "Det betyr at «hvilken eID har du» aldri blir en begrensning på hvem som kan logge inn trygt, bare et valg brukeren gjør der og da.",
           ],
         },
@@ -1590,7 +1590,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Direkte mot Buypass, ikke via en mellommann",
         section: {
           paragraphs: [
-            "Integrasjonen snakker direkte med Buypass sin egen identitetstjeneste, med samme type sikker, standardisert autentiseringsprotokoll (OIDC med PKCE) som brukes til BankID-innloggingen. Ingen tredjeparts brokertjeneste sitter mellom Tidum og Buypass og kan se eller mellomlagre identitetsdata som ikke er nødvendig.",
+            "Integrasjonen snakker direkte med Buypass' egen identitetstjeneste, med samme type sikker, standardisert autentiseringsprotokoll (OIDC med PKCE) som brukes til BankID-innloggingen. Ingen tredjeparts meglertjeneste sitter mellom Tidum og Buypass og kan se eller mellomlagre identitetsdata som ikke er nødvendig.",
           ],
         },
       },
@@ -1598,7 +1598,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Samme forsiktighet som med BankID",
         section: {
           paragraphs: [
-            "De samme grunnprinsippene gjelder uforandret: ingen ny bruker opprettes automatisk fra en eID-innlogging. Den kobles kun til en konto som allerede finnes. Fødselsnummeret lagres aldri i klartekst. Hver innlogging logges i det samme hash-kjedede revisjonssporet som resten av Tidums sensitive handlinger.",
+            "De samme grunnprinsippene gjelder uforandret: ingen ny bruker opprettes automatisk fra en eID-innlogging. Innloggingen kobles kun til en konto som allerede finnes. Fødselsnummeret lagres aldri i klartekst. Hver innlogging logges i det samme hash-kjedede revisjonssporet som resten av Tidums sensitive handlinger.",
           ],
         },
       },
@@ -1631,7 +1631,7 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         section: {
           paragraphs: [
             "Når en rapport godkjennes i Tidum, legges den i en arkiveringskø. En egen jobb finner eller oppretter riktig saksmappe hos Documaster for saken, genererer PDF-en på samme måte som ved videresending, og oppretter en journalpost med dokumentet lagret i arkivformat, komplett med den skjermingskoden saken krever (standard: unntatt offentlighet, konfigurerbart per virksomhet).",
-            "Alt dette skjer i bakgrunnen. Godkjenning av en rapport blokkeres aldri av at arkiveringen tar tid eller feiler. Feilede forsøk følges opp automatisk med økende ventetid, og gis til slutt opp til manuell oppfølging fremfor å forsvinne stille.",
+            "Alt dette skjer i bakgrunnen. Godkjenning av en rapport blokkeres aldri av at arkiveringen tar tid eller feiler. Feilede forsøk følges opp automatisk med økende ventetid, og overlates til slutt til manuell oppfølging fremfor å forsvinne stille.",
           ],
         },
       },
@@ -1647,12 +1647,12 @@ const INTEGRATION_BLOG_ARTICLES: IntegrationArticleDraft[] = [
         heading: "Kontraktstestet før kundens sandkasse kobles til",
         section: {
           paragraphs: [
-            "Klientkoden er skrevet mot Documasters Noark 5-webtjenestekontrakt og er verifisert med automatiserte transporttester for token, oppslag, saksmappe, upload, journalpost, dokumentversjoner og idempotens. Den enkelte kundens tokenflyt, kodelister og obligatoriske felt verifiseres i kundens sandkasse før produksjonssetting. Tidum omtaler ikke en integrasjon som produksjonsverifisert før dette testbeviset foreligger.",
+            "Klientkoden er skrevet mot Documasters Noark 5-webtjenestekontrakt og er verifisert med automatiserte transporttester for token, oppslag, saksmappe, opplasting, journalpost, dokumentversjoner og idempotens. Den enkelte kundens tokenflyt, kodelister og obligatoriske felt verifiseres i kundens sandkasse før produksjonssetting. Tidum omtaler ikke en integrasjon som produksjonsverifisert før dette testbeviset foreligger.",
           ],
         },
       },
       {
-        heading: "Provider-uavhengig arkitektur",
+        heading: "Leverandøruavhengig arkitektur",
         section: {
           paragraphs: [
             "Documaster er første arkivkjerne Tidum kobler til, men ikke tenkt som den eneste. Selve arkiveringsmodulen er bygget mot et generelt grensesnitt for arkivleverandører, slik at flere Noark 5-kompatible kjerner kan legges til uten å bygge om resten av systemet.",
