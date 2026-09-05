@@ -257,7 +257,7 @@ const HELSE_SECTIONS: Section[] = [
 ];
 
 // ─── Barnevern — Tiltaksplan (Barnevernsloven §6-3) ─────────────────────────
-// Plikten til å utarbeide tiltaksplan for barn med tiltak fra barneverntjenesten.
+// Plikten til å utarbeide tiltaksplan for barn med tiltak fra barnevernstjenesten.
 // Loven krever spesifikke punkter som DENNE malen dekker eksplisitt.
 const BARNEVERN_TILTAKSPLAN_SECTIONS: Section[] = [
   {
@@ -602,7 +602,7 @@ const TEMPLATES = [
   {
     slug: "barnevern-standard",
     name: "Barnevern — standard",
-    description: "Månedsrapport for miljøarbeid i regi av barneverntjenesten. Inkluderer fokus på trygghet, utvikling, samarbeid og risikomomenter.",
+    description: "Månedsrapport for miljøarbeid i regi av barnevernstjenesten. Inkluderer fokus på trygghet, utvikling, samarbeid og risikomomenter.",
     suggestedInstitutionType: "barnevern",
     sections: BARNEVERN_SECTIONS,
   },
@@ -638,7 +638,7 @@ const TEMPLATES = [
     slug: "barnevern-tiltaksplan-6-3",
     name: "Barnevern — Tiltaksplan (Bvl §6-3)",
     description:
-      "Hjemmel: Barnevernsloven §6-3. Plikt til å utarbeide tiltaksplan for barn og unge med tiltak fra barneverntjenesten. " +
+      "Hjemmel: Barnevernsloven §6-3. Plikt til å utarbeide tiltaksplan for barn og unge med tiltak fra barnevernstjenesten. " +
       "Dekker eksplisitt formål, innhold, tidsperiode, oppfølging, evaluering, samt barnets og foreldrenes medvirkning (§1-4 og §1-5). " +
       "Skal evalueres minst hvert år.",
     suggestedInstitutionType: "barnevern",
