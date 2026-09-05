@@ -21,6 +21,7 @@ import { requireTurnusActor } from './turnus-actor';
 import { runSolver } from '../lib/turnus-solver-client';
 import { evaluateTurnusAml } from '../lib/turnus-aml';
 import { byggForklaring, narrer } from '../lib/turnus-xai';
+import { renderTurnusPdf } from '../lib/turnus-pdf';
 import { CONTRACT_VERSION } from '@shared/turnus-solver-contract';
 import type {
   SolverRequest, DekningsKrav, TurnusShift,
@@ -376,6 +377,48 @@ export function registerTurnusGenereringRoutes(app: Express): void {
       res.json(data);
     } catch (err) {
       console.error('[turnus-generering] kontekst feilet', err);
+      res.status(500).json({ error: 'Serverfeil.' });
+    }
+  });
+
+  // PDF export of a run's roster (landscape grid) for distribution/printing.
+  app.get('/api/turnus/genereringer/:id/pdf', async (req: Request, res: Response) => {
+    const actor = await requireTurnusActor(req);
+    if (!actor) return res.status(403).json({ error: 'Ikke tilgang.' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(400).json({ error: 'Ugyldig id.' });
+    try {
+      const data = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
+        const { rows: [gen] } = await client.query(
+          `SELECT p.navn AS plan_navn FROM tidum_turnus_genereringer g
+             JOIN tidum_turnus_planer p ON p.id = g.plan_id AND p.org_id = $2
+            WHERE g.id = $1 AND g.org_id = $2`,
+          [id, actor.orgId]);
+        if (!gen) return null;
+        const { rows } = await client.query(
+          `SELECT a.navn AS ansatt_navn, kv.dato::text AS dato, vk.kode,
+                  vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+             FROM tidum_turnus_kalendervakter kv
+             JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
+             LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
+            WHERE kv.generering_id = $1 AND kv.org_id = $2
+            ORDER BY a.navn, kv.dato`,
+          [id, actor.orgId]);
+        return {
+          planNavn: gen.plan_navn as string,
+          vakter: rows.map((r) => ({
+            ansattNavn: r.ansatt_navn, dato: r.dato, kode: r.kode,
+            startTid: (r.start_tid ?? '08:00').slice(0, 5), sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5),
+          })),
+        };
+      });
+      if (!data) return res.status(404).json({ error: 'Generering ikke funnet.' });
+      const pdf = await renderTurnusPdf(data);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="turnus-${id}.pdf"`);
+      res.send(pdf);
+    } catch (err) {
+      console.error('[turnus-generering] pdf feilet', err);
       res.status(500).json({ error: 'Serverfeil.' });
     }
   });

@@ -410,6 +410,19 @@ function OverstyrGrid({ generId }: { generId: number }) {
     for (const v of eff) if (v.ansattId != null) m.set(`${v.ansattId}|${v.dato}`, v);
     return m;
   }, [eff]);
+  const origCell = useMemo(() => {
+    const m = new Map<string, GenerertVakt>();
+    for (const v of rows) if (v.ansattId != null) m.set(`${v.ansattId}|${v.dato}`, v);
+    return m;
+  }, [rows]);
+  const endretNokler = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of ansatte) for (const d of datoer) {
+      const key = `${a.id}|${d}`;
+      if ((origCell.get(key)?.id ?? null) !== (cell.get(key)?.id ?? null)) s.add(key);
+    }
+    return s;
+  }, [origCell, cell, ansatte, datoer]);
   const ukeGrupper = useMemo(() => {
     const out: { uke: number; dager: string[] }[] = [];
     for (const d of datoer) { const u = isoUke(d); const s = out[out.length - 1]; if (s && s.uke === u) s.dager.push(d); else out.push({ uke: u, dager: [d] }); }
@@ -558,6 +571,7 @@ function OverstyrGrid({ generId }: { generId: number }) {
         <div className="flex flex-wrap items-center gap-2 no-print">
           {konsekvens.isPending && <span className="text-xs text-muted-foreground">Sjekker…</span>}
           <Button size="sm" variant="ghost" onClick={() => setVisSammenlign((v) => !v)}>Sammenlign</Button>
+          <Button size="sm" variant="ghost" onClick={() => window.open(`/api/turnus/genereringer/${generId}/pdf`, "_blank")}>Last ned PDF</Button>
           <Button size="sm" variant="ghost" onClick={() => window.print()}>Skriv ut</Button>
           <Button size="sm" variant="ghost" disabled={!fortid.length} onClick={angre} title="Angre">↶ Angre</Button>
           <Button size="sm" variant="ghost" disabled={!fremtid.length} onClick={gjenta} title="Gjenta">↷ Gjenta</Button>
@@ -571,10 +585,18 @@ function OverstyrGrid({ generId }: { generId: number }) {
 
         {rows.length === 0 && <TomHint>Ingen genererte vakter å vise.</TomHint>}
 
-        {rows.length > 0 && visSammenlign && baseline.current && (
-          <div className="mb-3 grid grid-cols-2 gap-2 text-sm">
-            <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Generert (før)</div><div>{baseline.current.harde} brudd · {baseline.current.myke} advarsler</div></div>
-            <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Nå (etter dine endringer)</div><div>{hardeNaa} brudd · {brudd.filter((x) => x.severity === "warning").length} advarsler</div></div>
+        {rows.length > 0 && visSammenlign && (
+          <div className="mb-4 space-y-3">
+            {baseline.current && (
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Generert (KI-forslag)</div><div>{baseline.current.harde} brudd · {baseline.current.myke} advarsler</div></div>
+                <div className="rounded-md border bg-muted/20 p-2"><div className="text-xs text-muted-foreground">Etter dine endringer</div><div>{hardeNaa} brudd · {brudd.filter((x) => x.severity === "warning").length} advarsler</div></div>
+              </div>
+            )}
+            <div className="grid gap-3 lg:grid-cols-2">
+              <MiniGrid tittel="Generert (KI-forslag)" ansatte={ansatte} datoer={datoer} cellMap={origCell} endret={endretNokler} />
+              <MiniGrid tittel={`Etter dine endringer${antallEndringer ? ` · ${antallEndringer}` : ""}`} ansatte={ansatte} datoer={datoer} cellMap={cell} endret={endretNokler} />
+            </div>
           </div>
         )}
 
@@ -690,6 +712,43 @@ function OverstyrGrid({ generId }: { generId: number }) {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function MiniGrid({ tittel, ansatte, datoer, cellMap, endret }: {
+  tittel: string; ansatte: { id: number; navn: string }[]; datoer: string[];
+  cellMap: Map<string, GenerertVakt>; endret: Set<string>;
+}) {
+  return (
+    <div className="rounded-md border p-2">
+      <div className="mb-1.5 text-xs font-medium">{tittel}</div>
+      <div className="overflow-x-auto">
+        <table className="border-separate border-spacing-0 text-[10px]">
+          <thead>
+            <tr>
+              <th className="px-1 text-left font-normal text-muted-foreground">Ansatt</th>
+              {datoer.map((d) => <th key={d} className={`px-0.5 text-center font-normal ${erHelg(d) ? "text-amber-700" : "text-muted-foreground"}`}>{kortDato(d)}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {ansatte.map((a) => (
+              <tr key={a.id}>
+                <td className="whitespace-nowrap px-1 font-medium">{a.navn}</td>
+                {datoer.map((d) => {
+                  const v = cellMap.get(`${a.id}|${d}`);
+                  const diff = endret.has(`${a.id}|${d}`);
+                  return (
+                    <td key={d} className={`px-0.5 py-0.5 text-center ${erHelg(d) ? "bg-amber-50/50 dark:bg-amber-400/5" : ""} ${diff ? "ring-1 ring-amber-500" : ""}`}>
+                      {v && <span className={`inline-flex min-w-4 justify-center rounded px-1 font-bold ring-1 ${vaktkodeStil(v.kode)}`}>{v.kode}</span>}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 

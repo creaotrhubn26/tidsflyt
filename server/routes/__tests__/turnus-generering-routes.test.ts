@@ -191,4 +191,21 @@ describe('turnus generering routes (CP-SAT integration)', () => {
     const r = await request(app).get('/api/turnus/genereringer/999999/kontekst');
     expect(r.status).toBe(404);
   });
+
+  it.skipIf(!SOLVER_OK)('pdf export returns an application/pdf document', async () => {
+    const app = appFor(userId);
+    const gen = await request(app).post(`/api/turnus/planer/${planId}/generer`).send({});
+    const r = await request(app).get(`/api/turnus/genereringer/${gen.body.generId}/pdf`).buffer(true).parse((res, cb) => {
+      const chunks: Buffer[] = []; res.on('data', (c) => chunks.push(c)); res.on('end', () => cb(null, Buffer.concat(chunks)));
+    });
+    expect(r.status).toBe(200);
+    expect(r.headers['content-type']).toContain('application/pdf');
+    expect(r.body.slice(0, 5).toString()).toBe('%PDF-'); // valid PDF magic
+  }, 30_000);
+
+  it('pdf on a foreign/nonexistent generation → 404', async () => {
+    const app = appFor(userId);
+    const r = await request(app).get('/api/turnus/genereringer/999999/pdf');
+    expect(r.status).toBe(404);
+  });
 });
