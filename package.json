@@ -16,7 +16,9 @@
     "guide:snapshots": "tsx scripts/capture-guide-screenshots.ts",
     "db:push": "drizzle-kit push --strict",
     "seed:barnevern-demo": "tsx scripts/seed-barnevern-demo.ts",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "demo:capture": "playwright test --config demo/playwright.demo.config.ts",
+    "demo:reels": "DEMO_REELS=1 playwright test --config demo/playwright.demo.config.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1116.0",

@@ -223,33 +223,50 @@ async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; p
     }
   }
 
-  // Wishes. Kept few and specific: a demo where everyone wishes for everything
-  // shows nothing, because the solver cannot honour any of it.
-  await client.query(`DELETE FROM tidum_turnus_onsker WHERE org_id = $1`, [orgId]);
-  const onsker: Array<[string, string, string | null, number | null, string, string, string]> = [
-    ["Marte Sunde", "fri_dato", "2026-03-14", null, "maa", "Bryllup i familien", "registrert"],
-    ["Marte Sunde", "fri_dato", "2026-03-15", null, "maa", "Bryllup i familien", "registrert"],
-    ["Bjørn Iversen", "onsker_vaktkode", null, null, "bor", "Foretrekker nattevakt", "registrert"],
-    ["Elin Grøtte", "fri_ukedag", null, 3, "bor", "Fast avtale på onsdager", "registrert"],
-    ["Frida Norheim", "fri_dato", "2026-03-21", null, "kan", "Ønsker helgefri", "registrert"],
+  // Wishes.
+  //
+  // Only `onske_fri` and `onske_vakt` exist: those are the two options the UI
+  // offers (turnus.tsx) and the only two the solver scores (solver.py). An
+  // earlier version of this seed invented fri_dato/fri_ukedag/onsker_vaktkode,
+  // which the solver silently ignored — the run then reported zero unmet goals
+  // not because every wish was honoured but because none were ever considered.
+  //
+  // The contention is deliberate and calibrated. Saturday 21 March needs 12
+  // people (D 4+1 sykepleier, A 3+1, N 2+1) and 18 of the 28 employees ask for
+  // it off, leaving 10 available — so at least two wishes must break, and the
+  // XAI panel has something real to explain. Four sykepleiere stay available
+  // for the three competence slots, which keeps the model feasible.
+  const HELGEFRI = "2026-03-21";
+  const helgesokere = [
+    "Marte Sunde", "Nina Bergli", "Silje Tangen", "Live Osland",
+    "Bjørn Iversen", "Kari Mo", "Tone Ellefsen", "Ole Fjeld", "Hanne Vik",
+    "Jonas Brekke", "Mari Lunde", "Sindre Nesheim", "Elin Grøtte",
+    "Trond Bakken", "Åse Vollan",
+    "Simen Dahle", "Frida Norheim", "Lars Ødegård",
   ];
-  for (const [navn, type, dato, ukedag, prioritet, begrunnelse, status] of onsker) {
+
+  await client.query(`DELETE FROM tidum_turnus_onsker WHERE org_id = $1`, [orgId]);
+  const onsker: Array<[string, string, string, string | null, string, string]> = [
+    // Marte's wedding — the one the narration names.
+    ["Marte Sunde", "onske_fri", "2026-03-14", null, "maa", "Bryllup i familien"],
+    ["Marte Sunde", "onske_fri", "2026-03-15", null, "maa", "Bryllup i familien"],
+    // Bjørn prefers nights, and asks for specific ones.
+    ["Bjørn Iversen", "onske_vakt", "2026-03-09", "N", "bor", "Foretrekker nattevakt"],
+    ["Bjørn Iversen", "onske_vakt", "2026-03-10", "N", "bor", "Foretrekker nattevakt"],
+    // Elin's standing Wednesday commitment, as concrete dates.
+    ["Elin Grøtte", "onske_fri", "2026-03-04", null, "bor", "Fast avtale på onsdager"],
+    ["Elin Grøtte", "onske_fri", "2026-03-11", null, "bor", "Fast avtale på onsdager"],
+    ...helgesokere.map(
+      (navn): [string, string, string, string | null, string, string] =>
+        [navn, "onske_fri", HELGEFRI, null, "bor", "Ønsker fri denne helgen"],
+    ),
+  ];
+  for (const [navn, type, dato, kode, prioritet, begrunnelse] of onsker) {
     await client.query(
       `INSERT INTO tidum_turnus_onsker
-         (org_id, ansatt_id, plan_id, type, dato, ukedag, vaktkode_id, prioritet, begrunnelse, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8::tidum_turnus_onske_prioritet,$9,$10::tidum_turnus_onske_status)`,
-      [
-        orgId,
-        ansattId[navn],
-        planId,
-        type,
-        dato,
-        ukedag,
-        type === "onsker_vaktkode" ? vaktkodeId["N"] : null,
-        prioritet,
-        begrunnelse,
-        status,
-      ],
+         (org_id, ansatt_id, plan_id, type, dato, vaktkode_id, prioritet, begrunnelse, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7::tidum_turnus_onske_prioritet,$8,'registrert')`,
+      [orgId, ansattId[navn], planId, type, dato, kode ? vaktkodeId[kode] : null, prioritet, begrunnelse],
     );
   }
 
