@@ -124,8 +124,26 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium webkit
 
+      # a11y-turnus dekker tastaturnavigasjon i overstyringsrutenettet og er
+      # beviset bak K-19 i anbudet. Den lå utenfor denne linja fram til nå: da
+      # Tideman ble omdøpt til Tidemann, brøt to hevdinger i turnus- og
+      # satser-testene uten at CI merket det.
       - name: Playwright e2e (desktop + mobil)
-        run: npx playwright test tests/full-workflow-e2e.spec.ts tests/barnevern-ui.spec.ts tests/a11y-public-pages.spec.ts
+        run: npx playwright test tests/full-workflow-e2e.spec.ts tests/barnevern-ui.spec.ts tests/a11y-public-pages.spec.ts tests/a11y-turnus.spec.ts
+
+      # CP-SAT-solveren er hele regelmotoren: arbeidsmiljølovens hviletid,
+      # dispensasjoner bundet til én ansatt, helgefordeling, og målingen K-08
+      # hviler på. Den hadde ingen CI-dekning overhodet.
+      - name: Set up Python (turnus-solver)
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install solver dependencies
+        run: pip install -r turnus-solver/requirements.txt pytest
+
+      - name: Pytest (turnus-solver)
+        run: python -m pytest turnus-solver -q
 
       - name: Upload Playwright report on failure
         if: failure()
