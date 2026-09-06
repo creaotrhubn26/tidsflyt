@@ -99,7 +99,7 @@ test.describe("LocationPickerInline i time-tracking", () => {
 
     // LocationPickerInline skal være synlig
     await expect(page.getByTestId("timer-location")).toBeVisible();
-    await expect(page.getByText("Tideman: hvor jobbet du?")).toBeVisible();
+    await expect(page.getByText("Tidemann: hvor jobbet du?")).toBeVisible();
 
     // Knappene skal vises: "Generelt" + Tiltaksbolig
     await expect(page.getByTestId("timer-location-default")).toBeVisible();

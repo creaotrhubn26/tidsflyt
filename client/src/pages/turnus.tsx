@@ -6,6 +6,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { TidemannByline } from "@/components/tidemann";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -290,7 +291,14 @@ function PlanleggingFane() {
                         <span className="text-base">✓</span> Alle harde krav (arbeidsmiljøloven) oppfylt
                       </div>
                     )}
-                    <p className="text-sm">{forklaring.data.narrasjon}</p>
+                    {/* The XAI narration is the hardest thing in the product to
+                        read cold — it explains why the solver produced this
+                        roster. Attributing it to Tidemann, the same helper the
+                        planner meets elsewhere in Tidum, gives the explanation
+                        a sender instead of arriving from nowhere. */}
+                    <TidemannByline role="forklarer turnusen">
+                      <p className="mt-1 text-sm text-foreground">{forklaring.data.narrasjon}</p>
+                    </TidemannByline>
                     {forklaring.data.strukturert.prioriteringer.length > 0 && (
                       <div className="space-y-1.5">
                         <div className="text-xs font-medium text-muted-foreground">Prioriteringer som styrte forslaget</div>

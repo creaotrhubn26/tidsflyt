@@ -11,7 +11,7 @@
  */
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { ChevronDown, ChevronRight, HelpCircle, MapPin, Plus, Trash2, ArrowLeft, ArrowRight, Edit3, Save, X } from 'lucide-react';
+import { ChevronDown, ChevronRight, MapPin, Plus, Trash2, ArrowLeft, ArrowRight, Edit3, Save, X } from 'lucide-react';
 import { PortalLayout } from '@/components/portal/portal-layout';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { apiRequest } from '@/lib/queryClient';
+import { TidemannBanner } from "@/components/tidemann";
 
 interface MonthlyRow {
   sakId: string;
@@ -163,19 +164,9 @@ export default function TiltakslederSatserPage() {
   return (
     <PortalLayout>
       <div className="mx-auto max-w-6xl px-4 py-6">
-        {/* Tideman-banner */}
+        {/* Tidemann-banner */}
         <Card className="mb-4 overflow-hidden border-slate-200 p-0" data-testid="tideman-rates-header">
-          <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40" aria-hidden="true">
-                <HelpCircle className="h-4 w-4" />
-              </div>
-              <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
-                <p className="text-sm font-semibold">Satser og månedstotaler</p>
-              </div>
-            </div>
-          </div>
+          <TidemannBanner title="Satser og månedstotaler" />
           <div className="p-4 text-sm text-[#486168]">
             Klikk på en kr-verdi for å endre sats. Lokasjons-sats overstyrer bruker-sats — så hvis Tom har 280 kr/t generelt, men 1 800 kr/døgn i Bjørndalen, så regnes Bjørndalen-tiden med døgnsats.
           </div>

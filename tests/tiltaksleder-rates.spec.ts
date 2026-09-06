@@ -2,7 +2,7 @@
  * tests/tiltaksleder-rates.spec.ts
  *
  * E2E smoke for T18:
- *  - /tiltaksleder/satser viser månedstotaler + tabell + Tideman-banner
+ *  - /tiltaksleder/satser viser månedstotaler + tabell + Tidemann-banner
  *  - inline rate-edit triggrer PATCH og oppdaterer beløp
  *  - lokasjons-CRUD per sak
  *  - lokasjons-velger i time-tracking dukker opp når valgt sak har lokasjoner
@@ -81,7 +81,7 @@ async function mockAuth(page: Page) {
 }
 
 test.describe("Tiltaksleder satser — T18", () => {
-  test("viser månedstotaler, Tideman-banner, og inline rate-edit", async ({ page }) => {
+  test("viser månedstotaler, Tidemann-banner, og inline rate-edit", async ({ page }) => {
     await mockAuth(page);
 
     let totalsResponse = buildMonthlyTotalsResponse();
@@ -118,9 +118,9 @@ test.describe("Tiltaksleder satser — T18", () => {
 
     await page.goto("/tiltaksleder/satser");
 
-    // Tideman-banner skal være synlig
+    // Tidemann-banner skal være synlig
     await expect(page.getByTestId("tideman-rates-header")).toBeVisible();
-    await expect(page.getByText("Tideman · hjelpe-agent")).toBeVisible();
+    await expect(page.getByText("Tidemann · hjelpe-agent")).toBeVisible();
     await expect(page.getByText("Satser og månedstotaler")).toBeVisible();
 
     // Sak-gruppe + brukere skal være synlige

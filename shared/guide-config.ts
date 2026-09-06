@@ -573,15 +573,15 @@ export const DEFAULT_GUIDE_CONFIG: GuideConfig = {
     },
     messages: {
       idle: {
-        title: "Tideman her — trenger du hjelp?",
+        title: "Tidemann her — trenger du hjelp?",
         body: "Du har sittet stille en stund. Skal jeg vise deg rundt eller åpne guiden?",
       },
       nav: {
-        title: "Tideman ser at du leter",
+        title: "Tidemann ser at du leter",
         body: "Vil du ha en kort omvisning? Det tar 30 sekunder.",
       },
       dialog: {
-        title: "Tideman: står du fast her?",
+        title: "Tidemann: står du fast her?",
         body: "Denne dialogen er ikke åpenbar — la meg vise deg veien videre.",
       },
     },

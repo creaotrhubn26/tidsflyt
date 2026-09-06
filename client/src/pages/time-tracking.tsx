@@ -1284,7 +1284,7 @@ export default function TimeTrackingPage() {
                             </p>
                           )}
 
-                          {/* Tideman: lokasjons-velger vises kun når valgt sak har lokasjoner */}
+                          {/* Tidemann: lokasjons-velger vises kun når valgt sak har lokasjoner */}
                           <LocationPickerInline
                             caseNumber={selectedProject}
                             value={selectedLocationId}
@@ -2098,7 +2098,7 @@ export default function TimeTrackingPage() {
               </Select>
             </div>
 
-            {/* Tideman: lokasjons-velger vises kun når valgt sak har lokasjoner */}
+            {/* Tidemann: lokasjons-velger vises kun når valgt sak har lokasjoner */}
             <LocationPickerInline
               caseNumber={manualProject}
               value={manualLocationId}
@@ -2267,7 +2267,7 @@ export default function TimeTrackingPage() {
   );
 }
 
-/* ─── Tideman lokasjons-velger ─────────────────────────────────────────────
+/* ─── Tidemann lokasjons-velger ─────────────────────────────────────────────
    Vises bare når valgt sak har minst én aktiv lokasjon. Diskret inline-
    layout — bryter ikke eksisterende sak-velger-rytme.
    ───────────────────────────────────────────────────────────────────────── */
@@ -2301,7 +2301,7 @@ function LocationPickerInline({
     <div className="rounded-md border border-amber-200 bg-amber-50/40 p-3" data-testid={testId}>
       <div className="mb-1.5 flex items-center gap-1.5 text-[11px] uppercase tracking-wide text-amber-800">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-        Tideman: hvor jobbet du?
+        Tidemann: hvor jobbet du?
       </div>
       <div className="flex flex-wrap gap-1.5">
         <button

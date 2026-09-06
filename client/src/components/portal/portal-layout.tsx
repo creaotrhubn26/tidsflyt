@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { FeedbackDialog } from "./feedback-dialog";
+import { TidemannAvatar } from "@/components/tidemann";
 import { GlobalSearch } from "@/components/global-search";
 import { ActivityFeed } from "@/components/portal/activity-feed";
 import { useAuth } from "@/hooks/use-auth";
@@ -32,7 +33,6 @@ import {
   Mail,
   ClipboardCheck,
   AlertTriangle,
-  HelpCircle,
   X,
   TrendingUp,
   ShieldCheck,
@@ -1260,16 +1260,11 @@ function StuckHelperPrompt({
       role="status"
       data-testid="stuck-helper-prompt"
     >
-      <div className="px-4 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white">
+      <div className="px-4 py-3 bg-sky-700 text-white">
         <div className="flex items-center gap-2">
-          <div
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
-            aria-hidden="true"
-          >
-            <HelpCircle className="h-4 w-4" />
-          </div>
+          <TidemannAvatar size="md" onFilled />
           <div className="flex-1 leading-tight">
-            <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
+            <p className="text-[10px] uppercase tracking-widest text-white/90">Tidemann · hjelpe-agent</p>
             <p className="text-sm font-semibold">{picked.title}</p>
           </div>
           <button
