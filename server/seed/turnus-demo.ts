@@ -91,7 +91,7 @@ const BEHOV: Record<number, { D: number; A: number; N: number }> = {
   7: { D: 4, A: 3, N: 2 },
 };
 
-async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; planId: number }> {
+async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; planId: number; userId: string }> {
   // The organisasjoner INSERT policy checks the row's own id, which does not
   // exist yet — so org creation cannot run under turnus context. System context
   // with a named operation is the documented path for exactly this.
@@ -263,6 +263,42 @@ async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; p
     [orgId, planId],
   );
 
+  // Membership. Without a row here requireTurnusActor() returns null for every
+  // caller, so the whole fixture would be invisible in the UI — seedable but
+  // impossible to open, which is useless for a demo recording.
+  //
+  // TURNUS_DEMO_USER names an existing users.id to link. Falls back to a demo
+  // user this seed owns, so a fresh database works with no extra setup. For a
+  // recording driven through ALLOW_DEV_AUTH_BYPASS, pass TURNUS_DEMO_USER=1 —
+  // the bypass authenticates as user id '1'.
+  //
+  // Gotcha worth knowing before recording day: requireTurnusActor() resolves the
+  // OLDEST membership (ORDER BY created_at ASC LIMIT 1). On a database that
+  // already holds turnus test data, the linked user is probably a member of some
+  // earlier org, and that one wins — the demo org stays invisible even though
+  // this row exists. Seed against a clean database, or delete the older
+  // membership first.
+  const demoUserId = process.env.TURNUS_DEMO_USER?.trim() || "turnus-demo-planlegger";
+  if (!process.env.TURNUS_DEMO_USER) {
+    await client.query(
+      `INSERT INTO users (id, email, first_name, last_name, language)
+       VALUES ($1, $2, 'Demo', 'Planlegger', 'no')
+       ON CONFLICT (id) DO NOTHING`,
+      [demoUserId, "demo.planlegger@solvang.example"],
+    );
+  }
+  const { rows: medlem } = await client.query(
+    `SELECT id FROM tidum_turnus_org_members WHERE org_id = $1 AND user_id = $2`,
+    [orgId, demoUserId],
+  );
+  if (!medlem[0]) {
+    await client.query(
+      `INSERT INTO tidum_turnus_org_members (org_id, user_id, rolle)
+       VALUES ($1, $2, 'planlegger')`,
+      [orgId, demoUserId],
+    );
+  }
+
   // Notification defaults, so the publish/notify beat has something to show.
   await client.query(
     `INSERT INTO tidum_turnus_varsel_innstillinger (org_id, paaminnelse_min, epost, app, sms, aktiv)
@@ -271,7 +307,7 @@ async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; p
     [orgId],
   );
 
-  return { orgId, planId };
+  return { orgId, planId, userId: demoUserId };
 }
 
 /**
@@ -293,7 +329,7 @@ async function upsert(
   return created.rows[0].id;
 }
 
-export async function seedTurnusDemo(): Promise<{ orgId: number; planId: number }> {
+export async function seedTurnusDemo(): Promise<{ orgId: number; planId: number; userId: string }> {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -301,7 +337,8 @@ export async function seedTurnusDemo(): Promise<{ orgId: number; planId: number 
     await client.query("COMMIT");
     console.log(
       `[seed:turnus-demo] «${ORG_NAVN}» klar — org_id=${result.orgId}, plan_id=${result.planId}, ` +
-        `${ANSATT_RAD.length} ansatte, ${ANTALL_LINJER} vaktlinjer, start ${PLAN_START}`,
+        `${ANSATT_RAD.length} ansatte, ${ANTALL_LINJER} vaktlinjer, start ${PLAN_START}, ` +
+        `planlegger=${result.userId}`,
     );
     return result;
   } catch (err) {
