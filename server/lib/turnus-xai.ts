@@ -30,6 +30,14 @@ export interface GenereringForklaringInput {
   /** Weight dimensions plus non-numeric context (e.g. anvendteRegler). */
   objektivJson: Record<string, unknown>;
   solveTidMs: number | null;
+  /** Time to the first valid roster. Preferred over solveTidMs in the summary:
+   *  solveTidMs is the configured budget whenever the solver cannot prove
+   *  optimality, so quoting it would overstate how long generation took. */
+  forsteLosningMs?: number | null;
+  /** Improvements found after the first roster. Reported so the wait reads as
+   *  work rather than as a hang — the objective climbs materially even when
+   *  the shift and unmet-goal counts stay put. */
+  antallForbedringer?: number | null;
   avvik: Array<{ type: string; alvor: string; referanse: string | null; forklaring: string }>;
 }
 
@@ -64,11 +72,23 @@ export function byggForklaring(input: GenereringForklaringInput): StrukturertFor
   let sammendrag: string;
   if (input.status === 'fullfort') {
     const topp = prioriteringer.slice(0, 3).map((p) => p.etikett).join(', ');
-    const tid = input.solveTidMs != null ? ` (${input.solveTidMs} ms)` : '';
+    // Quote the first-solution time, not the search budget. Where both are
+    // known the gap is optimisation, not waiting, and saying so is the
+    // difference between a measurable claim and a misleading one.
+    const tid =
+      input.forsteLosningMs != null
+        ? ` på ${input.forsteLosningMs} ms`
+        : input.solveTidMs != null
+          ? ` (søketid ${input.solveTidMs} ms)`
+          : '';
     const uoppfyltDel = uoppfylte.length
       ? ` ${uoppfylte.length} ønske/mål kunne ikke oppfylles fullt ut.`
       : ' Alle harde krav og prioriterte hensyn ble oppfylt.';
-    sammendrag = `Turnusen ble generert${tid}. Prioriteringene som styrte forslaget: ${topp || 'ingen vektlagt'}.${uoppfyltDel}`;
+    const forbedret =
+      input.antallForbedringer && input.antallForbedringer > 0
+        ? ` Søket forbedret forslaget ${input.antallForbedringer} ganger etterpå.`
+        : '';
+    sammendrag = `Turnusen ble generert${tid}.${forbedret} Prioriteringene som styrte forslaget: ${topp || 'ingen vektlagt'}.${uoppfyltDel}`;
   } else if (input.status === 'infeasible') {
     const k = konflikter.length
       ? ` Årsak: ${konflikter.map((c) => c.forklaring).join(' ')}`

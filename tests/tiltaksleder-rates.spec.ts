@@ -2,7 +2,7 @@
  * tests/tiltaksleder-rates.spec.ts
  *
  * E2E smoke for T18:
- *  - /tiltaksleder/satser viser månedstotaler + tabell + Tideman-banner
+ *  - /tiltaksleder/satser viser månedstotaler + tabell + Tidemann-banner
  *  - inline rate-edit triggrer PATCH og oppdaterer beløp
  *  - lokasjons-CRUD per sak
  *  - lokasjons-velger i time-tracking dukker opp når valgt sak har lokasjoner
@@ -81,7 +81,7 @@ async function mockAuth(page: Page) {
 }
 
 test.describe("Tiltaksleder satser — T18", () => {
-  test("viser månedstotaler, Tideman-banner, og inline rate-edit", async ({ page }) => {
+  test("viser månedstotaler, Tidemann-banner, og inline rate-edit", async ({ page }) => {
     await mockAuth(page);
 
     let totalsResponse = buildMonthlyTotalsResponse();
@@ -118,13 +118,17 @@ test.describe("Tiltaksleder satser — T18", () => {
 
     await page.goto("/tiltaksleder/satser");
 
-    // Tideman-banner skal være synlig
+    // Tidemann-banner skal være synlig
     await expect(page.getByTestId("tideman-rates-header")).toBeVisible();
-    await expect(page.getByText("Tideman · hjelpe-agent")).toBeVisible();
+    await expect(page.getByText("Tidemann · hjelpe-agent")).toBeVisible();
     await expect(page.getByText("Satser og månedstotaler")).toBeVisible();
 
-    // Sak-gruppe + brukere skal være synlige
-    await expect(page.getByText("Bjørndalen")).toBeVisible();
+    // Sak-gruppe + brukere skal være synlige.
+    //
+    // Scoped to the group header: "Bjørndalen" also appears in the explanatory
+    // paragraph above the table and in the location pill below it, so a plain
+    // getByText is a strict-mode violation with three matches.
+    await expect(page.getByRole("button", { name: /Bjørndalen/ }).first()).toBeVisible();
     await expect(page.getByText("tom@firma.no")).toBeVisible();
     await expect(page.getByText("lise@firma.no")).toBeVisible();
 
@@ -183,8 +187,9 @@ test.describe("Tiltaksleder satser — T18", () => {
 
     await page.goto("/tiltaksleder/satser");
 
-    // Vent til siden har lastet inn første sak — den ikke kollapset
-    await expect(page.getByText("Bjørndalen")).toBeVisible();
+    // Vent til siden har lastet inn første sak — den ikke kollapset.
+    // Scoped to the group header; see the note in the test above.
+    await expect(page.getByRole("button", { name: /Bjørndalen/ }).first()).toBeVisible();
 
     // Klikk "Legg til lokasjon"
     await page.getByTestId(`add-location-${MOCK_SAK_ID}`).click();
@@ -196,8 +201,17 @@ test.describe("Tiltaksleder satser — T18", () => {
     await page.getByTestId("save-location").click();
 
     // Lokasjon skal nå være synlig
-    await expect(page.getByText("Tiltaksbolig Test")).toBeVisible();
-    await expect(page.getByText("kr 1 800/døgn")).toBeVisible();
+    // Matched by regex, not by literal: formatKr uses Intl nb-NO, which renders
+    // "1 800 kr" — amount first, hard space (U+00A0) as thousands separator —
+    // and the cell adds " / døgn" with spaces. The old literal "kr 1 800/døgn"
+    // had the currency first, an ordinary space, and no spaces around the
+    // slash, so it never matched what the component actually renders.
+    // Scoped to the new row. Two locations now carry the same day rate — the
+    // mocked "Tiltaksbolig Bjørndalen" and the one this test just added — so an
+    // unscoped match is a strict-mode violation with two hits.
+    const nyLokasjon = page.locator("li").filter({ hasText: "Tiltaksbolig Test" });
+    await expect(nyLokasjon).toBeVisible();
+    await expect(nyLokasjon.getByText(/1\s*800\s*kr\s*\/\s*døgn/)).toBeVisible();
 
     // Slett lokasjonen
     await page.getByTestId("remove-location-loc-1").click();

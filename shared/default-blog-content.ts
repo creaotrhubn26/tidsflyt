@@ -380,7 +380,7 @@ const DEFAULT_BLOG_ARTICLES: BlogArticleDraft[] = [
     tools: {
       paragraphs: [
         "Tidum-importen støtter Planday direkte med kildespesifikk parsing av Integration template-eksporten. For Visma og Quinyx brukes generisk CSV/Excel-mapping mens vi jobber med dedikert oppsett — kolonnegjenkjenningen er fleksibel og takler de fleste vanlige eksport-formater.",
-        "Underveis i flyten dukker Tideman opp som hjelpeagent hvis dere blir sittende fast. Tideman er den samme assistenten som ber om tilbakemelding etter at importen er bekreftet — han ønsker å høre hva som fungerte og hva som var rart, slik at vi kan gjøre løsningen bedre for neste kunde.",
+        "Underveis i flyten dukker Tidemann opp som hjelpeagent hvis dere blir sittende fast. Tidemann er den samme assistenten som ber om tilbakemelding etter at importen er bekreftet — han ønsker å høre hva som fungerte og hva som var rart, slik at vi kan gjøre løsningen bedre for neste kunde.",
       ],
     },
     sources: [

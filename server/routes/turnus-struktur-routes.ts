@@ -127,13 +127,16 @@ export function registerTurnusStrukturRoutes(app: Express): void {
   app.post("/api/turnus/vaktkoder", async (req: Request, res: Response) => {
     const actor = await requireTurnusActor(req);
     if (!actor) return res.status(403).json({ error: "Ikke tilgang." });
-    const { kode, navn, startTid, sluttTid, varighetTimer, type, tellerSomArbeid, farge } = req.body ?? {};
+    const { kode, navn, startTid, sluttTid, varighetTimer, type, tellerSomArbeid, farge, pauseMin } = req.body ?? {};
+    // Clamped, not trusted: the column has the same CHECK, and a rejected
+    // INSERT would be a 500 rather than a usable message.
+    const pause = Math.min(240, Math.max(0, Math.round(Number(pauseMin) || 0)));
     if (!kode || typeof kode !== "string") return res.status(400).json({ error: "kode kreves." });
     try {
       const row = await withTurnusOrgRlsContext(actor.orgId, async (client) =>
         (await client.query(
-          `INSERT INTO tidum_turnus_vaktkoder (org_id, kode, navn, start_tid, slutt_tid, varighet_timer, type, teller_som_arbeid, farge) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-          [actor.orgId, kode, navn ?? null, startTid ?? null, sluttTid ?? null, varighetTimer ?? null, type ?? null, tellerSomArbeid ?? true, farge ?? null])).rows[0]);
+          `INSERT INTO tidum_turnus_vaktkoder (org_id, kode, navn, start_tid, slutt_tid, varighet_timer, type, teller_som_arbeid, farge, pause_min) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+          [actor.orgId, kode, navn ?? null, startTid ?? null, sluttTid ?? null, varighetTimer ?? null, type ?? null, tellerSomArbeid ?? true, farge ?? null, pause])).rows[0]);
       res.json(row);
     } catch (err) {
       console.error("[turnus-struktur] create vaktkode feilet", err);

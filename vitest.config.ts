@@ -34,8 +34,10 @@ export default defineConfig({
       EMAIL_MAGIC_LINK_SECRET: process.env.EMAIL_MAGIC_LINK_SECRET || 'test-email-magic-link-secret',
       CSRF_SECRET: process.env.CSRF_SECRET || 'test-csrf-secret-for-vitest',
     },
-    // tests/ er Playwright-specs (npm run test:e2e) — ikke vitest-tester
-    exclude: ['**/node_modules/**', '**/dist/**', 'tests/**', 'tidsflyt-mobile/**'],
+    // tests/ og demo/ er Playwright-specs (npm run test:e2e / demo:capture) —
+    // ikke vitest-tester. Uten demo/ her plukker vitest opp opptaks-specene og
+    // feiler på dem, fordi de importerer @playwright/test.
+    exclude: ['**/node_modules/**', '**/dist/**', 'tests/**', 'demo/**', 'tidsflyt-mobile/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

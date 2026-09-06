@@ -1,9 +1,9 @@
 /**
  * tests/tideman-import-feedback.spec.ts
  *
- * E2E smoke for Tideman-feedback-card etter bekreftet import.
+ * E2E smoke for Tidemann-feedback-card etter bekreftet import.
  *  - Card vises bare når status='confirmed'
- *  - 5-stjerne rating + tekst-felt + "Send til Tideman"-knapp
+ *  - 5-stjerne rating + tekst-felt + "Send til Tidemann"-knapp
  *  - Etter sending: takke-card erstatter feedback-form
  *  - POST /api/imports/:id/feedback kalles med rating + comment
  */
@@ -59,7 +59,7 @@ async function mockAuth(page: Page) {
   );
 }
 
-test.describe("Tideman feedback etter import-confirm", () => {
+test.describe("Tidemann feedback etter import-confirm", () => {
   test("feedback-card → send → takke-card", async ({ page }) => {
     await mockAuth(page);
 
@@ -81,7 +81,7 @@ test.describe("Tideman feedback etter import-confirm", () => {
 
     await page.goto(`/import-employees/${MOCK_IMPORT_ID}/preview`);
 
-    // Tideman feedback-card skal være synlig (importen er bekreftet)
+    // Tidemann feedback-card skal være synlig (importen er bekreftet)
     await expect(page.getByTestId("tideman-feedback-card")).toBeVisible();
     await expect(page.getByText("Hvordan gikk importen?")).toBeVisible();
 
@@ -95,7 +95,7 @@ test.describe("Tideman feedback etter import-confirm", () => {
     // Skriv kommentar
     await page.getByTestId("tideman-comment").fill("Gikk smertefritt — guiden var tydelig.");
 
-    // Send til Tideman
+    // Send til Tidemann
     await page.getByTestId("tideman-submit").click();
 
     // POST skal være kalt med rating=4

@@ -741,9 +741,9 @@ export function registerEmployeeImportRoutes(app: Express) {
   /**
    * POST /api/imports/:id/feedback
    *
-   * Tideman-feedback etter en bekreftet import. Skriver til den eksisterende
+   * Tidemann-feedback etter en bekreftet import. Skriver til den eksisterende
    * tidum_tester_feedback-tabellen (kontekst lagres i extra_context) og sender
-   * e-post til TIDUM_SUPPORT_EMAIL med Tideman-branding.
+   * e-post til TIDUM_SUPPORT_EMAIL med Tidemann-branding.
    *
    * Idempotens: vi tillater flere feedback-rader fra samme bruker per import
    * (samme person kan ha flere innspill), men UI bare viser den siste.
@@ -791,7 +791,7 @@ export function registerEmployeeImportRoutes(app: Express) {
         category,
         severity: rating <= 2 ? 'high' : 'medium',
         pagePath: `/import-employees/${importId}/preview`,
-        pageTitle: 'Import-feedback (Tideman)',
+        pageTitle: 'Import-feedback (Tidemann)',
         userAgent: req.headers['user-agent'] || null,
         extraContext: {
           kind: 'import_feedback',
@@ -806,17 +806,17 @@ export function registerEmployeeImportRoutes(app: Express) {
         status: 'new',
       });
 
-      // Tideman-e-post til Daniel (best-effort)
+      // Tidemann-e-post til Daniel (best-effort)
       try {
         const stars = '★'.repeat(rating) + '☆'.repeat(5 - rating);
         const lowRatingPrefix = rating <= 2 ? '★ ' : '';
         await emailService.sendEmail({
           purpose: "administrative",
           to: TIDUM_SUPPORT_EMAIL,
-          subject: `${lowRatingPrefix}[Tideman] Import-feedback (${stars}): ${vendorName}`,
+          subject: `${lowRatingPrefix}[Tidemann] Import-feedback (${stars}): ${vendorName}`,
           html: `
             <div style="font-family: Arial, sans-serif; max-width: 640px; margin: 0 auto;">
-              <p style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 0;">Tideman · feedback-mottaker</p>
+              <p style="color: #64748b; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; margin: 0;">Tidemann · feedback-mottaker</p>
               <h2 style="color: #0f172a; margin-top: 4px;">Import-feedback mottatt</h2>
               <p><strong>Vendor:</strong> ${vendorName} (id ${imp.vendorId})</p>
               <p><strong>Import:</strong> ${importId} (${imp.source}, ${summary?.imported ?? '?'} ansatte importert)</p>
@@ -825,11 +825,11 @@ export function registerEmployeeImportRoutes(app: Express) {
               ${comment
                 ? `<div style="margin-top: 12px; padding: 12px; background: #f8fafc; border-left: 3px solid #94a3b8;"><strong>Kommentar:</strong><br/>${comment.replace(/\n/g, '<br/>')}</div>`
                 : '<p><em>Ingen kommentar — bare rating.</em></p>'}
-              <p style="margin-top: 16px; color: #64748b; font-size: 12px;">Du kan svare bruker via /admin/tester-feedback. Tideman har lagret feedback-en med category=${category}.</p>
+              <p style="margin-top: 16px; color: #64748b; font-size: 12px;">Du kan svare bruker via /admin/tester-feedback. Tidemann har lagret feedback-en med category=${category}.</p>
             </div>
           `,
           text: [
-            `[Tideman] Import-feedback (${rating}/5): ${vendorName}`,
+            `[Tidemann] Import-feedback (${rating}/5): ${vendorName}`,
             `Import: ${importId} (${imp.source})`,
             `Fra: ${email}`,
             '',
@@ -839,12 +839,12 @@ export function registerEmployeeImportRoutes(app: Express) {
           ].join('\n'),
         });
       } catch (mailErr) {
-        console.error('[Tideman] e-post feilet:', mailErr);
+        console.error('[Tidemann] e-post feilet:', mailErr);
       }
 
       return res.json({ ok: true });
     } catch (err: any) {
-      console.error('[Tideman] POST failed', err);
+      console.error('[Tidemann] POST failed', err);
       return res.status(500).json({ error: err?.message || 'Feilet' });
     }
   });

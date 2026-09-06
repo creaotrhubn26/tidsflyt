@@ -144,7 +144,16 @@ export interface SolverResponse {
   anvendteRegler?: AnvendtRegel[];
   /** On infeasible: the minimal conflicting hard-constraint set, if the solver produced one. */
   konfliktsett?: BindendeConstraint[];
+  /** Total wall-clock search time. Note this is the configured budget whenever
+   *  the solver cannot prove optimality — see forsteLosningMs for actual work. */
   solveTidMs: number;
+  /** Milliseconds until the FIRST feasible roster. Null when infeasible or when
+   *  no solution was found. This is the number K-08's "measurable time" means. */
+  forsteLosningMs?: number | null;
+  /** Strictly better rosters found after the first. The search is not idle
+   *  while it runs: the objective improves materially even when the shift and
+   *  unmet-goal counts do not move. */
+  antallForbedringer?: number;
   solverVersjon: string;
   feilmelding?: string;
 }

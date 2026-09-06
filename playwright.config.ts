@@ -14,6 +14,22 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     video: "retain-on-failure",
+    // Settle the analytics consent banner before any test runs.
+    //
+    // The banner is a fixed overlay that sits over the middle of the viewport
+    // until a choice is stored, and it silently breaks tests by intercepting
+    // clicks — tideman-import-feedback failed on a 60 s click timeout for
+    // exactly this reason, with the banner present in the DOM snapshot.
+    //
+    // Set here rather than per test so future specs inherit it. "denied" is the
+    // right value: a test run should not be emitting analytics either.
+    storageState: {
+      cookies: [],
+      origins: [{
+        origin: baseURL,
+        localStorage: [{ name: "tidum-analytics-consent", value: "denied" }],
+      }],
+    },
   },
   webServer: {
     command: `PORT=${port} npm run dev`,

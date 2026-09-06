@@ -198,11 +198,12 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         await client.query(
           `UPDATE tidum_turnus_genereringer
               SET status = $1, solver_versjon = $2, solve_tid_ms = $3,
+                  forste_losning_ms = $7, antall_forbedringer = $8,
                   objektiv_json = $4, fullfort = NOW()
             WHERE id = $5 AND org_id = $6`,
           [dbStatus, resp.solverVersjon, resp.solveTidMs,
            JSON.stringify({ ...(resp.objektiv ?? {}), anvendteRegler: resp.anvendteRegler ?? [] }),
-           generId, actor.orgId],
+           generId, actor.orgId, resp.forsteLosningMs ?? null, resp.antallForbedringer ?? null],
         );
 
         // Deviations: unmet soft goals (+ infeasibility conflicts) → XAI rows.
@@ -243,7 +244,8 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         return {
           generId, status: dbStatus, solverStatus: resp.status,
           vakterSkrevet: skrevet, avvik: avvik.length,
-          solveTidMs: resp.solveTidMs, feilmelding: resp.feilmelding ?? null,
+          solveTidMs: resp.solveTidMs, forsteLosningMs: resp.forsteLosningMs ?? null,
+          feilmelding: resp.feilmelding ?? null,
         };
       });
 
@@ -291,7 +293,7 @@ export function registerTurnusGenereringRoutes(app: Express): void {
     try {
       const loaded = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
         const { rows: [gen] } = await client.query(
-          `SELECT status::text AS status, objektiv_json, solve_tid_ms
+          `SELECT status::text AS status, objektiv_json, solve_tid_ms, forste_losning_ms, antall_forbedringer
              FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
           [id, actor.orgId],
         );
@@ -308,6 +310,8 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         status: loaded.gen.status,
         objektivJson: loaded.gen.objektiv_json ?? {},
         solveTidMs: loaded.gen.solve_tid_ms ?? null,
+        forsteLosningMs: loaded.gen.forste_losning_ms ?? null,
+        antallForbedringer: loaded.gen.antall_forbedringer ?? null,
         avvik: loaded.avvik,
       });
       const narrasjon = await narrer(strukturert);
@@ -334,7 +338,8 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         if (!gen) return null;
         const { rows } = await client.query(
           `SELECT kv.id, kv.ansatt_id, a.navn AS ansatt_navn, kv.dato::text AS dato,
-                  kv.vaktkode_id, vk.kode, vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+                  kv.vaktkode_id, vk.kode, vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid,
+                  vk.pause_min
              FROM tidum_turnus_kalendervakter kv
              JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
              LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
@@ -347,6 +352,9 @@ export function registerTurnusGenereringRoutes(app: Express): void {
           dato: r.dato, vaktkodeId: r.vaktkode_id, kode: r.kode,
           startTid: (r.start_tid ?? '08:00').slice(0, 5),
           sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5),
+          // Minutes in the column, hours on the wire: pauseTimer is defined in
+          // hours by the solver contract, and turnus-aml.ts subtracts it as such.
+          pauseTimer: Number(r.pause_min ?? 0) / 60,
         }));
       });
       if (rows == null) return res.status(404).json({ error: 'Generering ikke funnet.' });

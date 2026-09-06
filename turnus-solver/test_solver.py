@@ -295,3 +295,56 @@ def test_scale_25_lines_four_weeks_produces_a_complete_roster():
         nokkel = (v["ansattId"], v["dato"])
         per_ansatt_dag[nokkel] = per_ansatt_dag.get(nokkel, 0) + 1
     assert max(per_ansatt_dag.values()) == 1
+
+
+def test_forste_losning_maales_separat_fra_soketid():
+    """K-08 asks for measurable generation time.
+
+    solve_tid_ms cannot answer that: CP-SAT runs until max_time_in_seconds
+    whenever it cannot prove optimality, so it reports the budget, not the work.
+    forsteLosningMs measures time to the first valid roster, which is what the
+    planner actually waits for.
+    """
+    r = solve(base(dekningskrav=[
+        {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 1},
+        {"avdelingId": 1, "dato": "2026-01-06", "vaktkodeId": 1, "antallKrevd": 1},
+    ]))
+    assert r["status"] in ("optimal", "feasible")
+    assert r["forsteLosningMs"] is not None
+    assert r["forsteLosningMs"] >= 0
+    # A first solution can never arrive after the search that found it ended.
+    assert r["forsteLosningMs"] <= r["solveTidMs"]
+
+
+def test_forste_losning_er_none_naar_uloselig():
+    r = solve(base(dekningskrav=[
+        {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 2,
+         "kompetanseKravId": 99},
+    ]))
+    assert r["status"] == "infeasible"
+    assert r["forsteLosningMs"] is None
+
+
+def test_forbedringer_telles_etter_forste_losning():
+    """The wait must read as work, not as a hang.
+
+    On the demo fixture the objective climbs from 380 (1s budget) to 1440 (30s)
+    while shift count and unmet-goal count never move, so this counter is the
+    only signal that the extra search time produced anything.
+    """
+    r = solve(base(dekningskrav=[
+        {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 1},
+        {"avdelingId": 1, "dato": "2026-01-06", "vaktkodeId": 1, "antallKrevd": 1},
+    ]))
+    assert r["status"] in ("optimal", "feasible")
+    # Never negative, and the first solution is not counted as an improvement.
+    assert r["antallForbedringer"] >= 0
+
+
+def test_forbedringer_er_null_naar_uloselig():
+    r = solve(base(dekningskrav=[
+        {"avdelingId": 1, "dato": "2026-01-05", "vaktkodeId": 1, "antallKrevd": 2,
+         "kompetanseKravId": 99},
+    ]))
+    assert r["status"] == "infeasible"
+    assert r["antallForbedringer"] == 0

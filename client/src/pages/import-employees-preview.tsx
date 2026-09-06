@@ -45,9 +45,9 @@ import {
   Undo2,
   Sparkles,
   Star,
-  HelpCircle,
 } from 'lucide-react';
 import { apiRequest } from '@/lib/queryClient';
+import { TidemannBanner } from "@/components/tidemann";
 
 type RowStatus = 'valid' | 'error' | 'duplicate' | 'imported' | 'skipped';
 
@@ -145,7 +145,7 @@ export default function ImportEmployeesPreviewPage() {
   const [gdprAck, setGdprAck] = useState(false);
   const [seatAck, setSeatAck] = useState(false);
 
-  // Tideman-feedback (vises kun når importen er bekreftet)
+  // Tidemann-feedback (vises kun når importen er bekreftet)
   const [tidemanRating, setTidemanRating] = useState<number>(0);
   const [tidemanComment, setTidemanComment] = useState('');
   const [tidemanSent, setTidemanSent] = useState(false);
@@ -162,9 +162,9 @@ export default function ImportEmployeesPreviewPage() {
     },
     onSuccess: () => {
       setTidemanSent(true);
-      toast({ title: 'Takk!', description: 'Tideman har sendt tilbakemeldingen din videre.' });
+      toast({ title: 'Takk!', description: 'Tidemann har sendt tilbakemeldingen din videre.' });
     },
-    onError: (err: any) => toast({ title: 'Tideman fikk ikke meldingen', description: err?.message, variant: 'destructive' }),
+    onError: (err: any) => toast({ title: 'Tidemann fikk ikke meldingen', description: err?.message, variant: 'destructive' }),
   });
 
   const { data, isLoading, error } = useQuery<ImportResponse>({
@@ -323,20 +323,7 @@ export default function ImportEmployeesPreviewPage() {
 
       {isConfirmed && !tidemanSent && (
         <Card className="mb-4 overflow-hidden border-slate-200 p-0" data-testid="tideman-feedback-card">
-          <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
-                aria-hidden="true"
-              >
-                <HelpCircle className="h-4 w-4" />
-              </div>
-              <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
-                <p className="text-sm font-semibold">Hvordan gikk importen?</p>
-              </div>
-            </div>
-          </div>
+          <TidemannBanner title="Hvordan gikk importen?" />
           <div className="p-4">
             <p className="text-sm text-[#486168]">
               Si fra hvis noe var rart eller fungerte bra — jeg tar imot tilbakemeldingen og sender den videre til Tidum-teamet.
@@ -377,7 +364,7 @@ export default function ImportEmployeesPreviewPage() {
                 disabled={tidemanRating === 0 || tidemanMutation.isPending}
                 data-testid="tideman-submit"
               >
-                {tidemanMutation.isPending ? 'Sender…' : 'Send til Tideman'}
+                {tidemanMutation.isPending ? 'Sender…' : 'Send til Tidemann'}
               </Button>
             </div>
           </div>
@@ -386,20 +373,7 @@ export default function ImportEmployeesPreviewPage() {
 
       {isConfirmed && tidemanSent && (
         <Card className="mb-4 overflow-hidden border-slate-200 p-0" data-testid="tideman-thanks">
-          <div className="bg-gradient-to-r from-amber-500 to-orange-600 px-4 py-3 text-white">
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white/20 ring-1 ring-white/40"
-                aria-hidden="true"
-              >
-                <Star className="h-4 w-4 fill-white" />
-              </div>
-              <div className="leading-tight">
-                <p className="text-[10px] uppercase tracking-widest text-white/80">Tideman · hjelpe-agent</p>
-                <p className="text-sm font-semibold">Takk for tilbakemeldingen!</p>
-              </div>
-            </div>
-          </div>
+          <TidemannBanner title="Takk for tilbakemeldingen!" icon={Star} />
           <div className="p-4 text-sm text-[#486168]">
             Jeg har sendt det videre til Tidum-teamet. Vi setter pris på det og bruker det for å gjøre løsningen bedre.
           </div>
