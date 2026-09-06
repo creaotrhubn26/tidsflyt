@@ -135,6 +135,24 @@ def _er_natt(start: str, slutt: str) -> bool:
     return _parse_hm(start) >= 20 * 60 or _parse_hm(slutt) <= _parse_hm(start)
 
 
+class _ForsteLosning(cp_model.CpSolverSolutionCallback):
+    """Records the wall-clock time of the first feasible solution.
+
+    CP-SAT reports every improving solution; only the first one answers "how
+    long until there was a usable roster". `ms` stays None when the model is
+    infeasible or no solution is found within the budget.
+    """
+
+    def __init__(self, t0: float) -> None:
+        super().__init__()
+        self._t0 = t0
+        self.ms: int | None = None
+
+    def on_solution_callback(self) -> None:
+        if self.ms is None:
+            self.ms = int((time.time() - self._t0) * 1000)
+
+
 def solve(request: dict[str, Any]) -> dict[str, Any]:
     t0 = time.time()
 
@@ -370,9 +388,16 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = max_sec
     solver.parameters.num_search_workers = 8
-    status = solver.Solve(model)
+    # CP-SAT keeps improving until the budget runs out whenever it cannot prove
+    # optimality, so the wall clock around Solve() measures max_time_in_seconds
+    # and nothing else. K-08 asks for measurable generation time, so record when
+    # the FIRST valid roster appeared; everything after that is optimisation the
+    # planner could have interrupted.
+    forste = _ForsteLosning(t0)
+    status = solver.Solve(model, forste)
 
     solve_ms = int((time.time() - t0) * 1000)
+    forste_losning_ms = forste.ms
 
     if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         vakter = []
@@ -419,6 +444,7 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
                 "kostnad": float(w_kost),
             },
             "solveTidMs": solve_ms,
+            "forsteLosningMs": forste_losning_ms,
             "solverVersjon": SOLVER_VERSION,
         }
 
@@ -443,6 +469,7 @@ def solve(request: dict[str, Any]) -> dict[str, Any]:
             "objektiv": {},
             "konfliktsett": konflikt,
             "solveTidMs": solve_ms,
+            "forsteLosningMs": forste_losning_ms,
             "solverVersjon": SOLVER_VERSION,
         }
 
@@ -458,6 +485,7 @@ def _error(msg: str, t0: float) -> dict[str, Any]:
         "uoppfylte": [],
         "objektiv": {},
         "solveTidMs": int((time.time() - t0) * 1000),
+        "forsteLosningMs": None,
         "solverVersjon": SOLVER_VERSION,
         "feilmelding": msg,
     }

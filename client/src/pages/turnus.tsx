@@ -210,7 +210,7 @@ function PlanleggingFane() {
     mutationFn: () => api.genererTurnus(valgtPlan!), onError,
     onSuccess: (r) => {
       setGenerId(r.generId);
-      toast({ title: r.status === "fullfort" ? "Turnus generert" : `Status: ${r.status}`, description: `${r.vakterSkrevet} vakter · ${r.solveTidMs} ms` });
+      toast({ title: r.status === "fullfort" ? "Turnus generert" : `Status: ${r.status}`, description: `${r.vakterSkrevet} vakter · første forslag på ${r.forsteLosningMs ?? r.solveTidMs} ms` });
     },
   });
 

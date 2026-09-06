@@ -197,7 +197,13 @@ export function opprettBemanningsbehov(input: {
 
 export function genererTurnus(planId: string | number): Promise<{
   generId: number; status: string; solverStatus: string;
-  vakterSkrevet: number; avvik: number; solveTidMs: number; feilmelding: string | null;
+  vakterSkrevet: number; avvik: number;
+  /** Total search time — the configured budget whenever the solver cannot prove
+   *  optimality, so prefer forsteLosningMs when reporting generation speed. */
+  solveTidMs: number;
+  /** Milliseconds to the first valid roster; null when infeasible. */
+  forsteLosningMs: number | null;
+  feilmelding: string | null;
 }> {
   return requestJson(`/api/turnus/planer/${planId}/generer`, jsonInit("POST", {}));
 }
