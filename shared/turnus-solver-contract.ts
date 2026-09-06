@@ -150,6 +150,10 @@ export interface SolverResponse {
   /** Milliseconds until the FIRST feasible roster. Null when infeasible or when
    *  no solution was found. This is the number K-08's "measurable time" means. */
   forsteLosningMs?: number | null;
+  /** Strictly better rosters found after the first. The search is not idle
+   *  while it runs: the objective improves materially even when the shift and
+   *  unmet-goal counts do not move. */
+  antallForbedringer?: number;
   solverVersjon: string;
   feilmelding?: string;
 }

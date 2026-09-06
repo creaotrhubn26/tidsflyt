@@ -198,12 +198,12 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         await client.query(
           `UPDATE tidum_turnus_genereringer
               SET status = $1, solver_versjon = $2, solve_tid_ms = $3,
-                  forste_losning_ms = $7,
+                  forste_losning_ms = $7, antall_forbedringer = $8,
                   objektiv_json = $4, fullfort = NOW()
             WHERE id = $5 AND org_id = $6`,
           [dbStatus, resp.solverVersjon, resp.solveTidMs,
            JSON.stringify({ ...(resp.objektiv ?? {}), anvendteRegler: resp.anvendteRegler ?? [] }),
-           generId, actor.orgId, resp.forsteLosningMs ?? null],
+           generId, actor.orgId, resp.forsteLosningMs ?? null, resp.antallForbedringer ?? null],
         );
 
         // Deviations: unmet soft goals (+ infeasibility conflicts) → XAI rows.
@@ -293,7 +293,7 @@ export function registerTurnusGenereringRoutes(app: Express): void {
     try {
       const loaded = await withTurnusOrgRlsContext(actor.orgId, async (client: Q) => {
         const { rows: [gen] } = await client.query(
-          `SELECT status::text AS status, objektiv_json, solve_tid_ms, forste_losning_ms
+          `SELECT status::text AS status, objektiv_json, solve_tid_ms, forste_losning_ms, antall_forbedringer
              FROM tidum_turnus_genereringer WHERE id = $1 AND org_id = $2`,
           [id, actor.orgId],
         );
@@ -311,6 +311,7 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         objektivJson: loaded.gen.objektiv_json ?? {},
         solveTidMs: loaded.gen.solve_tid_ms ?? null,
         forsteLosningMs: loaded.gen.forste_losning_ms ?? null,
+        antallForbedringer: loaded.gen.antall_forbedringer ?? null,
         avvik: loaded.avvik,
       });
       const narrasjon = await narrer(strukturert);

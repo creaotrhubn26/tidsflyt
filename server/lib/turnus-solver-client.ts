@@ -29,7 +29,7 @@ function errorResponse(msg: string): SolverResponse {
     contractVersion: CONTRACT_VERSION,
     status: 'error',
     vakter: [], bindende: [], uoppfylte: [], objektiv: {},
-    solveTidMs: 0, forsteLosningMs: null, solverVersjon: 'unavailable', feilmelding: msg,
+    solveTidMs: 0, forsteLosningMs: null, antallForbedringer: 0, solverVersjon: 'unavailable', feilmelding: msg,
   };
 }
 
@@ -84,6 +84,7 @@ export async function runSolver(
         objektiv: {},
         solveTidMs: 0,
         forsteLosningMs: null,
+        antallForbedringer: 0,
         solverVersjon: 'unavailable',
         feilmelding: msg,
       });

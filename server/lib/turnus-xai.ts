@@ -34,6 +34,10 @@ export interface GenereringForklaringInput {
    *  solveTidMs is the configured budget whenever the solver cannot prove
    *  optimality, so quoting it would overstate how long generation took. */
   forsteLosningMs?: number | null;
+  /** Improvements found after the first roster. Reported so the wait reads as
+   *  work rather than as a hang — the objective climbs materially even when
+   *  the shift and unmet-goal counts stay put. */
+  antallForbedringer?: number | null;
   avvik: Array<{ type: string; alvor: string; referanse: string | null; forklaring: string }>;
 }
 
@@ -80,7 +84,11 @@ export function byggForklaring(input: GenereringForklaringInput): StrukturertFor
     const uoppfyltDel = uoppfylte.length
       ? ` ${uoppfylte.length} ønske/mål kunne ikke oppfylles fullt ut.`
       : ' Alle harde krav og prioriterte hensyn ble oppfylt.';
-    sammendrag = `Turnusen ble generert${tid}. Prioriteringene som styrte forslaget: ${topp || 'ingen vektlagt'}.${uoppfyltDel}`;
+    const forbedret =
+      input.antallForbedringer && input.antallForbedringer > 0
+        ? ` Søket forbedret forslaget ${input.antallForbedringer} ganger etterpå.`
+        : '';
+    sammendrag = `Turnusen ble generert${tid}.${forbedret} Prioriteringene som styrte forslaget: ${topp || 'ingen vektlagt'}.${uoppfyltDel}`;
   } else if (input.status === 'infeasible') {
     const k = konflikter.length
       ? ` Årsak: ${konflikter.map((c) => c.forklaring).join(' ')}`

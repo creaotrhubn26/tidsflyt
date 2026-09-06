@@ -27,6 +27,7 @@ def main() -> int:
             "vakter": [], "bindende": [], "uoppfylte": [], "objektiv": {},
             "solveTidMs": int((time.time() - t0) * 1000),
             "forsteLosningMs": None,
+            "antallForbedringer": 0,
             "solverVersjon": SOLVER_VERSION,
             "feilmelding": f"invalid request JSON: {e}",
         }, sys.stdout)
@@ -40,6 +41,7 @@ def main() -> int:
             "vakter": [], "bindende": [], "uoppfylte": [], "objektiv": {},
             "solveTidMs": int((time.time() - t0) * 1000),
             "forsteLosningMs": None,
+            "antallForbedringer": 0,
             "solverVersjon": SOLVER_VERSION,
             "feilmelding": f"solve failed: {e}",
         }
