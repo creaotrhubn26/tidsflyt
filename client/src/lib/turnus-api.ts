@@ -72,6 +72,8 @@ export function opprettVaktkode(input: {
   type?: string;
   tellerSomArbeid?: boolean;
   farge?: string;
+  /** Break in minutes. Without it AML §10-9 flags every shift over 5.5 hours. */
+  pauseMin?: number;
 }): Promise<any> {
   return requestJson("/api/turnus/vaktkoder", jsonInit("POST", input));
 }
@@ -222,6 +224,9 @@ export function getForklaring(id: string | number): Promise<{
 export interface GenerertVakt {
   id: number; ansattId: number | null; ansattNavn: string | null;
   dato: string; vaktkodeId: number; kode: string; startTid: string; sluttTid: string;
+  /** Break in hours, from the shift code. Must be passed on to the consequence
+   *  check — without it §10-9 fires on every shift over 5.5 hours. */
+  pauseTimer: number;
 }
 export function listGenereringVakter(id: string | number): Promise<GenerertVakt[]> {
   return requestJson(`/api/turnus/genereringer/${id}/vakter`);

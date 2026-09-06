@@ -338,7 +338,8 @@ export function registerTurnusGenereringRoutes(app: Express): void {
         if (!gen) return null;
         const { rows } = await client.query(
           `SELECT kv.id, kv.ansatt_id, a.navn AS ansatt_navn, kv.dato::text AS dato,
-                  kv.vaktkode_id, vk.kode, vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid
+                  kv.vaktkode_id, vk.kode, vk.start_tid::text AS start_tid, vk.slutt_tid::text AS slutt_tid,
+                  vk.pause_min
              FROM tidum_turnus_kalendervakter kv
              JOIN tidum_turnus_vaktkoder vk ON vk.id = kv.vaktkode_id AND vk.org_id = $2
              LEFT JOIN tidum_turnus_ansatte a ON a.id = kv.ansatt_id AND a.org_id = $2
@@ -351,6 +352,9 @@ export function registerTurnusGenereringRoutes(app: Express): void {
           dato: r.dato, vaktkodeId: r.vaktkode_id, kode: r.kode,
           startTid: (r.start_tid ?? '08:00').slice(0, 5),
           sluttTid: (r.slutt_tid ?? '16:00').slice(0, 5),
+          // Minutes in the column, hours on the wire: pauseTimer is defined in
+          // hours by the solver contract, and turnus-aml.ts subtracts it as such.
+          pauseTimer: Number(r.pause_min ?? 0) / 60,
         }));
       });
       if (rows == null) return res.status(404).json({ error: 'Generering ikke funnet.' });

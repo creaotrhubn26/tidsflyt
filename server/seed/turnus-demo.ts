@@ -32,10 +32,13 @@ const PLAN_START = "2026-03-02";
 const ROTASJON_UKER = 6;
 const ANTALL_LINJER = 25; // K-08 measures generation of ~25 lines.
 
+// pause: minutes. AML §10-9 requires a break above 5.5 hours, and all three
+// codes are longer — without a value here every shift in the recording carries
+// a §10-9 warning, which is how the first complete capture came out.
 const VAKTKODER = [
-  { kode: "D", navn: "Dag", start: "07:00", slutt: "15:00", timer: 8.0, type: "dag", farge: "#0369a1" },
-  { kode: "A", navn: "Aften", start: "14:30", slutt: "22:30", timer: 8.0, type: "aften", farge: "#7c3aed" },
-  { kode: "N", navn: "Natt", start: "22:00", slutt: "07:15", timer: 9.25, type: "natt", farge: "#1e293b" },
+  { kode: "D", navn: "Dag", start: "07:00", slutt: "15:00", timer: 8.0, type: "dag", farge: "#0369a1", pause: 30 },
+  { kode: "A", navn: "Aften", start: "14:30", slutt: "22:30", timer: 8.0, type: "aften", farge: "#7c3aed", pause: 30 },
+  { kode: "N", navn: "Natt", start: "22:00", slutt: "07:15", timer: 9.25, type: "natt", farge: "#1e293b", pause: 45 },
 ] as const;
 
 const KOMPETANSER = ["Sykepleier", "Helsefagarbeider", "Assistent"] as const;
@@ -121,11 +124,20 @@ async function seedInTransaction(client: PoolClient): Promise<{ orgId: number; p
     vaktkodeId[v.kode] = await upsert(
       client,
       `INSERT INTO tidum_turnus_vaktkoder
-         (org_id, kode, navn, start_tid, slutt_tid, varighet_timer, type, farge)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`,
+         (org_id, kode, navn, start_tid, slutt_tid, varighet_timer, type, farge, pause_min)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
       `SELECT id FROM tidum_turnus_vaktkoder WHERE org_id = $1 AND kode = $2`,
-      [orgId, v.kode, v.navn, v.start, v.slutt, v.timer, v.type, v.farge],
+      [orgId, v.kode, v.navn, v.start, v.slutt, v.timer, v.type, v.farge, v.pause],
       [orgId, v.kode],
+    );
+    // upsert() skips rows that already exist, so a changed value in this file
+    // would otherwise never reach a database that has been seeded before. The
+    // fixture is the authority for its own shift codes, so keep them in step.
+    await client.query(
+      `UPDATE tidum_turnus_vaktkoder
+          SET pause_min = $3, varighet_timer = $4, start_tid = $5, slutt_tid = $6
+        WHERE org_id = $1 AND id = $2`,
+      [orgId, vaktkodeId[v.kode], v.pause, v.timer, v.start, v.slutt],
     );
   }
 

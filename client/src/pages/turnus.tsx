@@ -117,6 +117,9 @@ function OppsettFane() {
   const [vkKode, setVkKode] = useState("");
   const [vkStart, setVkStart] = useState("08:00");
   const [vkSlutt, setVkSlutt] = useState("16:00");
+  // 30 minutes by default: AML §10-9 requires a break above 5.5 hours, and
+  // every shift a ward actually runs is longer than that.
+  const [vkPause, setVkPause] = useState(30);
 
   const invalidate = (k: string) => qc.invalidateQueries({ queryKey: [k] });
   const mAvd = useMutation({ mutationFn: api.opprettAvdeling, onError, onSuccess: () => { invalidate("turnus-avd"); setAvdNavn(""); } });
@@ -164,14 +167,18 @@ function OppsettFane() {
             <Input placeholder="Kode" value={vkKode} onChange={(e) => setVkKode(e.target.value)} className="w-20" data-testid="inp-vk-kode" />
             <Input type="time" value={vkStart} aria-label="Vaktkode starttid" onChange={(e) => setVkStart(e.target.value)} />
             <Input type="time" value={vkSlutt} aria-label="Vaktkode slutttid" onChange={(e) => setVkSlutt(e.target.value)} />
+            <Input type="number" min={0} max={240} step={5} value={vkPause} aria-label="Pause i minutter" title="Pause i minutter"
+              onChange={(e) => setVkPause(Math.min(240, Math.max(0, Number(e.target.value) || 0)))} className="w-24" data-testid="inp-vk-pause" />
+            <span className="self-center text-xs text-muted-foreground">min pause</span>
           </div>
-          <Button className="w-full" disabled={!vkKode.trim()} onClick={() => mVk.mutate({ kode: vkKode.trim(), startTid: vkStart, sluttTid: vkSlutt })} data-testid="btn-vk">Legg til vaktkode</Button>
+          <Button className="w-full" disabled={!vkKode.trim()} onClick={() => mVk.mutate({ kode: vkKode.trim(), startTid: vkStart, sluttTid: vkSlutt, pauseMin: vkPause })} data-testid="btn-vk">Legg til vaktkode</Button>
           {(vaktkoder.data ?? []).length === 0
             ? <TomHint>F.eks. D 08–16, A 15–23, N 23–07.</TomHint>
             : <ul className="space-y-1 text-sm">{(vaktkoder.data ?? []).map((v) => (
                 <li key={v.id} className="flex items-center gap-2 rounded bg-muted/40 px-2 py-1.5">
                   <span className={`inline-flex min-w-6 justify-center rounded px-1.5 text-xs font-bold ring-1 ${vaktkodeStil(v.kode)}`}>{v.kode}</span>
                   <span className="text-muted-foreground">{String(v.start_tid).slice(0, 5)}–{String(v.slutt_tid).slice(0, 5)}</span>
+                  <span className="text-xs text-muted-foreground">{Number(v.pause_min ?? 0) > 0 ? `${v.pause_min} min pause` : "ingen pause"}</span>
                 </li>))}</ul>}
         </CardContent>
       </Card>
@@ -477,6 +484,7 @@ function OverstyrGrid({ generId }: { generId: number }) {
     mutationFn: (shifts: typeof eff) =>
       api.konsekvens(shifts.filter((v) => v.ansattId != null).map((v) => ({
         ansattId: v.ansattId as number, dato: v.dato, startTid: v.startTid, sluttTid: v.sluttTid,
+        pauseTimer: v.pauseTimer,
       }))),
     onError,
     onSuccess: (r) => {
@@ -540,6 +548,7 @@ function OverstyrGrid({ generId }: { generId: number }) {
           const kand = eff.map((x) => x.id === v.id ? { ...x, ansattId: a.id } : x);
           const r = await api.konsekvens(kand.filter((x) => x.ansattId != null).map((x) => ({
             ansattId: x.ansattId as number, dato: x.dato, startTid: x.startTid, sluttTid: x.sluttTid,
+            pauseTimer: x.pauseTimer,
           })));
           const hardeForBegge = (r.brudd as Brudd[]).filter((b) => b.severity === "error" && (b.ansattId === ansattId || b.ansattId === a.id)).length;
           if (hardeForBegge === 0) {
