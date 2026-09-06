@@ -12,6 +12,7 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "check": "tsc",
     "check:design": "node scripts/check-design-tokens.mjs",
+    "seed:turnus-demo": "tsx server/seed/turnus-demo.ts",
     "guide:snapshots": "tsx scripts/capture-guide-screenshots.ts",
     "db:push": "drizzle-kit push --strict",
     "seed:barnevern-demo": "tsx scripts/seed-barnevern-demo.ts",
